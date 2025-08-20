@@ -173,6 +173,7 @@ a and (b and .x()) and .y()   # `.x()` anchored to `b`; `.y()` anchored to `a`
 - **Nested binders shadow**: inner binders (4.1) temporarily set `.` for their extent, then restore.
 - **Loop × apply-assign**: in `for[i] xs: xs[i] .= RHS`, inside `RHS` the subject is **old `xs[i]`**, not the loop element.
  - **After `.=` within the same grouping**: leading-dot chains anchor to the explicit `LHS`; after the write they observe the **updated** `LHS`.
+  - In the RHS, selectors may start from `.`; within selectors `.` refers to the **old LHS base** (e.g., `.[i]`).
    Example: `(xs[0] .= .trim()) and .hasPrefix("a")`.
 
 ### 4.5 Illegals & invariants
@@ -1145,3 +1146,6 @@ StmtSubjectAssign ::= "=" LValue StmtTail  # '.' = old LHS; result writes back t
    - **Example:** `xs .= .[0]` sets `xs` to its first element.
 
   - **Selectors in RHS:** leading `.` may start selector steps (e.g., `.[i]`), using the **old LHS** as the base.
+
+- `.=` (apply-assign)
+- `.=` binds tighter than `and`/`or`, lower than postfix (`.`, `[]`, `()`).
