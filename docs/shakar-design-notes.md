@@ -94,6 +94,40 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 - Errors on non‑int operands (use explicit conversions).
 
 ### 3.4 Comparison & identity
+- **Comparison comma-chains (CCC):**
+  - **Enter chain mode:** after a comparison on a subject followed by a comma (e.g., `S op X,`).
+  - **Subject `S`:** the first explicit operand of the first comparison; **evaluate `S` once** for the chain.
+  - **Leg form (only after commas):** optional `and|or` then optional comparator `op` then `Expr`.
+    - **Carry-forward comparator**: allowed when the leg's joiner is **absent or `and`**; uses the most recent explicit comparator.
+    - **After `or` the comparator is required** to remain in the chain (no carry-forward across `or`).
+  - **Joiner is sticky**: defaults to `and` and persists until changed by `, or` / `, and`.
+  - **Leaving chain mode:** any `and|or` **without a preceding comma** ends the chain and resumes normal boolean parsing.
+  - **Desugaring:** expand left-to-right to `S op_i Expr_i` joined by the current sticky joiner; then apply normal precedence (`and` binds tighter than `or`) with short-circuit evaluation.
+  - **Parentheses:** `( … )` may nest CCCs inside expressions without affecting the chain's subject/evaluation rules.
+  - **Selectors in comparisons:** with backtick selector-literals `` `Sel` ``:
+    - ``S == `Sel` `` ⇒ **any()** membership; ``S != `Sel` `` ⇒ **all()** not-in.
+    - ``S <op> `Sel` `` for `<, <=, >, >=` ⇒ **all()**; reduce to `min/max(Sel)` honoring range openness.
+      - Examples: ``a < `1..5` `` ⇒ `a < 1`; ``a >= `lo, hi` `` ⇒ `a >= max(lo, hi)`.
+
+  ```shakar
+  # CCC sanity
+  a = 7; b = 3; c = 10
+  assert a > 1, < 9, != 8                  # AND-only
+  assert (a > 10, or == 0, or == 1) == ((a > 10) or (a == 0) or (a == 1))
+
+  # Chain continues across OR only with explicit comparator
+  assert (a > 10, or >= c) == ((a > 10) or (a >= c))
+  # ERROR (leave chain or add comparator): a > 10, or b
+
+  # Leaving chain mode with plain boolean OR (no comma)
+  assert (a > 10 or b) == ((a > 10) or b)
+
+  # Carry-forward comparator on AND legs
+  assert a == b+4, 8-1                      # ⇒ a == (b+4) and a == (8-1)
+
+  # Selector-literal legs
+  assert 4 < `5..10`, != `7, 8`             # ⇒ (4 < 5) and (4 != 7) and (4 != 8)
+  ```
 - `==`, `!=` are value equality; type‑aware. Cross‑type compares error (except nil equality).
 - Ordering `< <= > >=` defined for **numbers** and **strings** (lexicographic by bytes of normalized UTF‑8). Arrays/records ordering ❓ (not in v0.1).
 - `is`, `is not` check identity (same object/storage). For strings/views, identity means same `(base, off, len)`; value equality may still be true when identity is false.
