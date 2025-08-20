@@ -159,6 +159,10 @@ Within a grouping that has an anchor (see 4.3), any **leading dot** applies to t
 Each step’s **result becomes the next receiver** within that same chain, but the **anchor** stays the same unless retargeted (4.3) or shadowed by a new binder (4.1).
 
 ### 4.3 Grouping & the anchor stack
+- **Pop on exit:** after an inner grouping ends, the anchor reverts to the prior one; sibling leading-dot terms continue to use that prior anchor.
+
+Example: `a and (b) and .c()`  ⇒  `a and b and a.c()`
+
 - **No-anchor `$`**: `$expr` evaluates but does **not** create/retarget an explicit subject. Leading‑dot chains remain anchored to the prior subject.
   Example: `a and $b and .c` ⇒ `a and b and a.c`
 Grouping constructs **push/pop** the current anchor:
@@ -370,8 +374,12 @@ Desugars 1:1 to `if/elif/else`.
 
 - **Guard heads with named args:** If a guard head contains `:`, **parenthesize the head** to disambiguate `Head: Body`, e.g., `(send "bob", subject: "Hi"): log("sent").
 ## 8) Control flow (loops & flow keywords)
+- Iterating the `nil` **literal** is a compile-time error; iterating a variable that evaluates to `nil` is a **no-op**.
+
 
 ### Concurrency — `await[any]` / `await[all]`
+
+- `timeout` default unit: **milliseconds**; supports suffixes `ms`, `s`, `m`.
 
 **Goals:** one `await` per construct, no repetition; clear and cancellable.
 
@@ -678,6 +686,8 @@ To pass a callable for a getter: `&(obj.prop())`.
 - **Empty literals**: `{}`, `set{}`, `map{}`.
 - **Equality & iteration**: both structural, order-insensitive; iteration preserves insertion order.
 ## 14) Decorators (no HOF boilerplate) & lambdas
+- Decorators & hooks are **core** in v0.1.
+
 
 - **Decorators**: inside `decorator` bodies, `f` and `args` are implicit; if the body does not `return`, implicitly `return f(args)`.
 - **Lambdas**: `map&(.trim())` (single arg implicit `.`), `zipWith&[a,b](a+b)` (multi‑arg). `&` is a **lambda‑on-callee** sigil.
@@ -824,41 +834,40 @@ allow = ["?ret"]
 - Numeric bitwise operators `& | ^ << >> ~` and their compound forms are behind the **`bitwise_symbols`** gate (default **denied**).
 - This gate applies **only to numeric operators**. Set/Map algebra (e.g., `A ^ B` symmetric diff) is **always enabled** (type-directed).
 ## 20) Grammar sketch (EBNF‑ish; implementation may vary)
-
-
 ```ebnf
-# Indexing / selector lists
-# Standalone ranges are values (iterables):
+ApplyAssign ::= LValue ".=" Expr
+(* Precedence: tighter than "and"/"or", lower than Postfix (., [], ()). *)
+StmtSubjectAssign ::= "=" LValue StmtTail  (* '.' = old LHS; result writes back to the same LHS path *)
+(* Indexing / selector lists *)
+(* Standalone ranges are values (iterables): *)
 RangeExpr  ::= Expr ".." Expr | Expr "..<" Expr
 
-# In indexing, ranges are slices (selectors):
-# (Same surface syntax; parsed as SliceSel when inside '[]'.)
-# Note: the same `a..b` syntax denotes a Range value outside indexing, and a SliceSel inside `[]`.
+(* In indexing, ranges are slices (selectors): *)
+(* (Same surface syntax; parsed as SliceSel when inside '[]'.) *)
+(* Note: the same `a..b` syntax denotes a Range value outside indexing, and a SliceSel inside `[]`. *)
 
 Indexing       ::= Primary "[" SelectorList "]"
 SelectorList   ::= Selector ("," Selector)*
 Selector       ::= IndexSel | SliceSel
-SliceSel       ::= OptExpr ":" OptExpr (":" Expr)? # per‑selector step; clamps; '.' inside selectors = base
+SliceSel       ::= OptExpr ":" OptExpr (":" Expr)?  (* per‑selector step; clamps; '.' inside selectors = base *)
 OptExpr        ::= /* empty */ | Expr
-# Await concurrency
+(* Await concurrency *)
 AwaitAnyCall   ::= "await" "[" "any" "]" "(" AnyArmList OptComma ")" (":" InlineBlock)?
 AwaitAllCall   ::= "await" "[" "all" "]" "(" AllArmList OptComma ")" (":" InlineBlock)?
-```
-```ebnf
-# Loops
+(* Loops *)
 ForIn        ::= "for" IDENT "in" Expr ":" Block
 ForSubject   ::= "for" Expr ":" Block
 ForIndexed   ::= "for" "[" IDENT "]" Expr ":" Block
-ForMap1      ::= "for" "[" IDENT "]" Expr ":" Block         # '.' = value; IDENT = key
-ForMap2      ::= "for" "[" IDENT "," IDENT "]" Expr ":" Block  # '.' = value; key,value bound
+ForMap1      ::= "for" "[" IDENT "]" Expr ":" Block  (* '.' = value; IDENT = key *)
+ForMap2      ::= "for" "[" IDENT "," IDENT "]" Expr ":" Block  (* '.' = value; key,value bound *)
 
-# Selectors (per-selector step allowed)
+(* Selectors (per-selector step allowed) *)
 SelectorList ::= "[" Selector ("," Selector)* "]"
 Selector     ::= IndexSel | SliceSel
-IndexSel     ::= Expr                       # evaluates to int; OOB throws
-SliceSel     ::= (Expr)? ":" (Expr)? (":" Expr)?  # clamps to [0..len]; negative step allowed
+IndexSel     ::= Expr  (* evaluates to int; OOB throws *)
+SliceSel     ::= (Expr)? ":" (Expr)? (":" Expr)?  (* clamps to [0..len]; negative step allowed *)
 SubjectExpr   ::= IDENT (Postfix)+
-ImplicitUse   ::= "." (Postfix)+                   # only in contexts with an implicit subject
+ImplicitUse   ::= "." (Postfix)+  (* only in contexts with an implicit subject *)
 Postfix       ::= "." IDENT | "[" Expr "]" | "(" ArgList? ")"
 
 RebindStmt    ::= "=" IDENT ExprTail
@@ -1132,25 +1141,3 @@ Slices on sequences continue to **clamp**; index selectors **throw** OOB.
 - Multiplicative tier: `*` (repeat; set/map intersection).
 - Additive tier: `+  -  ^` (left-assoc).  
 - Numeric bitwise `& | ^ << >> ~` remain behind the **`bitwise_symbols`** gate; set/map `^` is always available (type-directed).
-
-### Misc. Confirmations
-- `timeout` default unit: **milliseconds**; supports suffixes `ms`, `s`, `m`.
-- Decorators & hooks are **core** in v0.1.
-- Iterating the `nil` **literal** is a compile-time error; iterating a variable that evaluates to `nil` is a **no-op**.
-_After an inner grouping ends, the anchor reverts to the prior one; sibling leading-dot terms continue to use that prior anchor._
-
-Example: `a and (b) and .c()`  ⇒  `a and b and a.c()`.
-
-```ebnf
-ApplyAssign ::= LValue ".=" Expr
--- Precedence: tighter than "and"/"or", lower than Postfix (., [], ()).
-```
-
-StmtSubjectAssign ::= "=" LValue StmtTail  # '.' = old LHS; result writes back to the same LHS path
-
-   - **Example:** `xs .= .[0]` sets `xs` to its first element.
-
-  - **Selectors in RHS:** leading `.` may start selector steps (e.g., `.[i]`), using the **old LHS** as the base.
-
-- `.=` (apply-assign)
-- `.=` binds tighter than `and`/`or`, lower than postfix (`.`, `[]`, `()`).
