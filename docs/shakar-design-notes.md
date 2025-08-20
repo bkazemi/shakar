@@ -195,6 +195,15 @@ a and (b and .x()) and .y()   # `.x()` anchored to `b`; `.y()` anchored to `a`
 
 #### Minimal conformance checks
 ```shakar
+# Paren pop resumes prior anchor
+(a := { c: &() true }); a and (true) and .c()   # ⇒ a and true and a.c()
+
+# Apply-assign then sibling leading-dot sees updated LHS
+xs = ["  a", "b  "]
+(xs[0] .= .trim()) and .hasPrefix("a")
+```
+
+```shakar
 # Range as value vs selector:
 sum := 0
 for i in 0..3: sum += i           # 0+1+2+3
@@ -1083,3 +1092,11 @@ Slices on sequences continue to **clamp**; index selectors **throw** OOB.
 - `timeout` default unit: **milliseconds**; supports suffixes `ms`, `s`, `m`.
 - Decorators & hooks are **core** in v0.1.
 - Iterating the `nil` **literal** is a compile-time error; iterating a variable that evaluates to `nil` is a **no-op**.
+_After an inner grouping ends, the anchor reverts to the prior one; sibling leading-dot terms continue to use that prior anchor._
+
+Example: `a and (b) and .c()`  ⇒  `a and b and a.c()`.
+
+```ebnf
+ApplyAssign ::= LValue ".=" Expr
+-- Precedence: tighter than "and"/"or", lower than Postfix (., [], ()).
+```
