@@ -74,6 +74,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 13. **Assignment** (statements): `=`, compound assigns, `or=`, statement‑subject `=x or y` ✅
 
 ### 3.1 Unary
+- `$x` (no-anchor; evaluates `x` but does **not** make it an explicit subject/anchor)
 - `-x`, `+x` (numeric)
 - `not x` (boolean)
 - `!x` (boolean NOT; alias of `not x`)
@@ -158,6 +159,8 @@ Within a grouping that has an anchor (see 4.3), any **leading dot** applies to t
 Each step’s **result becomes the next receiver** within that same chain, but the **anchor** stays the same unless retargeted (4.3) or shadowed by a new binder (4.1).
 
 ### 4.3 Grouping & the anchor stack
+- **No-anchor `$`**: `$expr` evaluates but does **not** create/retarget an explicit subject. Leading‑dot chains remain anchored to the prior subject.
+  Example: `a and $b and .c` ⇒ `a and b and a.c`
 Grouping constructs **push/pop** the current anchor:
 
 - **Push** on entering: parentheses `(`…`)`, lambda bodies, comprehension heads/bodies, and `await[…]` per-arm / trailing bodies.
@@ -705,6 +708,7 @@ To pass a callable for a getter: `&(obj.prop())`.
 - `get`/`set` only **inside record literals**
 
 **Punctuation (syntax, not keywords):**  
+- `.=` apply-assign
 - `|` and `|:` at line start for guard chains  
 - `?ret` (statement head)  
 - `??(expr)` nil‑safe chain  
@@ -945,6 +949,7 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
 - **Nested/multi‑source comprehensions**: later via `bind (a,b) over zip(xs,ys)`.
 - **Word range aliases `to`/`until`**: optional later.
 - **While/until loops**: consider only if demanded; `for` over `Range` covers most cases.
+- **Sticky subject (prefix `%`)**: `%expr` sets the **anchor** to `expr` and marks it **sticky** for the current expression: child groupings do not retarget unless another `%` or an explicit `=Ident` rebind appears. **Does not affect** selector bases or `.=`/`=LHS` tails (their `.` rules still win).
 
 ---
 
