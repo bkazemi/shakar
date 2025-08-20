@@ -7,7 +7,6 @@
 > - Added: `!x` listed alongside `not x` in Unary; binary `??` precedence note affirmed.
 > - Affirmed: single‑line comments `#...`; ternary `cond ? a : b`.
 
-
 > **Status:** concept/spec notes for early compiler & toolchain.
 > **Audience:** language implementers and contributors.
 > **Mantra:** *Sweet syntax, obvious desugar, zero ceremony.*
@@ -159,7 +158,6 @@ x = cond ? a : b
 
 ---
 
-
 ### Increments
 - Prefix and postfix `++` / `--` are allowed.
 - **Postfix is terminal**: at most once, and only at the **end** of a member/selector chain (e.g., `xs[i]++`).
@@ -172,7 +170,7 @@ x = cond ? a : b
 
 `.` exists only inside constructs that **bind** it:
 
-- **Prefix rebind** `=Name …` (adjacent, no space): within that **expression only**, `.` = value of `Name`. *(Identifier only; `/*INVALID_PREFIX_REBIND*/` is invalid.)*
+- **Prefix rebind** `=Name …` (adjacent, no space): within that **expression only**, `.` = value of `Name`. *(Identifier only; `=user.name …` is invalid.)*
 - **Apply-assign** `LHS .= RHS`: inside `RHS`, `.` = **old value of `LHS`**; result writes back to `LHS`.
 - **Subjectful loop** `for Expr:` / `for[i] Expr:`: in the loop body (per iteration), `.` = **current element** (and `i` = view index if present).
 - **Lambda callee sigil** (e.g., `map&(...)`): inside the lambda body, `.` = **the parameter**.
@@ -224,7 +222,7 @@ a and (b and .x()) and .y()   # `.x()` anchored to `b`; `.y()` anchored to `a`
 - **Invalid statement-subject**: `=LHS` with no tail (no effect) — use `.=` or provide a tail. `=.trim()` is illegal (free `.`).
 
 - `.` is **never an lvalue**: `. = …` is illegal.
-- **Prefix rebind requires an identifier**: `=IDENT …` only; `/*INVALID_PREFIX_REBIND*/` is illegal.
+- **Prefix rebind requires an identifier**: `=IDENT …` only; `=user.name …` is illegal.
 - **No free dot**: using `.` outside an active binder/anchor is illegal.
 
 ### 4.6 Normative laws (concise) — 2025-08-17
@@ -239,7 +237,7 @@ a and (b and .x()) and .y()   # `.x()` anchored to `b`; `.y()` anchored to `a`
 
 5) **Illegals & locality (SHALL NOT / SHALL).**
    - `.` is never an lvalue (`. = …` illegal).
-   - Prefix rebind is `=IDENT …` **only** and **expression-local** (`/*INVALID_PREFIX_REBIND*/` illegal; `.` reverts after the expression).
+   - Prefix rebind is `=IDENT …` **only** and **expression-local** (`=user.name …` illegal; `.` reverts after the expression).
    - No free `.` outside an active binder/anchor.
 
 #### Minimal conformance checks
@@ -394,7 +392,6 @@ user and .active: process(user) |: log("inactive")
 err: ?ret err |: log("ok")
 ```
 
-
 **Binding of `|:` (nearest‑else rule):** After a head’s first `:`, any `|`/`|:` at the same bracket depth binds to the **innermost open guard** (nearest head). Wrap inner guards in `(...)` or `{...}` if you want the following `|:` to bind to an outer guard.
 **Rules**
 **Alias:** `||` and `||:` are accepted as input in one‑line guards and are normalized by the formatter to `|` / `|:`. They are recognized only after the first `:` and only at bracket‑depth 0.
@@ -408,11 +405,9 @@ Desugars 1:1 to `if/elif/else`.
 
 ---
 
-
 - **Guard heads with named args:** If a guard head contains `:`, **parenthesize the head** to disambiguate `Head: Body`, e.g., `(send "bob", subject: "Hi"): log("sent").
 ## 8) Control flow (loops & flow keywords)
 - Iterating the `nil` **literal** is a compile-time error; iterating a variable that evaluates to `nil` is a **no-op**.
-
 
 ### Concurrency — `await[any]` / `await[all]`
 
@@ -569,8 +564,6 @@ for[j, ^sum] arr:
 
 ---
 
-
-- **Nil iteration:** `for nil:` (literal) is a **compile-time error**; `for xs:` where `xs` evaluates to `nil` at runtime is a **no-op**.
 ## 9) Destructuring (no braces)
 
 ```shakar
@@ -615,7 +608,6 @@ lines.map&(.trim()).filter&(.len > 0).to_list()
 ```
 
 ---
-
 
 - **`bind` scope:** names introduced by `bind` are visible **throughout the comprehension** (head, filters, body), but not outside it.
 ## 11) Named‑arg calls (paren‑light)
@@ -664,26 +656,6 @@ xs[1 : .len-1]        # drop first and last (half‑open excludes last)
 - Inside each selector expression, **`.` = the base** (e.g., `xs`) for that selector only.
 **LHS restrictions (v0.1):** selector lists and slices are **expression‑only**; they cannot be used as assignment targets. Use single index/property updates instead.
 
-
-- Immutable UTF‑8 with **views** for slices/trim/drop and **ropes** for concat.
-- **Unique‑owner compaction** avoids substring leaks (thresholds: keep <¼ or >64KiB slack).
-- Controls: `.own()`, `.compact()`, `.materialize()`.
-- Unicode indexing counts **characters**; `bytes` view for byte‑wise operations.
-- FFI always materializes exact bytes (+NUL) and caches pointer.
-
-What this buys:
-```shakar
-=s[1:]            # view or in-place compact when unique
-=s.trim()         # view (offset/len tweaked)
-=path[.len-1]     # view of last segment
-```
-
-For heavy edits, use `TextBuilder/Buf` and `freeze()` back to `Str`.
-
----
-
-
-
 - Immutable UTF‑8 with **views** for slices/trim/drop and **ropes** for concat.
 - **Unique‑owner compaction** avoids substring leaks (thresholds: keep <¼ or >64KiB slack).
 - Controls: `.own()`, `.compact()`, `.materialize()`.
@@ -716,7 +688,6 @@ To pass a callable for a getter: `&(obj.prop())`.
 
 ---
 
-
 ### Records vs Maps — literals & access
 - **Records**: `{ … }` with **string keys** (identifier keys sugar to strings). Dot access (`rec.k`) and bracket access (`rec["k"]`).
 - **Maps**: `map{ … }` with **any keys**; **semicolon-delimited** entries inside `map{ … }`; **bracket-only** access (`m[key]`).
@@ -724,7 +695,6 @@ To pass a callable for a getter: `&(obj.prop())`.
 - **Equality & iteration**: both structural, order-insensitive; iteration preserves insertion order.
 ## 14) Decorators (no HOF boilerplate) & lambdas
 - Decorators & hooks are **core** in v0.1.
-
 
 - **Decorators**: inside `decorator` bodies, `f` and `args` are implicit; if the body does not `return`, implicitly `return f(args)`.
 - **Lambdas**: `map&(.trim())` (single arg implicit `.`), `zipWith&[a,b](a+b)` (multi‑arg). `&` is a **lambda‑on-callee** sigil.
@@ -797,7 +767,6 @@ Type predicates/methods live in stdlib (`isInt(x)`, `typeOf(x)`), not as syntax.
 
 ---
 
-
 ## 18.5) Tracing (built-in span helper)
 
 `trace` is a function with block sugar. It measures duration, captures errors, and returns the body’s value.
@@ -817,24 +786,6 @@ trace "fetch" { user: id, cold: fromNetwork }:
     timeout 200: []
   )
 ```
-
-- **Formatter** (`shk fmt`): canonical spacing; can normalize punctuation vs keywords per project style.
-- **REPL** (`shk repl`): auto‑print last value; `:desugar` to show lowerings.
-- **Linter** (initial rules):
-  - Suggest `a or= b` / `=a or b` over `a = a or b`.
-  - Warn on long implicit `.` chains; suggest `bind`.
-  - Don’t mix punctuation and keyword guards in the same chain.
-  - Warn on tiny views over huge bases; suggest `.compact()`/`.own()`.
-- **Diagnostics with fix‑its**:
-  - “`.` cannot stand alone; start from a subject or use `bind`.”
-  - “Guard head ends with named args; wrap with parentheses.”
-- **AI‑friendly**:
-  - `shk --desugar` and `--resugar` for round‑trips.
-  - Machine‑readable feature manifest (`shakar.features.json`) describing allowed sugars/style picks.
-  - Lenient parse `--recover` to auto‑fix common near‑misses.
-
----
-
 ## 19) Feature gating & style profiles
 
 Project config (e.g. `shakar.toml`) with **per‑module overrides**:
@@ -863,11 +814,9 @@ allow = ["?ret"]
 ### Formatter / Lints (normative)
 - **Style -- Comparison comma-chains with `or`:** When a comma-chain switches to `or`, prefer either repeating `, or` for each subsequent leg (e.g., `a > 10, or == 0, or == 1`) or grouping the `or` cluster in parentheses (e.g., `a > 10, or (== 0, == 1)`). This improves readability; semantics are unchanged (joiner is sticky; a comparator is required after `or` to remain in the chain).
 
-- **Forbid `/*INVALID_PREFIX_REBIND*/`**: prefix rebind is `=IDENT …` only.
+- **Forbid `=user.name …`**: prefix rebind is `=IDENT …` only.
 - **Flag free `.`**: bare `.` outside an active binder/anchor is an error.
 - **Auto-paren guard heads with `:`**: when a guard head contains `:`, the formatter inserts parentheses; style check warns if missing.
-
-
 
 **Feature gate note (bitwise_symbols):**
 - Numeric bitwise operators `& | ^ << >> ~` and their compound forms are behind the **`bitwise_symbols`** gate (default **denied**).
@@ -901,10 +850,7 @@ ForMap1      ::= "for" "[" IDENT "]" Expr ":" Block  (* '.' = value; IDENT = key
 ForMap2      ::= "for" "[" IDENT "," IDENT "]" Expr ":" Block  (* '.' = value; key,value bound *)
 
 (* Selectors (per-selector step allowed) *)
-SelectorList ::= "[" Selector ("," Selector)* "]"
-Selector     ::= IndexSel | SliceSel
 IndexSel     ::= Expr  (* evaluates to int; OOB throws *)
-SliceSel     ::= (Expr)? ":" (Expr)? (":" Expr)?  (* clamps to [0..len]; negative step allowed *)
 SubjectExpr   ::= IDENT (Postfix)+
 ImplicitUse   ::= "." (Postfix)+  (* only in contexts with an implicit subject *)
 Postfix       ::= "." IDENT | "[" Expr "]" | "(" ArgList? ")"
@@ -933,8 +879,6 @@ GuardElse     ::= "|:" NEWLINE INDENT Block DEDENT
 OneLineGuard  ::= GuardBranch ("|" GuardBranch)* ("|:" InlineBody)?
 GuardBranch   ::= Expr ":" InlineBody
 InlineBody    ::= SimpleStmt | "{" InlineStmt* "}"
-
-RangeExpr     ::= Expr ".." Expr | Expr "..<" Expr
 
 Pattern       ::= IDENT | Pattern "," Pattern | "(" Pattern ("," Pattern)* ")"
 Destructure   ::= Pattern "=" Expr
@@ -971,8 +915,6 @@ UsingStmt     ::= "using" Expr ("bind" IDENT)? ":" Block
 Assert        ::= "assert" Expr ("," Expr)?
 Dbg           ::= "dbg" (Expr ("," Expr)?)
 ```
-
-
 
 ---
 
@@ -1103,7 +1045,6 @@ print(box.size)
 
 ---
 ## v0.1a14 – Decisions & Additions (2025-08-17)
-
 
 ### Equality & Truthiness (clarification)
 - Numeric cross-type equality allowed: `3 == 3.0` → **true**.
