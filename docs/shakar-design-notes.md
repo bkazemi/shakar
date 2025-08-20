@@ -67,7 +67,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
    - `|` at **start of line** is reserved for **punctuation guards** (§7); infix `|` is bitwise OR.
 8. **Comparison**: `<`, `<=`, `>`, `>=`, `==`, `!=`, `is`, `is not`, `in`, `not in`
 9. **Nil‑safe chain**: `??(expr)` (prefix form; treated as a primary) ✅
-10. **Walrus**: `:=` (expression assignment + anchor) ✅
+10. **Walrus & apply-assign**: `:=`, `.=` (both expression-valued; bind tighter than `and`/`or`, lower than postfix) ✅
 11. **Boolean**: `and`, `or` (short‑circuit, value‑yielding) ✅
 12. **Ternary**: `cond ? then : else` ✅
 12.5 **Nil‑coalescing**: `a ?? b` (returns `a` unless `a` is `nil`, otherwise `b`; right‑associative; binds tighter than `or`).
@@ -118,6 +118,9 @@ x = cond ? a : b
 - **Compound**: `+= -= *= /= //= %= **=` (core); `<<= >>= &= ^= |=` (gated via `bitwise_symbols`)
 - **Defaults**: `or=` and statement‑subject `=x or y` (see §6)
 - **Walrus**: `name := expr` (expression, see §5)
+ - **Apply-assign**: `LHS .= RHS` (**expression**).
+   - Inside `RHS`, `.` = **old value of `LHS`**; then the result writes back to `LHS`.
+   - **Yields** the **updated value of `LHS`**, usable in larger expressions.
 
 ---
 
@@ -167,6 +170,8 @@ a and (b and .x()) and .y()   # `.x()` anchored to `b`; `.y()` anchored to `a`
 ### 4.4 Interactions & shadowing
 - **Nested binders shadow**: inner binders (4.1) temporarily set `.` for their extent, then restore.
 - **Loop × apply-assign**: in `for[i] xs: xs[i] .= RHS`, inside `RHS` the subject is **old `xs[i]`**, not the loop element.
+ - **After `.=` within the same grouping**: leading-dot chains anchor to the explicit `LHS`; after the write they observe the **updated** `LHS`.
+   Example: `(xs[0] .= .trim()) and .hasPrefix("a")`.
 
 ### 4.5 Illegals & invariants
 - `.` is **never an lvalue**: `. = …` is illegal.
