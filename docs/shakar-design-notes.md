@@ -195,6 +195,16 @@ a and (b and .x()) and .y()   # `.x()` anchored to `b`; `.y()` anchored to `a`
 
 #### Minimal conformance checks
 ```shakar
+# Range as value vs selector:
+sum := 0
+for i in 0..3: sum += i           # 0+1+2+3
+ix, vals = [], []
+xs = [10,11,12,13]
+for[i] xs[1..3]: ix.append(i); vals.append(.)
+assert ix == [0,1] and vals == [11,12]
+```
+
+```shakar
 # Anchor + grouping
 a and (b and .x()) and .y()      # `.x()` anchored to b; `.y()` anchored to a
 
@@ -370,7 +380,9 @@ use(g.user, g.posts)
 - `.` refers to the value defined by the construct as described above; it does **not** capture outer `.` from lambdas.
 
 - **for‑in**: `for x in iterable: block`
-  - Range values: `for i in 0..n: …`, `for i in 0..<n: …`
+- Ranges as values: `for i in 0..n: …` and `for i in 0..<n: …`  # iterate a numeric Range
+- Selector lists (indexed view): `for[i] xs[ sel1, sel2, … ]: …`  # iterate the concatenated view; i is view index
+- Note: the same `a..b` syntax is a **selector** inside `[]`, and a **Range value** elsewhere.
   - Iteration over `nil` is **no‑op** (safe): `for x in maybeNil: …` does nothing if `maybeNil` is nil.
 - **break**, **continue**: loop controls.
 - **return**: function return.
@@ -763,6 +775,13 @@ allow = ["?ret"]
 
 ```ebnf
 # Indexing / selector lists
+# Standalone ranges are values (iterables):
+RangeExpr  ::= Expr ".." Expr | Expr "..<" Expr
+
+# In indexing, ranges are slices (selectors):
+# (Same surface syntax; parsed as SliceSel when inside '[]'.)
+# Note: the same `a..b` syntax denotes a Range value outside indexing, and a SliceSel inside `[]`.
+
 Indexing       ::= Primary "[" SelectorList "]"
 SelectorList   ::= Selector ("," Selector)*
 Selector       ::= IndexSel | SliceSel
