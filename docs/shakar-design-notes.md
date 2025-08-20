@@ -133,6 +133,8 @@ x = cond ? a : b
 ## 4) Implicit subject `.` — anchor stack
 
 ### 4.1 Where `.` comes from (binders)
+- **Statement-subject assign** `=LHS tail` (at **statement start**): within the statement, `.` = **old value of `LHS`**; after evaluation, assign **`LHS = result`**.
+
 `.` exists only inside constructs that **bind** it:
 
 - **Prefix rebind** `=Name …` (adjacent, no space): within that **expression only**, `.` = value of `Name`. *(Identifier only; `/*INVALID_PREFIX_REBIND*/` is invalid.)*
@@ -174,6 +176,8 @@ a and (b and .x()) and .y()   # `.x()` anchored to `b`; `.y()` anchored to `a`
    Example: `(xs[0] .= .trim()) and .hasPrefix("a")`.
 
 ### 4.5 Illegals & invariants
+- **Invalid statement-subject**: `=LHS` with no tail (no effect) — use `.=` or provide a tail. `=.trim()` is illegal (free `.`).
+
 - `.` is **never an lvalue**: `. = …` is illegal.
 - **Prefix rebind requires an identifier**: `=IDENT …` only; `/*INVALID_PREFIX_REBIND*/` is illegal.
 - **No free dot**: using `.` outside an active binder/anchor is illegal.
@@ -194,6 +198,41 @@ a and (b and .x()) and .y()   # `.x()` anchored to `b`; `.y()` anchored to `a`
    - No free `.` outside an active binder/anchor.
 
 #### Minimal conformance checks
+```shakar
+# Apply-assign with selector on old LHS
+xs = [[1,2,3], [4]]
+xs .= .[0]
+assert xs == [1,2,3]
+
+# Expression-valued: sibling leading-dot sees updated LHS
+(xs .= .[0]) and .len == 3
+
+# Statement-subject vs apply-assign symmetry
+s = "  A  "
+=s.trim()
+t = "  B  "; t .= .trim()
+assert s == "A" and t == "B"
+```
+
+```shakar
+# Statement-subject assignment writes back to the same path
+s = "  hi  "
+=s.trim()
+assert s == "hi"
+
+user = { name: "  Bob  " }
+=user.name.trim()
+assert user.name == "Bob"
+
+xs = [" A ", "b"]
+=xs[0].trim()
+assert xs[0] == "A"
+
+# Errors
+# ERROR: =user.name     # missing tail
+# ERROR: =.trim()       # free '.' cannot be the subject
+```
+
 ```shakar
 # Paren pop resumes prior anchor
 (a := { c: &() true }); a and (true) and .c()   # ⇒ a and true and a.c()
@@ -1100,3 +1139,9 @@ Example: `a and (b) and .c()`  ⇒  `a and b and a.c()`.
 ApplyAssign ::= LValue ".=" Expr
 -- Precedence: tighter than "and"/"or", lower than Postfix (., [], ()).
 ```
+
+StmtSubjectAssign ::= "=" LValue StmtTail  # '.' = old LHS; result writes back to the same LHS path
+
+   - **Example:** `xs .= .[0]` sets `xs` to its first element.
+
+  - **Selectors in RHS:** leading `.` may start selector steps (e.g., `.[i]`), using the **old LHS** as the base.
