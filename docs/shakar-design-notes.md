@@ -8,9 +8,9 @@
 > - Affirmed: single‑line comments `#...`; ternary `cond ? a : b`.
 
 
-> **Status:** concept/spec notes for early compiler & toolchain.  
-> **Audience:** language implementers and contributors.  
-> **Mantra:** *Sweet syntax, obvious desugar, zero ceremony.*  
+> **Status:** concept/spec notes for early compiler & toolchain.
+> **Audience:** language implementers and contributors.
+> **Mantra:** *Sweet syntax, obvious desugar, zero ceremony.*
 > **Philosophy:** keep the core tiny and predictable; push ergonomics into first‑class, deterministic sugars.
 
 This is a **living technical spec**. It front‑loads design choices to avoid “oops” reversals once implementation starts. Every surface sugar has a deterministic desugar to a small, boring core.
@@ -52,18 +52,18 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 
 ## 3) Operators & precedence (complete)
 
-**Associativity**: unless noted, binary operators are **left‑associative**.  
+**Associativity**: unless noted, binary operators are **left‑associative**.
 **Precedence table (high → low):**
 
 1. **Postfix**: member `.`, call `()`, index `[]`
 2. **Unary**: `-x`, `+x`, boolean `not x` / `!x`, `~x` (bitwise not; gated via `bitwise_symbols`, otherwise use `bit.not(x)`)
 3. **Power**: `x ** y` (right‑associative) ✅
 4. **Multiplicative**: `*`, `/` (float), `//` (floor int), `%`
-5. **Additive / concat**: `+`, `-`  
+5. **Additive / concat**: `+`, `-`
    - `+` adds numbers; concatenates **strings** (rope) and **arrays** (copy‑on‑append semantics).
 6. **Shifts** (gated via `bitwise_symbols`): `<<`, `>>` (arithmetic for ints)
-7. **Bitwise AND/XOR/OR** (gated via `bitwise_symbols`): `&`, `^`, `|`  
-   - Note: `&` is also used as the **lambda sigil on the callee** (`map&(...)`). Infix `&` is bitwise; parser disambiguates.  
+7. **Bitwise AND/XOR/OR** (gated via `bitwise_symbols`): `&`, `^`, `|`
+   - Note: `&` is also used as the **lambda sigil on the callee** (`map&(...)`). Infix `&` is bitwise; parser disambiguates.
    - `|` at **start of line** is reserved for **punctuation guards** (§7); infix `|` is bitwise OR.
 8. **Comparison**: `<`, `<=`, `>`, `>=`, `==`, `!=`, `is`, `is not`, `in`, `not in`
 9. **Nil‑safe chain**: `??(expr)` (prefix form; treated as a primary) ✅
@@ -193,6 +193,9 @@ Within a grouping that has an anchor (see 4.3), any **leading dot** applies to t
 Each step’s **result becomes the next receiver** within that same chain, but the **anchor** stays the same unless retargeted (4.3) or shadowed by a new binder (4.1).
 
 ### 4.3 Grouping & the anchor stack
+
+- **Comparison comma-chain legs are _no-anchor_.** The chain's subject is the first explicit operand; `$`/`%` do not retarget it; selector/base rules and `.=`/`=LHS` dot rules are unchanged.
+
 - **Pop on exit:** after an inner grouping ends, the anchor reverts to the prior one; sibling leading-dot terms continue to use that prior anchor.
 
 Example: `a and (b) and .c()`  ⇒  `a and b and a.c()`
@@ -346,20 +349,20 @@ makeUser() bind u and .isValid()
 
 ### 5.1 Assignment forms — `:=` vs `=` (v0.1)
 
-**Intent split**  
+**Intent split**
 - `name := expr` — **introduce & yield**: creates a new binding in the **current lexical scope** and **returns** the assigned value. Error if `name` already exists **in the same scope** (use `=` to update).
 - `name = expr` — **update only**: assigns to an **existing** binding. Statement‑only: using `=` where a value is required is a compile‑time error. Error if `name` does **not** exist (use `:=` to introduce).
 
-**Destructuring**  
-- Arrays: `[head, ...rest] := xs`  
-- Records: `{id, name} := user`  
+**Destructuring**
+- Arrays: `[head, ...rest] := xs`
+- Records: `{id, name} := user`
 Updates use `=` on existing lvalues: `user.name = "New"`.
 
-**Chaining**  
+**Chaining**
 - Disallow `x := y := 0` in v0.1 (write as two assignments or a destructure).
 
-**LValues**  
-- Member/index updates are normal updates: `obj.field = v`, `arr[i] = v`.  
+**LValues**
+- Member/index updates are normal updates: `obj.field = v`, `arr[i] = v`.
 - **Selector lists and slices may not appear on the LHS** in v0.1 (no multi‑write or slice assignment).
 ## 6) Defaults, guards, safe access (committed)
 
@@ -631,7 +634,7 @@ If a head expression with named args is used as a punctuation‑guard head, wrap
 
 ## 12.6) Regex helpers
 
-- Literal: `r"..."/imsx` (flags optional).  
+- Literal: `r"..."/imsx` (flags optional).
 - Methods on regex value: `.test(str) -> Bool`, `.match(str) -> Match?`, `.replace(str, repl) -> Str`.
 - Timeouts and engine selection are library concerns (not syntax).
 
@@ -744,18 +747,18 @@ To pass a callable for a getter: `&(obj.prop())`.
 
 ## 16) Keywords (v0.1)
 
-**Reserved (cannot be identifiers):**  
+**Reserved (cannot be identifiers):**
 `and, or, not, if, elif, else, for, in, break, continue, return, assert, using, defer, catch, decorator, decorate, hook, get, set, bind, over, true, false, nil`
 
-**Contextual:**  
-- `for` in comprehensions (`[...] for src …` as alias for `over`)  
+**Contextual:**
+- `for` in comprehensions (`[...] for src …` as alias for `over`)
 - `get`/`set` only **inside record literals**
 
-**Punctuation (syntax, not keywords):**  
+**Punctuation (syntax, not keywords):**
 - `.=` apply-assign
-- `|` and `|:` at line start for guard chains  
-- `?ret` (statement head)  
-- `??(expr)` nil‑safe chain  
+- `|` and `|:` at line start for guard chains
+- `?ret` (statement head)
+- `??(expr)` nil‑safe chain
 - `:=` walrus
 
 ---
@@ -858,6 +861,8 @@ allow = ["?ret"]
 ---
 
 ### Formatter / Lints (normative)
+- **Style -- Comparison comma-chains with `or`:** When a comma-chain switches to `or`, prefer either repeating `, or` for each subsequent leg (e.g., `a > 10, or == 0, or == 1`) or grouping the `or` cluster in parentheses (e.g., `a > 10, or (== 0, == 1)`). This improves readability; semantics are unchanged (joiner is sticky; a comparator is required after `or` to remain in the chain).
+
 - **Forbid `/*INVALID_PREFIX_REBIND*/`**: prefix rebind is `=IDENT …` only.
 - **Flag free `.`**: bare `.` outside an active binder/anchor is an error.
 - **Auto-paren guard heads with `:`**: when a guard head contains `:`, the formatter inserts parentheses; style check warns if missing.
@@ -966,6 +971,8 @@ UsingStmt     ::= "using" Expr ("bind" IDENT)? ":" Block
 Assert        ::= "assert" Expr ("," Expr)?
 Dbg           ::= "dbg" (Expr ("," Expr)?)
 ```
+
+
 
 ---
 
@@ -1100,7 +1107,7 @@ print(box.size)
 
 ### Equality & Truthiness (clarification)
 - Numeric cross-type equality allowed: `3 == 3.0` → **true**.
-- Falsey values include both `0` **and** `0.0` **and** `0.0` (alongside `nil`, `false`, `""`, `[]`, `{}`).
+- Falsey values include both `0` **and** `0.0` (alongside `nil`, `false`, `""`, `[]`, `{}`).
 - Identity: `is` / `is not` unchanged.
 
 ### Records vs Maps (no change in literals)
@@ -1111,7 +1118,7 @@ print(box.size)
 ### Raw Strings (regex keeps `r"…"`)
 Two raw string forms:
 1. `raw"…"` → **no interpolation**, **escapes processed** (e.g., `\n`, `\"`).
-2. `raw#"…"#` → **no interpolation**, **no escapes** (fully verbatim).  
+2. `raw#"…"#` → **no interpolation**, **no escapes** (fully verbatim).
    - Exactly **one fence** `#` in v0.1 (future versions may allow multiple).
 
 Examples:
@@ -1173,5 +1180,5 @@ Slices on sequences continue to **clamp**; index selectors **throw** OOB.
 
 **Precedence & associativity**
 - Multiplicative tier: `*` (repeat; set/map intersection).
-- Additive tier: `+  -  ^` (left-assoc).  
+- Additive tier: `+  -  ^` (left-assoc).
 - Numeric bitwise `& | ^ << >> ~` remain behind the **`bitwise_symbols`** gate; set/map `^` is always available (type-directed).
