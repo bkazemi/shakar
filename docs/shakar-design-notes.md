@@ -136,7 +136,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
   - strings: substring
   - arrays: element membership (`==`)
   - records: **key** membership
-- `x not in y` is the negation.
+- `x not in y` / `x !in y` are the negation (synonyms).
 
 ### 3.6 Boolean (words only)
 - `and`, `or` (short‑circuit, yield last evaluated operand). **No `&&`/`||` in core.**
@@ -812,8 +812,9 @@ allow = ["?ret"]
 ---
 
 ### Formatter / Lints (normative)
-- **Style -- Comparison comma-chains with `or`:** When a comma-chain switches to `or`, prefer either repeating `, or` for each subsequent leg (e.g., `a > 10, or == 0, or == 1`) or grouping the `or` cluster in parentheses (e.g., `a > 10, or (== 0, == 1)`). This improves readability; semantics are unchanged (joiner is sticky; a comparator is required after `or` to remain in the chain).
 
+- **Tokenization -- ``!in``:** write as a single token with no internal space: `a !in b` (not `a ! in b`). Parser treats `! in` as unary `!` then `in`.
+- **Style -- Comparison comma-chains with `or`:** When a comma-chain switches to `or`, prefer either repeating `, or` for each subsequent leg (e.g., `a > 10, or == 0, or == 1`) or grouping the `or` cluster in parentheses (e.g., `a > 10, or (== 0, == 1)`). This improves readability; semantics are unchanged (joiner is sticky; a comparator is required after `or` to remain in the chain).
 - **Forbid `=user.name …`**: prefix rebind is `=IDENT …` only.
 - **Flag free `.`**: bare `.` outside an active binder/anchor is an error.
 - **Auto-paren guard heads with `:`**: when a guard head contains `:`, the formatter inserts parentheses; style check warns if missing.
@@ -854,6 +855,13 @@ IndexSel     ::= Expr  (* evaluates to int; OOB throws *)
 SubjectExpr   ::= IDENT (Postfix)+
 ImplicitUse   ::= "." (Postfix)+  (* only in contexts with an implicit subject *)
 Postfix       ::= "." IDENT | "[" Expr "]" | "(" ArgList? ")"
+
+(* Unary operators *)
+UnaryPrefixOp ::= "+" | "-" | "not" | "!" ;
+UnaryExpr ::= UnaryPrefixOp UnaryExpr | PostfixExpr ;
+
+(* Comparison operators *)
+CmpOp ::= "==" | "!=" | "<" | "<=" | ">" | ">=" | "is" | "is not" | "in" | "!in" | "not in" ;
 
 RebindStmt    ::= "=" IDENT ExprTail
 GuardReturn   ::= "?ret" Expr
