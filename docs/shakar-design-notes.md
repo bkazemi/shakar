@@ -27,7 +27,9 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 - **Truthiness:** `nil`, `false`, `0` **and** `0.0`, `""`, `[]`, `{}` are falsey; everything else truthy.
 - **Evaluation:** eager, short‑circuit `and`/`or`.
 - **Errors:** exceptions; one‑statement handlers via `catch` / `@@`.
-- **Strings:** immutable UTF‑8 with zero‑copy views/ropes + leak‑avoidance heuristics (§12).
+- **Strings:**  **Raw strings:** `raw"…"` (no interpolation; escapes processed) and `raw#"…"#` (no interpolation; no escapes; exactly one `#` in v0.1).
+  Examples: `raw"Line1\nLine2"`, `raw#"C:\\path\\to\\file"#`, `raw#"he said "hi""#`.
+ immutable UTF‑8 with zero‑copy views/ropes + leak‑avoidance heuristics (§12).
 - **Objects:** records + descriptors (getters/setters); no class system required for v0.1 (§13).
 - **Two habitats:** CLI scripting (Python niche) and safe embedding (Lua niche).
 
@@ -50,6 +52,8 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 ---
 
 ## 3) Operators & precedence (complete)
+**Set and Map algebra precedence:** `*` for set/map intersection participates at the multiplicative tier. `+`, `-`, and set/map `^` participate at the additive tier. Numeric bitwise `^` remains behind the `bitwise_symbols` gate and stays in the bitwise tier.
+
 
 **Associativity**: unless noted, binary operators are **left‑associative**.
 **Precedence table (high → low):**
@@ -80,6 +84,19 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 - `~x` (bitwise not on ints; gated by `bitwise_symbols` — otherwise use `bit.not(x)`)
 
 ### 3.2 Arithmetic
+- **Maps (type-directed overloads by key):**
+  - `M + N` merge (RHS wins conflicts on shared keys).
+  - `M * N` key intersection (only keys present in both; values taken from RHS).
+  - `M - N` key difference (keys in `M` not in `N`).
+  - `M ^ N` symmetric key difference (keys in exactly one side; values from the contributing side).
+
+- **Strings and arrays (repeat):** `s * n` and `n * s` repeat a string; `a * n` and `n * a` repeat an array. `n` must be an Int with `n >= 0`; otherwise error.
+
+- **Sets (type-directed overloads):**
+  - `A + B` union; `A - B` difference; `A * B` intersection; `A ^ B` symmetric difference.
+  - **Precedence:** follows token families (`*` multiplicative; `+`/`-` additive; `^` XOR family). Use parentheses when mixing.
+  - **Purity:** these binary operators return a **new** Set; operands are not mutated.
+
 - `/` yields float; `//` floor‑div for ints (works on floats too, returns int via floor).
 - `%` is remainder; sign follows dividend (like Python).
 - `**` exponentiation (right‑assoc).
@@ -148,6 +165,12 @@ x = cond ? a : b
 - Precedence **lower** than `or`. Associates right: `a ? b : c ? d : e` as `a ? b : (c ? d : e)`.
 
 ### 3.8 Assignment forms
+- **Map compounds (type-directed):** when the LHS is a Map, mutate in place following the same semantics as the binary forms: `+=`, `-=`, `*=`, `^=`.
+
+- **Set compounds (type-directed):** when the **LHS is a Set**, mutate in place:
+  - `A += B` (union-update), `A -= B` (difference-update), `A *= B` (intersection-update), `A ^= B` (symmetric-diff-update).
+  - `^=` is available for Sets even when numeric bitwise symbols are gated off; it’s type-directed like `^`.
+
 - Simple: `name = expr` (statement)
 - **Compound**: `+= -= *= /= //= %= **=` (core); `<<= >>= &= ^= |=` (gated via `bitwise_symbols`)
 - **Defaults**: `or=` and statement‑subject `=x or y` (see §6)
@@ -623,6 +646,8 @@ If a head expression with named args is used as a punctuation‑guard head, wrap
 ## 12) Strings & performance (critical)
 
 ## 12.5) Slicing & selector lists
+- **Ranges as values vs slices:** ranges as values do not clamp and support an optional `:step` (negative step allowed; step 0 is an error). Slices inside `[]` still clamp; index selectors throw on out-of-bounds.
+
 
 ## 12.6) Regex helpers
 
@@ -813,6 +838,7 @@ allow = ["?ret"]
 
 ### Formatter / Lints (normative)
 
+- **Style -- Guard heads with paren-light calls:** discouraged; the formatter may auto-paren such heads (see §7).
 - **Tokenization -- ``!in``:** write as a single token with no internal space: `a !in b` (not `a ! in b`). Parser treats `! in` as unary `!` then `in`.
 - **Style -- Comparison comma-chains with `or`:** When a comma-chain switches to `or`, prefer either repeating `, or` for each subsequent leg (e.g., `a > 10, or == 0, or == 1`) or grouping the `or` cluster in parentheses (e.g., `a > 10, or (== 0, == 1)`). This improves readability; semantics are unchanged (joiner is sticky; a comparator is required after `or` to remain in the chain).
 - **Forbid `=user.name …`**: prefix rebind is `=IDENT …` only.
@@ -829,8 +855,7 @@ ApplyAssign ::= LValue ".=" Expr
 StmtSubjectAssign ::= "=" LValue StmtTail  (* '.' = old LHS; result writes back to the same LHS path *)
 (* Indexing / selector lists *)
 (* Standalone ranges are values (iterables): *)
-RangeExpr  ::= Expr ".." Expr | Expr "..<" Expr
-
+RangeExpr ::= Expr ".." Expr (":" Expr)? | Expr "..<" Expr (":" Expr)?
 (* In indexing, ranges are slices (selectors): *)
 (* (Same surface syntax; parsed as SliceSel when inside '[]'.) *)
 (* Note: the same `a..b` syntax denotes a Range value outside indexing, and a SliceSel inside `[]`. *)
@@ -1050,84 +1075,3 @@ box = {
 }
 print(box.size)
 ```
-
----
-## v0.1a14 – Decisions & Additions (2025-08-17)
-
-### Equality & Truthiness (clarification)
-- Numeric cross-type equality allowed: `3 == 3.0` → **true**.
-- Falsey values include both `0` **and** `0.0` (alongside `nil`, `false`, `""`, `[]`, `{}`).
-- Identity: `is` / `is not` unchanged.
-
-### Records vs Maps (no change in literals)
-- `{}` remains **Record** (string-keyed; dot and bracket access; structural, order-insensitive equality).
-- `map{ … }` remains **Map** (any-key; bracket access; `;`-delimited entries; structural, order-insensitive equality).
-- Empty literals: `{}`, `set{}`, `map{}`.
-
-### Raw Strings (regex keeps `r"…"`)
-Two raw string forms:
-1. `raw"…"` → **no interpolation**, **escapes processed** (e.g., `\n`, `\"`).
-2. `raw#"…"#` → **no interpolation**, **no escapes** (fully verbatim).
-   - Exactly **one fence** `#` in v0.1 (future versions may allow multiple).
-
-Examples:
-```shakar
-raw"Line1\nLine2"         # newline due to escapes
-raw#"C:\path\to\file"#    # backslashes verbatim; no escapes
-raw#"he said "hi""#       # quotes verbatim; no interpolation
-```
-
-### Guard Heads & Paren-Light Calls
-- If a **guard head** contains `:` (e.g., named args), it **must be parenthesized** to disambiguate `Head: Body`:
-  ```shakar
-  (send "bob", subject: "Hi"): log("sent")
-  ready(user): start()  # fine: no ':' inside head
-  ```
-- Style: using paren-light calls inside guard heads is **discouraged**; formatter may auto-paren.
-
-### Hoisted Loop Binders
-Introduce a binder-only sigil for reusing an outer variable:
-- `name`  → introduce new loop-local binding.
-- `^name → hoist/update an outer binding **or declare in the immediately enclosing (non-loop) scope with initial `nil`**).
-
-Works with all loop forms and with selectors:
-```shakar
-i := -1
-for[^i] 0..n:
-  do(i)
-# i now equals n-1 (or last view index)
-
-sum := 0
-for[j, ^sum] arr:
-  sum = sum + .
-```
-
-### Selectors (unified concept) & Ranges as Values
-A **selector** is one of: **index**, **slice**, or **range value**. Selector **lists** concatenate.
-
-**Ranges as values (half-open by default):**
-- Syntax: `a..b` (half-open), alternative explicit form `a..<b` also allowed.
-- Optional step: `a..b:step`. Negative steps allowed. **Step 0 = error.**
-- Range **does not clamp**; errors on invalid direction/step.
-
-Using selectors:
-```shakar
-for i in 0..n: …
-for i in 0..5, 10..15: …
-for xs[ 2:10:2, .len-3..<.len ]: …
-for[i] xs[ sel1, sel2 ]:  # i indexes the concatenated *view* (0..view_len-1)
-```
-
-Slices on sequences continue to **clamp**; index selectors **throw** OOB.
-
-### Operators for Core Collections (v0.1)
-- **Strings**: `s + t` (concat); `s * n` and `n * s` (repeat, `n ≥ 0` Int).
-- **Arrays**: `a + b` (concat, copies); `a * n` and `n * a` (repeat, `n ≥ 0` Int).
-- **Sets**: `A + B` (union), `A * B` (intersection), `A - B` (difference), `A ^ B` (symmetric diff). Compound: `+= *= -= ^=`.
-- **Maps (by key)**: `M + N` (merge; **RHS wins** conflicts), `M * N` (intersection; keys in both, values from RHS), `M - N` (key-diff), `M ^ N` (symmetric key diff; value from the contributing side). Compound ops mirror sets.
-- **Records**: no arithmetic operators (use explicit updates/merge helpers).
-
-**Precedence & associativity**
-- Multiplicative tier: `*` (repeat; set/map intersection).
-- Additive tier: `+  -  ^` (left-assoc).
-- Numeric bitwise `& | ^ << >> ~` remain behind the **`bitwise_symbols`** gate; set/map `^` is always available (type-directed).
