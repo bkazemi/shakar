@@ -146,7 +146,8 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
   ```
 - `==`, `!=` are value equality; type‑aware. Cross-type compares: numeric Int vs Float equality compares by value (for example, `3 == 3.0` is true); other cross-type comparisons error (except nil equality).
 - Ordering `< <= > >=` defined for **numbers** and **strings** (lexicographic by bytes of normalized UTF‑8). Arrays/records ordering ❓ (not in v0.1).
-- `is`, `is not` check identity (same object/storage). For strings/views, identity means same `(base, off, len)`; value equality may still be true when identity is false.
+- `is`, `is not`/`!is` check identity (same object/storage). For strings/views, identity means same `(base, off, len)`; value equality may still be true when identity is false.
+- **Identity negation:** `!is` is a single token, equivalent to `is not`. Write `a !is b` (not `a ! is b`).
 
 ### 3.5 Membership
 - `x in y`:
@@ -964,7 +965,7 @@ UnaryPrefixOp ::= "+" | "-" | "not" | "!" ;
 UnaryExpr ::= UnaryPrefixOp UnaryExpr | PostfixExpr ;
 
 (* Comparison operators *)
-CmpOp ::= "==" | "!=" | "<" | "<=" | ">" | ">=" | "is" | "is not" | "in" | "!in" | "not in" ;
+CmpOp ::= "==" | "!=" | "<" | "<=" | ">" | ">=" | "is" | "is not" | "!is" | "in" | "!in" | "not in" ;
 
 GuardReturn   ::= "?ret" Expr
 
