@@ -189,11 +189,13 @@ x = cond ? a : b
 ## 4) Implicit subject `.` — anchor stack
 
 ### 4.1 Where `.` comes from (binders)
+- **Statement-subject assign** `=LHS tail` at statement start: inside the statement, `.` = old `LHS`. After evaluation, assign `LHS = result`. Example: `=a.trim()` means `a = a.trim()`.
+- **No prefix rebind in expressions:** the older `=Name …` expression form is removed. Use a name directly, parentheses with an explicit subject, or a temporary via walrus when you need dot inside a larger expression.
+
 - **Statement-subject assign** `=LHS tail` (at **statement start**): within the statement, `.` = **old value of `LHS`**; after evaluation, assign **`LHS = result`**.
 
 `.` exists only inside constructs that **bind** it:
 
-- **Prefix rebind** `=Name …` (adjacent, no space): within that **expression only**, `.` = value of `Name`. *(Identifier only; `=user.name …` is invalid.)*
 - **Apply-assign** `LHS .= RHS`: inside `RHS`, `.` = **old value of `LHS`**; result writes back to `LHS`.
 - **Subjectful loop** `for Expr:` / `for[i] Expr:`: in the loop body (per iteration), `.` = **current element** (and `i` = view index if present).
 - **Lambda callee sigil** (e.g., `map&(...)`): inside the lambda body, `.` = **the parameter**.
@@ -245,7 +247,7 @@ a and (b and .x()) and .y()   # `.x()` anchored to `b`; `.y()` anchored to `a`
 - **Invalid statement-subject**: `=LHS` with no tail (no effect) — use `.=` or provide a tail. `=.trim()` is illegal (free `.`).
 
 - `.` is **never an lvalue**: `. = …` is illegal.
-- **Prefix rebind requires an identifier**: `=IDENT …` only; `=user.name …` is illegal.
+
 - **No free dot**: using `.` outside an active binder/anchor is illegal.
 
 ### 4.6 Normative laws (concise) — 2025-08-17
@@ -417,6 +419,19 @@ using[name] expr:
 3) Run `block`. Using does not change `.`.
 
 **Dot semantics**
+- `using` is not subjectful. It does not create or retarget the anchor.
+- Inside the block, `.` is whatever an enclosing binder set. If there is no binder, a free `.` is an error.
+- Preferred style: call through the bound name.
+  ```shakar
+  using connect(url) bind conn:
+    conn.send(payload)
+    conn.closeWhenIdle()
+  ```
+- If you need dot on the resource in a larger expression, use a temporary with walrus:
+  ```shakar
+  using openFile(p) bind f:
+    (tmp := f).write(data)
+  ```
 - `using` is not subjectful. It does not create or retarget the anchor.
 - Inside the block, `.` is whatever an enclosing binder set. If no binder is active, a free `.` is an error.
 
