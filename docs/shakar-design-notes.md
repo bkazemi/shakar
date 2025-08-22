@@ -633,6 +633,17 @@ lines.map&(.trim()).filter&(.len > 0).to_list()
 ---
 
 - **`bind` scope:** names introduced by `bind` are visible **throughout the comprehension** (head, filters, body), but not outside it.
+- **Binder list sugar on `over`:** `over[binders] src` is sugar for `over src bind binders`. Records: one binder yields the key, two binders yield key and value. It does not remove `.` in the body.
+
+**Examples (binder list sugar):**
+```shakar
+pairs = { k: v over[k, v] map.items() }
+names = [ u.name over[u] users if u.role == "admin" ]
+sums = [ a + b over[a, b] aAndB ]
+```
+
+- **Illegal combination:** `over[...] Expr bind ...` is not allowed. The formatter drops the redundant `bind` and keeps the bracket form.
+
 ## 11) Named‑arg calls (paren‑light)
 
 ```shakar
@@ -837,7 +848,7 @@ allow = ["?ret"]
 ---
 
 ### Formatter / Lints (normative)
-
+- **Style -- `over[...]` vs `bind`:** prefer `over[...]` when you have more than one binder. Do not use both `over[...]` and `bind` in the same head.
 - **Style -- Guard heads with paren-light calls:** discouraged; the formatter may auto-paren such heads (see §7).
 - **Tokenization -- ``!in``:** write as a single token with no internal space: `a !in b` (not `a ! in b`). Parser treats `! in` as unary `!` then `in`.
 - **Style -- Comparison comma-chains with `or`:** When a comma-chain switches to `or`, prefer either repeating `, or` for each subsequent leg (e.g., `a > 10, or == 0, or == 1`) or grouping the `or` cluster in parentheses (e.g., `a > 10, or (== 0, == 1)`). This improves readability; semantics are unchanged (joiner is sticky; a comparator is required after `or` to remain in the chain).
@@ -916,9 +927,14 @@ InlineBody    ::= SimpleStmt | "{" InlineStmt* "}"
 Pattern       ::= IDENT | Pattern "," Pattern | "(" Pattern ("," Pattern)* ")"
 Destructure   ::= Pattern "=" Expr
 
-ListComp      ::= "[" Expr ("over" | "for") Expr ("bind" Pattern)? ("if" Expr)? "]"
-SetComp       ::= "{" Expr ("over" | "for") Expr ("bind" Pattern)? ("if" Expr)? "}"
-DictComp      ::= "{" Expr ":" Expr ("over" | "for") Expr ("bind" Pattern)? ("if" Expr)? "}"
+CompHead ::= ("over" | "for") OverSpec
+OverSpec ::= "[" BinderList "]" Expr | Expr ("bind" Pattern)?
+BinderList ::= Pattern ("," Pattern)*
+IfClause ::= ("if" Expr)?
+
+ListComp ::= "[" Expr CompHead IfClause? "]"
+SetComp  ::= "{" Expr CompHead IfClause? "}"
+DictComp ::= "{" Expr ":" Expr CompHead IfClause? "}"
 
 Call          ::= Callee "(" ArgList? ")"
                | Callee ArgListNamedMixed
