@@ -144,7 +144,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
   # Selector-literal legs
   assert 4 < `5..10`, != `7, 8`             # ⇒ (4 < 5) and (4 != 7) and (4 != 8)
   ```
-- `==`, `!=` are value equality; type‑aware. Cross‑type compares error (except nil equality).
+- `==`, `!=` are value equality; type‑aware. Cross-type compares: numeric Int vs Float equality compares by value (for example, `3 == 3.0` is true); other cross-type comparisons error (except nil equality).
 - Ordering `< <= > >=` defined for **numbers** and **strings** (lexicographic by bytes of normalized UTF‑8). Arrays/records ordering ❓ (not in v0.1).
 - `is`, `is not` check identity (same object/storage). For strings/views, identity means same `(base, off, len)`; value equality may still be true when identity is false.
 
