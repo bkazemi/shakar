@@ -204,7 +204,7 @@ x = cond ? a : b
   - Trailing body: `.` = **winning value** and `winner` = label.
 - **Selectors** `base[ sel1, sel2, … ]`: inside each selector, `.` = **the `base`** (not the element).
 
-> **Not creators:** one-line guards / blocks don’t by themselves create a subject; use a subjectful `for` or `=Name …`.
+> **Not creators:** one-line guards and plain blocks do not create a subject; use a subjectful `for`, a walrus temporary, or a grouping with an explicit subject.
 
 ### 4.2 Leading-dot chains
 Within a grouping that has an anchor (see 4.3), any **leading dot** applies to that anchor:
@@ -258,7 +258,7 @@ a and (b and .x()) and .y()   # `.x()` anchored to `b`; `.y()` anchored to `a`
 
 3) **Leading-dot chain law (SHALL).** Within a chain, each step’s result becomes the next **receiver**; the **anchor** remains as set by the grouping unless retargeted.
 
-4) **Binder-shadowing law (SHALL).** Inner binders (prefix rebind, lambda, `await`, subjectful `for`, apply-assign RHS) temporarily set `.` for their dynamic extent, then restore.
+4) **Binder-shadowing law (SHALL).** Inner binders (lambda, `await`, subjectful `for`, apply-assign RHS) temporarily set `.` for their dynamic extent, then restore.
 
 5) **Illegals & locality (SHALL NOT / SHALL).**
    - `.` is never an lvalue (`. = …` illegal).
@@ -331,8 +331,8 @@ users[ .len-1 ]                  # inside: '.' = users
 # Binder shadowing: loop × apply-assign
 for[i] names: names[i] .= .trim()   # in RHS: '.' = old names[i]
 
-# Prefix-rebind locality
-(=u .trim()).len > 0 and u.has("x") # after expr, '.' reverts
+# Local grouping:
+(u.trim()).len > 0 and u.has("x") # after expr, '.' reverts
 ```
 
 _Formal anchor rules: see §20 Grammar sketch (Anchor semantics notes)._
@@ -921,7 +921,6 @@ allow = ["?ret"]
 - **Style -- Guard heads with paren-light calls:** discouraged; the formatter may auto-paren such heads (see §7).
 - **Tokenization -- ``!in``:** write as a single token with no internal space: `a !in b` (not `a ! in b`). Parser treats `! in` as unary `!` then `in`.
 - **Style -- Comparison comma-chains with `or`:** When a comma-chain switches to `or`, prefer either repeating `, or` for each subsequent leg (e.g., `a > 10, or == 0, or == 1`) or grouping the `or` cluster in parentheses (e.g., `a > 10, or (== 0, == 1)`). This improves readability; semantics are unchanged (joiner is sticky; a comparator is required after `or` to remain in the chain).
-- **Forbid `=user.name …`**: prefix rebind is `=IDENT …` only.
 - **Flag free `.`**: bare `.` outside an active binder/anchor is an error.
 - **Auto-paren guard heads with `:`**: when a guard head contains `:`, the formatter inserts parentheses; style check warns if missing.
 
