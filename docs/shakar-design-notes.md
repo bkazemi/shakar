@@ -386,11 +386,65 @@ Updates use `=` on existing lvalues: `user.name = "New"`.
 - Member/index updates are normal updates: `obj.field = v`, `arr[i] = v`.
 - **Selector lists and slices may not appear on the LHS** in v0.1 (no multi‑write or slice assignment).
 ## 6) Defaults, guards, safe access (committed)
-
 - **`or=`** and **statement‑subject** `=x or y` (statement head) desugar to `if not …: … = …`.
 - **`?ret expr`** early‑returns if expr is truthy.
 - **Postfix guards**: `stmt if cond`, `stmt unless cond`.
 - **Nil‑safe chain**: `??(expr)` turns a deep deref/call chain into a nil‑propagating expression.
+
+### Using
+
+Purpose: scoped resource management with guaranteed cleanup.
+
+**Surface**
+```shakar
+using expr:
+  block
+
+using expr bind name:
+  block
+
+using[name] expr:
+  block
+```
+
+**Semantics**
+1) Evaluate `expr` to `r`.
+2) **Enter**:
+   - If `r.using_enter()` exists, call it. Let its result be `v`.
+   - Else if `r.enter()` exists, call it. Let its result be `v`.
+   - Else `v = r`.
+   If `bind name` is present, bind `name = v` for the block only.
+3) Run `block`. Using does not change `.`.
+
+**Dot semantics**
+- `using` is not subjectful. It does not create or retarget the anchor.
+- Inside the block, `.` is whatever an enclosing binder set. If no binder is active, a free `.` is an error.
+
+4) **Exit** (always runs, even on error or `return`):
+   - If `r.using_exit(err?)` exists, call it with an error value if the block threw, or with no arg if it did not.
+   - Else if `r.exit(err?)` exists, call it with the same rule.
+   - Else if `r.close()` exists, call `close()` with no args.
+   - If the chosen exit method returns truthy, the original block error is suppressed. Errors thrown by the exit method are raised; if both the block and exit fail, both error contexts are preserved in diagnostics.
+
+**Notes**
+- Single resource per `using`. Nest for multiple resources.
+- `bind` is optional. Without `bind`, the enter value is not named.
+
+**Examples**
+```shakar
+# File handle that defines using_enter/using_exit
+using openFile(path):
+  processFile(.)
+
+# Socket with enter/exit methods and a bound name
+using connect(url) bind conn:
+  conn.send(payload)
+
+# Object with only close()
+using[f] getTempFile():
+  f.write(data)
+# close() is called after the block
+```
 
 ---
 
