@@ -190,7 +190,7 @@ x = cond ? a : b
 
 ### 4.1 Where `.` comes from (binders)
 - **Statement-subject assign** `=LHS tail` at statement start: inside the statement, `.` = old `LHS`. After evaluation, assign `LHS = result`. Example: `=a.trim()` means `a = a.trim()`.
-- **No prefix rebind in expressions:** the older `=Name …` expression form is removed. Use a name directly, parentheses with an explicit subject, or a temporary via walrus when you need dot inside a larger expression.
+
 
 - **Statement-subject assign** `=LHS tail` (at **statement start**): within the statement, `.` = **old value of `LHS`**; after evaluation, assign **`LHS = result`**.
 
@@ -262,7 +262,6 @@ a and (b and .x()) and .y()   # `.x()` anchored to `b`; `.y()` anchored to `a`
 
 5) **Illegals & locality (SHALL NOT / SHALL).**
    - `.` is never an lvalue (`. = …` illegal).
-   - Prefix rebind is `=IDENT …` **only** and **expression-local** (`=user.name …` illegal; `.` reverts after the expression).
    - No free `.` outside an active binder/anchor.
 
 #### Minimal conformance checks
@@ -967,7 +966,6 @@ UnaryExpr ::= UnaryPrefixOp UnaryExpr | PostfixExpr ;
 (* Comparison operators *)
 CmpOp ::= "==" | "!=" | "<" | "<=" | ">" | ">=" | "is" | "is not" | "in" | "!in" | "not in" ;
 
-RebindStmt    ::= "=" IDENT ExprTail
 GuardReturn   ::= "?ret" Expr
 
 AssignOr      ::= LValue "or=" Expr
@@ -1058,7 +1056,7 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
 - **Nested/multi‑source comprehensions**: later via `bind (a,b) over zip(xs,ys)`.
 - **Word range aliases `to`/`until`**: optional later.
 - **While/until loops**: consider only if demanded; `for` over `Range` covers most cases.
-- **Sticky subject (prefix `%`)**: `%expr` sets the **anchor** to `expr` and marks it **sticky** for the current expression: child groupings do not retarget unless another `%` or an explicit `=Ident` rebind appears. **Does not affect** selector bases or `.=`/`=LHS` tails (their `.` rules still win).
+- **Sticky subject (prefix `%`)**: `%expr` sets the **anchor** to `expr` and marks it **sticky** for the current expression: child groupings do not retarget unless another `%` or a new explicit subject appears. **Does not affect** selector bases or `.=`/`=LHS` tails (their `.` rules still win).
 
 ---
 
