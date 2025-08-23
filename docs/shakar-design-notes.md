@@ -1017,6 +1017,14 @@ allow = ["?ret"]
 ---
 
 ### Formatter / Lints (normative)
+* **Commas in lists**: parser accepts both `.{a,b}` and `.{a, b}`. Formatter emits a single space after each comma across all comma-separated lists (field fan-out `.{...}`, argument lists, binder lists, patterns). No space before commas; no spaces around braces.
+
+* **Field fan-out braces**: prefer `user.{a, b}` (no space between `.` and `{`). Trailing comma only when the list is multiline.
+
+* **Map index with default**: prefer `m[key, default: expr]` with exactly one space after the comma and no spaces around `:`. Multiline default only if the entire index breaks across lines.
+
+* **Placeholder partials `?`**: for single-hole cases, prefer `&` path lambdas (e.g., `xs.map&(.trim())`). Use `?` when there are **2+ holes** (e.g., `blend(?, ?, 0.25)`). Avoid mixing `&` and `?` within the same call; when readability suffers, switch to a named-arg lambda.
+
 - **Style -- `over[...]` vs `bind`:** prefer `over[...]` when you have more than one binder. Do not use both `over[...]` and `bind` in the same head.
 - **Style -- Guard heads with paren-light calls:** discouraged; the formatter may auto-paren such heads (see §7).
 - **Tokenization -- ``!in``:** write as a single token with no internal space: `a !in b` (not `a ! in b`). Parser treats `! in` as unary `!` then `in`.
