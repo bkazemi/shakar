@@ -179,6 +179,7 @@ x = cond ? a : b
  - **Apply-assign**: `LHS .= RHS` (**expression**).
    - Inside `RHS`, `.` = **old value of `LHS`**; then the result writes back to `LHS`.
    - **Yields** the **updated value of `LHS`**, usable in larger expressions.
+- **LValue shape**: assignment targets are identifiers with member (`.field`) and/or selector (`[index]`) chains; **calls are not allowed on the left-hand side**.
 
 ---
 
@@ -1095,7 +1096,9 @@ AssignOr        ::= LValue "or=" Expr ;
 
 StmtTail        ::= Expr ;
 
-LValue          ::= IDENT ( Postfix )* ( FieldFan )? ;
+LValuePostfix ::= "." IDENT | "[" SelectorList "]" ;
+PrimaryLHS ::= IDENT | "(" LValue ")" ;
+LValue ::= PrimaryLHS ( LValuePostfix )* ( FieldFan )? ;
 FieldList       ::= IDENT ("," IDENT)* ;
 FieldFan        ::= "." "{" FieldList "}" ;
 
