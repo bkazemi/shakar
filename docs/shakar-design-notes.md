@@ -261,6 +261,32 @@ value = cfg.db[host, default: "localhost"]
 
 - `m.get(key, default: v)` remains valid.
 
+### 3.12 Placeholder partials `?`
+
+#### Surface
+
+```shakar
+between = inRange(?, 5, 10)              # (x) => inRange(x, 5, 10)
+mix     = blend(?, ?, 0.25)              # (a, b) => blend(a, b, 0.25)
+xs.map&(get(?, id))                      # (x) => get(x, id)
+```
+
+#### Desugar
+
+```text
+inRange(?, 5, 10)         ⇒   (x) => inRange(x, 5, 10)
+blend(?, ?, 0.25)         ⇒   (a, b) => blend(a, b, 0.25)
+get(?, id)                ⇒   (x) => get(x, id)
+```
+
+#### Rules
+
+- A `?` appearing among the **immediate arguments** of a call expression creates a lambda with **one parameter per hole**, left-to-right.
+- Each hole is a distinct parameter; `blend(?, ?, 0.25)` receives two parameters `(a, b)`.
+- Works in both free and method calls; named args allowed (holes in named values participate in left-to-right order).
+- **No ternary conflict**: `?` is recognized **only inside a call’s argument list**; elsewhere, `?` is not a valid expression token.
+- **Style**: allowed with a single hole, but prefer `&` path-lambdas for one-arg cases: `xs.map&(.trim())`.
+
 ## 4) Implicit subject `.` — anchor stack
 
 ### 4.1 Where `.` comes from (binders)
@@ -1124,6 +1150,10 @@ Call            ::= Callee "(" ArgList? ")"
 ArgList         ::= Expr ("," Expr)* ;
 ArgListNamedMixed ::= (Expr ("," Expr)*)? ("," NamedArg ("," NamedArg)*)? ;
 NamedArg        ::= IDENT ":" Expr ;
+(* Placeholder partials in calls *)
+HoleExpr       ::= "?" ;
+(* If any HoleExpr appears among the immediate arguments of a Call, the Call desugars to a lambda with positional holes left-to-right. Each hole becomes a distinct parameter. *)
+
 
 LambdaCall1     ::= Callee "&" "(" Expr ")" ;
 LambdaCallN     ::= Callee "&" "[" ParamList "]" "(" Expr ")" ;
