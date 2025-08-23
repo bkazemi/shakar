@@ -187,6 +187,34 @@ x = cond ? a : b
 - **Postfix is terminal**: at most once, and only at the **end** of a member/selector chain (e.g., `xs[i]++`).
 - Requires an **lvalue**; applying to non-lvalues is an error.
 
+### 3.8.1 Multi-field assign fan-out
+
+#### Surface
+
+```shakar
+=user.{name, email}.trim()
+
+user.{first, last} .= .title()
+
+=user.address.{city, street}.title()
+```
+
+#### Desugar
+
+```shakar
+=user.name.trim(); =user.email.trim()
+
+user.first .= .title(); user.last .= .title()
+
+=user.address.city.title(); =user.address.street.title()
+```
+
+#### Rules
+
+- Only after a path; `.{…}` here is not a set literal.
+- In `.=` RHS, `.` is the old per-field value.
+- Left-to-right order; duplicates collapse; missing fields are errors.
+
 ## 4) Implicit subject `.` — anchor stack
 
 ### 4.1 Where `.` comes from (binders)
@@ -929,6 +957,11 @@ allow = ["?ret"]
 - This gate applies **only to numeric operators**. Set/Map algebra (e.g., `A ^ B` symmetric diff) is **always enabled** (type-directed).
 ## 20) Grammar sketch (EBNF‑ish; implementation may vary)
 ```ebnf
+(* Field fan-out on LValue *)
+FieldList   ::= IDENT ("," IDENT)*
+FieldFan    ::= "." "{" FieldList "}"
+LValue      ::= IDENT ( Postfix )* ( FieldFan )?
+
 ApplyAssign ::= LValue ".=" Expr
 (* Precedence: tighter than "and"/"or", lower than Postfix (., [], ()). *)
 StmtSubjectAssign ::= "=" LValue StmtTail  (* '.' = old LHS; result writes back to the same LHS path *)
