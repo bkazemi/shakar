@@ -62,13 +62,13 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 2. **Unary**: `-x`, `+x`, boolean `not x` / `!x`, `~x` (bitwise not; gated via `bitwise_symbols`, otherwise use `bit.not(x)`)
 3. **Power**: `x ** y` (right‑associative) ✅
 4. **Multiplicative**: `*`, `/` (float), `//` (floor int), `%`
-5. **Additive / concat**: `+`, `-`
+5. **Additive / concat**: `+`, `-`, `+>` (deep map merge)
    - `+` adds numbers; concatenates **strings** (rope) and **arrays** (copy‑on‑append semantics).
 6. **Shifts** (gated via `bitwise_symbols`): `<<`, `>>` (arithmetic for ints)
 7. **Bitwise AND/XOR/OR** (gated via `bitwise_symbols`): `&`, `^`, `|`
    - Note: `&` is also used as the **lambda sigil on the callee** (`map&(...)`). Infix `&` is bitwise; parser disambiguates.
    - `|` at **start of line** is reserved for **punctuation guards** (§7); infix `|` is bitwise OR.
-8. **Comparison**: `<`, `<=`, `>`, `>=`, `==`, `!=`, `is`, `is not`, `in`, `not in`
+8. **Comparison**: `<`, `<=`, `>`, `>=`, `==`, `!=`, `is`, `is not`, `!is`, `in`, `!in`, `not in`
 9. **Nil‑safe chain**: `??(expr)` (prefix form; treated as a primary) ✅
 10. **Walrus & apply-assign**: `:=`, `.=` (both expression-valued; bind tighter than `and`/`or`, lower than postfix) ✅
 11. **Boolean**: `and`, `or` (short‑circuit, value‑yielding) ✅
