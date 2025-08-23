@@ -255,6 +255,8 @@ value = cfg.db[host, default: "localhost"]
 - If key exists ⇒ return stored value.
 - If key missing ⇒ return the `default:` expression (no throw).
 - `default:` is a named argument to the `[]` operator; it doesn’t modify storage.
+- The `default:` expression is **evaluated only if** the key is missing (lazy).
+- On arrays and strings, the `default:` named argument is parsed but **ignored**; out-of-bounds still throws as before.
 - Works in selector chains: `cfg.db["host", default: "localhost"]`.
 
 #### Method alternative
