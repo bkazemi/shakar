@@ -1003,14 +1003,8 @@ allow = ["?ret"]
 - This gate applies **only to numeric operators**. Set/Map algebra (e.g., `A ^ B` symmetric diff) is **always enabled** (type-directed).
 ## 20) Grammar sketch (EBNF‑ish; implementation may vary)
 ```ebnf
-(* Map index with default (maps only). We add an auxiliary argument production
-   so we don't disturb existing index rules. The runtime restricts the optional
-   default to map-like bases; arrays/strings ignore it. *)
-IndexArgs   ::= Expr ("," "default" ":" Expr)?
+(* Map index with default (maps only) — integrated into Postfix '[' … ']' with optional 'default:' named arg when base is map-like. Arrays/strings ignore it. *)
 
-(* Deep map merge: operator and compound assign; precedence: additive family *)
-DeepMergeOp      ::= "+>"
-DeepMergeAssign  ::= LValue "+>=" Expr
 
 (* Field fan-out on LValue *)
 FieldList   ::= IDENT ("," IDENT)*
@@ -1020,6 +1014,10 @@ LValue      ::= IDENT ( Postfix )* ( FieldFan )?
 ApplyAssign ::= LValue ".=" Expr
 (* Precedence: tighter than "and"/"or", lower than Postfix (., [], ()). *)
 StmtSubjectAssign ::= "=" LValue StmtTail  (* '.' = old LHS; result writes back to the same LHS path *)
+(* Deep map merge: operator and compound assign; precedence: additive family *)
+DeepMergeOp      ::= "+>"
+DeepMergeAssign  ::= LValue "+>=" Expr
+
 (* Indexing / selector lists *)
 (* Standalone ranges are values (iterables): *)
 RangeExpr ::= Expr ".." Expr (":" Expr)? | Expr "..<" Expr (":" Expr)?
@@ -1027,7 +1025,7 @@ RangeExpr ::= Expr ".." Expr (":" Expr)? | Expr "..<" Expr (":" Expr)?
 (* (Same surface syntax; parsed as SliceSel when inside '[]'.) *)
 (* Note: the same `a..b` syntax denotes a Range value outside indexing, and a SliceSel inside `[]`. *)
 
-Indexing       ::= Primary "[" SelectorList "]"
+(* Indexing covered by Postfix '[' … ']' rule. *)
 SelectorList   ::= Selector ("," Selector)*
 Selector       ::= IndexSel | SliceSel
 SliceSel       ::= OptExpr ":" OptExpr (":" Expr)?  (* per‑selector step; clamps; '.' inside selectors = base *)
@@ -1046,7 +1044,7 @@ ForMap2      ::= "for" "[" IDENT "," IDENT "]" Expr ":" Block  (* '.' = value; k
 IndexSel     ::= Expr  (* evaluates to int; OOB throws *)
 SubjectExpr   ::= IDENT (Postfix)+
 ImplicitUse   ::= "." (Postfix)+  (* only in contexts with an implicit subject *)
-Postfix       ::= "." IDENT | "[" Expr "]" | "(" ArgList? ")"
+Postfix       ::= "." IDENT | "[" SelectorList "]" | "[" Expr ("," "default" ":" Expr)? "]" | "(" ArgList? ")"
 
 (* Unary operators *)
 UnaryPrefixOp ::= "+" | "-" | "not" | "!" ;
