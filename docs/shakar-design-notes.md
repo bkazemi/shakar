@@ -786,9 +786,9 @@ for[j, ^sum] arr:
 ## 9) Destructuring (no braces)
 
 ```shakar
-x, y = get_pair()
-name, age = user.profile
-k, v = pair
+x, y := get_pair()
+name, age := user.profile
+k, v := pair
 ```
 
 ---
@@ -1159,7 +1159,7 @@ GuardReturn     ::= "?ret" Expr ;
 
 GuardChain      ::= GuardHead GuardOr* GuardElse? ;
 GuardHead       ::= Expr ":" NEWLINE INDENT Block DEDENT ;
-GuardOr         ::= ", or" NEWLINE INDENT Block DEDENT ;
+GuardOr         ::= "|" Expr ":" NEWLINE INDENT Block DEDENT ;
 GuardElse       ::= "|:" NEWLINE INDENT Block DEDENT ;
 
 OneLineGuard    ::= GuardBranch ("|" GuardBranch)* ("|:" InlineBody)? ;
@@ -1214,8 +1214,9 @@ Destructure     ::= Pattern "=" Expr ;
 
 AwaitAnyCall    ::= "await" "[" "any" "]" "(" AnyArmList OptComma ")" (":" InlineBlock)? ;
 AwaitAllCall    ::= "await" "[" "all" "]" "(" AllArmList OptComma ")" (":" InlineBlock)? ;
-AnyArmList      ::= Expr ("," Expr)* ;
-AllArmList      ::= Expr ("," Expr)* ;
+AnyArmList      ::= AnyArm ("," AnyArm)* ;
+AllArmList      ::= AnyArm ("," AnyArm)* ;
+AnyArm          ::= (IDENT ":")? Expr (":" InlineBody)? | "timeout" Expr (":" InlineBody)? ;
 OptComma        ::= /* empty */ | "," ;
 
 (* ===== Error handling / hooks ===== *)
