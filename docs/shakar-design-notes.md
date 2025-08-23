@@ -1003,119 +1003,177 @@ allow = ["?ret"]
 - This gate applies **only to numeric operators**. Set/Map algebra (e.g., `A ^ B` symmetric diff) is **always enabled** (type-directed).
 ## 20) Grammar sketch (EBNF‑ish; implementation may vary)
 ```ebnf
-(* Map index with default (maps only) — integrated into Postfix '[' … ']' with optional 'default:' named arg when base is map-like. Arrays/strings ignore it. *)
+(* Shakar grammar — proper EBNF. Lexical tokens: IDENT, STRING, NUMBER, NEWLINE, INDENT, DEDENT. *)
 
+(* ===== Core expressions ===== *)
 
-(* Field fan-out on LValue *)
-FieldList   ::= IDENT ("," IDENT)*
-FieldFan    ::= "." "{" FieldList "}"
-LValue      ::= IDENT ( Postfix )* ( FieldFan )?
+Expr            ::= OrExpr ;
 
-ApplyAssign ::= LValue ".=" Expr
-(* Precedence: tighter than "and"/"or", lower than Postfix (., [], ()). *)
-StmtSubjectAssign ::= "=" LValue StmtTail  (* '.' = old LHS; result writes back to the same LHS path *)
-(* Deep map merge: operator and compound assign; precedence: additive family *)
-DeepMergeOp      ::= "+>"
-DeepMergeAssign  ::= LValue "+>=" Expr
+OrExpr          ::= AndExpr ( "or" AndExpr )* ;
+AndExpr         ::= NullishExpr ( "and" NullishExpr )* ;
+NullishExpr     ::= CompareExpr ( "??" CompareExpr )* ;
+CompareExpr     ::= AddExpr ( CmpOp AddExpr )* ;
 
-(* Indexing / selector lists *)
-(* Standalone ranges are values (iterables): *)
-RangeExpr ::= Expr ".." Expr (":" Expr)? | Expr "..<" Expr (":" Expr)?
-(* In indexing, ranges are slices (selectors): *)
-(* (Same surface syntax; parsed as SliceSel when inside '[]'.) *)
-(* Note: the same `a..b` syntax denotes a Range value outside indexing, and a SliceSel inside `[]`. *)
+CmpOp           ::= "==" | "!=" | "<" | "<=" | ">" | ">=" | "is" | "is not" | "!is" | "in" | "!in" | "not in" ;
 
-(* Indexing covered by Postfix '[' … ']' rule. *)
-SelectorList   ::= Selector ("," Selector)*
-Selector       ::= IndexSel | SliceSel
-SliceSel       ::= OptExpr ":" OptExpr (":" Expr)?  (* per‑selector step; clamps; '.' inside selectors = base *)
-OptExpr        ::= /* empty */ | Expr
-(* Await concurrency *)
-AwaitAnyCall   ::= "await" "[" "any" "]" "(" AnyArmList OptComma ")" (":" InlineBlock)?
-AwaitAllCall   ::= "await" "[" "all" "]" "(" AllArmList OptComma ")" (":" InlineBlock)?
-(* Loops *)
-ForIn        ::= "for" IDENT "in" Expr ":" Block
-ForSubject   ::= "for" Expr ":" Block
-ForIndexed   ::= "for" "[" IDENT "]" Expr ":" Block
-ForMap1      ::= "for" "[" IDENT "]" Expr ":" Block  (* '.' = value; IDENT = key *)
-ForMap2      ::= "for" "[" IDENT "," IDENT "]" Expr ":" Block  (* '.' = value; key,value bound *)
+AddExpr         ::= MulExpr ( AddOp MulExpr )* ;
+AddOp           ::= "+" | "-" | "^" | DeepMergeOp ;
 
-(* Selectors (per-selector step allowed) *)
-IndexSel     ::= Expr  (* evaluates to int; OOB throws *)
-SubjectExpr   ::= IDENT (Postfix)+
-ImplicitUse   ::= "." (Postfix)+  (* only in contexts with an implicit subject *)
-Postfix       ::= "." IDENT | "[" SelectorList "]" | "[" Expr ("," "default" ":" Expr)? "]" | "(" ArgList? ")"
+MulExpr         ::= UnaryExpr ( MulOp UnaryExpr )* ;
+MulOp           ::= "*" | "/" | "%" ;
 
-(* Unary operators *)
-UnaryPrefixOp ::= "+" | "-" | "not" | "!" ;
-UnaryExpr ::= UnaryPrefixOp UnaryExpr | PostfixExpr ;
+UnaryExpr       ::= UnaryPrefixOp UnaryExpr | PostfixExpr ;
+UnaryPrefixOp   ::= "+" | "-" | "not" | "!" ;
 
-(* Comparison operators *)
-CmpOp ::= "==" | "!=" | "<" | "<=" | ">" | ">=" | "is" | "is not" | "!is" | "in" | "!in" | "not in" ;
+PostfixExpr     ::= Primary ( Postfix )* ;
+Postfix         ::= "." IDENT
+                  | "[" SelectorList ("," "default" ":" Expr)? "]"
+                  | "(" ArgList? ")" ;
 
-GuardReturn   ::= "?ret" Expr
+SelectorList    ::= Selector ("," Selector)* ;
+Selector        ::= IndexSel | SliceSel ;
+IndexSel        ::= Expr ;  (* evaluates to int/key; OOB on arrays throws *)
+SliceSel        ::= OptExpr ":" OptExpr (":" Expr)? ;
+OptExpr         ::= /* empty */ | Expr ;
 
-AssignOr      ::= LValue "or=" Expr
-StmtSubject   ::= "=" IDENT "or" Expr
+Primary         ::= IDENT
+                  | Literal
+                  | "(" Expr ")"
+                  | SubjectExpr
+                  ;
 
-SafeChain     ::= "??" "(" Expr ")"
+Literal         ::= STRING | NUMBER | "nil" | "true" | "false" ;
 
-Expr          ::= Expr "and" Expr
-               | Expr "or"  Expr
-               | Expr ":="  Expr
-               | ...
+SubjectExpr     ::= IDENT ( Postfix )+ ;
+ImplicitUse     ::= "." ( Postfix )+ ;  (* only in contexts with an implicit subject *)
 
-PostfixIf     ::= SimpleStmt "if" Expr
-PostfixUnless ::= SimpleStmt "unless" Expr
+RangeExpr       ::= Expr ".." Expr (":" Expr)? | Expr "..<" Expr (":" Expr)? ;
 
-GuardChain    ::= GuardHead GuardOr* GuardElse?
-GuardHead     ::= Expr ":" NEWLINE INDENT Block DEDENT
-GuardOr       ::= "|" Expr ":" NEWLINE INDENT Block DEDENT
-GuardElse     ::= "|:" NEWLINE INDENT Block DEDENT
+(* ===== Assignment forms ===== *)
 
-OneLineGuard  ::= GuardBranch ("|" GuardBranch)* ("|:" InlineBody)?
-GuardBranch   ::= Expr ":" InlineBody
-InlineBody    ::= SimpleStmt | "{" InlineStmt* "}"
+ApplyAssign     ::= LValue ".=" Expr ;
+StmtSubjectAssign ::= "=" LValue StmtTail ;  (* '.' = old LHS; writes back to same LHS path *)
+DeepMergeOp     ::= "+>" ;
+DeepMergeAssign ::= LValue "+>=" Expr ;
+AssignOr        ::= LValue "or=" Expr ;
 
-Pattern       ::= IDENT | Pattern "," Pattern | "(" Pattern ("," Pattern)* ")"
-Destructure   ::= Pattern "=" Expr
+StmtTail        ::= Expr ;
 
-CompHead ::= ("over" | "for") OverSpec
-OverSpec ::= "[" BinderList "]" Expr | Expr ("bind" Pattern)?
-BinderList ::= Pattern ("," Pattern)*
-IfClause ::= ("if" Expr)?
+LValue          ::= IDENT ( Postfix )* ( FieldFan )? ;
+FieldList       ::= IDENT ("," IDENT)* ;
+FieldFan        ::= "." "{" FieldList "}" ;
 
-ListComp ::= "[" Expr CompHead IfClause? "]"
-SetComp  ::= "{" Expr CompHead IfClause? "}"
-DictComp ::= "{" Expr ":" Expr CompHead IfClause? "}"
+(* ===== Statements & blocks ===== *)
 
-Call          ::= Callee "(" ArgList? ")"
-               | Callee ArgListNamedMixed
-ArgListNamedMixed ::= (Expr ("," Expr)*)? ("," NamedArg ("," NamedArg)*)?
-NamedArg      ::= IDENT ":" Expr
+SimpleStmt      ::= Expr
+                  | ApplyAssign
+                  | AssignOr
+                  | Destructure
+                  | GuardReturn
+                  | Dbg
+                  | Assert
+                  | UsingStmt
+                  | DeferStmt
+                  | Hook
+                  | CatchStmt
+                  | PostfixIf
+                  | PostfixUnless ;
 
-LambdaCall1   ::= Callee "&" "(" Expr ")"
-LambdaCallN   ::= Callee "&" "[" ParamList "]" "(" Expr ")"
-ParamList     ::= IDENT ("," IDENT)*
+PostfixIf       ::= SimpleStmt "if" Expr ;
+PostfixUnless   ::= SimpleStmt "unless" Expr ;
 
-DecoratorDef  ::= "decorator" IDENT ":" Block
-DecorateUse   ::= "decorate" IDENT ("," IDENT)*
+Block           ::= NEWLINE INDENT Stmt+ DEDENT ;
+InlineBlock     ::= "{" InlineStmt* "}" ;
+InlineStmt      ::= SimpleStmt ;
 
-CatchExpr     ::= Expr "catch" IDENT? "=>" Expr
-CatchStmt     ::= Expr "catch" Block
-CatchCute     ::= Expr "@@"    IDENT? "=>" Expr
+Stmt            ::= SimpleStmt
+                  | ForIn | ForSubject | ForIndexed | ForMap1 | ForMap2
+                  | AwaitAnyCall | AwaitAllCall ;
 
-Hook          ::= "hook" STRING "=>" LambdaExpr
+(* ===== Control flow ===== *)
 
-RecordItem    ::= IDENT ":" Expr
-               | "get" IDENT "(" ")" ":" Block
-               | "set" IDENT "(" IDENT ")" ":" Block
+GuardReturn     ::= "?ret" Expr ;
 
-DeferStmt     ::= "defer" SimpleCall
-UsingStmt     ::= "using" Expr ("bind" IDENT)? ":" Block
+GuardChain      ::= GuardHead GuardOr* GuardElse? ;
+GuardHead       ::= Expr ":" NEWLINE INDENT Block DEDENT ;
+GuardOr         ::= ", or" NEWLINE INDENT Block DEDENT ;
+GuardElse       ::= "|:" NEWLINE INDENT Block DEDENT ;
 
-Assert        ::= "assert" Expr ("," Expr)?
-Dbg           ::= "dbg" (Expr ("," Expr)?)
+OneLineGuard    ::= GuardBranch ("|" GuardBranch)* ("|:" InlineBody)? ;
+GuardBranch     ::= Expr ":" InlineBody ;
+InlineBody      ::= SimpleStmt | "{" InlineStmt* "}" ;
+
+(* ===== Loops ===== *)
+
+ForIn           ::= "for" IDENT "in" Expr ":" Block ;
+ForSubject      ::= "for" Expr ":" Block ;
+ForIndexed      ::= "for" "[" IDENT "]" Expr ":" Block ;
+ForMap1         ::= "for" "[" IDENT "]" Expr ":" Block ;  (* '.' = value; IDENT = key *)
+ForMap2         ::= "for" "[" IDENT "," IDENT "]" Expr ":" Block ;  (* '.' = value; key,value bound *)
+
+(* ===== Selectors (per-selector step allowed) ===== *)
+
+Indexing        ::= PostfixExpr "[" SelectorList "]" ;  (* kept for reference; covered by Postfix *)
+
+(* ===== Calls & lambdas ===== *)
+
+Callee          ::= PostfixExpr ;
+Call            ::= Callee "(" ArgList? ")"
+                  | Callee ArgListNamedMixed ;
+
+ArgList         ::= Expr ("," Expr)* ;
+ArgListNamedMixed ::= (Expr ("," Expr)*)? ("," NamedArg ("," NamedArg)*)? ;
+NamedArg        ::= IDENT ":" Expr ;
+
+LambdaCall1     ::= Callee "&" "(" Expr ")" ;
+LambdaCallN     ::= Callee "&" "[" ParamList "]" "(" Expr ")" ;
+ParamList       ::= IDENT ("," IDENT)* ;
+
+(* ===== Comprehensions ===== *)
+
+CompHead        ::= ("over" | "for") OverSpec ;
+OverSpec        ::= "[" BinderList "]" Expr | Expr ("bind" Pattern)? ;
+BinderList      ::= Pattern ("," Pattern)* ;
+IfClause        ::= "if" Expr? ;
+
+ListComp        ::= "[" Expr CompHead IfClause? "]" ;
+SetComp         ::= "{" Expr CompHead IfClause? "}" ;
+DictComp        ::= "{" Expr ":" Expr CompHead IfClause? "}" ;
+
+Pattern         ::= IDENT | Pattern "," Pattern | "(" Pattern ("," Pattern)* ")" ;
+Destructure     ::= Pattern "=" Expr ;
+
+(* ===== Concurrency ===== *)
+
+AwaitAnyCall    ::= "await" "[" "any" "]" "(" AnyArmList OptComma ")" (":" InlineBlock)? ;
+AwaitAllCall    ::= "await" "[" "all" "]" "(" AllArmList OptComma ")" (":" InlineBlock)? ;
+AnyArmList      ::= Expr ("," Expr)* ;
+AllArmList      ::= Expr ("," Expr)* ;
+OptComma        ::= /* empty */ | "," ;
+
+(* ===== Error handling / hooks ===== *)
+
+CatchExpr       ::= Expr "catch" IDENT? "=>" Expr ;
+CatchStmt       ::= Expr "catch" Block ;
+CatchCute       ::= Expr "@@" IDENT? "=>" Expr ;
+
+Hook            ::= "hook" STRING "=>" LambdaExpr ;
+LambdaExpr      ::= "(" ParamList? ")" "=>" (Expr | Block) ;
+
+(* ===== Records ===== *)
+
+RecordItem      ::= IDENT ":" Expr
+                  | "get" IDENT "(" ")" ":" Block
+                  | "set" IDENT "(" IDENT ")" ":" Block ;
+
+(* ===== Using / Defer / Assert / Debug ===== *)
+
+DeferStmt       ::= "defer" SimpleCall ;
+SimpleCall      ::= Callee "(" ArgList? ")" ;
+UsingStmt       ::= "using" Expr ("bind" IDENT)? ":" Block ;
+
+Assert          ::= "assert" Expr ("," Expr)? ;
+Dbg             ::= "dbg" (Expr ("," Expr)?) ;
 ```
 
 ---
