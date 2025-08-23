@@ -261,7 +261,7 @@ value = cfg.db[host, default: "localhost"]
 
 - `m.get(key, default: v)` remains valid.
 
-### 3.12 Placeholder partials `?`
+### 3.11 Placeholder partials `?`
 
 #### Surface
 
@@ -1231,7 +1231,7 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
 # Inside Selector expressions, '.' denotes the base (the MemberExpr before '[').
 ```
 ## 21) Considering / undecided
-
+- **Conditional apply-assign `.?=`**: compute RHS with old LHS as `.` and **assign only if non-nil**. Today use `=<LHS> ??(.transform()) ?? .` or `<LHS> .= ??(.transform()) ?? .`.
 - **Keyword aliases (macro‑lite)**: project remaps (disabled by default).
 - **Autocall any nullary method**: off by default; explicit `getter` is core.
 - **Copy‑update `with`** sugar: syntax TBA; method `obj.with(...)` works now.
