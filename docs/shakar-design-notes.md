@@ -179,6 +179,30 @@ x = cond ? a : b
  - **Apply-assign**: `LHS .= RHS` (**expression**).
    - Inside `RHS`, `.` = **old value of `LHS`**; then the result writes back to `LHS`.
    - **Yields** the **updated value of `LHS`**, usable in larger expressions.
+#### Idioms: `.=` with coalesce
+
+```shakar
+# 1) Sanitize strings with a constant fallback
+user.{name, email} .= ??(.trim().lower()) ?? "unknown"
+
+# 2) Keep the old value if the transform yields nil (explicit LHS fallback)
+user.nick .= .trim() ?? user.nick
+
+# 3) Numeric clamp with constant fallback
+profile.age .= .clamp(0, 120) ?? 0
+
+# 4) Selector chains with coalesce
+cfg["db", default: {}]["host"].= .trim() ?? "localhost"
+
+# 5) Fan-out with safe normalization and constant fallback
+user.{phone, altPhone} .= .digits() ?? ""
+```
+
+**Notes**
+- Bare `.` cannot stand alone. Do not write `a .= . ?? x` or `?? .`.
+- When you must keep the old value on failure, use the explicit LHS name in the fallback, e.g. `a .= ??(.transform()) ?? a`.
+- If you only want a default when the slot is nil (no transform), prefer plain assignment with `??`: `a = a ?? default`.
+
 - **LValue shape**: assignment targets are identifiers with member (`.field`) and/or selector (`[index]`) chains; **calls are not allowed on the left-hand side**.
 
 ---
