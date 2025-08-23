@@ -258,7 +258,7 @@ value = cfg.db[host, default: "localhost"]
 - `default:` is a named argument to the `[]` operator; it doesn’t modify storage.
 - The `default:` expression is **evaluated only if** the key is missing (lazy).
 - On arrays and strings, the `default:` named argument is parsed but **ignored**; out-of-bounds still throws as before.
-- Works in selector chains: `cfg.db["host", default: "localhost"]`.
+- Works in selector chains: `cfg["db", default: {}]["host", default: "localhost"]`.
 
 #### Method alternative
 
