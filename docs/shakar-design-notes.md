@@ -188,7 +188,6 @@ x = cond ? a : b
 - Requires an **lvalue**; applying to non-lvalues is an error.
 
 ### 3.8.1 Multi-field assign fan-out
-
 #### Surface
 
 ```shakar
@@ -214,6 +213,31 @@ user.first .= .title(); user.last .= .title()
 - Only after a path; `.{…}` here is not a set literal.
 - In `.=` RHS, `.` is the old per-field value.
 - Left-to-right order; duplicates collapse; missing fields are errors.
+
+### 3.9 Deep map merge `+>` and `+>=`
+
+#### Surface
+
+```shakar
+C = A +> B
+cfg +>= env
+```
+
+#### Semantics
+
+- Map vs map: recursive key-wise merge; RHS wins on conflicts.
+- If either side at a path is not a map, RHS replaces LHS at that path.
+- Arrays, sets, strings, numbers: replaced wholesale (no deep behavior).
+- Not commutative: `A +> B` may differ from `B +> A`.
+
+#### Precedence
+
+- Additive tier with `+ - ^` (map algebra family).
+
+#### Errors
+
+- `+>=` requires LHS to be a map; otherwise error. `+>` always yields a value per rules above.
+
 
 ## 4) Implicit subject `.` — anchor stack
 
@@ -957,6 +981,10 @@ allow = ["?ret"]
 - This gate applies **only to numeric operators**. Set/Map algebra (e.g., `A ^ B` symmetric diff) is **always enabled** (type-directed).
 ## 20) Grammar sketch (EBNF‑ish; implementation may vary)
 ```ebnf
+(* Deep map merge: operator and compound assign; precedence: additive family *)
+DeepMergeOp      ::= "+>"
+DeepMergeAssign  ::= LValue "+>=" Expr
+
 (* Field fan-out on LValue *)
 FieldList   ::= IDENT ("," IDENT)*
 FieldFan    ::= "." "{" FieldList "}"
