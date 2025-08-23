@@ -239,6 +239,28 @@ cfg +>= env
 - `+>=` requires LHS to be a map; otherwise error. `+>` always yields a value per rules above.
 
 
+### 3.10 Map index with default
+
+#### Surface
+
+```shakar
+count = hits["/home", default: 0]
+port  = env["PORT", default: "3000"]
+value = cfg.db[host, default: "localhost"]
+```
+
+#### Semantics
+
+- Maps only. Arrays/strings unchanged (OOB still throws).
+- If key exists ⇒ return stored value.
+- If key missing ⇒ return the `default:` expression (no throw).
+- `default:` is a named argument to the `[]` operator; it doesn’t modify storage.
+- Works in selector chains: `cfg.db["host", default: "localhost"]`.
+
+#### Method alternative
+
+- `m.get(key, default: v)` remains valid.
+
 ## 4) Implicit subject `.` — anchor stack
 
 ### 4.1 Where `.` comes from (binders)
@@ -981,6 +1003,11 @@ allow = ["?ret"]
 - This gate applies **only to numeric operators**. Set/Map algebra (e.g., `A ^ B` symmetric diff) is **always enabled** (type-directed).
 ## 20) Grammar sketch (EBNF‑ish; implementation may vary)
 ```ebnf
+(* Map index with default (maps only). We add an auxiliary argument production
+   so we don't disturb existing index rules. The runtime restricts the optional
+   default to map-like bases; arrays/strings ignore it. *)
+IndexArgs   ::= Expr ("," "default" ":" Expr)?
+
 (* Deep map merge: operator and compound assign; precedence: additive family *)
 DeepMergeOp      ::= "+>"
 DeepMergeAssign  ::= LValue "+>=" Expr
