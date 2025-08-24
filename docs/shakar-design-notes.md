@@ -879,6 +879,13 @@ xs[0, 3, 5:]          # specific indices plus a tail
 xs[1 : .len-1]        # drop first and last (half‑open excludes last)
 ```
 - The overall result is the **concatenation** of each selector’s result, in order.
+- **Selector values inside `[]`**: backtick selector literals are valid items and are **flattened** (spliced) into the selector list at that position.
+- **Examples**:
+  - `xs[`1:10`]`  ≡  `xs[1:10]`
+  - `xs[`1:10, 11:15:2`, 20]`  ≡  `xs[1:10, 11:15:2, 20]`
+  - `customSelector := `1:10, someIdx`; xs[customSelector]`  # define & reuse a selector value
+- **Type checks**: each item must evaluate to either an integer index or a selector value; otherwise it is a type error.
+
 - **Per‑selector steps** are allowed.
 - **Index selectors**: OOB → **throw**.  **Slice selectors**: **clamp**.
 - Inside each selector expression, **`.` = the base** (e.g., `xs`) for that selector only.
@@ -1040,6 +1047,11 @@ allow = ["?ret"]
 ---
 
 ### Formatter / Lints (normative)
+* **Discourage inline backticks inside `[]`**: `` xs[`1:10`] `` is allowed but discouraged; prefer flatted form `` xs[1:10] `` when the literal is the only selector and binded selectors elsewhere `` sel := `5:10`; xs[1, sel] ``. The linter should warn.
+* **Discourage inline backticks in collection literals**: `` [1, `1:10`, 20] `` is allowed but discouraged; prefer `[1, sel, 20]` with `` sel := `1:10` ``.
+  * **Exception**: short REPL snippets and small examples may use inline backticks for brevity.
+* **Selector values in `[]`**: when a backtick selector literal appears inside `[]`, the formatter should inline its body (flatten), preserving order.
+* **Selector values in collections**: backtick selector literals are ordinary values in arrays/maps/sets; **no flattening** occurs in collection literals.
 * **Selector literal values use backticks** around the selector **body** (no brackets inside). Example: `` `1:<5, 11:15:2, 20` ``.
 * **Brackets `[]` are not used for selector values**. Use brackets only for indexing, binders (e.g. `for[i]`), and array literals.
 * **Commas in lists**: parser accepts both `.{a,b}` and `.{a, b}`. Formatter emits a single space after each comma across all comma-separated lists (field fan-out `.{...}`, argument lists, binder lists, patterns). No space before commas; no spaces around braces.
