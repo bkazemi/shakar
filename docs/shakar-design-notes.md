@@ -850,7 +850,7 @@ If a head expression with named args is used as a punctuation‑guard head, wrap
 ## 12.5) Slicing & selector lists
 - **Selector literals as values** use backticks with the body (e.g., `` `lo:<hi` `` or `` `1:<5, 11:15:2, 20` ``). Indexing continues to use brackets: `xs[lo:<hi]`.
 - **Selector literals as values vs slices:** selector literals as values do not clamp; slices inside `[]` still clamp; index selectors throw on out-of-bounds.
-
+- **Selector literal interpolation**: inside backticks, use `{expr}` to embed any expression as a bound or index, e.g., `` `1:{hi-1}` `` or `` `{lo+1}:<{hi}` ``. Top-level separators `:` and `,` split slices/items; `{…}` shields internal punctuation. Use **bare identifiers/numbers** without braces when possible (e.g., `` `lo:<hi` ``). **Parentheses are not used at top level** inside selector literals; if you need grouping, put it **inside** `{…}`.
 
 ## 12.6) Regex helpers
 
@@ -1047,6 +1047,8 @@ allow = ["?ret"]
 ---
 
 ### Formatter / Lints (normative)
+* **Selector literals (backticks) — interpolation style**: prefer bare names/numbers for bounds; require `{…}` for any non-trivial expression. Do **not** use top-level `(…)` in selector literals; use `{…}` instead. Avoid spaces just inside braces: `{a+1}`, not `{ a + 1 }`.
+
 * **Discourage inline backticks inside `[]`**: `` xs[`1:10`] `` is allowed but discouraged; prefer flatted form `` xs[1:10] `` when the literal is the only selector and binded selectors elsewhere `` sel := `5:10`; xs[1, sel] ``. The linter should warn.
 * **Discourage inline backticks in collection literals**: `` [1, `1:10`, 20] `` is allowed but discouraged; prefer `[1, sel, 20]` with `` sel := `1:10` ``.
   * **Exception**: short REPL snippets and small examples may use inline backticks for brevity.
@@ -1108,6 +1110,7 @@ Selector        ::= IndexSel | SliceSel ;
 IndexSel        ::= Expr ;  (* evaluates to int/key; OOB on arrays throws *)
 SliceSel        ::= OptExpr ":" OptExpr (":" Expr)? ;
 OptExpr         ::= /* empty */ | Expr ;
+OptStop         ::= /* empty */ | "<" Expr | Expr ;
 
 Primary         ::= IDENT
                   | Literal
@@ -1117,7 +1120,14 @@ Primary         ::= IDENT
                   ;
 
 Literal         ::= STRING | NUMBER | "nil" | "true" | "false" ;
-SelectorLiteral ::= SELECTOR_LITERAL ;  (* backtick selector literal; first-class value, see §3.4 *)
+SelectorLiteral ::= "`" SelList "`" ;  (* backtick selector literal; first-class value with {expr} interpolation *)
+SelList         ::= SelItem ("," SelItem)* ;
+SelItem         ::= SliceItem | IndexItem ;
+SliceItem       ::= SelAtom? ":" OptStop (":" SelAtom)? ;
+OptStop         ::= /* empty */ | "<" SelAtom | SelAtom ;
+IndexItem       ::= SelAtom ;
+SelAtom         ::= Interp | IDENT | NUMBER ;
+Interp          ::= "{" Expr "}" ;
 
 (* SubjectExpr removed; covered by PostfixExpr *)
 (* ImplicitUse is contextual via anchor stack; not a nonterminal here. *)
