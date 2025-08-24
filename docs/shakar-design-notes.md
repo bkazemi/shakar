@@ -48,7 +48,6 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
   - **Arrays:** `[1, 2, 3]`
   - **Records:** `{ key: value, other: 2 }` (plain values; getters/setters have contextual `get`/`set`, see §10).
   - **Selector literals (as values):** backtick selectors like `` `1:10` `` produce **Selector** values (views/iterables). Default stop is **inclusive**; use `<stop` for exclusive (e.g., `` `[1:<10]` ``).
-
 ---
 
 ## 3) Operators & precedence (complete)
@@ -276,12 +275,12 @@ value = cfg.db[host, default: "localhost"]
 
 #### Semantics
 
-- Maps only. Arrays/strings unchanged (OOB still throws).
+- Maps only; using `default:` on a non-map receiver is a **static error**.
 - If key exists ⇒ return stored value.
 - If key missing ⇒ return the `default:` expression (no throw).
 - `default:` is a named argument to the `[]` operator; it doesn’t modify storage.
 - The `default:` expression is **evaluated only if** the key is missing (lazy).
-- On arrays and strings, the `default:` named argument is parsed but **ignored**; out-of-bounds still throws as before.
+- Arrays and strings: `default:` is **not accepted**; indexing semantics unchanged (OOB still throws).
 - Works in selector chains: `cfg["db", default: {}]["host", default: "localhost"]`.
 
 #### Method alternative
@@ -1067,6 +1066,7 @@ allow = ["?ret"]
 - **Style -- `over[...]` vs `bind`:** prefer `over[...]` when you have more than one binder. Do not use both `over[...]` and `bind` in the same head.
 - **Style -- Guard heads with paren-light calls:** discouraged; the formatter may auto-paren such heads (see §7).
 - **Tokenization -- ``!in``:** write as a single token with no internal space: `a !in b` (not `a ! in b`). Parser treats `! in` as unary `!` then `in`.
+- **Tokenization -- selector interpolation braces:** Inside a backtick selector literal, `{` begins interpolation; the interpolation region is parsed as a normal expression with balanced-brace counting; braces contained in string or character literals or comments do not affect the balance. The selector literal ends at the next backtick after the selector grammar completes. Comments are not permitted inside selector bodies. There are no escape sequences in selector bodies.
 - **Style -- Comparison comma-chains with `or`:** When a comma-chain switches to `or`, prefer either repeating `, or` for each subsequent leg (e.g., `a > 10, or == 0, or == 1`) or grouping the `or` cluster in parentheses (e.g., `a > 10, or (== 0, == 1)`). This improves readability; semantics are unchanged (joiner is sticky; a comparator is required after `or` to remain in the chain).
 - **Flag free `.`**: bare `.` outside an active binder/anchor is an error.
 - **Auto-paren guard heads with `:`**: when a guard head contains `:`, the formatter inserts parentheses; style check warns if missing.
