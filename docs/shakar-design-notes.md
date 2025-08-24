@@ -47,7 +47,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
   - **Strings:** `"…"`, with escapes `\n \t \\ \" \u{…}`. Multiline strings ❓ (later).
   - **Arrays:** `[1, 2, 3]`
   - **Records:** `{ key: value, other: 2 }` (plain values; getters/setters have contextual `get`/`set`, see §10).
-  - **Ranges (as values):** `0..10`, `0..<10` produce **Range** objects (iterables).
+  - **Selector literals (as values):** backtick selectors like `` `1:10` `` produce **Selector** values (views/iterables). Default stop is **inclusive**; use `<stop` for exclusive (e.g., `` `[1:<10]` ``).
 
 ---
 
@@ -123,7 +123,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
   - **Selectors in comparisons:** with backtick selector-literals `` `Sel` ``:
     - ``S == `Sel` `` ⇒ **any()** membership; ``S != `Sel` `` ⇒ **all()** not-in.
     - ``S <op> `Sel` `` for `<, <=, >, >=` ⇒ **all()**; reduce to `min/max(Sel)` honoring range openness.
-      - Examples: ``a < `1..5` `` ⇒ `a < 1`; ``a >= `lo, hi` `` ⇒ `a >= max(lo, hi)`.
+      - Examples: ``a < `1:<5` `` ⇒ `a < 1`; ``a >= `lo, hi` `` ⇒ `a >= max(lo, hi)`.
 
   ```shakar
   # CCC sanity
@@ -142,7 +142,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
   assert a == b+4, 8-1                      # ⇒ a == (b+4) and a == (8-1)
 
   # Selector-literal legs
-  assert 4 < `5..10`, != `7, 8`             # ⇒ (4 < 5) and (4 != 7) and (4 != 8)
+  assert 4 < `5:10`, != `7, 8`             # ⇒ (4 < 5) and (4 != 7) and (4 != 8)
   ```
 - `==`, `!=` are value equality; type‑aware. Cross-type compares: numeric Int vs Float equality compares by value (for example, `3 == 3.0` is true); other cross-type comparisons error (except nil equality).
 - Ordering `< <= > >=` defined for **numbers** and **strings** (lexicographic by bytes of normalized UTF‑8). Arrays/records ordering ❓ (not in v0.1).
@@ -435,12 +435,12 @@ xs = ["  a", "b  "]
 ```
 
 ```shakar
-# Range as value vs selector:
+# Selector as value vs selector:
 sum := 0
-for i in 0..3: sum += i           # 0+1+2+3
-ix, vals = [], []
+for i in `0:3`: sum += i           # 0+1+2+3
+ix, vals := [], []
 xs = [10,11,12,13]
-for[i] xs[1..3]: ix.append(i); vals.append(.)
+for[i] xs[1:3]: ix.append(i); vals.append(.)
 assert ix == [0,1] and vals == [11,12]
 ```
 
@@ -686,14 +686,14 @@ use(g.user, g.posts)
 - `.` refers to the value defined by the construct as described above; it does **not** capture outer `.` from lambdas.
 
 - **for‑in**: `for x in iterable: block`
-- Ranges as values: `for i in 0..n: …` and `for i in 0..<n: …`  # iterate a numeric Range
+- Selector literals as values: ``for i in `0:<n`: …``  # iterate a numeric selector
 - Selector lists (indexed view): `for[i] xs[ sel1, sel2, … ]: …`  # iterate the concatenated view; i is view index
-- Note: the same `a..b` syntax is a **selector** inside `[]`, and a **Range value** elsewhere.
+- Note: the same `a:b` syntax is a **selector** inside `[]`, and a **Selector value** elsewhere.
   - Iteration over `nil` is **no‑op** (safe): `for x in maybeNil: …` does nothing if `maybeNil` is nil.
 - **break**, **continue**: loop controls.
 - **return**: function return.
 - **defer** / **using**: resource management (§11).
-- **while/until** ❓: not in v0.1 unless demanded; `for` over `Range` covers most cases.
+- **while/until** ❓: not in v0.1 unless demanded; `for` over `selector literal` covers most cases.
 
 ---
 
@@ -746,19 +746,19 @@ Binder forms:
 - `for xs:` — subjectful loop; body sees `.` = element.
 - `for[i] xs:` — indexed; `i` = view index; `.` = element.
 - `for[k] m:` / `for[k, v] m:` — map/record; `k` = key, `.` = value (or `v` if bound).
-- `for … in <selectors>:` — iterate a **selector list** (ranges, slices, indices).
+- `for … in <selectors>:` — iterate a **selector list** (selector values (ranges), slices, indices).
 
 **Hoisted binders (`^name`) — final v0.1 semantics**
 - **Meaning:** Bind this loop variable to an **outer-scope** binding; if none exists, **create** it in the immediately enclosing (non-loop) scope with initial `nil`.
 - **Per-iteration:** Assign the current loop value to the hoisted binding each iteration. If the loop runs 0 times, a pre-existing binding is unchanged; a newly hoisted binding remains `nil`.
-- **Where:** Works in any binder list: `for[^i] 0..n: …`, `for[^k, ^v] m: …`, `for[^i] xs[ sel1, sel2 ]: …`.
+- **Where:** Works in any binder list: `for[^i] 0:n: …`, `for[^k, ^v] m: …`, `for[^i] xs[ sel1, sel2 ]: …`.
 - **Errors:** It is illegal to use both `^x` and `x` for the same name in one binder list, or to repeat the same `^name` within a binder list.
 - **Closures:** Inner closures capture the **single hoisted binding** (mutations visible across iterations).
 
 Examples:
 ```shakar
 # Hoist-and-declare
-for[^idx] 0..4:
+for[^idx] `0:4`:
   use(idx)
 print(idx)     # => 3; if loop didn’t run, idx == nil
 
@@ -769,12 +769,12 @@ for[j, ^sum] arr:
 ```
 
 - **for‑in**: `for x in iterable: block`
-  - Range values: `for i in 0..n: …`, `for i in 0..<n: …`
+  - Selector values: `` for i in `0:n`: … ``, `` for i in `0:<n`: … ``
   - Iteration over `nil` is **no‑op** (safe): `for x in maybeNil: …` does nothing if `maybeNil` is nil.
 - **break**, **continue**: loop controls.
 - **return**: function return.
 - **defer** / **using**: resource management (§11).
-- **while/until** ❓: not in v0.1 unless demanded; `for` over `Range` covers most cases.
+- **while/until** ❓: not in v0.1 unless demanded; `for` over `Selector literal` covers most cases.
 
 ---
 
@@ -848,7 +848,8 @@ If a head expression with named args is used as a punctuation‑guard head, wrap
 ## 12) Strings & performance (critical)
 
 ## 12.5) Slicing & selector lists
-- **Ranges as values vs slices:** ranges as values do not clamp and support an optional `:step` (negative step allowed; step 0 is an error). Slices inside `[]` still clamp; index selectors throw on out-of-bounds.
+- **Selector literals as values** use backticks with the body (e.g., `` `lo:<hi` `` or `` `1:<5, 11:15:2, 20` ``). Indexing continues to use brackets: `xs[lo:<hi]`.
+- **Selector literals as values vs slices:** selector literals as values do not clamp; slices inside `[]` still clamp; index selectors throw on out-of-bounds.
 
 
 ## 12.6) Regex helpers
@@ -868,7 +869,7 @@ a[:]           # whole view
 - **Negative indices** allowed (`-1` is last).
 - **Reverse requires explicit negative step:** `a[i:j:-1]`. We **do not** auto‑reverse when `i > j`.
 - **Indexing** `a[i]` **throws** if out‑of‑bounds.
-- **Slices** **clamp** to `[0..len]` and never throw; an inverted range with positive step yields `[]`.
+- **Slices** **clamp** to `[0:len]` and never throw; an inverted range with positive step yields `[]`.
 - **Strict slicing**: `slice!(a, i, j, step?)` throws on any out‑of‑bounds (no clamping).
 
 **Selector lists** (multiple selectors inside `[]`, comma‑separated):
@@ -968,7 +969,7 @@ To pass a callable for a getter: `&(obj.prop())`.
 - **Array**: ordered, dynamic
 - **Record**: key→value map (string keys); descriptors for getters/setters
 - **Func**: user/native functions
-- **Range**: iterable numeric range
+- **Selector literal**: iterable numeric range
 - **Nil**: null value
 
 Type predicates/methods live in stdlib (`isInt(x)`, `typeOf(x)`), not as syntax.
@@ -1039,6 +1040,8 @@ allow = ["?ret"]
 ---
 
 ### Formatter / Lints (normative)
+* **Selector literal values use backticks** around the selector **body** (no brackets inside). Example: `` `1:<5, 11:15:2, 20` ``.
+* **Brackets `[]` are not used for selector values**. Use brackets only for indexing, binders (e.g. `for[i]`), and array literals.
 * **Commas in lists**: parser accepts both `.{a,b}` and `.{a, b}`. Formatter emits a single space after each comma across all comma-separated lists (field fan-out `.{...}`, argument lists, binder lists, patterns). No space before commas; no spaces around braces.
 
 * **Field fan-out braces**: prefer `user.{a, b}` (no space between `.` and `{`). Trailing comma only when the list is multiline.
@@ -1097,18 +1100,16 @@ OptExpr         ::= /* empty */ | Expr ;
 Primary         ::= IDENT
                   | Literal
                   | "(" Expr ")"
-                  | RangeExpr
                   | SelectorLiteral
                   | NullSafe
                   ;
 
 Literal         ::= STRING | NUMBER | "nil" | "true" | "false" ;
+SelectorLiteral ::= SELECTOR_LITERAL ;  (* backtick selector literal; first-class value, see §3.4 *)
 
 (* SubjectExpr removed; covered by PostfixExpr *)
 (* ImplicitUse is contextual via anchor stack; not a nonterminal here. *)
 
-RangeExpr       ::= Expr ".." Expr (":" Expr)? | Expr "..<" Expr (":" Expr)? ;
-SelectorLiteral ::= "`" /* selector literal (see §3.4) */ "`" ;
 NullSafe        ::= "??" "(" Expr ")" ;
 
 (* ===== Assignment forms ===== *)
@@ -1272,7 +1273,7 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
 - **Pipes `|>`**: maybe later; redundant for v0.1.
 - **Nested/multi‑source comprehensions**: later via `bind (a,b) over zip(xs,ys)`.
 - **Word range aliases `to`/`until`**: optional later.
-- **While/until loops**: consider only if demanded; `for` over `Range` covers most cases.
+- **While/until loops**: consider only if demanded; `for` over `Selector value` covers most cases.
 - **Sticky subject (prefix `%`)**: `%expr` sets the **anchor** to `expr` and marks it **sticky** for the current expression: child groupings do not retarget unless another `%` or a new explicit subject appears. **Does not affect** selector bases or `.=`/`=LHS` tails (their `.` rules still win).
 
 ---
