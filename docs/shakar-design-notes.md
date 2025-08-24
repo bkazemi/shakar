@@ -1068,12 +1068,13 @@ allow = ["?ret"]
 
 (* ===== Core expressions ===== *)
 
-Expr            ::= OrExpr ;
+Expr            ::= TernaryExpr ;
+TernaryExpr     ::= OrExpr ( "?" Expr ":" TernaryExpr )? ;
 
 OrExpr          ::= AndExpr ( "or" AndExpr )* ;
 AndExpr         ::= NullishExpr ( "and" NullishExpr )* ;
 NullishExpr     ::= CompareExpr ( "??" CompareExpr )* ;
-CompareExpr     ::= AddExpr ( CmpOp AddExpr )* ;
+CompareExpr     ::= AddExpr ( CmpOp AddExpr | "," ( ("and" | "or")? (CmpOp)? AddExpr ) )* ;
 
 CmpOp           ::= "==" | "!=" | "<" | "<=" | ">" | ">=" | "is" | "is not" | "!is" | "in" | "!in" | "not in" ;
 
@@ -1084,10 +1085,11 @@ MulExpr         ::= UnaryExpr ( MulOp UnaryExpr )* ;
 MulOp           ::= "*" | "/" | "%" ;
 
 UnaryExpr       ::= UnaryPrefixOp UnaryExpr | PostfixExpr ;
-UnaryPrefixOp   ::= "+" | "-" | "not" | "!" ;
+UnaryPrefixOp   ::= "+" | "-" | "not" | "!" | "$" | "~" | "++" | "--" ;
 
-PostfixExpr     ::= Primary ( Postfix )* ;
+PostfixExpr     ::= Primary ( Postfix )* ( PostfixIncr )? ;
 Postfix         ::= "." IDENT
+PostfixIncr     ::= "++" | "--" ;
                   | "[" SelectorList ("," "default" ":" Expr)? "]"
                   | "(" ArgList? ")" ;
 
@@ -1101,6 +1103,9 @@ Primary         ::= IDENT
                   | Literal
                   | "(" Expr ")"
                   | SubjectExpr
+                  | RangeExpr
+                  | SelectorLiteral
+                  | NullSafe
                   ;
 
 Literal         ::= STRING | NUMBER | "nil" | "true" | "false" ;
@@ -1109,6 +1114,8 @@ SubjectExpr     ::= IDENT ( Postfix )+ ;
 ImplicitUse     ::= "." ( Postfix )+ ;  (* only in contexts with an implicit subject *)
 
 RangeExpr       ::= Expr ".." Expr (":" Expr)? | Expr "..<" Expr (":" Expr)? ;
+SelectorLiteral ::= "`" /* selector literal (see §3.4) */ "`" ;
+NullSafe        ::= "??" "(" Expr ")" ;
 
 (* ===== Assignment forms ===== *)
 
@@ -1184,8 +1191,9 @@ Callee          ::= PostfixExpr ;
 Call            ::= Callee "(" ArgList? ")"
                   | Callee ArgListNamedMixed ;
 
-ArgList         ::= Expr ("," Expr)* ;
-ArgListNamedMixed ::= (Expr ("," Expr)*)? ("," NamedArg ("," NamedArg)*)? ;
+ArgList         ::= Arg ("," Arg)* ;
+Arg             ::= Expr | HoleExpr ;
+ArgListNamedMixed ::= (Arg ("," Arg)*)? ("," NamedArg ("," NamedArg)*)? ;
 NamedArg        ::= IDENT ":" Expr ;
 (* Placeholder partials in calls *)
 HoleExpr       ::= "?" ;
