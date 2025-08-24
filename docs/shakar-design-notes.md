@@ -314,12 +314,9 @@ get(?, id)                ⇒   (x) => get(x, id)
 - **No ternary conflict**: `?` is recognized **only inside a call’s argument list**; elsewhere, `?` is not a valid expression token.
 - **Style**: allowed with a single hole, but prefer `&` path-lambdas for one-arg cases: `xs.map&(.trim())`.
 
-## 4) Implicit subject `.` — anchor stack
+## 4) Implicit subject `.` - anchor stack
 
 ### 4.1 Where `.` comes from (binders)
-- **Statement-subject assign** `=LHS tail` at statement start: inside the statement, `.` = old `LHS`. After evaluation, assign `LHS = result`. Example: `=a.trim()` means `a = a.trim()`.
-
-
 - **Statement-subject assign** `=LHS tail` (at **statement start**): within the statement, `.` = **old value of `LHS`**; after evaluation, assign **`LHS = result`**.
 
 `.` exists only inside constructs that **bind** it:
@@ -559,8 +556,6 @@ using[name] expr:
   using openFile(p) bind f:
     (tmp := f).write(data)
   ```
-- `using` is not subjectful. It does not create or retarget the anchor.
-- Inside the block, `.` is whatever an enclosing binder set. If no binder is active, a free `.` is an error.
 
 4) **Exit** (always runs, even on error or `return`):
    - If `r.using_exit(err?)` exists, call it with an error value if the block threw, or with no arg if it did not.
