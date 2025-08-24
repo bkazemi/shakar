@@ -1102,7 +1102,6 @@ OptExpr         ::= /* empty */ | Expr ;
 Primary         ::= IDENT
                   | Literal
                   | "(" Expr ")"
-                  | SubjectExpr
                   | RangeExpr
                   | SelectorLiteral
                   | NullSafe
@@ -1110,8 +1109,8 @@ Primary         ::= IDENT
 
 Literal         ::= STRING | NUMBER | "nil" | "true" | "false" ;
 
-SubjectExpr     ::= IDENT ( Postfix )+ ;
-ImplicitUse     ::= "." ( Postfix )+ ;  (* only in contexts with an implicit subject *)
+(* SubjectExpr removed; covered by PostfixExpr *)
+(* ImplicitUse is contextual via anchor stack; not a nonterminal here. *)
 
 RangeExpr       ::= Expr ".." Expr (":" Expr)? | Expr "..<" Expr (":" Expr)? ;
 SelectorLiteral ::= "`" /* selector literal (see §3.4) */ "`" ;
@@ -1135,7 +1134,7 @@ FieldFan        ::= "." "{" FieldList "}" ;
 
 (* ===== Statements & blocks ===== *)
 
-SimpleStmt      ::= Expr
+BaseSimpleStmt  ::= Expr
                   | ApplyAssign
                   | AssignOr
                   | Destructure
@@ -1145,12 +1144,14 @@ SimpleStmt      ::= Expr
                   | UsingStmt
                   | DeferStmt
                   | Hook
-                  | CatchStmt
+                  | CatchStmt ;
+
+SimpleStmt      ::= BaseSimpleStmt
                   | PostfixIf
                   | PostfixUnless ;
 
-PostfixIf       ::= SimpleStmt "if" Expr ;
-PostfixUnless   ::= SimpleStmt "unless" Expr ;
+PostfixIf       ::= BaseSimpleStmt "if" Expr ;
+PostfixUnless   ::= BaseSimpleStmt "unless" Expr ;
 
 Block           ::= NEWLINE INDENT Stmt+ DEDENT ;
 InlineBlock     ::= "{" InlineStmt* "}" ;
@@ -1178,7 +1179,7 @@ InlineBody      ::= SimpleStmt | "{" InlineStmt* "}" ;
 ForIn           ::= "for" IDENT "in" Expr ":" Block ;
 ForSubject      ::= "for" Expr ":" Block ;
 ForIndexed      ::= "for" "[" IDENT "]" Expr ":" Block ;
-ForMap1         ::= "for" "[" IDENT "]" Expr ":" Block ;  (* '.' = value; IDENT = key *)
+ForMap1         ::= ForIndexed ;  (* alias; '.' = value; IDENT = key *)
 ForMap2         ::= "for" "[" IDENT "," IDENT "]" Expr ":" Block ;  (* '.' = value; key,value bound *)
 
 (* ===== Selectors (per-selector step allowed) ===== *)
