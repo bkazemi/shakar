@@ -51,8 +51,8 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 ---
 
 ## 3) Operators & precedence (complete)
-**Set and Map algebra precedence:** `*` for set/map intersection participates at the multiplicative tier. `+`, `-`, and set/map `^` participate at the additive tier. Numeric bitwise `^` remains behind the `bitwise_symbols` gate and stays in the bitwise tier.
 
+**Set and Map algebra precedence:** `*` for set/map intersection participates at the multiplicative tier. `+`, `-`, and set/map `^` participate at the additive tier. Numeric bitwise `^` remains behind the `bitwise_symbols` gate and stays in the bitwise tier.
 
 **Associativity**: unless noted, binary operators are **left‑associative**.
 **Precedence table (high → low):**
@@ -76,6 +76,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 13. **Assignment** (statements): `=`, compound assigns, `or=`, statement‑subject `=x or y` ✅
 
 ### 3.1 Unary
+
 - `$x` (no-anchor; evaluates `x` but does **not** make it an explicit subject/anchor)
 - `-x`, `+x` (numeric)
 - `not x` (boolean)
@@ -88,14 +89,11 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
   - `M * N` key intersection (only keys present in both; values taken from RHS).
   - `M - N` key difference (keys in `M` not in `N`).
   - `M ^ N` symmetric key difference (keys in exactly one side; values from the contributing side).
-
 - **Strings and arrays (repeat):** `s * n` and `n * s` repeat a string; `a * n` and `n * a` repeat an array. `n` must be an Int with `n >= 0`; otherwise error.
-
 - **Sets (type-directed overloads):**
   - `A + B` union; `A - B` difference; `A * B` intersection; `A ^ B` symmetric difference.
   - **Precedence:** follows token families (`*` multiplicative; `+`/`-` additive; `^` XOR family). Use parentheses when mixing.
   - **Purity:** these binary operators return a **new** Set; operands are not mutated.
-
 - `/` yields float; `//` floor‑div for ints (works on floats too, returns int via floor).
 - `%` is remainder; sign follows dividend (like Python).
 - `**` exponentiation (right‑assoc).
@@ -105,7 +103,6 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
   - `bit.and(x,y)`, `bit.or(x,y)`, `bit.xor(x,y)`, `bit.not(x)`
   - `bit.shl(x,n)`, `bit.shr(x,n)`
 - Teams that need symbolic operators can enable the **`bitwise_symbols`** feature gate (see §19). When enabled, tokens `& | ^ << >> ~` are available with the usual precedence, and one-line guards still reserve `|`/`|:` only **after the first `:`** and only at **bracket-depth 0**.
-
 - Errors on non‑int operands (use explicit conversions).
 
 ### 3.4 Comparison & identity
@@ -166,11 +163,9 @@ x = cond ? a : b
 
 ### 3.8 Assignment forms
 - **Map compounds (type-directed):** when the LHS is a Map, mutate in place following the same semantics as the binary forms: `+=`, `-=`, `*=`, `^=`.
-
 - **Set compounds (type-directed):** when the **LHS is a Set**, mutate in place:
   - `A += B` (union-update), `A -= B` (difference-update), `A *= B` (intersection-update), `A ^= B` (symmetric-diff-update).
   - `^=` is available for Sets even when numeric bitwise symbols are gated off; it’s type-directed like `^`.
-
 - Simple: `name = expr` (statement)
 - **Compound**: `+= -= *= /= //= %= **=` (core); `<<= >>= &= ^= |=` (gated via `bitwise_symbols`)
 - **Defaults**: `or=` and statement‑subject `=x or y` (see §6)
@@ -262,7 +257,6 @@ cfg +>= env
 
 - `+>=` requires LHS to be a map; otherwise error. `+>` always yields a value per rules above.
 
-
 ### 3.10 Map index with default
 
 #### Surface
@@ -327,7 +321,6 @@ get(?, id)                ⇒   (x) => get(x, id)
   - Per-arm body: in the winning arm’s body, `.` = **that arm’s result**.
   - Trailing body: `.` = **winning value** and `winner` = label.
 - **Selectors** `base[ sel1, sel2, … ]`: inside each selector, `.` = **the `base`** (not the element).
-
 > **Not creators:** one-line guards and plain blocks do not create a subject; use a subjectful `for`, a walrus temporary, or a grouping with an explicit subject.
 
 ### 4.2 Leading-dot chains
@@ -342,13 +335,13 @@ Each step’s **result becomes the next receiver** within that same chain, but t
 ### 4.3 Grouping & the anchor stack
 
 - **Comparison comma-chain legs are _no-anchor_.** The chain's subject is the first explicit operand; `$`/`%` do not retarget it; selector/base rules and `.=`/`=LHS` dot rules are unchanged.
-
 - **Pop on exit:** after an inner grouping ends, the anchor reverts to the prior one; sibling leading-dot terms continue to use that prior anchor.
 
-Example: `a and (b) and .c()`  ⇒  `a and b and a.c()`
+  Example: `a and (b) and .c()`  ⇒  `a and b and a.c()`
 
 - **No-anchor `$`**: `$expr` evaluates but does **not** create/retarget an explicit subject. Leading‑dot chains remain anchored to the prior subject.
   Example: `a and $b and .c` ⇒ `a and b and a.c`
+
 Grouping constructs **push/pop** the current anchor:
 
 - **Push** on entering: parentheses `(`…`)`, lambda bodies, comprehension heads/bodies, and `await[…]` per-arm / trailing bodies.
@@ -369,21 +362,15 @@ a and (b and .x()) and .y()   # `.x()` anchored to `b`; `.y()` anchored to `a`
 
 ### 4.5 Illegals & invariants
 - **Invalid statement-subject**: `=LHS` with no tail (no effect) — use `.=` or provide a tail. `=.trim()` is illegal (free `.`).
-
 - `.` is **never an lvalue**: `. = …` is illegal.
-
 - **No free dot**: using `.` outside an active binder/anchor is illegal.
 
 ### 4.6 Normative laws (concise) — 2025-08-17
 
 1) **Anchor law (SHALL).** The first explicit subject in a grouping sets the **anchor**; all leading-dot chains in that grouping apply to that anchor until retarget or pop.
-
 2) **Selector law (SHALL).** Inside `base[ … ]`, `.` = **base**. Outside, the value of `base[ … ]` may itself retarget the anchor.
-
 3) **Leading-dot chain law (SHALL).** Within a chain, each step’s result becomes the next **receiver**; the **anchor** remains as set by the grouping unless retargeted.
-
 4) **Binder-shadowing law (SHALL).** Inner binders (lambda, `await`, subjectful `for`, apply-assign RHS) temporarily set `.` for their dynamic extent, then restore.
-
 5) **Illegals & locality (SHALL NOT / SHALL).**
    - `.` is never an lvalue (`. = …` illegal).
    - No free `.` outside an active binder/anchor.
@@ -683,7 +670,6 @@ use(g.user, g.posts)
 - `await[...]` uses **parentheses**, not `{}`; curly braces signify **data literals** in Shakar.
 - Do **not** mix per‑arm bodies and a trailing body in the same call (linted).
 - `.` refers to the value defined by the construct as described above; it does **not** capture outer `.` from lambdas.
-
 - **for‑in**: `for x in iterable: block`
 - Selector literals as values: ``for i in `0:<n`: …``  # iterate a numeric selector
 - Selector lists (indexed view): `for[i] xs[ sel1, sel2, … ]: …`  # iterate the concatenated view; i is view index
@@ -884,12 +870,10 @@ xs[1 : .len-1]        # drop first and last (half‑open excludes last)
   - `xs[`1:10, 11:15:2`, 20]`  ≡  `xs[1:10, 11:15:2, 20]`
   - `customSelector := `1:10, someIdx`; xs[customSelector]`  # define & reuse a selector value
 - **Type checks**: each item must evaluate to either an integer index or a selector value; otherwise it is a type error.
-
 - **Per‑selector steps** are allowed.
 - **Index selectors**: OOB → **throw**.  **Slice selectors**: **clamp**.
 - Inside each selector expression, **`.` = the base** (e.g., `xs`) for that selector only.
 **LHS restrictions (v0.1):** selector lists and slices are **expression‑only**; they cannot be used as assignment targets. Use single index/property updates instead.
-
 - Immutable UTF‑8 with **views** for slices/trim/drop and **ropes** for concat.
 - **Unique‑owner compaction** avoids substring leaks (thresholds: keep <¼ or >64KiB slack).
 - Controls: `.own()`, `.compact()`, `.materialize()`.
@@ -929,7 +913,6 @@ To pass a callable for a getter: `&(obj.prop())`.
 - **Equality & iteration**: both structural, order-insensitive; iteration preserves insertion order.
 ## 14) Decorators (no HOF boilerplate) & lambdas
 - Decorators & hooks are **core** in v0.1.
-
 - **Decorators**: inside `decorator` bodies, `f` and `args` are implicit; if the body does not `return`, implicitly `return f(args)`.
 - **Lambdas**: `map&(.trim())` (single arg implicit `.`), `zipWith&[a,b](a+b)` (multi‑arg). `&` is a **lambda‑on-callee** sigil.
 
