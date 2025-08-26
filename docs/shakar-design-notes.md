@@ -58,7 +58,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 **Precedence table (high → low):**
 
 1. **Postfix**: member `.`, call `()`, index `[]`
-2. **Unary**: `-x`, `+x`, boolean `not x` / `!x`, `~x` (bitwise not; gated via `bitwise_symbols`, otherwise use `bit.not(x)`)
+2. **Unary**: `-x` boolean `not x` / `!x`, `~x` (bitwise not; gated via `bitwise_symbols`, otherwise use `bit.not(x)`)
 3. **Power**: `x ** y` (right‑associative) ✅
 4. **Multiplicative**: `*`, `/` (float), `//` (floor int), `%`
 5. **Additive / concat**: `+`, `-`, `+>` (deep map merge)
@@ -1046,23 +1046,19 @@ allow = ["?ret"]
 ---
 
 ### Formatter / Lints (normative)
-* **Selector literals (backticks) — interpolation style**: prefer bare names/numbers for bounds; require `{…}` for any non-trivial expression. Do **not** use top-level `(…)` in selector literals; use `{…}` instead. Avoid spaces just inside braces: `{a+1}`, not `{ a + 1 }`.
-
-* **Discourage inline backticks inside `[]`**: `` xs[`1:10`] `` is allowed but discouraged; prefer flatted form `` xs[1:10] `` when the literal is the only selector and binded selectors elsewhere `` sel := `5:10`; xs[1, sel] ``. The linter should warn.
-* **Discourage inline backticks in collection literals**: `` [1, `1:10`, 20] `` is allowed but discouraged; prefer `[1, sel, 20]` with `` sel := `1:10` ``.
+- **Unary `+` is invalid**: write `x`, not `+x`. Use explicit conversions (`int(x)`, `float(x)`) instead of operator coercions.
+- **Selector literals (backticks) — interpolation style**: prefer bare names/numbers for bounds; require `{…}` for any non-trivial expression. Do **not** use top-level `(…)` in selector literals; use `{…}` instead. Avoid spaces just inside braces: `{a+1}`, not `{ a + 1 }`.
+- **Discourage inline backticks inside `[]`**: `` xs[`1:10`] `` is allowed but discouraged; prefer flatted form `` xs[1:10] `` when the literal is the only selector and binded selectors elsewhere `` sel := `5:10`; xs[1, sel] ``. The linter should warn.
+- **Discourage inline backticks in collection literals**: `` [1, `1:10`, 20] `` is allowed but discouraged; prefer `[1, sel, 20]` with `` sel := `1:10` ``.
   * **Exception**: short REPL snippets and small examples may use inline backticks for brevity.
-* **Selector values in `[]`**: when a backtick selector literal appears inside `[]`, the formatter should inline its body (flatten), preserving order.
-* **Selector values in collections**: backtick selector literals are ordinary values in arrays/maps/sets; **no flattening** occurs in collection literals.
-* **Selector literal values use backticks** around the selector **body** (no brackets inside). Example: `` `1:<5, 11:15:2, 20` ``.
-* **Brackets `[]` are not used for selector values**. Use brackets only for indexing, binders (e.g. `for[i]`), and array literals.
-* **Commas in lists**: parser accepts both `.{a,b}` and `.{a, b}`. Formatter emits a single space after each comma across all comma-separated lists (field fan-out `.{...}`, argument lists, binder lists, patterns). No space before commas; no spaces around braces.
-
-* **Field fan-out braces**: prefer `user.{a, b}` (no space between `.` and `{`). Trailing comma only when the list is multiline.
-
-* **Map index with default**: prefer `m[key, default: expr]` with exactly one space after the comma and no spaces around `:`. Multiline default only if the entire index breaks across lines.
-
-* **Placeholder partials `?`**: for single-hole cases, prefer `&` path lambdas (e.g., `xs.map&(.trim())`). Use `?` when there are **2+ holes** (e.g., `blend(?, ?, 0.25)`). Avoid mixing `&` and `?` within the same call; when readability suffers, switch to a named-arg lambda.
-
+- **Selector values in `[]`**: when a backtick selector literal appears inside `[]`, the formatter should inline its body (flatten), preserving order.
+- **Selector values in collections**: backtick selector literals are ordinary values in arrays/maps/sets; **no flattening** occurs in collection literals.
+- **Selector literal values use backticks** around the selector **body** (no brackets inside). Example: `` `1:<5, 11:15:2, 20` ``.
+- **Brackets `[]` are not used for selector values**. Use brackets only for indexing, binders (e.g. `for[i]`), and array literals.
+- **Commas in lists**: parser accepts both `.{a,b}` and `.{a, b}`. Formatter emits a single space after each comma across all comma-separated lists (field fan-out `.{...}`, argument lists, binder lists, patterns). No space before commas; no spaces around braces.
+- **Field fan-out braces**: prefer `user.{a, b}` (no space between `.` and `{`). Trailing comma only when the list is multiline.
+- **Map index with default**: prefer `m[key, default: expr]` with exactly one space after the comma and no spaces around `:`. Multiline default only if the entire index breaks across lines.
+- **Placeholder partials `?`**: for single-hole cases, prefer `&` path lambdas (e.g., `xs.map&(.trim())`). Use `?` when there are **2+ holes** (e.g., `blend(?, ?, 0.25)`). Avoid mixing `&` and `?` within the same call; when readability suffers, switch to a named-arg lambda.
 - **Style -- `over[...]` vs `bind`:** prefer `over[...]` when you have more than one binder. Do not use both `over[...]` and `bind` in the same head.
 - **Style -- Guard heads with paren-light calls:** discouraged; the formatter may auto-paren such heads (see §7).
 - **Tokenization -- ``!in``:** write as a single token with no internal space: `a !in b` (not `a ! in b`). Parser treats `! in` as unary `!` then `in`.
@@ -1074,6 +1070,7 @@ allow = ["?ret"]
 **Feature gate note (bitwise_symbols):**
 - Numeric bitwise operators `& | ^ << >> ~` and their compound forms are behind the **`bitwise_symbols`** gate (default **denied**).
 - This gate applies **only to numeric operators**. Set/Map algebra (e.g., `A ^ B` symmetric diff) is **always enabled** (type-directed).
+
 ## 20) Grammar sketch (EBNF‑ish; implementation may vary)
 ```ebnf
 (* Shakar grammar — proper EBNF. Lexical tokens: IDENT, STRING, NUMBER, NEWLINE, INDENT, DEDENT. *)
@@ -1097,7 +1094,7 @@ MulExpr         ::= UnaryExpr ( MulOp UnaryExpr )* ;
 MulOp           ::= "*" | "/" | "%" ;
 
 UnaryExpr       ::= UnaryPrefixOp UnaryExpr | PostfixExpr ;
-UnaryPrefixOp   ::= "+" | "-" | "not" | "!" | "$" | "~" | "++" | "--" ;
+UnaryPrefixOp   ::= "-" | "not" | "!" | "$" | "~" | "++" | "--" ;
 
 PostfixExpr     ::= Primary ( Postfix )* ( PostfixIncr )? ;
 Postfix         ::= "." IDENT
@@ -1397,3 +1394,4 @@ box = {
 }
 print(box.size)
 ```
+
