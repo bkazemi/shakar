@@ -1101,9 +1101,9 @@ UnaryPrefixOp   ::= "+" | "-" | "not" | "!" | "$" | "~" | "++" | "--" ;
 
 PostfixExpr     ::= Primary ( Postfix )* ( PostfixIncr )? ;
 Postfix         ::= "." IDENT
-PostfixIncr     ::= "++" | "--" ;
                   | "[" SelectorList ("," "default" ":" Expr)? "]"
                   | "(" ArgList? ")" ;
+PostfixIncr     ::= "++" | "--" ;
 
 SelectorList    ::= Selector ("," Selector)* ;
 Selector        ::= IndexSel | SliceSel ;
