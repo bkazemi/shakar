@@ -1029,6 +1029,8 @@ allow = ["?ret"]
 ---
 
 ### Formatter / Lints (normative)
+- **Terminology**: `IndentBlock` means the off-side indented form (`NEWLINE INDENT … DEDENT`). `InlineBody` is either a single `SimpleStmt` or a braced inline block `{…}`. Punctuation guards remain **block-only** via `IndentBlock`.
+
 - **Unary `+` is invalid**: write `x`, not `+x`. Use explicit conversions (`int(x)`, `float(x)`) instead of operator coercions.
 - **Selector literals (backticks) — interpolation style**: prefer bare names/numbers for bounds; require `{…}` for any non-trivial expression. Do **not** use top-level `(…)` in selector literals; use `{…}` instead. Avoid spaces just inside braces: `{a+1}`, not `{ a + 1 }`.
 - **Discourage inline backticks inside `[]`**: `` xs[`1:10`] `` is allowed but discouraged; prefer flatted form `` xs[1:10] `` when the literal is the only selector and binded selectors elsewhere `` sel := `5:10`; xs[1, sel] ``. The linter should warn.
@@ -1151,7 +1153,7 @@ SimpleStmt      ::= BaseSimpleStmt
 PostfixIf       ::= BaseSimpleStmt "if" Expr ;
 PostfixUnless   ::= BaseSimpleStmt "unless" Expr ;
 
-Block           ::= NEWLINE INDENT Stmt+ DEDENT ;
+IndentBlock     ::= NEWLINE INDENT Stmt+ DEDENT ;
 InlineBlock     ::= "{" InlineStmt* "}" ;
 InlineStmt      ::= SimpleStmt ;
 
@@ -1164,21 +1166,20 @@ Stmt            ::= SimpleStmt
 GuardReturn     ::= "?ret" Expr ;
 
 GuardChain      ::= GuardHead GuardOr* GuardElse? ;
-GuardHead       ::= Expr ":" NEWLINE INDENT Block DEDENT ;
-GuardOr         ::= "|" Expr ":" NEWLINE INDENT Block DEDENT ;
-GuardElse       ::= "|:" NEWLINE INDENT Block DEDENT ;
-
+GuardHead      ::= Expr ":" IndentBlock ;
+GuardOr        ::= "|" Expr ":" IndentBlock ;
+GuardElse      ::= "|:" IndentBlock ;
 OneLineGuard    ::= GuardBranch ("|" GuardBranch)* ("|:" InlineBody)? ;
 GuardBranch     ::= Expr ":" InlineBody ;
 InlineBody      ::= SimpleStmt | "{" InlineStmt* "}" ;
 
 (* ===== Loops ===== *)
 
-ForIn           ::= "for" IDENT "in" Expr ":" Block ;
-ForSubject      ::= "for" Expr ":" Block ;
-ForIndexed      ::= "for" "[" IDENT "]" Expr ":" Block ;
+ForIn           ::= "for" IDENT "in" Expr ":" (InlineBody | IndentBlock) ;
+ForSubject      ::= "for" Expr ":" (InlineBody | IndentBlock) ;
+ForIndexed      ::= "for" "[" IDENT "]" Expr ":" (InlineBody | IndentBlock) ;
 ForMap1         ::= ForIndexed ;  (* alias; '.' = value; IDENT = key *)
-ForMap2         ::= "for" "[" IDENT "," IDENT "]" Expr ":" Block ;  (* '.' = value; key,value bound *)
+ForMap2         ::= "for" "[" IDENT "," IDENT "]" Expr ":" (InlineBody | IndentBlock) ;  (* '.' = value; key,value bound *)
 
 (* ===== Selectors (per-selector step allowed) ===== *)
 
@@ -1229,23 +1230,23 @@ OptComma        ::= /* empty */ | "," ;
 (* ===== Error handling / hooks ===== *)
 
 CatchExpr       ::= Expr "catch" IDENT? "=>" Expr ;
-CatchStmt       ::= Expr "catch" Block ;
-CatchCute       ::= Expr "@@" IDENT? "=>" Expr ;
+CatchStmt       ::= Expr "catch" (InlineBody | IndentBlock) ;
+CatchSugar      ::= Expr "@@" IDENT? "=>" Expr ;
 
 Hook            ::= "hook" STRING "=>" LambdaExpr ;
-LambdaExpr      ::= "(" ParamList? ")" "=>" (Expr | Block) ;
+LambdaExpr      ::= "(" ParamList? ")" "=>" (Expr | IndentBlock) ;
 
 (* ===== Records ===== *)
 
 RecordItem      ::= IDENT ":" Expr
-                  | "get" IDENT "(" ")" ":" Block
-                  | "set" IDENT "(" IDENT ")" ":" Block ;
+                  | "get" IDENT "(" ")" ":" IndentBlock
+                  | "set" IDENT "(" IDENT ")" ":" IndentBlock ;
 
 (* ===== Using / Defer / Assert / Debug ===== *)
 
 DeferStmt       ::= "defer" SimpleCall ;
 SimpleCall      ::= Callee "(" ArgList? ")" ;
-UsingStmt       ::= "using" Expr ("bind" IDENT)? ":" Block ;
+UsingStmt       ::= "using" Expr ("bind" IDENT)? ":" IndentBlock ;
 
 Assert          ::= "assert" Expr ("," Expr)? ;
 Dbg             ::= "dbg" (Expr ("," Expr)?) ;
@@ -1377,4 +1378,3 @@ box = {
 }
 print(box.size)
 ```
-
