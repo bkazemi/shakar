@@ -1208,7 +1208,7 @@ ParamList       ::= IDENT ("," IDENT)* ;
 CompHead        ::= ("over" | "for") OverSpec ;
 OverSpec        ::= "[" BinderList "]" Expr | Expr ("bind" Pattern)? ;
 BinderList      ::= Pattern ("," Pattern)* ;
-IfClause        ::= "if" Expr? ;
+IfClause        ::= "if" Expr ;
 
 ListComp        ::= "[" Expr CompHead IfClause? "]" ;
 SetComp         ::= "{" Expr CompHead IfClause? "}" ;
