@@ -1253,8 +1253,8 @@ Destructure     ::= Pattern "=" Expr ;
 (* ===== Concurrency ===== *)
 AwaitStmt       ::= "await" ( "(" Expr ")" | Expr ) ":" (InlineBody | IndentBlock) ;
 
-AwaitAnyCall    ::= "await" "[" "any" "]" "(" AnyArmList OptComma ")" (":" InlineBody)? ;
-AwaitAllCall    ::= "await" "[" "all" "]" "(" AllArmList OptComma ")" (":" InlineBody)? ;
+AwaitAnyCall    ::= "await" "[" "any" "]" "(" AnyArmList OptComma ")" (":" InlineBody | IndentBlock)? ;
+AwaitAllCall    ::= "await" "[" "all" "]" "(" AllArmList OptComma ")" (":" InlineBody | IndentBlock)? ;
 AnyArmList      ::= AnyArm ("," AnyArm)* ;
 AllArmList      ::= AnyArm ("," AnyArm)* ;
 AnyArm          ::= (IDENT ":")? Expr (":" InlineBody)? | "timeout" Expr (":" InlineBody)? ;
