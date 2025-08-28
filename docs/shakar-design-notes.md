@@ -1104,7 +1104,7 @@ MulExpr         ::= UnaryExpr ( MulOp UnaryExpr )* ;
 MulOp           ::= "*" | "/" | "%" ;
 
 UnaryExpr       ::= UnaryPrefixOp UnaryExpr | PostfixExpr ;
-UnaryPrefixOp   ::= "-" | "not" | "!" | "$" | "~" | "++" | "--" ;
+UnaryPrefixOp   ::= "-" | "not" | "!" | "$" | "~" | "++" | "--" | "await" ;
 
 PostfixExpr     ::= Primary ( Postfix )* ( PostfixIncr )? ;
 Postfix         ::= "." IDENT
@@ -1124,7 +1124,7 @@ Primary         ::= IDENT
                   | "(" Expr ")"
                   | SelectorLiteral
                   | NullSafe
-                  | AwaitCall
+
                   ;
 
 Literal         ::= STRING | NUMBER | "nil" | "true" | "false" ;
@@ -1170,7 +1170,10 @@ BaseSimpleStmt  ::= Expr
                   | UsingStmt
                   | DeferStmt
                   | Hook
-                  | CatchStmt ;
+                  | CatchStmt
+                  | AwaitStmt
+                  | AwaitAnyCall
+                  | AwaitAllCall ;
 
 SimpleStmt      ::= BaseSimpleStmt
                   | PostfixIf
@@ -1245,7 +1248,7 @@ Pattern         ::= IDENT | Pattern "," Pattern | "(" Pattern ("," Pattern)* ")"
 Destructure     ::= Pattern "=" Expr ;
 
 (* ===== Concurrency ===== *)
-AwaitCall       ::= "await" ( "(" Expr ")" | Expr ) (":" InlineBlock)? ;
+AwaitStmt       ::= "await" ( "(" Expr ")" | Expr ) ":" (InlineBody | IndentBlock) ;
 
 AwaitAnyCall    ::= "await" "[" "any" "]" "(" AnyArmList OptComma ")" (":" InlineBlock)? ;
 AwaitAllCall    ::= "await" "[" "all" "]" "(" AllArmList OptComma ")" (":" InlineBlock)? ;
