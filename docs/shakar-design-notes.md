@@ -1187,7 +1187,6 @@ PostfixIf       ::= BaseSimpleStmt "if" Expr ;
 PostfixUnless   ::= BaseSimpleStmt "unless" Expr ;
 
 IndentBlock     ::= NEWLINE INDENT Stmt+ DEDENT ;
-InlineBlock     ::= "{" InlineStmt* "}" ;
 InlineStmt      ::= SimpleStmt ;
 
 Stmt            ::= SimpleStmt
@@ -1254,8 +1253,8 @@ Destructure     ::= Pattern "=" Expr ;
 (* ===== Concurrency ===== *)
 AwaitStmt       ::= "await" ( "(" Expr ")" | Expr ) ":" (InlineBody | IndentBlock) ;
 
-AwaitAnyCall    ::= "await" "[" "any" "]" "(" AnyArmList OptComma ")" (":" InlineBlock)? ;
-AwaitAllCall    ::= "await" "[" "all" "]" "(" AllArmList OptComma ")" (":" InlineBlock)? ;
+AwaitAnyCall    ::= "await" "[" "any" "]" "(" AnyArmList OptComma ")" (":" InlineBody)? ;
+AwaitAllCall    ::= "await" "[" "all" "]" "(" AllArmList OptComma ")" (":" InlineBody)? ;
 AnyArmList      ::= AnyArm ("," AnyArm)* ;
 AllArmList      ::= AnyArm ("," AnyArm)* ;
 AnyArm          ::= (IDENT ":")? Expr (":" InlineBody)? | "timeout" Expr (":" InlineBody)? ;
