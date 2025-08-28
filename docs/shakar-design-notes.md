@@ -78,7 +78,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 ### 3.1 Unary
 
 - `$x` (no-anchor; evaluates `x` but does **not** make it an explicit subject/anchor)
-- `-x`, `+x` (numeric)
+- `-x` (numeric)
 - `not x` (boolean)
 - `!x` (boolean NOT; alias of `not x`)
 - `~x` (bitwise not on ints; gated by `bitwise_symbols` — otherwise use `bit.not(x)`)
@@ -1076,6 +1076,9 @@ allow = ["?ret"]
 - **Style -- Comparison comma-chains with `or`:** When a comma-chain switches to `or`, prefer either repeating `, or` for each subsequent leg (e.g., `a > 10, or == 0, or == 1`) or grouping the `or` cluster in parentheses (e.g., `a > 10, or (== 0, == 1)`). This improves readability; semantics are unchanged (joiner is sticky; a comparator is required after `or` to remain in the chain).
 - **Flag free `.`**: bare `.` outside an active binder/anchor is an error.
 - **Auto-paren guard heads with `:`**: when a guard head contains `:`, the formatter inserts parentheses; style check warns if missing.
+- **Bullets**: use `-` everywhere; do not mix `*` in lists.
+- **Tight lists**: no blank lines between sibling bullets. Within an item, allow one blank line before a code fence or a continuation paragraph; continuation lines and fences are indented by two spaces.
+- **Spacing normalization**: remove trailing spaces; collapse 3+ blank lines to one; ensure exactly one blank line after `##`/`###` headings; remove blank lines between sibling bullets at the same indent.
 
 **Feature gate note (bitwise_symbols):**
 - Numeric bitwise operators `& | ^ << >> ~` and their compound forms are behind the **`bitwise_symbols`** gate (default **denied**).
