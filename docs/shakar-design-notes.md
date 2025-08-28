@@ -317,6 +317,9 @@ get(?, id)                ⇒   (x) => get(x, id)
 - **Apply-assign** `LHS .= RHS`: inside `RHS`, `.` = **old value of `LHS`**; result writes back to `LHS`.
 - **Subjectful loop** `for Expr:` / `for[i] Expr:`: in the loop body (per iteration), `.` = **current element** (and `i` = view index if present).
 - **Lambda callee sigil** (e.g., `map&(...)`): inside the lambda body, `.` = **the parameter**.
+- **`await(expr)` / `await expr`**:
+  - Trailing body: `.` = **resolved value**; returns the body’s result.
+  - No trailing body: returns the resolved value (no binder).
 - **`await[any]`**:
   - Per-arm body: in the winning arm’s body, `.` = **that arm’s result**.
   - Trailing body: `.` = **winning value** and `winner` = label.
@@ -609,7 +612,29 @@ Desugars 1:1 to `if/elif/else`.
 ## 8) Control flow (loops & flow keywords)
 - Iterating the `nil` **literal** is a compile-time error; iterating a variable that evaluates to `nil` is a **no-op**.
 
-### Concurrency — `await[any]` / `await[all]`
+### Concurrency — `await()` / `await[any]` / `await[all]`
+
+**Single await** — both forms are equivalent:
+
+```shakar
+v := await(expr)
+v := await expr
+
+# With trailing body (binder `.` = resolved value)
+await(fetchUser(id)): show(.)
+await fetchUser(id): show(.)
+```
+- **Clarity**: prefer `await(expr)` when adjacent to binary operators.
+
+**Single await** — `await(expr)` waits for a single future/task. Optional trailing body runs with `.` bound to the resolved value.
+
+```shakar
+# without body: just get the value
+user := await(fetchUser(id))
+
+# with trailing body: use `.` inside
+await(fetchUser(id)): show(.)
+```
 
 - `timeout` default unit: **milliseconds**; supports suffixes `ms`, `s`, `m`.
 
@@ -1099,6 +1124,7 @@ Primary         ::= IDENT
                   | "(" Expr ")"
                   | SelectorLiteral
                   | NullSafe
+                  | AwaitCall
                   ;
 
 Literal         ::= STRING | NUMBER | "nil" | "true" | "false" ;
@@ -1219,6 +1245,7 @@ Pattern         ::= IDENT | Pattern "," Pattern | "(" Pattern ("," Pattern)* ")"
 Destructure     ::= Pattern "=" Expr ;
 
 (* ===== Concurrency ===== *)
+AwaitCall       ::= "await" ( "(" Expr ")" | Expr ) (":" InlineBlock)? ;
 
 AwaitAnyCall    ::= "await" "[" "any" "]" "(" AnyArmList OptComma ")" (":" InlineBlock)? ;
 AwaitAllCall    ::= "await" "[" "all" "]" "(" AllArmList OptComma ")" (":" InlineBlock)? ;
