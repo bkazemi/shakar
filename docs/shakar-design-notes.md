@@ -1079,6 +1079,7 @@ allow = ["?ret"]
 - **Bullets**: use `-` everywhere; do not mix `*` in lists.
 - **Tight lists**: no blank lines between sibling bullets. Within an item, allow one blank line before a code fence or a continuation paragraph; continuation lines and fences are indented by two spaces.
 - **Spacing normalization**: remove trailing spaces; collapse 3+ blank lines to one; ensure exactly one blank line after `##`/`###` headings; remove blank lines between sibling bullets at the same indent.
+- **Await any/all body size**: prefer `InlineBody` only for a single simple statement; use `{ ... }` or an indented block for multi-stmt bodies.
 
 **Feature gate note (bitwise_symbols):**
 - Numeric bitwise operators `& | ^ << >> ~` and their compound forms are behind the **`bitwise_symbols`** gate (default **denied**).
