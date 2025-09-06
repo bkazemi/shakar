@@ -1251,7 +1251,7 @@ SetComp         ::= "{" Expr CompHead IfClause? "}" ;
 DictComp        ::= "{" Expr ":" Expr CompHead IfClause? "}" ;
 
 Pattern         ::= IDENT | Pattern "," Pattern | "(" Pattern ("," Pattern)* ")" ;
-Destructure     ::= Pattern "=" Expr ;
+Destructure     ::= Pattern ( "=" | ":=" ) Expr ;
 
 (* ===== Concurrency ===== *)
 AwaitStmt       ::= "await" ( "(" Expr ")" | Expr ) ":" (InlineBody | IndentBlock) ;
