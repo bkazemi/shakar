@@ -1095,19 +1095,20 @@ Expr            ::= TernaryExpr ;
 TernaryExpr     ::= OrExpr ( "?" Expr ":" TernaryExpr )? ;
 
 OrExpr          ::= AndExpr ( "or" AndExpr )* ;
-AndExpr         ::= NullishExpr ( "and" NullishExpr )* ;
+AndExpr         ::= WalrusExpr ( "and" WalrusExpr )* ;
 NullishExpr     ::= CompareExpr ( "??" CompareExpr )* ;
+WalrusExpr      ::= NullishExpr | IDENT ":=" Expr ;
 CompareExpr     ::= AddExpr ( CmpOp AddExpr | "," ( ("and" | "or")? (CmpOp)? AddExpr ) )* ;
 
 CmpOp           ::= "==" | "!=" | "<" | "<=" | ">" | ">=" | "is" | "is not" | "!is" | "in" | "!in" | "not in" ;
 
 AddExpr         ::= MulExpr ( AddOp MulExpr )* ;
 AddOp           ::= "+" | "-" | "^" | DeepMergeOp ;
-
-MulExpr         ::= UnaryExpr ( MulOp UnaryExpr )* ;
+MulExpr         ::= PowExpr ( MulOp PowExpr )* ;
 MulOp           ::= "*" | "/" | "%" ;
 
 UnaryExpr       ::= UnaryPrefixOp UnaryExpr | PostfixExpr ;
+PowExpr         ::= UnaryExpr ( "**" PowExpr )? ;
 UnaryPrefixOp   ::= "-" | "not" | "!" | "$" | "~" | "++" | "--" | "await" ;
 
 PostfixExpr     ::= Primary ( Postfix )* ( PostfixIncr )? ;
@@ -1120,9 +1121,9 @@ SelectorList    ::= Selector ("," Selector)* ;
 Selector        ::= IndexSel | SliceSel ;
 IndexSel        ::= Expr ;  (* evaluates to int/key; OOB on arrays throws *)
 SliceSel        ::= OptExpr ":" OptExpr (":" Expr)? ;
-OptExpr         ::= /* empty */ | Expr ;
-OptStop         ::= /* empty */ | "<" Expr | Expr ;
 
+OptExpr         ::= Expr? ;
+OptStop         ::= "<" Expr | Expr? ;
 Primary         ::= IDENT
                   | Literal
                   | "(" Expr ")"
@@ -1136,7 +1137,7 @@ SelectorLiteral ::= "`" SelList "`" ;  (* backtick selector literal; first-class
 SelList         ::= SelItem ("," SelItem)* ;
 SelItem         ::= SliceItem | IndexItem ;
 SliceItem       ::= SelAtom? ":" SelOptStop (":" SelAtom)? ;
-SelOptStop      ::= /* empty */ | "<" SelAtom | SelAtom ;
+SelOptStop      ::= "<" SelAtom | SelAtom? ;
 IndexItem       ::= SelAtom ;
 SelAtom         ::= Interp | IDENT | NUMBER ;
 Interp          ::= "{" Expr "}" ;
@@ -1162,9 +1163,11 @@ LValue ::= PrimaryLHS ( LValuePostfix )* ( FieldFan )? ;
 FieldList       ::= IDENT ("," IDENT)* ;
 FieldFan        ::= "." "{" FieldList "}" ;
 
-(* ===== Statements & blocks ===== *)
+RebindStmt ::= "=" Expr ;
 
-BaseSimpleStmt  ::= Expr
+(* ===== Statements & blocks ===== *)
+BaseSimpleStmt  ::= RebindStmt
+                  | Expr
                   | ApplyAssign
                   | AssignOr
                   | Destructure
@@ -1199,8 +1202,8 @@ GuardReturn     ::= "?ret" Expr ;
 
 GuardChain      ::= GuardHead GuardOr* GuardElse? ;
 GuardHead      ::= Expr ":" IndentBlock ;
-GuardOr        ::= "|" Expr ":" IndentBlock ;
-GuardElse      ::= "|:" IndentBlock ;
+GuardOr        ::= ("|" | "||") Expr ":" IndentBlock ;
+GuardElse      ::= ("|:" | "||:") IndentBlock ;
 OneLineGuard    ::= GuardBranch ("|" GuardBranch)* ("|:" InlineBody)? ;
 GuardBranch     ::= Expr ":" InlineBody ;
 InlineBody      ::= SimpleStmt | "{" InlineStmt* "}" ;
@@ -1252,12 +1255,11 @@ Destructure     ::= Pattern "=" Expr ;
 
 (* ===== Concurrency ===== *)
 AwaitStmt       ::= "await" ( "(" Expr ")" | Expr ) ":" (InlineBody | IndentBlock) ;
-
-AwaitAnyCall    ::= "await" "[" "any" "]" "(" AnyArmList OptComma ")" (":" InlineBody | IndentBlock)? ;
-AwaitAllCall    ::= "await" "[" "all" "]" "(" AllArmList OptComma ")" (":" InlineBody | IndentBlock)? ;
+AwaitAnyCall    ::= "await" "[" "any" "]" "(" AnyArmList OptComma ")" ( ":" (InlineBody | IndentBlock) )? ;
+AwaitAllCall    ::= "await" "[" "all" "]" "(" AllArmList OptComma ")" ( ":" (InlineBody | IndentBlock) )? ;
 AnyArmList      ::= AnyArm ("," AnyArm)* ;
 AllArmList      ::= AnyArm ("," AnyArm)* ;
-AnyArm          ::= (IDENT ":")? Expr (":" InlineBody)? | "timeout" Expr (":" InlineBody)? ;
+AnyArm          ::= (IDENT ":")? Expr ( ":" (InlineBody | IndentBlock) )? | "timeout" Expr ( ":" (InlineBody | IndentBlock) )? ;
 OptComma        ::= /* empty */ | "," ;
 
 (* ===== Error handling / hooks ===== *)
@@ -1279,8 +1281,7 @@ RecordItem      ::= IDENT ":" Expr
 
 DeferStmt       ::= "defer" SimpleCall ;
 SimpleCall      ::= Callee "(" ArgList? ")" ;
-UsingStmt       ::= "using" Expr ("bind" IDENT)? ":" IndentBlock ;
-
+UsingStmt       ::= "using" ( "[" IDENT "]" )? Expr ("bind" IDENT)? ":" IndentBlock ;
 Assert          ::= "assert" Expr ("," Expr)? ;
 Dbg             ::= "dbg" (Expr ("," Expr)?) ;
 ```
