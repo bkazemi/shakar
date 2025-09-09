@@ -1180,7 +1180,8 @@ BaseSimpleStmt  ::= RebindStmt
                   | CatchStmt
                   | AwaitStmt
                   | AwaitAnyCall
-                  | AwaitAllCall ;
+                  | AwaitAllCall
+                  | IfStmt ;
 
 SimpleStmt      ::= BaseSimpleStmt
                   | PostfixIf
@@ -1197,6 +1198,10 @@ Stmt            ::= SimpleStmt
                   | AwaitAnyCall | AwaitAllCall ;
 
 (* ===== Control flow ===== *)
+
+IfStmt        ::= "if" Expr ":" (InlineBody | IndentBlock) ElifClause* ElseClause? ;
+ElifClause    ::= "elif" Expr ":" (InlineBody | IndentBlock) ;
+ElseClause    ::= "else" ":" (InlineBody | IndentBlock) ;
 
 GuardReturn     ::= "?ret" Expr ;
 
