@@ -1113,7 +1113,8 @@ UnaryExpr       ::= UnaryPrefixOp UnaryExpr | PostfixExpr ;
 PowExpr         ::= UnaryExpr ( "**" PowExpr )? ;
 UnaryPrefixOp   ::= "-" | "not" | "!" | "$" | "~" | "++" | "--" | "await" ;
 
-PostfixExpr     ::= Primary ( Postfix )* ( PostfixIncr )? ;
+PostfixExpr     ::= Primary ( Postfix )* ( PostfixIncr )?
+                  | "." ( IDENT | "(" ArgList? ")" | "[" SelectorList ("," "default" ":" Expr)? "]" ) ( Postfix )* ( PostfixIncr )? ;
 Postfix         ::= "." IDENT
                   | "[" SelectorList ("," "default" ":" Expr)? "]"
                   | "(" ArgList? ")" ;
@@ -1296,6 +1297,8 @@ Dbg             ::= "dbg" (Expr ("," Expr)?) ;
 ---
 
 #### Anchor semantics (normative notes)
+> **Note:** Bare parentheses never start an implicit-chain. Use `.(...)` to call the ambient anchor. Examples: OK `.(x)`, `.(x,y)`, `.foo`, `.foo()`; **Never** `(x)`, `(x,y)` as implicit-chain heads.
+
 ```
 Primary      := Ident | Literal | "(" Expr ")"
 Call         := "(" ArgList? ")"
