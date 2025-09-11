@@ -575,8 +575,9 @@ using[f] getTempFile():
 ---
 
 ## 7) Punctuation guards (drop `if/elif/else` noise)
+> **Terminology:** *Guard* is the construct. A `Expr ":" Body` is a *guard branch*. Multiple branches separated by `|` form a *guard group*. *Chain* refers only to **postfix chains** (field/call/index).
 
-**Multi‑line chain**
+**Multi‑line guard**
 ```shakar
 ready():
   start()
@@ -588,7 +589,7 @@ ready():
   log("not ready")
 ```
 
-**One‑line chain**
+**One‑line guard**
 ```shakar
 ready(): start() | retries < 3: retry() |: log("not ready")
 user and .active: process(user) |: log("inactive")
@@ -598,11 +599,11 @@ err: ?ret err |: log("ok")
 **Binding of `|:` (nearest‑else rule):** After a head’s first `:`, any `|`/`|:` at the same bracket depth binds to the **innermost open guard** (nearest head). Wrap inner guards in `(...)` or `{...}` if you want the following `|:` to bind to an outer guard.
 **Rules**
 **Alias:** `||` and `||:` are accepted as input in one‑line guards and are normalized by the formatter to `|` / `|:`. They are recognized only after the first `:` and only at bracket‑depth 0.
-- **Head:** `Expr ":"` starts a chain.
+- **Head:** `Expr ":"` starts a guard group.
 - **Or‑branch (elif):** same indent, `| Expr ":"`.
 - **Else:** same indent, `|:` (no space). Else is optional.
 - **Disambiguation:** if the head ends with named‑arg colons or a dict literal, wrap head: `(send to: "Ali"): …`, `({k:v}): …`.
-- **Don’t mix** punctuation and keywords within **the same chain**. Keywords remain available (`if/elif/else`).
+- **Don’t mix** punctuation and keywords within **the same guard group**. Keywords remain available (`if/elif/else`).
 
 Desugars 1:1 to `if/elif/else`.
 
