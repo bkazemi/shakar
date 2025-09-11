@@ -1095,9 +1095,11 @@ Expr            ::= TernaryExpr ;
 TernaryExpr     ::= OrExpr ( "?" Expr ":" TernaryExpr )? ;
 
 OrExpr          ::= AndExpr ( "or" AndExpr )* ;
-AndExpr         ::= WalrusExpr ( "and" WalrusExpr )* ;
+AndExpr         ::= BindExpr ( "and" BindExpr )* ;
 NullishExpr     ::= CompareExpr ( "??" CompareExpr )* ;
 WalrusExpr      ::= NullishExpr | IDENT ":=" Expr ;
+BindExpr       ::= WalrusExpr | LValue ".=" BindExpr ;  (* right-assoc; expression form of .= *)
+
 CompareExpr     ::= AddExpr ( CmpOp AddExpr | "," ( ("and" | "or")? (CmpOp)? AddExpr ) )* ;
 
 CmpOp           ::= "==" | "!=" | "<" | "<=" | ">" | ">=" | "is" | "is not" | "!is" | "in" | "!in" | "not in" ;
@@ -1149,7 +1151,7 @@ NullSafe        ::= "??" "(" Expr ")" ;
 
 (* ===== Assignment forms ===== *)
 
-ApplyAssign     ::= LValue ".=" Expr ;
+(* ApplyAssign     ::= LValue ".=" Expr ; //redundant, in BindExpr  *)
 StmtSubjectAssign ::= "=" LValue StmtTail ;  (* '.' = old LHS; writes back to same LHS path *)
 DeepMergeOp     ::= "+>" ;
 DeepMergeAssign ::= LValue "+>=" Expr ;
@@ -1168,7 +1170,7 @@ RebindStmt ::= "=" Expr ;
 (* ===== Statements & blocks ===== *)
 BaseSimpleStmt  ::= RebindStmt
                   | Expr
-                  | ApplyAssign
+
                   | AssignOr
                   | Destructure
                   | GuardReturn
@@ -1205,13 +1207,13 @@ ElseClause    ::= "else" ":" (InlineBody | IndentBlock) ;
 
 GuardReturn     ::= "?ret" Expr ;
 
-GuardChain      ::= GuardHead GuardOr* GuardElse? ;
+GuardChain     ::= GuardHead GuardOr* GuardElse? ;
 GuardHead      ::= Expr ":" IndentBlock ;
 GuardOr        ::= ("|" | "||") Expr ":" IndentBlock ;
 GuardElse      ::= ("|:" | "||:") IndentBlock ;
-OneLineGuard    ::= GuardBranch ("|" GuardBranch)* ("|:" InlineBody)? ;
-GuardBranch     ::= Expr ":" InlineBody ;
-InlineBody      ::= SimpleStmt | "{" InlineStmt* "}" ;
+OneLineGuard   ::= GuardBranch ("|" GuardBranch)* ("|:" InlineBody)? ;
+GuardBranch    ::= Expr ":" InlineBody ;
+InlineBody     ::= SimpleStmt | "{" InlineStmt* "}" ;
 
 (* ===== Loops ===== *)
 
