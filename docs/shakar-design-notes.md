@@ -503,7 +503,7 @@ Updates use `=` on existing lvalues: `user.name = "New"`.
 ## 6) Defaults, guards, safe access (committed)
 - **`or=`** and **statement‑subject** `=x or y` (statement head) desugar to `if not …: … = …`.
 - **`?ret expr`** early‑returns if expr is truthy.
-- **Postfix guards**: `stmt if cond`, `stmt unless cond`.
+- **Postfix conditionals**: `stmt if cond`, `stmt unless cond`.
 - **Nil‑safe chain**: `??(expr)` turns a deep deref/call chain into a nil‑propagating expression.
 
 ### Using
@@ -1175,7 +1175,7 @@ BaseSimpleStmt  ::= RebindStmt
 
                   | AssignOr
                   | Destructure
-                  | GuardReturn
+                  | ReturnIf
                   | Dbg
                   | Assert
                   | UsingStmt
@@ -1207,7 +1207,7 @@ IfStmt        ::= "if" Expr ":" (InlineBody | IndentBlock) ElifClause* ElseClaus
 ElifClause    ::= "elif" Expr ":" (InlineBody | IndentBlock) ;
 ElseClause    ::= "else" ":" (InlineBody | IndentBlock) ;
 
-GuardReturn     ::= "?ret" Expr ;
+ReturnIf      ::= "?ret" Expr ;
 
 GuardChain     ::= GuardHead GuardOr* GuardElse? ;
 GuardHead      ::= Expr ":" IndentBlock ;
