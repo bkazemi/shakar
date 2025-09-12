@@ -1258,7 +1258,7 @@ ListComp        ::= "[" Expr CompHead IfClause? "]" ;
 SetComp         ::= "{" Expr CompHead IfClause? "}" ;
 DictComp        ::= "{" Expr ":" Expr CompHead IfClause? "}" ;
 
-Pattern         ::= IDENT | "(" Pattern ("," Pattern)* [","] ")" ;
+Pattern         ::= IDENT | "(" Pattern ("," Pattern)* ")" ;
 PatternList     ::= Pattern "," Pattern ("," Pattern)* ;
 PatternHead     ::= PatternList | Pattern ;   (* use at heads that allow a,b *)
 
