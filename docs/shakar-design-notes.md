@@ -1251,16 +1251,23 @@ ParamList       ::= IDENT ("," IDENT)* ;
 (* ===== Comprehensions ===== *)
 
 CompHead        ::= ("over" | "for") OverSpec ;
-OverSpec        ::= "[" BinderList "]" Expr | Expr ("bind" Pattern)? ;
-BinderList      ::= Pattern ("," Pattern)* ;
+OverSpec        ::= "[" PatternList "]" Expr | Expr ("bind" PatternHead)? ;
 IfClause        ::= "if" Expr ;
 
 ListComp        ::= "[" Expr CompHead IfClause? "]" ;
 SetComp         ::= "{" Expr CompHead IfClause? "}" ;
 DictComp        ::= "{" Expr ":" Expr CompHead IfClause? "}" ;
 
-Pattern         ::= IDENT | Pattern "," Pattern | "(" Pattern ("," Pattern)* ")" ;
-Destructure     ::= Pattern ( "=" | ":=" ) Expr ;
+Pattern         ::= IDENT | "(" Pattern ("," Pattern)* [","] ")" ;
+PatternList     ::= Pattern "," Pattern ("," Pattern)* ;
+PatternHead     ::= PatternList | Pattern ;   (* use at heads that allow a,b *)
+
+DestrRHS        ::= Expr ( "," Expr )+ ; (* site-local pack, not a value *)
+Destructure     ::= PatternList "=" ( DestrRHS | Expr )
+                  | Pattern "=" Expr
+                  | PatternList ":=" ( DestrRHS | Expr )
+                  | Pattern ":=" Expr ;
+
 
 (* ===== Concurrency ===== *)
 AwaitStmt       ::= "await" ( "(" Expr ")" | Expr ) ":" (InlineBody | IndentBlock) ;
