@@ -69,10 +69,10 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
    - `|` at **start of line** is reserved for **punctuation guards** (§7); infix `|` is bitwise OR.
 8. **Comparison**: `<`, `<=`, `>`, `>=`, `==`, `!=`, `is`, `is not`, `!is`, `in`, `!in`, `not in`
 9. **Nil‑safe chain**: `??(expr)` (prefix form; treated as a primary) ✅
+9.5 **Nil‑coalescing**: `a ?? b` (returns `a` unless `a` is `nil`, otherwise `b`; right‑associative; binds tighter than `or`).
 10. **Walrus & apply-assign**: `:=`, `.=` (both expression-valued; bind tighter than `and`/`or`, lower than postfix) ✅
 11. **Boolean**: `and`, `or` (short‑circuit, value‑yielding) ✅
 12. **Ternary**: `cond ? then : else` ✅
-12.5 **Nil‑coalescing**: `a ?? b` (returns `a` unless `a` is `nil`, otherwise `b`; right‑associative; binds tighter than `or`).
 13. **Assignment** (statements): `=`, compound assigns, `or=`, statement‑subject `=x or y` ✅
 
 ### 3.1 Unary
@@ -790,6 +790,8 @@ for[j, ^sum] arr:
 ---
 
 ## 9) Destructuring (no braces)
+**Broadcast note (to finalize):** `a, b := 1` broadcasts the single RHS value to each LHS target, evaluating the RHS **once** and assigning aliases where applicable. LHS may be flat identifiers in v0.1; nested patterns TBD. Error messaging MUST distinguish (a) illegal `a = 1, 2` single-target with comma on RHS (site-local pack not allowed without a comma LHS), from (b) valid broadcast with `:=`.
+
 
 ```shakar
 x, y := get_pair()
