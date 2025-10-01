@@ -40,6 +40,9 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 - **Identifiers:** `[_A-Za-z][_A-Za-z0-9]*`. Case‑sensitive. Unicode ids ❓ (later).
 - **Comments:** `#` to end‑of‑line.
 - **Whitespace & layout:** blocks introduced by `:` and indentation (spaces only).
+- **Semicolons (statements):** `;` is a hard statement delimiter at top level and inside braced inline suites `{ ... }`. Multiple statements may share a line using semicolons. Grammar shape: `stmtlist := stmt (SEMI stmt)* SEMI?`.
+- **Inline suites after `:`:** exactly **one** simple statement is allowed. To include multiple, wrap a braced inline suite on the right of the colon: `{ stmtlist }`.
+
 - **Literals:**
   - **Nil/bool:** `nil`, `true`, `false`
   - **Integers:** 64‑bit signed (`Int`). Underscore separators allowed: `1_000_000`. Bases: `0b1010`, `0o755`, `0xFF_EC`. **Overflow throws** in v0.1.
@@ -114,6 +117,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
     - **After `or` the comparator is required** to remain in the chain (no carry-forward across `or`).
   - **Joiner is sticky**: defaults to `and` and persists until changed by `, or` / `, and`.
   - **Leaving chain mode:** any `and|or` **without a preceding comma** ends the chain and resumes normal boolean parsing.
+  - **Comparator cannot change inside a CCC.** Put the comparator on the first leg; comma legs carry it. If you need a different comparator, use `and` or parentheses (e.g., `a < b and c > d`).
   - **Desugaring:** expand left-to-right to `S op_i Expr_i` joined by the current sticky joiner; then apply normal precedence (`and` binds tighter than `or`) with short-circuit evaluation.
   - **Parentheses:** `( … )` may nest CCCs inside expressions without affecting the chain's subject/evaluation rules.
   - **Selectors in comparisons:** with backtick selector-literals `` `Sel` ``:
@@ -610,6 +614,8 @@ Desugars 1:1 to `if/elif/else`.
 ---
 
 - **Guard heads with named args:** If a guard head contains `:`, **parenthesize the head** to disambiguate `Head: Body`, e.g., `(send "bob", subject: "Hi"): log("sent").
+- **`await` one-liners are statements, not guards.** `await expr: body` and `await(expr): body` parse as `awaitstmt` so the trailing body binds to `await` (not to a guard). Parenthesized `(await f()): …` may parse as a guard head; allowed for now and style-lintable.
+
 ## 8) Control flow (loops & flow keywords)
 - Iterating the `nil` **literal** is a compile-time error; iterating a variable that evaluates to `nil` is a **no-op**.
 
@@ -798,6 +804,8 @@ x, y := get_pair()
 name, age := user.profile
 k, v := pair
 ```
+
+- **LHS requires a `pattern_list` (2+).** `a = 1, 2` is an error; use `a, b = 1, 2`. Applies to both `=` and `:=`.
 
 ---
 
