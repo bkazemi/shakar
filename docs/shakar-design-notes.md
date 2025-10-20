@@ -30,7 +30,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 - **Strings:**  **Raw strings:** `raw"…"` (no interpolation; escapes processed) and `raw#"…"#` (no interpolation; no escapes; exactly one `#` in v0.1).
   Examples: `raw"Line1\nLine2"`, `raw#"C:\\path\\to\\file"#`, `raw#"he said "hi""#`.
  immutable UTF‑8 with zero‑copy views/ropes + leak‑avoidance heuristics (§12).
-- **Objects:** records + descriptors (getters/setters); no class system required for v0.1 (§13).
+- **Objects:** objects + descriptors (getters/setters); no class system required for v0.1 (§13).
 - **Two habitats:** CLI scripting (Python niche) and safe embedding (Lua niche).
 
 ---
@@ -49,13 +49,13 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
   - **Floats:** IEEE‑754 double (`Float`). `0.5`, `1.0`, `1e-9`, `1_234.5e6`. **Leading zero required** (no `.5`).
   - **Strings:** `"…"`, with escapes `\n \t \\ \" \u{…}`. Multiline strings ❓ (later).
   - **Arrays:** `[1, 2, 3]`
-  - **Records:** `{ key: value, other: 2 }` (plain values; getters/setters have contextual `get`/`set`, see §10).
+  - **Objects:** `{ key: value, other: 2 }` (plain values; getters/setters have contextual `get`/`set`, see §10).
   - **Selector literals (as values):** backtick selectors like `` `1:10` `` produce **Selector** values (views/iterables). Default stop is **inclusive**; use `<stop` for exclusive (e.g., `` `[1:<10]` ``).
 ---
 
 ## 3) Operators & precedence (complete)
 
-**Set and Map algebra precedence:** `*` for set/map intersection participates at the multiplicative tier. `+`, `-`, and set/map `^` participate at the additive tier. Numeric bitwise `^` remains behind the `bitwise_symbols` gate and stays in the bitwise tier.
+**Set and Object algebra precedence:** `*` for set/object intersection participates at the multiplicative tier. `+`, `-`, and set/obj `^` participate at the additive tier. Numeric bitwise `^` remains behind the `bitwise_symbols` gate and stays in the bitwise tier.
 
 **Associativity**: unless noted, binary operators are **left‑associative**.
 **Precedence table (high → low):**
@@ -64,7 +64,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 2. **Unary**: `-x` boolean `not x` / `!x`, `~x` (bitwise not; gated via `bitwise_symbols`, otherwise use `bit.not(x)`)
 3. **Power**: `x ** y` (right‑associative) ✅
 4. **Multiplicative**: `*`, `/` (float), `//` (floor int), `%`
-5. **Additive / concat**: `+`, `-`, `+>` (deep map merge)
+5. **Additive / concat**: `+`, `-`, `+>` (deep object merge)
    - `+` adds numbers; concatenates **strings** (rope) and **arrays** (copy‑on‑append semantics).
 6. **Shifts** (gated via `bitwise_symbols`): `<<`, `>>` (arithmetic for ints)
 7. **Bitwise AND/XOR/OR** (gated via `bitwise_symbols`): `&`, `^`, `|`
@@ -87,7 +87,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 - `~x` (bitwise not on ints; gated by `bitwise_symbols` — otherwise use `bit.not(x)`)
 
 ### 3.2 Arithmetic
-- **Maps (type-directed overloads by key):**
+- **Objects (type-directed overloads by key):**
   - `M + N` merge (RHS wins conflicts on shared keys).
   - `M * N` key intersection (only keys present in both; values taken from RHS).
   - `M - N` key difference (keys in `M` not in `N`).
@@ -145,7 +145,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
   assert 4 < `5:10`, != `7, 8`             # ⇒ (4 < 5) and (4 != 7) and (4 != 8)
   ```
 - `==`, `!=` are value equality; type‑aware. Cross-type compares: numeric Int vs Float equality compares by value (for example, `3 == 3.0` is true); other cross-type comparisons error (except nil equality).
-- Ordering `< <= > >=` defined for **numbers** and **strings** (lexicographic by bytes of normalized UTF‑8). Arrays/records ordering ❓ (not in v0.1).
+- Ordering `< <= > >=` defined for **numbers** and **strings** (lexicographic by bytes of normalized UTF‑8). Arrays/objects ordering ❓ (not in v0.1).
 - `is`, `is not`/`!is` check identity (same object/storage). For strings/views, identity means same `(base, off, len)`; value equality may still be true when identity is false.
 - **Identity negation:** `!is` is a single token, equivalent to `is not`. Write `a !is b` (not `a ! is b`).
 
@@ -153,7 +153,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 - `x in y`:
   - strings: substring
   - arrays: element membership (`==`)
-  - records: **key** membership
+  - objects: **key** membership
 - `x not in y` / `x !in y` are the negation (synonyms).
 
 ### 3.6 Boolean (words only)
@@ -237,7 +237,7 @@ user.first .= .title(); user.last .= .title()
 - In `.=` RHS, `.` is the old per-field value.
 - Left-to-right order; duplicates collapse; missing fields are errors.
 
-### 3.9 Deep map merge `+>` and `+>=`
+### 3.9 Deep object merge `+>` and `+>=`
 
 #### Surface
 
@@ -248,20 +248,20 @@ cfg +>= env
 
 #### Semantics
 
-- Map vs map: recursive key-wise merge; RHS wins on conflicts.
-- If either side at a path is not a map, RHS replaces LHS at that path.
+- Object vs object: recursive key-wise merge; RHS wins on conflicts.
+- If either side at a path is not an object, RHS replaces LHS at that path.
 - Arrays, sets, strings, numbers: replaced wholesale (no deep behavior).
 - Not commutative: `A +> B` may differ from `B +> A`.
 
 #### Precedence
 
-- Additive tier with `+ - ^` (map algebra family).
+- Additive tier with `+ - ^` (object algebra family).
 
 #### Errors
 
-- `+>=` requires LHS to be a map; otherwise error. `+>` always yields a value per rules above.
+- `+>=` requires LHS to be an object; otherwise error. `+>` always yields a value per rules above.
 
-### 3.10 Map index with default
+### 3.10 Object index with default
 
 #### Surface
 
@@ -272,8 +272,7 @@ value = cfg.db[host, default: "localhost"]
 ```
 
 #### Semantics
-
-- Maps only; using `default:` on a non-map receiver is a **static error**.
+- Objects only; using `default:` on a non-object receiver is a **static error**.
 - If key exists ⇒ return stored value.
 - If key missing ⇒ return the `default:` expression (no throw).
 - `default:` is a named argument to the `[]` operator; it doesn’t modify storage.
@@ -495,7 +494,7 @@ makeUser() bind u and .isValid()
 
 **Destructuring**
 - Arrays: `[head, ...rest] := xs`
-- Records: `{id, name} := user`
+- Objects: `{id, name} := user`
 Updates use `=` on existing lvalues: `user.name = "New"`.
 
 **Chaining**
@@ -673,13 +672,13 @@ await[any](
 - Heads start concurrently. When one wins, run the trailing block once with **`.` = winning value** and **`winner`** bound to its label.
 - Returns the trailing block’s value.
 
-**No trailing body**: returns a record (for programmatic use):
+**No trailing body**: returns an object (for programmatic use):
 ```shakar
 r := await[any]( user: fetchUser(id), cache: fetchFromCache(id), timeout 200 )
 # r = { winner: "user"|"cache"|"timeout", value: <result> }
 ```
 
-**`await[all]`** (trailing body or record form)
+**`await[all]`** (trailing body or object form)
 
 With trailing body:
 ```shakar
@@ -730,10 +729,10 @@ loop variable is immediately made the subject for the body.
     # i is the index; '.' is the element
     process(i, .)
   ```
-- **Maps/records:**
+- **Objects:**
   ```shakar
   for[k] m:
-    # '.' is m[k]; 'k' is the key (string key for records; any key for maps)
+    # '.' is m[k]; 'k' is the key use dot when key is an identifier; bracket for all keys
     use(k, .)
 
   for[k, v] m:
@@ -745,7 +744,7 @@ loop variable is immediately made the subject for the body.
 - `.` is **per-iteration** and **does not leak** outside the loop body.
 - Nested subjectful constructs (lambdas `map&`, apply-assign `.=`, `await[any]` arm bodies) **rebind** `.` inside their own scopes.
 - A nested `for` **rebinds** `.`; if you need the outer element, name it once (`outer := .`) before entering the inner loop.
-- Works with any iterable (`Array`, `Set`, `Map`, `Record`, custom iterables).
+- Works with any iterable (`Array`, `Set`, `Map`, `Object`, custom iterables).
 - `break` / `continue` behave as in `for-in`.
 
 **Desugar (conceptual):**
@@ -762,7 +761,7 @@ for __it in xs:
 Binder forms:
 - `for xs:` — subjectful loop; body sees `.` = element.
 - `for[i] xs:` — indexed; `i` = view index; `.` = element.
-- `for[k] m:` / `for[k, v] m:` — map/record; `k` = key, `.` = value (or `v` if bound).
+- `for[k] m:` / `for[k, v] m:` — object; `k` = key, `.` = value (or `v` if bound).
 - `for … in <selectors>:` — iterate a **selector list** (selector values (ranges), slices, indices).
 
 **Hoisted binders (`^name`) — final v0.1 semantics**
@@ -828,13 +827,13 @@ cleaned = [ .trim() over names if .trim() ]
 ```shakar
 names = [ .trim() over lines if .len > 0 ]
 uniq  = set{ .lower() over tokens }
-byId  = map{ .id: .; over users if .active }
+byId  = { .id: . over users if .active }
 ```
 
 **Explicit binding:** `bind` (does not remove `.`)
 ```shakar
 admins = [ u.name over users bind u if u.role == "admin" ]
-pairs  = { k: v over map.items() bind k, v }
+pairs  = { k: v over obj.items() bind k, v }
 ```
 
 **Desugar (list):**
@@ -845,7 +844,7 @@ lines.map&(.trim()).filter&(.len > 0).to_list()
 ---
 
 - **`bind` scope:** names introduced by `bind` are visible **throughout the comprehension** (head, filters, body), but not outside it.
-- **Binder list sugar on `over`:** `over[binders] src` is sugar for `over src bind binders`. Records: one binder yields the key, two binders yield key and value. It does not remove `.` in the body.
+- **Binder list sugar on `over`:** `over[binders] src` is sugar for `over src bind binders`. Objects: one binder yields the key, two binders yield key and value. It does not remove `.` in the body.
 
 **Examples (binder list sugar):**
 ```shakar
@@ -927,14 +926,14 @@ For heavy edits, use `TextBuilder/Buf` and `freeze()` back to `Str`.
 
 ---
 
-## 13) Object model (records + descriptors)
+## 13) Object model (objects and descriptors)
 
-- **Record**: map `name → Slot`.
+- **Object**: map `name → Slot`.
 - **Slot**: `Plain(value)` or `Descriptor{ getter?: fn, setter?: fn }`.
 - **Property read**: Plain → value; Descriptor.getter → call with implicit `self`.
 - **Property write**: Plain → set; Descriptor.setter → call with `self, value`; strict mode can forbid setting Plain when a descriptor exists.
 - **Methods**: `obj.m(args)` sets `self=obj` for the call frame.
-- **Contextual `get/set`** inside record literals desugar to `Descriptor` slots.
+- **Contextual `get/set`** inside object literals desugar to `Descriptor` slots.
 - **Decorator‑based getters/setters** set flags or return descriptor wrappers so assignment installs the right slot.
 - Getter must be **nullary**; setter **arity 1**.
 
@@ -942,11 +941,50 @@ To pass a callable for a getter: `&(obj.prop())`.
 
 ---
 
-### Records vs Maps — literals & access
-- **Records**: `{ … }` with **string keys** (identifier keys sugar to strings). Dot access (`rec.k`) and bracket access (`rec["k"]`).
-- **Maps**: `map{ … }` with **any keys**; **semicolon-delimited** entries inside `map{ … }`; **bracket-only** access (`m[key]`).
-- **Empty literals**: `{}`, `set{}`, `map{}`.
-- **Equality & iteration**: both structural, order-insensitive; iteration preserves insertion order.
+### Objects — unified literal
+Shakar uses a single object literal `{ ... }`. Prior distinctions between records and maps are removed. The validator tags objects as `closed` or `open` based on keys and spreads.
+
+**Keys**
+- Identifier: `a: expr`
+- String: `"a-b": expr`
+- Computed: `[expr]: expr`
+
+**Getters and setters**
+- `get key: expr` or an indented block after `:`
+- `set key(x): expr` or an indented block after `:`
+- Getter arity 0; setter arity 1; implicit `self` is the object.
+
+**Access**
+- `obj.key` only for identifier keys (participates in method fusion).
+- `obj[expr]` and `obj["k"]` for all keys.
+
+**Shape tagging**
+- `closed`: all keys are identifiers and there are no computed keys or spreads. Optimizable hidden shape. Duplicate identifier keys are errors.
+- `open`: otherwise. Dictionary path. Last write wins on duplicates.
+
+**Validator**
+- Enforce getter/setter arities.
+- In `closed` objects: forbid duplicate identifier keys.
+- Require bracket access for non-identifier keys.
+
+**Printer**
+- Preserve order; print identifier keys bare; quote string keys; keep computed keys in `[ ]`.
+- Allow block bodies after `:` for getters, setters, and field values.
+
+**Examples**
+```shakar
+user = {
+  id: 1,
+  name: "Ada",
+  [1+2]: 3,
+  get size: 1,
+  set size(x): x
+}
+
+user.name       # dot for identifier
+user["name"]     # bracket also ok
+user[1+2]       # computed
+```
 ## 14) Decorators (no HOF boilerplate) & lambdas
 - Decorators & hooks are **core** in v0.1.
 - **Decorators**: inside `decorator` bodies, `f` and `args` are implicit; if the body does not `return`, implicitly `return f(args)`.
@@ -975,7 +1013,7 @@ To pass a callable for a getter: `&(obj.prop())`.
 
 **Contextual:**
 - `for` in comprehensions (`[...] for src …` as alias for `over`)
-- `get`/`set` only **inside record literals**
+- `get`/`set` only **inside object literals**
 
 **Punctuation (syntax, not keywords):**
 - `.=` apply-assign
@@ -992,7 +1030,7 @@ To pass a callable for a getter: `&(obj.prop())`.
 - **Bool**: `true/false`
 - **Str**: immutable UTF‑8
 - **Array**: ordered, dynamic
-- **Record**: key→value map (string keys); descriptors for getters/setters
+- **Object**: key→value map (string keys); descriptors for getters/setters
 - **Func**: user/native functions
 - **Selector literal**: iterable numeric range
 - **Nil**: null value
@@ -1073,7 +1111,7 @@ allow = ["?ret"]
 - **Discourage inline backticks in collection literals**: `` [1, `1:10`, 20] `` is allowed but discouraged; prefer `[1, sel, 20]` with `` sel := `1:10` ``.
   * **Exception**: short REPL snippets and small examples may use inline backticks for brevity.
 - **Selector values in `[]`**: when a backtick selector literal appears inside `[]`, the formatter should inline its body (flatten), preserving order.
-- **Selector values in collections**: backtick selector literals are ordinary values in arrays/maps/sets; **no flattening** occurs in collection literals.
+- **Selector values in collections**: backtick selector literals are ordinary values in arrays/objects/sets; **no flattening** occurs in collection literals.
 - **Selector literal values use backticks** around the selector **body** (no brackets inside). Example: `` `1:<5, 11:15:2, 20` ``.
 - **Brackets `[]` are not used for selector values**. Use brackets only for indexing, binders (e.g. `for[i]`), and array literals.
 - **Commas in lists**: parser accepts both `.{a,b}` and `.{a, b}`. Formatter emits a single space after each comma across all comma-separated lists (field fan-out `.{...}`, argument lists, binder lists, patterns). No space before commas; no spaces around braces.
@@ -1297,9 +1335,9 @@ CatchSugar      ::= Expr "@@" IDENT? "=>" Expr ;
 Hook            ::= "hook" STRING "=>" LambdaExpr ;
 LambdaExpr      ::= "(" ParamList? ")" "=>" (Expr | IndentBlock) ;
 
-(* ===== Records ===== *)
+(* ===== Objects ===== *)
 
-RecordItem      ::= IDENT ":" Expr
+ObjectItem      ::= IDENT ":" Expr
                   | "get" IDENT "(" ")" ":" IndentBlock
                   | "set" IDENT "(" IDENT ")" ":" IndentBlock ;
 
@@ -1352,7 +1390,7 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
 **Phase 2 — VM**
 - Bytecode interpreter in C (embeddable).
 - GC with support for `Str` views/ropes; compaction hooks.
-- Records + descriptor slots; implicit `self` for getter/setter/method calls.
+- Objects + descriptor slots; implicit `self` for getter/setter/method calls.
 
 **Phase 3 — Stdlib (focused)**
 - `fs`, `path`, `json/yaml`, `http`, `time`, `process`, `Event`.
@@ -1384,8 +1422,8 @@ for names:
 for[i] xs:
   log(i, .)
 
-# Maps/records
-emails = map{ u.id: u.email; over users }
+# Objects
+emails = { u.id: u.email; over users }
 for[k] emails:
   send(k, .)
 for[k, v] emails:
