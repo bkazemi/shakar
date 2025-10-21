@@ -830,7 +830,7 @@ uniq  = set{ .lower() over tokens }
 byId  = { .id: . over users if .active }
 ```
 
-**Explicit binding:** `bind` (does not remove `.`)
+**Explicit binding (when needed):** `bind` (does not remove `.`). You can also rely on **implicit head binders** when the head uses free, unqualified names.
 ```shakar
 admins = [ u.name over users bind u if u.role == "admin" ]
 pairs  = { k: v over obj.items() bind k, v }
@@ -855,6 +855,31 @@ sums = [ a + b over[a, b] aAndB ]
 
 - **Illegal combination:** `over[...] Expr bind ...` is not allowed. The formatter drops the redundant `bind` and keeps the bracket form.
 
+### Implicit head binders (objects / lists / sets)
+In a comprehension head, free, unqualified identifiers are treated as temporary binders so you don’t have to write a separate `bind` list when the intent is obvious.
+
+**Where it applies**
+- **Object heads:** `{ key : value [if pred] over iter }` — free idents in `key`, then `value`, then `pred` bind to components of each element from `iter` in **first-use order**.
+- **List heads:** `[ elem [if pred] over iter ]` — free idents in `elem` then `pred` bind likewise.
+- **Set heads:** `{ elem [if pred] over iter }` — same rule as lists.
+
+**Hard gates (so it can’t leak)**
+- Only in **comprehension heads** (and optional `if` guards). Not in loops.
+- Identifiers must be **free** at that site and **unqualified** (plain names). If a name resolves in the surrounding scope, it is **not** a binder.
+- Ignore occurrences **inside nested lambdas** within the head/guard.
+- This rule does **not** remove or alter the subject `.` — you can still use `.` in the head as usual.
+
+**Arity check**
+- Let N = number of distinct head-binders; M = arity of the element.
+- Require N ≤ M (checked statically when possible, otherwise at runtime with a one-step unpack).
+- Error example: “Head introduces 2 names (k, v) but source produced a 1-component value.”
+
+**Examples**
+```shakar
+{ k: v over dict.items() if v > 0 }
+[ f(k, v) over dict.items() ]
+{ id over users if id > 0 }      # set comp
+```
 ## 11) Named‑arg calls (paren‑light)
 
 ```shakar
@@ -992,6 +1017,29 @@ user[1+2]       # computed
 
 ---
 
+### Amp-lambda: implicit parameters at known-arity call sites
+**When it triggers.** Only when `&( body )` is passed to a call site whose arity **N** is known (e.g., `map`=1, `filter`=1, `zipWith`=2).
+
+**How parameters are inferred**
+- Collect **free, unqualified identifiers** used as **bases** in `body` (e.g., `a`, `a.lower()`, `a[0]`, `f(a)`), scanning left→right. Occurrences inside nested lambdas are ignored.
+- If the body contains the **subject** `.` anywhere, inference is disabled for that lambda. Use either `.` **or** implicit parameters, not both.
+- If `#distinct_free > N`: hard error (name the extras). If `< N`: pad with anonymous parameters (unused) to arity **N**.
+- If a name resolves in the surrounding scope, it **captures** that outer value (it is not a binder). Use an explicit parameter list if you intend to shadow: `&[x](...)` or `&[x,y](...)`.
+
+**Examples (valid under current call shape: lambda-first)**
+```shakar
+zipWith&(left + right)(xs, ys)      # infers &[left, right](left+right)
+pairs.filter&(value > 0)            # unary site → &[value](value>0)
+lines.map&(.trim())                 # uses subject — no inference
+```
+**Errors**
+- “Cannot mix `.` subject with implicit parameters; choose one style.”
+- “Implicit parameters found: a,b,c but callee expects 2.”
+- “`x` is already bound here; implicit parameters require free names (use `&[x](...)` to shadow).”
+
+**Notes**
+- No grammar changes; this is a validator/desugar step that fills the param list in the canonical `amp_lambda` node.
+- Keep a small whitelist/annotation for known-arity callees; unknown-arity sites do not apply this rule.
 ## 15) Errors, catch, assert, dbg, events
 
 - **One‑stmt catch**:
@@ -1118,7 +1166,7 @@ allow = ["?ret"]
 - **Field fan-out braces**: prefer `user.{a, b}` (no space between `.` and `{`). Trailing comma only when the list is multiline.
 - **Map index with default**: prefer `m[key, default: expr]` with exactly one space after the comma and no spaces around `:`. Multiline default only if the entire index breaks across lines.
 - **Placeholder partials `?`**: for single-hole cases, prefer `&` path lambdas (e.g., `xs.map&(.trim())`). Use `?` when there are **2+ holes** (e.g., `blend(?, ?, 0.25)`). Avoid mixing `&` and `?` within the same call; when readability suffers, switch to a named-arg lambda.
-- **Style -- `over[...]` vs `bind`:** prefer `over[...]` when you have more than one binder. Do not use both `over[...]` and `bind` in the same head.
+- **Style — head binders:** prefer **implicit head binders** when the head’s names are free and unqualified; use `over[...]` or `bind` when you need to shadow, disambiguate arity, or improve readability. Do **not** mix `over[...]` and `bind` in the same head.
 - **Style -- Guard heads with paren-light calls:** discouraged; the formatter may auto-paren such heads (see §7).
 - **Tokenization -- ``!in``:** write as a single token with no internal space: `a !in b` (not `a ! in b`). Parser treats `! in` as unary `!` then `in`.
 - **Tokenization -- selector interpolation braces:** Inside a backtick selector literal, `{` begins interpolation; the interpolation region is parsed as a normal expression with balanced-brace counting; braces contained in string or character literals or comments do not affect the balance. The selector literal ends at the next backtick after the selector grammar completes. Comments are not permitted inside selector bodies. There are no escape sequences in selector bodies.
