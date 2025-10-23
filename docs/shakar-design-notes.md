@@ -1023,7 +1023,8 @@ user[1+2]       # computed
 **How parameters are inferred**
 - Collect **free, unqualified identifiers** used as **bases** in `body` (e.g., `a`, `a.lower()`, `a[0]`, `f(a)`), scanning left→right. Occurrences inside nested lambdas are ignored.
 - If the body contains the **subject** `.` anywhere, inference is disabled for that lambda. Use either `.` **or** implicit parameters, not both.
-- If `#distinct_free > N`: hard error (name the extras). If `< N`: pad with anonymous parameters (unused) to arity **N**.
+- If #distinct_free > N: hard error (name the extras).
+- If #distinct_free < N: behavior depends on the callee’s `implicit_params` policy: `exact` → error; `pad` → pad with anonymous parameters (ignored); `off` → error.
 - If a name resolves in the surrounding scope, it **captures** that outer value (it is not a binder). Use an explicit parameter list if you intend to shadow: `&[x](...)` or `&[x,y](...)`.
 
 **Examples (valid under current call shape: lambda-first)**
@@ -1039,7 +1040,50 @@ lines.map&(.trim())                 # uses subject — no inference
 
 **Notes**
 - No grammar changes; this is a validator/desugar step that fills the param list in the canonical `amp_lambda` node.
-- Keep a small whitelist/annotation for known-arity callees; unknown-arity sites do not apply this rule.
+
+#### Callee policy for amp-lambda implicit parameters
+**Declaration (decorator):** Use `@implicit_params(policy)` on the callee definition to control inference at its call sites. Valid `policy` values are `exact` (**default if omitted**), `pad`, and `off`.
+
+```shakar
+@implicit_params('exact')   # default; explicit for clarity
+fn zipWith(xs, ys, f) { ... }
+
+@implicit_params('pad')
+fn mapWithIndex(xs, f) { ... }
+
+@implicit_params('off')
+fn reduce(xs, init, f) { ... }
+
+struct Dict {
+  @implicit_params('pad')
+  fn mapWithKey(self, f) { ... }
+}
+```
+
+Known-arity callees declare an `implicit_params` policy that controls whether implicit parameters may be inferred and whether missing parameters may be ignored:
+
+- `exact` (**default**): the number of distinct free, unqualified names in the body must equal the callee arity **N**.
+- `pad`: the body may use fewer than **N** names; missing positions are filled with anonymous parameters that are not usable in the body.
+- `off`: implicit parameters are disabled; write an explicit parameter list (`&[params](...)`).
+
+**Rules that still apply**
+- Only active at **known-arity** call sites.
+- **No mixing** with the subject `.` inside the same lambda body.
+- Names that resolve in the surrounding scope are **captures**, not implicit parameters.
+
+**Examples**
+```shakar
+# exact (default)
+zipWith&(l + r)(xs, ys)            # ok: 2 names, arity 2
+zipWith&(l)(xs, ys)                # error: expects 2 (policy = exact)
+
+# pad (callee opted in)
+mapWithIndex&(item * 2)(xs)        # ok: arity 2; pads the second param (ignored)
+filterWithKey&(key.starts_with("x"))(dict)  # ok: uses only key
+
+# off (callee opted out)
+reduce&(acc + x)(xs, 0)            # error: implicit params disabled; write &[acc, x](...)
+```
 ## 15) Errors, catch, assert, dbg, events
 
 - **One‑stmt catch**:
