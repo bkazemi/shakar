@@ -1,0 +1,299 @@
+//start: (comment | stmtlist | NEWLINE | _NL)*
+
+start_noindent: stmtlist (_NL+ stmtlist)* _NL*
+start_indented: stmtlist ( (_NL+)? stmtlist)* _NL*
+//start_indented: stmtlist (NEWLINE+ stmtlist)* NEWLINE*
+
+RBRACE: "}"
+LBRACE: "{"
+RSQB: "]"
+LSQB: "["
+RPAR: ")"
+LPAR: "("
+DOT: "."
+COMMA: ","
+SEMI: ";"
+COLON: ":"
+
+WALRUS: ":="
+APPLYASSIGN: ".="
+
+QMARK: "?"
+NULLISH: "??"
+
+_NL: /(\r?\n[ \t]*)+/  // Auto-generated from docs/shakar-design-notes.md
+
+COMMENT: "#" /[^\n\r]*/
+
+%import common.INT   -> INT
+%import common.WS_INLINE
+%ignore WS_INLINE
+
+%import common.ESCAPED_STRING -> STRING
+%import common.NUMBER -> NUMBER
+
+%declare AND OR IS IN NOT FOR IF ELIF ELSE AWAIT ANY USING OVER ALL HOOK RETURN DEFER ASSERT DBG GET SET
+
+%import common.CNAME -> IDENT
+
+//%declare NEWLINE INDENT DEDENT
+
+NEWLINE: /_SHK_NL_/
+INDENT: /_SHK_IND_/
+DEDENT: /_SHK_DED_/
+
+DEEPMERGE: "+>"
+CARET: "^"
+PLUS: "+"
+MINUS: "-"
+STAR: "*"
+POW : "**"
+SLASH: "/"
+MOD: "%"
+NEG: "!"
+
+# comparison tokens
+EQ: "=="
+NEQ: "!="
+LT: "<"
+LTE: "<="
+GT: ">"
+GTE: ">="
+
+expr: ternaryexpr
+ternaryexpr: orexpr ( "?" expr ":" ternaryexpr )?
+orexpr: andexpr ( OR andexpr )*
+andexpr: bindexpr ( AND bindexpr )*
+bindexpr: walrusexpr | lvalue APPLYASSIGN bindexpr
+walrusexpr: nullishexpr | IDENT ":=" expr_nc
+
+nullishexpr: compareexpr ( NULLISH compareexpr )*
+compareexpr: addexpr ( cmpop addexpr ( "," ( (AND | OR)? (cmpop)? addexpr ) )* )?
+cmpop: EQ | NEQ | LT | LTE | GT | GTE
+     | IS NOT        // is not
+     | NEG IS        // !is
+     | NOT IN        // not in
+     | IS            // is
+     | IN            // in
+     | NEG IN        // !in
+
+# ===== No-Comma (NC) expressions: forbid top-level CCC at select sites =====
+expr_nc: ternaryexpr_nc
+ternaryexpr_nc: orexpr_nc ( "?" expr ":" ternaryexpr_nc )?
+orexpr_nc: andexpr_nc ( OR andexpr_nc )*
+andexpr_nc: bindexpr_nc ( AND bindexpr_nc )*
+bindexpr_nc: walrusexpr_nc | lvalue ".=" bindexpr_nc
+walrusexpr_nc: nullishexpr_nc | IDENT ":=" expr_nc
+nullishexpr_nc: compareexpr_nc ( "??" compareexpr_nc )*
+compareexpr_nc: addexpr ( cmpop addexpr )*
+
+addexpr: mulexpr ( addop mulexpr )*
+addop: DEEPMERGE | CARET | PLUS | MINUS
+powexpr: unaryexpr ( POW powexpr )?
+mulexpr: powexpr ( mulop powexpr )*
+mulop: STAR | SLASH | MOD
+unaryexpr: await_value
+         | unaryprefixop unaryexpr
+         | postfixexpr
+
+unaryprefixop: "-" | NOT | "!" | "$" | "~" | "++" | "--"
+
+postfixexpr: primary (postfix)* (postfixincr)? -> explicit_chain
+           | imphead (postfix)* (postfixincr)? -> implicit_chain
+           | DOT -> subject
+postfix_field: DOT IDENT -> field
+postfix_index: LSQB selectorlist ("," "default" ":" expr)? RSQB -> index
+postfix_call:  "(" arglistnamedmixed? ")" -> call
+imphead: "." IDENT -> field
+       | "." "(" arglist? ")"
+       | "." LSQB selectorlist ("," "default" ":" expr)? RSQB -> index
+?postfix: postfix_field | postfix_index | postfix_call | postfix_lam1 | postfix_lamn
+postfixincr: "++" -> incr | "--" -> decr
+
+array: LSQB _NL* [ expr (_NL* "," _NL* expr)* _NL* ("," _NL*)? ] RSQB -> array
+
+selectorlist: selector ("," selector)*
+selector: indexsel | slicesel
+indexsel: expr
+slicesel: slicearm ":" slicearm ( ":" slicearm )?
+slicearm: expr -> slicearm_expr | -> slicearm_empty
+optstop: "<" expr | expr?
+primary: rebind_primary | IDENT
+                  | rebind_primary
+                  | literal
+                  | object
+                  | array
+                  | listcomp | setcomp | dictcomp
+                  | "(" expr ")"
+                  | selectorliteral
+                  | nullsafe
+                  | ampval1 | ampvaln
+
+literal: STRING | NUMBER | "nil" | "true" | "false"
+selectorliteral: "`" sellist "`"
+sellist: selitem ("," selitem)*
+selitem: sliceitem | indexitem
+sliceitem: selatom? ":" seloptstop (":" selatom)?
+seloptstop: "<" selatom | selatom?
+indexitem: selatom
+lv_index: "[" selectorlist "]"
+selatom: interp | IDENT | NUMBER
+interp: "{" expr "}"
+
+nullsafe: "??" "(" expr ")"
+comment: COMMENT
+rebind_primary: "=" IDENT -> rebind_primary
+
+
+stmtsubjectassign: rebind_primary
+deepmergeassign: lvalue "+>=" expr
+assignor: lvalue "or=" expr
+
+lvalue: primary ( postfix_field | lv_index )* ( fieldfan )?
+fieldlist: IDENT ("," IDENT)*
+fieldfan: "." "{" fieldlist "}"
+
+?basesimplestmt: expr
+                  | returnstmt
+                  | assignor
+                  | stmtsubjectassign
+                  | assignstmt
+                  | destructure
+                  | destructure_walrus
+                  | onelineguard
+                  | returnif
+                  | dbg
+                  | assert
+                  | usingstmt
+                  | deferstmt
+                  | hook
+                  | catchstmt
+                  | awaitstmt
+                  | awaitanycall
+                  | awaitallcall
+                  | rebindstmt
+                  | ifstmt
+
+?simplestmt: basesimplestmt
+                  | postfixif
+                  | postfixunless
+
+postfixif: basesimplestmt IF expr
+postfixunless: basesimplestmt "unless" expr
+
+indentblock: _NL INDENT (stmtlist? _NL+)* stmtlist? _NL* DEDENT
+inlinestmt: simplestmt
+stmtlist: stmt (SEMI stmt)* SEMI?
+stmt: simplestmt
+          | comment | forin | forsubject | formap1 | formap2
+
+ifstmt: IF expr ":" (inlinebody | indentblock) (elifclause)* (elseclause)?
+elifclause: ELIF expr ":" (inlinebody | indentblock)
+elseclause: ELSE ":" (inlinebody | indentblock)
+
+returnif: "?ret" expr
+
+guardchain: guardhead guardor* guardelse?
+guardhead: expr ":" indentblock
+guardor: ("|" | "||") expr ":" indentblock
+guardelse: ("|:" | "||:") indentblock
+onelineguard: AWAIT ( "(" expr ")" | expr ) ":" inlinebody -> awaitstmt
+            | guardbranch ("|" guardbranch)* ("|:" inlinebody)?
+guardbranch: expr ":" inlinebody
+inlinebody: simplestmt | "{" stmtlist? "}"
+
+forin: FOR IDENT IN expr ":" (inlinebody | indentblock)
+forsubject: FOR expr ":" (inlinebody | indentblock)
+forindexed: FOR "[" binderpattern "]" expr ":" (inlinebody | indentblock)
+formap1: forindexed
+formap2: FOR "[" binderpattern "," binderpattern "]" expr ":" (inlinebody | indentblock)
+indexing: postfixexpr "[" selectorlist "]"
+
+callee: postfixexpr
+call: callee "(" arglist? ")" | callee arglistnamedmixed
+arglist: arg ("," arg)*
+arg: expr | holeexpr
+arglistnamedmixed: argitem ("," argitem)*
+namedarg: IDENT COLON expr
+argpos_list: arg ("," arg)*
+argnamed_list: namedarg ("," namedarg)*
+argitem: namedarg | arg
+holeexpr: "?"
+
+// Value-level ampersand lambdas (expressions)
+ampval1:  "&" "(" expr ")"                              -> amp_lambda1
+ampvaln:  "&" "[" paramlist "]" "(" expr ")"            -> amp_lambdan
+
+postfix_lam1: "&" "(" expr ")" -> lambdacall1
+postfix_lamn: "&" "[" paramlist "]" "(" expr ")" -> lambdacalln
+
+paramlist: IDENT ("," IDENT)*
+comphead: (OVER | FOR) overspec
+overspec: "[" binderlist "]" expr | expr ("bind" pattern)?
+binderpattern: "^" IDENT -> hoist | pattern
+binderlist: binderpattern ("," binderpattern)*
+
+ifclause: IF expr
+
+listcomp: "[" expr comphead ifclause? "]"
+setcomp: "{" expr comphead ifclause? "}"
+dictcomp: "{" expr ":" expr comphead ifclause? "}"
+
+pattern: IDENT | "(" pattern_list ")"
+pattern_list: pattern "," pattern ("," pattern)*
+
+!assignstmt: lvalue "=" expr_nc
+
+destrhs: expr ("," expr)+ -> pack
+destructure: pattern_list "=" (destrhs | expr)
+destructure_walrus: pattern_list ":=" (destrhs | expr)
+
+rebindstmt: "=" expr_nc
+
+!awaitstmt: AWAIT ( "(" expr ")" | expr ) ":" (inlinebody | indentblock)
+await_value: AWAIT ( "(" expr ")" | expr ) -> await_value
+!awaitanycall: AWAIT "[" ANY "]" "(" anyarmlist optcomma ")" ( ":" (inlinebody | indentblock) )?
+!awaitallcall: AWAIT "[" ALL "]" "(" allarmlist optcomma ")" ( ":" (inlinebody | indentblock) )?
+anyarmlist: anyarm ("," anyarm)*
+allarmlist: anyarm ("," anyarm)*
+anyarm: (IDENT ":")? expr (":" (inlinebody | indentblock))? | "timeout" expr (":" (inlinebody | indentblock))?
+
+optcomma: ","?
+catchexpr: expr "catch" IDENT? "=>" expr
+!catchstmt: expr "catch" (inlinebody | indentblock)
+catchsugar: expr "@@" IDENT? "=>" expr
+
+hook: HOOK STRING "=>" lambdaexpr
+
+//lambdaexpr: "(" paramlist? ")" "=>" (expr | indentblock)
+lambdaexpr: "&" ("[" paramlist "]")? "(" expr ")"
+
+// SINGLE-TOKEN separators
+obj_sep: COMMA | SEMI | _NL | INDENT | DEDENT
+
+// Record literal as an expression
+object: LBRACE object_items? RBRACE
+
+object_items: obj_sep* object_item (obj_sep+ object_item)* obj_sep*
+
+// Items: field / getter / setter; inline expr or indentblock body
+object_item: IDENT ":" (_NL* expr)                            -> obj_field_ident
+           | STRING ":" (_NL* expr)                           -> obj_field_string
+           | keyexpr ":" (_NL* expr)                          -> obj_field_expr
+           | GET IDENT ("(" ")")? ":" (indentblock | expr)    -> obj_get
+           | SET IDENT "(" IDENT ")" ":" (indentblock | expr) -> obj_set
+           | IDENT "(" paramlist? ")" ":" (indentblock | expr) -> obj_method
+
+keyexpr: compareexpr_nc
+
+!returnstmt: RETURN expr?
+
+!deferstmt: DEFER simplecall
+
+simplecall: callee "(" arglist? ")"
+
+!usingstmt: USING ("[" IDENT "]")? expr ("bind" IDENT)? ":" indentblock
+
+assert: ASSERT expr ("," expr)?
+
+dbg: DBG (expr ("," expr)?)
