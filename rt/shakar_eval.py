@@ -86,6 +86,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_walrus(n.children, env)
         case 'assignstmt':
             return _eval_assign_stmt(n.children, env)
+        case 'bind' | 'bind_nc':
+            return _eval_apply_assign(n.children, env)
         case 'subject':
             return _get_subject(env)
         case 'keyexpr' | 'keyexpr_nc':
@@ -225,6 +227,18 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     _assign_lvalue(lvalue_node, value, env, create=False)
     return ShkNull()
 
+def _eval_apply_assign(children: List[Any], env: Env) -> Any:
+    lvalue_node = None
+    rhs_node = None
+    for child in children:
+        if isinstance(child, Tree) and child.data == 'lvalue':
+            lvalue_node = child
+        elif isinstance(child, Tree):
+            rhs_node = child
+    if lvalue_node is None or rhs_node is None:
+        raise ShakarRuntimeError("Malformed apply-assign expression")
+    return _apply_assign(lvalue_node, rhs_node, env)
+
 def _eval_destructure(n: Tree, env: Env, create: bool, allow_broadcast: bool) -> Any:
     if len(n.children) != 2:
         raise ShakarRuntimeError("Malformed destructure")
@@ -281,6 +295,56 @@ def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
                     _set_field(target, name, val, env, create=create)
                 return value
     raise ShakarRuntimeError("Unsupported assignment target")
+
+def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
+    head, *ops = lvalue_node.children
+    if not ops and isinstance(head, Token) and head.type == 'IDENT':
+        target = env.get(head.value)
+        old_val = target
+        rhs_env = Env(parent=env, dot=old_val)
+        new_val = eval_node(rhs_node, rhs_env)
+        _assign_ident(head.value, new_val, env, create=False)
+        return new_val
+    target = eval_node(head, env)
+    if not ops:
+        raise ShakarRuntimeError("Malformed apply-assign target")
+    for op in ops[:-1]:
+        target = _apply_op(target, op, env)
+    final_op = ops[-1]
+    if isinstance(final_op, Tree):
+        match final_op.data:
+            case 'field' | 'fieldsel':
+                name_tok = final_op.children[0]
+                assert isinstance(name_tok, Token) and name_tok.type == 'IDENT'
+                old_val = _get_field(target, name_tok.value, env)
+                rhs_env = Env(parent=env, dot=old_val)
+                new_val = eval_node(rhs_node, rhs_env)
+                _set_field(target, name_tok.value, new_val, env, create=False)
+                return new_val
+            case 'lv_index':
+                idx_expr = _index_expr_from_children(final_op.children)
+                idx_val = eval_node(idx_expr, env)
+                old_val = _index(target, idx_val, env)
+                rhs_env = Env(parent=env, dot=old_val)
+                new_val = eval_node(rhs_node, rhs_env)
+                _set_index(target, final_op, new_val, env)
+                return new_val
+            case 'fieldfan':
+                fieldlist_node = next((ch for ch in final_op.children if isinstance(ch, Tree) and ch.data == 'fieldlist'), None)
+                if fieldlist_node is None:
+                    raise ShakarRuntimeError("Malformed field fan-out list")
+                names = [tok.value for tok in fieldlist_node.children if isinstance(tok, Token) and tok.type == 'IDENT']
+                if not names:
+                    raise ShakarRuntimeError("Empty field fan-out list")
+                results: list[Any] = []
+                for name in names:
+                    old_val = _get_field(target, name, env)
+                    rhs_env = Env(parent=env, dot=old_val)
+                    new_val = eval_node(rhs_node, rhs_env)
+                    _set_field(target, name, new_val, env, create=False)
+                    results.append(new_val)
+                return ShkArray(results)
+    raise ShakarRuntimeError("Unsupported apply-assign target")
 
 def _evaluate_destructure_rhs(rhs_node: Any, env: Env, target_count: int, allow_broadcast: bool) -> tuple[list[Any], Any]:
     if isinstance(rhs_node, Tree) and rhs_node.data == 'pack':
@@ -440,8 +504,7 @@ def _eval_listcomp(n: Tree, env: Env) -> ShkArray:
                 if not _is_truthy(cond_val):
                     continue
             result = eval_node(body, iter_env)
-            if not _value_in_list(items, result):
-                items.append(result)
+            items.append(result)
     finally:
         env.dot = outer_dot
     return ShkArray(items)
