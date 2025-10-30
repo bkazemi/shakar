@@ -292,6 +292,15 @@ class Prune(Transformer):
         from lark import Tree
         return Tree('key_expr', c)
 
+    def setliteral(self, c):
+        from lark import Tree, Token
+        items = [x for x in c if not (isinstance(x, Token) and x.type == 'COMMA')]
+        return Tree('setliteral', items)
+
+    def setliteral_empty(self, _):
+        from lark import Tree
+        return Tree('setliteral', [])
+
     def setcomp(self, c):
         from lark import Tree, Token
         items = [x for x in c if not (isinstance(x, Token) and getattr(x, "type", "") == "SET")]

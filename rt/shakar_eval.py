@@ -67,6 +67,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_listcomp(n, env)
         case 'setcomp':
             return _eval_setcomp(n, env)
+        case 'setliteral':
+            return _eval_setliteral(n, env)
         case 'dictcomp':
             return _eval_dictcomp(n, env)
         case 'call':
@@ -438,7 +440,8 @@ def _eval_listcomp(n: Tree, env: Env) -> ShkArray:
                 if not _is_truthy(cond_val):
                     continue
             result = eval_node(body, iter_env)
-            items.append(result)
+            if not _value_in_list(items, result):
+                items.append(result)
     finally:
         env.dot = outer_dot
     return ShkArray(items)
@@ -470,9 +473,18 @@ def _eval_setcomp(n: Tree, env: Env) -> ShkArray:
                 if not _is_truthy(cond_val):
                     continue
             result = eval_node(body, iter_env)
-            items.append(result)
+            if not _value_in_list(items, result):
+                items.append(result)
     finally:
         env.dot = outer_dot
+    return ShkArray(items)
+
+def _eval_setliteral(n: Tree, env: Env) -> ShkArray:
+    items: list[Any] = []
+    for child in getattr(n, 'children', []):
+        val = eval_node(child, env)
+        if not _value_in_list(items, val):
+            items.append(val)
     return ShkArray(items)
 
 def _eval_dictcomp(n: Tree, env: Env) -> ShkObject:
@@ -581,6 +593,12 @@ def _iterable_values(value: Any) -> list[Any]:
             if isinstance(value, tuple):
                 return list(value)
             raise ShakarTypeError(f"Cannot iterate over {type(value).__name__}")
+
+def _value_in_list(seq: list[Any], value: Any) -> bool:
+    for existing in seq:
+        if _shk_equals(existing, value):
+            return True
+    return False
 
 # ---------------- Comparison ----------------
 

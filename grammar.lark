@@ -123,7 +123,7 @@ primary: rebind_primary | IDENT
                   | literal
                   | object
                   | array
-                  | listcomp | setcomp | dictcomp
+                  | listcomp | setliteral | setcomp | dictcomp
                   | "(" expr ")"
                   | selectorliteral
                   | nullsafe
@@ -236,6 +236,8 @@ binderlist: binderpattern ("," binderpattern)*
 ifclause: IF expr
 
 listcomp: "[" expr comphead ifclause? "]"
+setliteral: "set" "{" "}" -> setliteral_empty
+           | "set" "{" expr ("," expr)* (",")? "}" -> setliteral
 setcomp: "set" "{" expr comphead ifclause? "}"
 dictcomp: "{" expr ":" expr comphead ifclause? "}"
 
