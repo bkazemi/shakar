@@ -63,6 +63,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return val
         case 'implicit_chain':
             return _eval_implicit_chain(n.children, env)
+        case 'listcomp':
+            return _eval_listcomp(n, env)
         case 'call':
             args_node = n.children[0] if n.children else None
             args = _eval_args_node(args_node, env)
@@ -283,13 +285,20 @@ def _evaluate_destructure_rhs(rhs_node: Any, env: Env, target_count: int, allow_
         vals = [single]
         result = single
     if len(vals) == 1 and target_count > 1:
-        seq = _coerce_sequence(vals[0], target_count)
-        if seq is not None:
-            vals = list(seq)
-            if isinstance(result, list) or isinstance(result, tuple):
+        single = vals[0]
+        if _is_sequence_value(single):
+            items = _sequence_items(single)
+            if len(items) == target_count:
+                vals = list(items)
                 result = ShkArray(vals)
+            elif len(items) == 0 and allow_broadcast:
+                replicated = _replicate_empty_sequence(single, target_count)
+                vals = replicated
+                result = ShkArray(vals)
+            else:
+                raise ShakarRuntimeError("Destructure arity mismatch")
         elif allow_broadcast:
-            vals = [vals[0]] * target_count
+            vals = [single] * target_count
         else:
             raise ShakarRuntimeError("Destructure arity mismatch")
     elif len(vals) != target_count:
@@ -321,7 +330,7 @@ def _assign_pattern(pattern: Tree, value: Any, env: Env, create: bool, allow_bro
         return
     raise ShakarRuntimeError("Unsupported pattern element")
 
-def _coerce_sequence(value: Any, expected_len: int) -> list[Any] | None:
+def _coerce_sequence(value: Any, expected_len: int | None) -> list[Any] | None:
     if isinstance(value, ShkArray):
         items = list(value.items)
     elif isinstance(value, list):
@@ -330,7 +339,7 @@ def _coerce_sequence(value: Any, expected_len: int) -> list[Any] | None:
         items = list(value)
     else:
         return None
-    if len(items) != expected_len:
+    if expected_len is not None and len(items) != expected_len:
         raise ShakarRuntimeError("Destructure arity mismatch")
     return items
 
@@ -340,6 +349,151 @@ def _fanout_values(value: Any, count: int) -> list[Any]:
     if isinstance(value, list) and len(value) == count:
         return list(value)
     return [value] * count
+
+def _infer_implicit_binders(body: Any, ifclause: Tree | None, env: Env) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def consider(name: str) -> None:
+        if name in seen:
+            return
+        if _name_exists(env, name):
+            return
+        seen.add(name)
+        names.append(name)
+
+    _collect_free_identifiers(body, consider)
+    if ifclause is not None and ifclause.children:
+        guard_expr = ifclause.children[-1]
+        _collect_free_identifiers(guard_expr, consider)
+    return names
+
+def _collect_free_identifiers(node: Any, callback) -> None:
+    skip_nodes = {'field', 'fieldsel', 'fieldfan', 'fieldlist', 'key_ident', 'key_string'}
+
+    def walk(n: Any) -> None:
+        if isinstance(n, Token):
+            if n.type == 'IDENT':
+                callback(n.value)
+            return
+        if isinstance(n, Tree):
+            if n.data == 'amp_lambda':
+                return
+            if n.data in skip_nodes:
+                return
+            for ch in n.children:
+                walk(ch)
+
+    walk(node)
+
+def _name_exists(env: Env, name: str) -> bool:
+    try:
+        env.get(name)
+        return True
+    except ShakarRuntimeError:
+        return False
+
+def _eval_listcomp(n: Tree, env: Env) -> ShkArray:
+    body = n.children[0] if n.children else None
+    comphead = next((ch for ch in n.children if isinstance(ch, Tree) and ch.data == 'comphead'), None)
+    if comphead is None or body is None:
+        raise ShakarRuntimeError("Malformed list comprehension")
+    ifclause = next((ch for ch in n.children if isinstance(ch, Tree) and ch.data == 'ifclause'), None)
+    iter_expr_node, binders, mode = _parse_comphead(comphead)
+    if not binders:
+        implicit_names = _infer_implicit_binders(body, ifclause, env)
+        for name in implicit_names:
+            pattern = Tree('pattern', [Token('IDENT', name)])
+            binders.append({'pattern': pattern, 'hoist': False})
+    iter_val = eval_node(iter_expr_node, env)
+    items: list[Any] = []
+    outer_dot = env.dot
+    try:
+        for element in _iterable_values(iter_val):
+            iter_env = Env(parent=env, dot=element)
+            _apply_comp_binders(binders, mode, element, iter_env, env)
+            if ifclause is not None:
+                cond_node = ifclause.children[-1] if ifclause.children else None
+                if cond_node is None:
+                    raise ShakarRuntimeError("Malformed comprehension guard")
+                cond_val = eval_node(cond_node, iter_env)
+                if not _is_truthy(cond_val):
+                    continue
+            result = eval_node(body, iter_env)
+            items.append(result)
+    finally:
+        env.dot = outer_dot
+    return ShkArray(items)
+
+def _parse_comphead(node: Tree) -> tuple[Any, list[dict[str, Any]], str]:
+    overspec = next((ch for ch in node.children if isinstance(ch, Tree) and ch.data == 'overspec'), None)
+    if overspec is None:
+        raise ShakarRuntimeError("Malformed comprehension head")
+    return _parse_overspec(overspec)
+
+def _parse_overspec(node: Tree) -> tuple[Any, list[dict[str, Any]], str]:
+    children = list(node.children)
+    binders: list[dict[str, Any]] = []
+    if not children:
+        raise ShakarRuntimeError("Malformed overspec")
+    first = children[0]
+    if isinstance(first, Tree) and first.data == 'binderlist':
+        mode = 'list'
+        if len(children) < 2:
+            raise ShakarRuntimeError("Binder list requires a source")
+        iter_expr_node = children[1]
+        for bp in first.children:
+            if isinstance(bp, Tree) and bp.data == 'binderpattern' and bp.children:
+                pattern_node = bp.children[0]
+                if isinstance(pattern_node, Tree) and pattern_node.data == 'pattern' and pattern_node.children:
+                    child = pattern_node.children[0]
+                    if isinstance(child, Tree) and child.data == 'pattern_list':
+                        raise ShakarRuntimeError("Binder list cannot use parentheses")
+                binders.append({'pattern': bp.children[0], 'hoist': False})
+            elif isinstance(bp, Tree) and bp.data == 'hoist' and bp.children:
+                tok = bp.children[0]
+                pattern = Tree('pattern', [tok])
+                binders.append({'pattern': pattern, 'hoist': True})
+        return iter_expr_node, binders, mode
+    iter_expr_node = children[0]
+    if len(children) > 1:
+        pattern = children[1]
+        binders.append({'pattern': pattern, 'hoist': False})
+        mode = 'single'
+    else:
+        mode = 'none'
+    return iter_expr_node, binders, mode
+
+def _apply_comp_binders(binders: list[dict[str, Any]], mode: str, element: Any, iter_env: Env, outer_env: Env) -> None:
+    if not binders:
+        return
+    if len(binders) == 1:
+        values = [element]
+    else:
+        seq = _coerce_sequence(element, len(binders))
+        if seq is None:
+            raise ShakarRuntimeError("Comprehension element arity mismatch")
+        values = seq
+    for binder, val in zip(binders, values):
+        target_env = outer_env if binder.get('hoist') else iter_env
+        _assign_pattern(binder['pattern'], val, target_env, create=True, allow_broadcast=False)
+
+def _iterable_values(value: Any) -> list[Any]:
+    match value:
+        case ShkNull():
+            return []
+        case ShkArray(items=items):
+            return list(items)
+        case ShkString(value=s):
+            return [ShkString(ch) for ch in s]
+        case ShkObject(slots=slots):
+            return [ShkString(k) for k in slots.keys()]
+        case _:
+            if isinstance(value, list):
+                return list(value)
+            if isinstance(value, tuple):
+                return list(value)
+            raise ShakarTypeError(f"Cannot iterate over {type(value).__name__}")
 
 # ---------------- Comparison ----------------
 
@@ -976,3 +1130,23 @@ def _eval_amp_lambda(n: Tree, env: Env) -> ShkFn:
         return ShkFn(params=params, body=body, env=Env(parent=env, dot=None))
 
     raise ShakarRuntimeError("amp_lambda malformed")
+def _is_sequence_value(value: Any) -> bool:
+    return isinstance(value, (ShkArray, list, tuple))
+
+def _sequence_items(value: Any) -> list[Any]:
+    if isinstance(value, ShkArray):
+        return list(value.items)
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, tuple):
+        return list(value)
+    return []
+
+def _replicate_empty_sequence(value: Any, count: int) -> list[Any]:
+    if isinstance(value, ShkArray) and len(value.items) == 0:
+        return [ShkArray([]) for _ in range(count)]
+    if isinstance(value, list) and len(value) == 0:
+        return [[] for _ in range(count)]
+    if isinstance(value, tuple) and len(value) == 0:
+        return [tuple() for _ in range(count)]
+    return [value] * count
