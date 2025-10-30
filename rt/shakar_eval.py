@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, Iterable, List, Optional
 from lark import Tree, Token
 
 from shakar_runtime import (
@@ -24,10 +24,26 @@ def eval_expr(ast: Any, env: Optional[Env]=None, source: Optional[str]=None) -> 
 
 # ---------------- Core evaluator ----------------
 
+def _is_token(node: Any) -> bool:
+    return isinstance(node, Token)
+
+def _token_kind(node: Any) -> Optional[str]:
+    return node.type if isinstance(node, Token) else None
+
+def _is_tree(node: Any) -> bool:
+    return isinstance(node, Tree)
+
+def _tree_label(node: Any) -> Optional[str]:
+    return node.data if isinstance(node, Tree) else None
+
+def _is_literal_node(node: Any) -> bool:
+    return not isinstance(node, (Tree, Token))
+
+
 def eval_node(n: Any, env: Env) -> Any:
-    if not isinstance(n, (Tree, Token)):
+    if _is_literal_node(n):
         return n
-    if isinstance(n, Token):
+    if _is_token(n):
         return _eval_token(n, env)
 
     d = n.data
@@ -147,7 +163,8 @@ def _eval_program(children: List[Any], env: Env) -> Any:
     result: Any = ShkNull()
     skip_tokens = {'SEMI', '_NL', 'INDENT', 'DEDENT'}
     for child in children:
-        if isinstance(child, Token) and child.type in skip_tokens:
+        tok_kind = _token_kind(child)
+        if tok_kind in skip_tokens:
             continue
         result = eval_node(child, env)
     return result
@@ -164,11 +181,11 @@ def _eval_implicit_chain(ops: List[Any], env: Env) -> Any:
     return val
 
 def _eval_inline_body(node: Any, env: Env) -> Any:
-    if isinstance(node, Tree) and node.data == 'inlinebody':
-        for child in node.children:
-            if isinstance(child, Tree) and child.data == 'stmtlist':
+    if _tree_label(node) == 'inlinebody':
+        for child in getattr(node, 'children', ()):
+            if _tree_label(child) == 'stmtlist':
                 return _eval_program(child.children, env)
-        if not node.children:
+        if not getattr(node, 'children', ()):
             return ShkNull()
         return eval_node(node.children[0], env)
     return eval_node(node, env)
@@ -180,15 +197,15 @@ def _eval_oneline_guard(children: List[Any], env: Env) -> Any:
     branches: List[Tree] = []
     else_body: Tree | None = None
     for child in children:
-        if isinstance(child, Tree):
-            if child.data == 'guardbranch':
-                branches.append(child)
-            elif child.data == 'inlinebody':
-                else_body = child
+        data = _tree_label(child)
+        if data == 'guardbranch':
+            branches.append(child)
+        elif data == 'inlinebody':
+            else_body = child
     outer_dot = env.dot
     try:
         for branch in branches:
-            if not isinstance(branch, Tree) or len(branch.children) != 2:
+            if not _is_tree(branch) or len(branch.children) != 2:
                 raise ShakarRuntimeError("Malformed guard branch")
             cond_node, body_node = branch.children
             env.dot = outer_dot
@@ -231,9 +248,9 @@ def _eval_apply_assign(children: List[Any], env: Env) -> Any:
     lvalue_node = None
     rhs_node = None
     for child in children:
-        if isinstance(child, Tree) and child.data == 'lvalue':
+        if _tree_label(child) == 'lvalue':
             lvalue_node = child
-        elif isinstance(child, Tree):
+        elif _is_tree(child):
             rhs_node = child
     if lvalue_node is None or rhs_node is None:
         raise ShakarRuntimeError("Malformed apply-assign expression")
@@ -243,7 +260,7 @@ def _eval_destructure(n: Tree, env: Env, create: bool, allow_broadcast: bool) ->
     if len(n.children) != 2:
         raise ShakarRuntimeError("Malformed destructure")
     pattern_list, rhs_node = n.children
-    patterns = [c for c in getattr(pattern_list, 'children', []) if isinstance(c, Tree) and c.data == 'pattern']
+    patterns = [c for c in getattr(pattern_list, 'children', []) if _tree_label(c) == 'pattern']
     if not patterns:
         raise ShakarRuntimeError("Empty destructure pattern")
     values, result = _evaluate_destructure_rhs(rhs_node, env, len(patterns), allow_broadcast)
@@ -262,12 +279,12 @@ def _assign_ident(name: str, value: Any, env: Env, create: bool) -> Any:
     return value
 
 def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
-    if not isinstance(node, Tree) or node.data != 'lvalue':
+    if not _is_tree(node) or _tree_label(node) != 'lvalue':
         raise ShakarRuntimeError("Invalid assignment target")
     if not node.children:
         raise ShakarRuntimeError("Empty lvalue")
     head, *ops = node.children
-    if not ops and isinstance(head, Token) and head.type == 'IDENT':
+    if not ops and _is_token(head) and _token_kind(head) == 'IDENT':
         return _assign_ident(head.value, value, env, create=create)
     target = eval_node(head, env)
     if not ops:
@@ -275,30 +292,30 @@ def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
     for op in ops[:-1]:
         target = _apply_op(target, op, env)
     final_op = ops[-1]
-    if isinstance(final_op, Tree):
-        match final_op.data:
-            case 'field' | 'fieldsel':
-                name_tok = final_op.children[0]
-                assert isinstance(name_tok, Token) and name_tok.type == 'IDENT'
-                return _set_field(target, name_tok.value, value, env, create=create)
-            case 'lv_index':
-                return _set_index(target, final_op, value, env)
-            case 'fieldfan':
-                fieldlist_node = next((ch for ch in final_op.children if isinstance(ch, Tree) and ch.data == 'fieldlist'), None)
-                if fieldlist_node is None:
-                    raise ShakarRuntimeError("Malformed field fan-out list")
-                names = [tok.value for tok in fieldlist_node.children if isinstance(tok, Token) and tok.type == 'IDENT']
-                if not names:
-                    raise ShakarRuntimeError("Empty field fan-out list")
-                vals = _fanout_values(value, len(names))
-                for name, val in zip(names, vals):
-                    _set_field(target, name, val, env, create=create)
-                return value
+    label = _tree_label(final_op)
+    match label:
+        case 'field' | 'fieldsel':
+            name_tok = final_op.children[0]
+            assert _is_token(name_tok) and _token_kind(name_tok) == 'IDENT'
+            return _set_field(target, name_tok.value, value, env, create=create)
+        case 'lv_index':
+            return _set_index(target, final_op, value, env)
+        case 'fieldfan':
+            fieldlist_node = next((ch for ch in final_op.children if _tree_label(ch) == 'fieldlist'), None)
+            if fieldlist_node is None:
+                raise ShakarRuntimeError("Malformed field fan-out list")
+            names = [tok.value for tok in fieldlist_node.children if _token_kind(tok) == 'IDENT']
+            if not names:
+                raise ShakarRuntimeError("Empty field fan-out list")
+            vals = _fanout_values(value, len(names))
+            for name, val in zip(names, vals):
+                _set_field(target, name, val, env, create=create)
+            return value
     raise ShakarRuntimeError("Unsupported assignment target")
 
 def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
     head, *ops = lvalue_node.children
-    if not ops and isinstance(head, Token) and head.type == 'IDENT':
+    if not ops and _token_kind(head) == 'IDENT':
         target = env.get(head.value)
         old_val = target
         rhs_env = Env(parent=env, dot=old_val)
@@ -311,43 +328,43 @@ def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
     for op in ops[:-1]:
         target = _apply_op(target, op, env)
     final_op = ops[-1]
-    if isinstance(final_op, Tree):
-        match final_op.data:
-            case 'field' | 'fieldsel':
-                name_tok = final_op.children[0]
-                assert isinstance(name_tok, Token) and name_tok.type == 'IDENT'
-                old_val = _get_field(target, name_tok.value, env)
+    label = _tree_label(final_op)
+    match label:
+        case 'field' | 'fieldsel':
+            name_tok = final_op.children[0]
+            assert _token_kind(name_tok) == 'IDENT'
+            old_val = _get_field(target, name_tok.value, env)
+            rhs_env = Env(parent=env, dot=old_val)
+            new_val = eval_node(rhs_node, rhs_env)
+            _set_field(target, name_tok.value, new_val, env, create=False)
+            return new_val
+        case 'lv_index':
+            idx_expr = _index_expr_from_children(final_op.children)
+            idx_val = eval_node(idx_expr, env)
+            old_val = _index(target, idx_val, env)
+            rhs_env = Env(parent=env, dot=old_val)
+            new_val = eval_node(rhs_node, rhs_env)
+            _set_index(target, final_op, new_val, env)
+            return new_val
+        case 'fieldfan':
+            fieldlist_node = next((ch for ch in final_op.children if _tree_label(ch) == 'fieldlist'), None)
+            if fieldlist_node is None:
+                raise ShakarRuntimeError("Malformed field fan-out list")
+            names = [tok.value for tok in fieldlist_node.children if _token_kind(tok) == 'IDENT']
+            if not names:
+                raise ShakarRuntimeError("Empty field fan-out list")
+            results: list[Any] = []
+            for name in names:
+                old_val = _get_field(target, name, env)
                 rhs_env = Env(parent=env, dot=old_val)
                 new_val = eval_node(rhs_node, rhs_env)
-                _set_field(target, name_tok.value, new_val, env, create=False)
-                return new_val
-            case 'lv_index':
-                idx_expr = _index_expr_from_children(final_op.children)
-                idx_val = eval_node(idx_expr, env)
-                old_val = _index(target, idx_val, env)
-                rhs_env = Env(parent=env, dot=old_val)
-                new_val = eval_node(rhs_node, rhs_env)
-                _set_index(target, final_op, new_val, env)
-                return new_val
-            case 'fieldfan':
-                fieldlist_node = next((ch for ch in final_op.children if isinstance(ch, Tree) and ch.data == 'fieldlist'), None)
-                if fieldlist_node is None:
-                    raise ShakarRuntimeError("Malformed field fan-out list")
-                names = [tok.value for tok in fieldlist_node.children if isinstance(tok, Token) and tok.type == 'IDENT']
-                if not names:
-                    raise ShakarRuntimeError("Empty field fan-out list")
-                results: list[Any] = []
-                for name in names:
-                    old_val = _get_field(target, name, env)
-                    rhs_env = Env(parent=env, dot=old_val)
-                    new_val = eval_node(rhs_node, rhs_env)
-                    _set_field(target, name, new_val, env, create=False)
-                    results.append(new_val)
-                return ShkArray(results)
+                _set_field(target, name, new_val, env, create=False)
+                results.append(new_val)
+            return ShkArray(results)
     raise ShakarRuntimeError("Unsupported apply-assign target")
 
 def _evaluate_destructure_rhs(rhs_node: Any, env: Env, target_count: int, allow_broadcast: bool) -> tuple[list[Any], Any]:
-    if isinstance(rhs_node, Tree) and rhs_node.data == 'pack':
+    if _tree_label(rhs_node) == 'pack':
         vals = [eval_node(child, env) for child in rhs_node.children]
         result = ShkArray(vals)
     else:
@@ -376,7 +393,7 @@ def _evaluate_destructure_rhs(rhs_node: Any, env: Env, target_count: int, allow_
     return vals, result
 
 def _assign_pattern(pattern: Tree, value: Any, env: Env, create: bool, allow_broadcast: bool) -> None:
-    if not isinstance(pattern, Tree) or pattern.data != 'pattern' or not pattern.children:
+    if _tree_label(pattern) != 'pattern' or not getattr(pattern, 'children', None):
         raise ShakarRuntimeError("Malformed pattern")
     target = pattern.children[0]
     if isinstance(target, Token) and target.type == 'IDENT':
@@ -385,8 +402,8 @@ def _assign_pattern(pattern: Tree, value: Any, env: Env, create: bool, allow_bro
         else:
             _assign_ident(target.value, value, env, create=False)
         return
-    if isinstance(target, Tree) and target.data == 'pattern_list':
-        subpatterns = [c for c in getattr(target, 'children', []) if isinstance(c, Tree) and c.data == 'pattern']
+    if _tree_label(target) == 'pattern_list':
+        subpatterns = [c for c in getattr(target, 'children', []) if _tree_label(c) == 'pattern']
         if not subpatterns:
             raise ShakarRuntimeError("Empty nested pattern")
         seq = _coerce_sequence(value, len(subpatterns))
@@ -460,10 +477,10 @@ def _collect_free_identifiers(node: Any, callback) -> None:
             if n.type == 'IDENT':
                 callback(n.value)
             return
-        if isinstance(n, Tree):
-            if n.data == 'amp_lambda':
+        if _is_tree(n):
+            if _tree_label(n) == 'amp_lambda':
                 return
-            if n.data in skip_nodes:
+            if _tree_label(n) in skip_nodes:
                 return
             for ch in n.children:
                 walk(ch)
@@ -479,10 +496,10 @@ def _name_exists(env: Env, name: str) -> bool:
 
 def _eval_listcomp(n: Tree, env: Env) -> ShkArray:
     body = n.children[0] if n.children else None
-    comphead = next((ch for ch in n.children if isinstance(ch, Tree) and ch.data == 'comphead'), None)
+    comphead = next((ch for ch in n.children if _tree_label(ch) == 'comphead'), None)
     if comphead is None or body is None:
         raise ShakarRuntimeError("Malformed list comprehension")
-    ifclause = next((ch for ch in n.children if isinstance(ch, Tree) and ch.data == 'ifclause'), None)
+    ifclause = next((ch for ch in n.children if _tree_label(ch) == 'ifclause'), None)
     iter_expr_node, binders, mode = _parse_comphead(comphead)
     if not binders:
         implicit_names = _infer_implicit_binders([body], ifclause, env)
@@ -511,10 +528,10 @@ def _eval_listcomp(n: Tree, env: Env) -> ShkArray:
 
 def _eval_setcomp(n: Tree, env: Env) -> ShkArray:
     body = n.children[0] if n.children else None
-    comphead = next((ch for ch in n.children if isinstance(ch, Tree) and ch.data == 'comphead'), None)
+    comphead = next((ch for ch in n.children if _tree_label(ch) == 'comphead'), None)
     if body is None or comphead is None:
         raise ShakarRuntimeError("Malformed set comprehension")
-    ifclause = next((ch for ch in n.children if isinstance(ch, Tree) and ch.data == 'ifclause'), None)
+    ifclause = next((ch for ch in n.children if _tree_label(ch) == 'ifclause'), None)
     iter_expr_node, binders, mode = _parse_comphead(comphead)
     if not binders:
         implicit_names = _infer_implicit_binders([body], ifclause, env)
@@ -555,10 +572,10 @@ def _eval_dictcomp(n: Tree, env: Env) -> ShkObject:
         raise ShakarRuntimeError("Malformed dict comprehension")
     key_node = n.children[0]
     value_node = n.children[1]
-    comphead = next((ch for ch in n.children if isinstance(ch, Tree) and ch.data == 'comphead'), None)
+    comphead = next((ch for ch in n.children if _tree_label(ch) == 'comphead'), None)
     if comphead is None:
         raise ShakarRuntimeError("Malformed dict comprehension")
-    ifclause = next((ch for ch in n.children if isinstance(ch, Tree) and ch.data == 'ifclause'), None)
+    ifclause = next((ch for ch in n.children if _tree_label(ch) == 'ifclause'), None)
     iter_expr_node, binders, mode = _parse_comphead(comphead)
     if not binders:
         implicit_names = _infer_implicit_binders([key_node, value_node], ifclause, env)
@@ -588,7 +605,7 @@ def _eval_dictcomp(n: Tree, env: Env) -> ShkObject:
     return ShkObject(slots)
 
 def _parse_comphead(node: Tree) -> tuple[Any, list[dict[str, Any]], str]:
-    overspec = next((ch for ch in node.children if isinstance(ch, Tree) and ch.data == 'overspec'), None)
+    overspec = next((ch for ch in node.children if _tree_label(ch) == 'overspec'), None)
     if overspec is None:
         raise ShakarRuntimeError("Malformed comprehension head")
     return _parse_overspec(overspec)
@@ -599,20 +616,22 @@ def _parse_overspec(node: Tree) -> tuple[Any, list[dict[str, Any]], str]:
     if not children:
         raise ShakarRuntimeError("Malformed overspec")
     first = children[0]
-    if isinstance(first, Tree) and first.data == 'binderlist':
+    if _tree_label(first) == 'binderlist':
         mode = 'list'
         if len(children) < 2:
             raise ShakarRuntimeError("Binder list requires a source")
         iter_expr_node = children[1]
         for bp in first.children:
-            if isinstance(bp, Tree) and bp.data == 'binderpattern' and bp.children:
+            bp_label = _tree_label(bp)
+            if bp_label == 'binderpattern' and bp.children:
                 pattern_node = bp.children[0]
-                if isinstance(pattern_node, Tree) and pattern_node.data == 'pattern' and pattern_node.children:
+                pattern_label = _tree_label(pattern_node)
+                if pattern_label == 'pattern' and pattern_node.children:
                     child = pattern_node.children[0]
-                    if isinstance(child, Tree) and child.data == 'pattern_list':
+                    if _tree_label(child) == 'pattern_list':
                         raise ShakarRuntimeError("Binder list cannot use parentheses")
                 binders.append({'pattern': bp.children[0], 'hoist': False})
-            elif isinstance(bp, Tree) and bp.data == 'hoist' and bp.children:
+            elif bp_label == 'hoist' and bp.children:
                 tok = bp.children[0]
                 pattern = Tree('pattern', [tok])
                 binders.append({'pattern': pattern, 'hoist': True})
@@ -808,14 +827,14 @@ def _is_truthy(val: Any) -> bool:
 def _retargets_anchor(node: Any) -> bool:
     if isinstance(node, Token):
         return node.type not in {'SEMI', '_NL', 'INDENT', 'DEDENT'}
-    if isinstance(node, Tree):
-        return node.data not in {'implicit_chain', 'subject'}
+    if _is_tree(node):
+        return _tree_label(node) not in {'implicit_chain', 'subject'}
     return True
 
 # ---------------- Arithmetic ----------------
 
 def _normalize_unary_op(op_node: Any, env: Env) -> Any:
-    if isinstance(op_node, Tree) and op_node.data == 'unaryprefixop':
+    if _tree_label(op_node) == 'unaryprefixop':
         if op_node.children:
             return _normalize_unary_op(op_node.children[0], env)
         src = getattr(env, 'source', None)
@@ -898,11 +917,12 @@ def _all_ops_in(children: List[Any], allowed: set) -> bool:
 def _as_op(x: Any) -> str:
     if isinstance(x, Token):
         return x.value
-    if isinstance(x, Tree):
+    label = _tree_label(x)
+    if label is not None:
         # e.g. Tree('addop', [Token('PLUS','+')]) or mulop/powop
-        if x.data in ('addop','mulop','powop') and len(x.children) == 1 and isinstance(x.children[0], Token):
+        if label in ('addop', 'mulop', 'powop') and len(x.children) == 1 and isinstance(x.children[0], Token):
             return x.children[0].value
-        if x.data == 'cmpop':
+        if label == 'cmpop':
             tokens = [tok.value for tok in x.children if isinstance(tok, Token)]
             if not tokens:
                 raise ShakarRuntimeError("Empty comparison operator")
@@ -959,7 +979,7 @@ def _eval_args_node(args_node: Any, env: Env) -> List[Any]:
         return data
 
     def flatten(node: Any) -> List[Any]:
-        if isinstance(node, Tree):
+        if _is_tree(node):
             tag = label(node)
             if tag in {'args', 'arglist', 'arglistnamedmixed'}:
                 out: List[Any] = []
@@ -973,7 +993,7 @@ def _eval_args_node(args_node: Any, env: Env) -> List[Any]:
                 return flatten(node.children[-1])
         return [node]
 
-    if isinstance(args_node, Tree):
+    if _is_tree(args_node):
         return [eval_node(n, env) for n in flatten(args_node)]
     if isinstance(args_node, list):
         res: List[Any] = []
@@ -1043,9 +1063,9 @@ def _index_expr_from_children(children: List[Any]) -> Any:
         node = queue.pop(0)
         if isinstance(node, Token):
             continue
-        if not isinstance(node, Tree):
+        if not _is_tree(node):
             return node
-        tag = node.data
+        tag = _tree_label(node)
         if tag in {'selectorlist', 'selector', 'indexsel'}:
             queue.extend(node.children)
             continue
@@ -1101,7 +1121,7 @@ def _extract_index_value(index_node: Tree, env: Env) -> Any:
 
 def _slice(recv: Any, arms: List[Any], env: Env) -> Any:
     def arm_to_py(t):
-        if isinstance(t, Tree) and t.data == 'emptyexpr':
+        if _tree_label(t) == 'emptyexpr':
             return None
         v = eval_node(t, env)
         return int(v.value) if isinstance(v, ShkNumber) else None
@@ -1151,14 +1171,14 @@ def _eval_object(n: Tree, env: Env) -> ShkObject:
             if ident is not None:
                 names.append(ident)
                 continue
-            if isinstance(node, Tree):
+            if _is_tree(node):
                 queue.extend(node.children)
         return names
 
     def _unwrap_ident(node: Any) -> str | None:
         cur = node
         seen = set()
-        while isinstance(cur, Tree) and cur.children and id(cur) not in seen:
+        while _is_tree(cur) and cur.children and id(cur) not in seen:
             seen.add(id(cur))
             if len(cur.children) != 1:
                 break
@@ -1168,16 +1188,16 @@ def _eval_object(n: Tree, env: Env) -> ShkObject:
         return None
 
     def _maybe_method_signature(key_node: Any) -> tuple[str, List[str]] | None:
-        if not isinstance(key_node, Tree) or key_node.data != 'key_expr':
+        if _tree_label(key_node) != 'key_expr':
             return None
         target = key_node.children[0] if key_node.children else None
         chain = None
-        if isinstance(target, Tree):
-            if getattr(target, 'data', None) == 'explicit_chain':
+        if _is_tree(target):
+            if _tree_label(target) == 'explicit_chain':
                 chain = target
             else:
                 for ch in getattr(target, 'children', []):
-                    if isinstance(ch, Tree) and getattr(ch, 'data', None) == 'explicit_chain':
+                    if _tree_label(ch) == 'explicit_chain':
                         chain = ch
                         break
         if chain is None or len(chain.children) != 2:
@@ -1185,23 +1205,24 @@ def _eval_object(n: Tree, env: Env) -> ShkObject:
         head, call_node = chain.children
         if not isinstance(head, Token) or head.type != 'IDENT':
             return None
-        if not (isinstance(call_node, Tree) and call_node.data == 'call'):
+        if _tree_label(call_node) != 'call':
             return None
         args_node = call_node.children[0] if call_node.children else None
         params: List[str] = []
-        if isinstance(args_node, Tree):
+        if _is_tree(args_node):
             queue = list(args_node.children)
             while queue:
                 raw = queue.pop(0)
-                if isinstance(raw, Tree) and getattr(raw, 'data', None) in {'namedarg', 'kwarg'}:
+                raw_label = _tree_label(raw)
+                if raw_label in {'namedarg', 'kwarg'}:
                     return None
-                if isinstance(raw, Tree) and raw.children and getattr(raw, 'data', None) not in {'args','arglist','arglistnamedmixed','argitem','arg'}:
+                if _is_tree(raw) and raw.children and raw_label not in {'args', 'arglist', 'arglistnamedmixed', 'argitem', 'arg'}:
                     # allow deeper structures by re-queueing children
                     queue.extend(raw.children)
                     continue
                 ident = _unwrap_ident(raw)
                 if ident is None:
-                    if isinstance(raw, Tree):
+                    if _is_tree(raw):
                         queue.extend(raw.children)
                     else:
                         return None
@@ -1254,19 +1275,23 @@ def _eval_object(n: Tree, env: Env) -> ShkObject:
     for child in n.children:
         if isinstance(child, Token):
             continue
-        if child.data == 'object_items':
-            for item in child.children:
-                if isinstance(item, Tree) and item.data != 'obj_sep':
-                    handle_item(item)
+        child_label = _tree_label(child)
+        if child_label == 'object_items':
+            for item in getattr(child, 'children', []):
+                if not _is_tree(item) or _tree_label(item) == 'obj_sep':
+                    continue
+                handle_item(item)
         else:
-            if child.data == 'obj_sep':
+            if child_label == 'obj_sep':
                 continue
-            handle_item(child)
+            if _is_tree(child):
+                handle_item(child)
     return ShkObject(slots)
 
 def _eval_key(k: Any, env: Env) -> Any:
-    if isinstance(k, Tree):
-        match k.data:
+    label = _tree_label(k)
+    if label is not None:
+        match label:
             case 'key_ident':
                 t = k.children[0]; return t.value
             case 'key_string':
