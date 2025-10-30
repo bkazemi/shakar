@@ -236,7 +236,7 @@ binderlist: binderpattern ("," binderpattern)*
 ifclause: IF expr
 
 listcomp: "[" expr comphead ifclause? "]"
-setcomp: "{" expr comphead ifclause? "}"
+setcomp: "set" "{" expr comphead ifclause? "}"
 dictcomp: "{" expr ":" expr comphead ifclause? "}"
 
 pattern: IDENT | "(" pattern_list ")"

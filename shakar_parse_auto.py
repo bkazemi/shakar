@@ -292,6 +292,11 @@ class Prune(Transformer):
         from lark import Tree
         return Tree('key_expr', c)
 
+    def setcomp(self, c):
+        from lark import Tree, Token
+        items = [x for x in c if not (isinstance(x, Token) and getattr(x, "type", "") == "SET")]
+        return Tree('setcomp', items)
+
     def lambdacall1(self, c):
         body = c[-1] if c else None
         # unify postfix &(...) into a normal call with an amp_lambda arg
