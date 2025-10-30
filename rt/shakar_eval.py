@@ -261,6 +261,17 @@ def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
                 return _set_field(target, name_tok.value, value, env, create=create)
             case 'lv_index':
                 return _set_index(target, final_op, value, env)
+            case 'fieldfan':
+                fieldlist_node = next((ch for ch in final_op.children if isinstance(ch, Tree) and ch.data == 'fieldlist'), None)
+                if fieldlist_node is None:
+                    raise ShakarRuntimeError("Malformed field fan-out list")
+                names = [tok.value for tok in fieldlist_node.children if isinstance(tok, Token) and tok.type == 'IDENT']
+                if not names:
+                    raise ShakarRuntimeError("Empty field fan-out list")
+                vals = _fanout_values(value, len(names))
+                for name, val in zip(names, vals):
+                    _set_field(target, name, val, env, create=create)
+                return value
     raise ShakarRuntimeError("Unsupported assignment target")
 
 def _evaluate_destructure_rhs(rhs_node: Any, env: Env, target_count: int, allow_broadcast: bool) -> tuple[list[Any], Any]:
@@ -322,6 +333,13 @@ def _coerce_sequence(value: Any, expected_len: int) -> list[Any] | None:
     if len(items) != expected_len:
         raise ShakarRuntimeError("Destructure arity mismatch")
     return items
+
+def _fanout_values(value: Any, count: int) -> list[Any]:
+    if isinstance(value, ShkArray) and len(value.items) == count:
+        return list(value.items)
+    if isinstance(value, list) and len(value) == count:
+        return list(value)
+    return [value] * count
 
 # ---------------- Comparison ----------------
 
