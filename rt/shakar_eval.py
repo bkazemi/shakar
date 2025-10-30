@@ -82,6 +82,10 @@ def eval_node(n: Any, env: Env) -> Any:
             return _get_subject(env)
         case 'keyexpr' | 'keyexpr_nc':
             return eval_node(n.children[0], env) if n.children else ShkNull()
+        case 'destructure':
+            return _eval_destructure(n, env, create=False, allow_broadcast=False)
+        case 'destructure_walrus':
+            return _eval_destructure(n, env, create=True, allow_broadcast=True)
         case 'inlinebody':
             return _eval_inline_body(n, env)
         case 'indentblock':
@@ -213,6 +217,18 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     _assign_lvalue(lvalue_node, value, env, create=False)
     return ShkNull()
 
+def _eval_destructure(n: Tree, env: Env, create: bool, allow_broadcast: bool) -> Any:
+    if len(n.children) != 2:
+        raise ShakarRuntimeError("Malformed destructure")
+    pattern_list, rhs_node = n.children
+    patterns = [c for c in getattr(pattern_list, 'children', []) if isinstance(c, Tree) and c.data == 'pattern']
+    if not patterns:
+        raise ShakarRuntimeError("Empty destructure pattern")
+    values, result = _evaluate_destructure_rhs(rhs_node, env, len(patterns), allow_broadcast)
+    for pat, val in zip(patterns, values):
+        _assign_pattern(pat, val, env, create, allow_broadcast)
+    return result if allow_broadcast else ShkNull()
+
 def _assign_ident(name: str, value: Any, env: Env, create: bool) -> Any:
     try:
         env.set(name, value)
@@ -246,6 +262,66 @@ def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
             case 'lv_index':
                 return _set_index(target, final_op, value, env)
     raise ShakarRuntimeError("Unsupported assignment target")
+
+def _evaluate_destructure_rhs(rhs_node: Any, env: Env, target_count: int, allow_broadcast: bool) -> tuple[list[Any], Any]:
+    if isinstance(rhs_node, Tree) and rhs_node.data == 'pack':
+        vals = [eval_node(child, env) for child in rhs_node.children]
+        result = ShkArray(vals)
+    else:
+        single = eval_node(rhs_node, env)
+        vals = [single]
+        result = single
+    if len(vals) == 1 and target_count > 1:
+        seq = _coerce_sequence(vals[0], target_count)
+        if seq is not None:
+            vals = list(seq)
+            if isinstance(result, list) or isinstance(result, tuple):
+                result = ShkArray(vals)
+        elif allow_broadcast:
+            vals = [vals[0]] * target_count
+        else:
+            raise ShakarRuntimeError("Destructure arity mismatch")
+    elif len(vals) != target_count:
+        raise ShakarRuntimeError("Destructure arity mismatch")
+    return vals, result
+
+def _assign_pattern(pattern: Tree, value: Any, env: Env, create: bool, allow_broadcast: bool) -> None:
+    if not isinstance(pattern, Tree) or pattern.data != 'pattern' or not pattern.children:
+        raise ShakarRuntimeError("Malformed pattern")
+    target = pattern.children[0]
+    if isinstance(target, Token) and target.type == 'IDENT':
+        if create:
+            env.define(target.value, value)
+        else:
+            _assign_ident(target.value, value, env, create=False)
+        return
+    if isinstance(target, Tree) and target.data == 'pattern_list':
+        subpatterns = [c for c in getattr(target, 'children', []) if isinstance(c, Tree) and c.data == 'pattern']
+        if not subpatterns:
+            raise ShakarRuntimeError("Empty nested pattern")
+        seq = _coerce_sequence(value, len(subpatterns))
+        if seq is None:
+            if allow_broadcast and len(subpatterns) > 1:
+                seq = [value] * len(subpatterns)
+            else:
+                raise ShakarRuntimeError("Destructure expects a sequence")
+        for sub_pat, sub_val in zip(subpatterns, seq):
+            _assign_pattern(sub_pat, sub_val, env, create, allow_broadcast)
+        return
+    raise ShakarRuntimeError("Unsupported pattern element")
+
+def _coerce_sequence(value: Any, expected_len: int) -> list[Any] | None:
+    if isinstance(value, ShkArray):
+        items = list(value.items)
+    elif isinstance(value, list):
+        items = list(value)
+    elif isinstance(value, tuple):
+        items = list(value)
+    else:
+        return None
+    if len(items) != expected_len:
+        raise ShakarRuntimeError("Destructure arity mismatch")
+    return items
 
 # ---------------- Comparison ----------------
 
