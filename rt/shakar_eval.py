@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, List, Optional
+from typing import Any, Callable, Iterable, List, Optional
 from lark import Tree, Token
 
 from shakar_runtime import (
@@ -39,6 +39,25 @@ def _tree_label(node: Any) -> Optional[str]:
 
 def _is_literal_node(node: Any) -> bool:
     return not isinstance(node, (Tree, Token))
+
+def _child_by_label(node: Any, label: str) -> Any:
+    for child in getattr(node, 'children', []):
+        if _tree_label(child) == label:
+            return child
+    return None
+
+def _child_by_labels(node: Any, labels: Iterable[str]) -> Any:
+    label_set = set(labels)
+    for child in getattr(node, 'children', []):
+        if _tree_label(child) in label_set:
+            return child
+    return None
+
+def _first_child(node: Any, predicate: Callable[[Any], bool]) -> Any:
+    for child in getattr(node, 'children', []):
+        if predicate(child):
+            return child
+    return None
 
 def _get_source_segment(node: Any, env: Env) -> Optional[str]:
     source = getattr(env, 'source', None)
@@ -316,7 +335,7 @@ def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
         case 'lv_index':
             return _set_index(target, final_op, value, env)
         case 'fieldfan':
-            fieldlist_node = next((ch for ch in final_op.children if _tree_label(ch) == 'fieldlist'), None)
+            fieldlist_node = _child_by_label(final_op, 'fieldlist')
             if fieldlist_node is None:
                 raise ShakarRuntimeError("Malformed field fan-out list")
             names = [tok.value for tok in fieldlist_node.children if _token_kind(tok) == 'IDENT']
@@ -362,7 +381,7 @@ def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
             _set_index(target, final_op, new_val, env)
             return new_val
         case 'fieldfan':
-            fieldlist_node = next((ch for ch in final_op.children if _tree_label(ch) == 'fieldlist'), None)
+            fieldlist_node = _child_by_label(final_op, 'fieldlist')
             if fieldlist_node is None:
                 raise ShakarRuntimeError("Malformed field fan-out list")
             names = [tok.value for tok in fieldlist_node.children if _token_kind(tok) == 'IDENT']
@@ -511,10 +530,10 @@ def _name_exists(env: Env, name: str) -> bool:
 
 def _eval_listcomp(n: Tree, env: Env) -> ShkArray:
     body = n.children[0] if n.children else None
-    comphead = next((ch for ch in n.children if _tree_label(ch) == 'comphead'), None)
+    comphead = _child_by_label(n, 'comphead')
     if comphead is None or body is None:
         raise ShakarRuntimeError("Malformed list comprehension")
-    ifclause = next((ch for ch in n.children if _tree_label(ch) == 'ifclause'), None)
+    ifclause = _child_by_label(n, 'ifclause')
     iter_expr_node, binders, mode = _parse_comphead(comphead)
     if not binders:
         implicit_names = _infer_implicit_binders([body], ifclause, env)
@@ -543,10 +562,10 @@ def _eval_listcomp(n: Tree, env: Env) -> ShkArray:
 
 def _eval_setcomp(n: Tree, env: Env) -> ShkArray:
     body = n.children[0] if n.children else None
-    comphead = next((ch for ch in n.children if _tree_label(ch) == 'comphead'), None)
+    comphead = _child_by_label(n, 'comphead')
     if body is None or comphead is None:
         raise ShakarRuntimeError("Malformed set comprehension")
-    ifclause = next((ch for ch in n.children if _tree_label(ch) == 'ifclause'), None)
+    ifclause = _child_by_label(n, 'ifclause')
     iter_expr_node, binders, mode = _parse_comphead(comphead)
     if not binders:
         implicit_names = _infer_implicit_binders([body], ifclause, env)
@@ -583,7 +602,7 @@ def _eval_setliteral(n: Tree, env: Env) -> ShkArray:
     return ShkArray(items)
 
 def _eval_selectorliteral(n: Tree, env: Env) -> ShkSelector:
-    sellist = next((child for child in getattr(n, 'children', []) if _tree_label(child) == 'sellist'), None)
+    sellist = _child_by_label(n, 'sellist')
     if sellist is None:
         return ShkSelector([])
     parts: list[SelectorPart] = []
@@ -600,10 +619,10 @@ def _eval_dictcomp(n: Tree, env: Env) -> ShkObject:
         raise ShakarRuntimeError("Malformed dict comprehension")
     key_node = n.children[0]
     value_node = n.children[1]
-    comphead = next((ch for ch in n.children if _tree_label(ch) == 'comphead'), None)
+    comphead = _child_by_label(n, 'comphead')
     if comphead is None:
         raise ShakarRuntimeError("Malformed dict comprehension")
-    ifclause = next((ch for ch in n.children if _tree_label(ch) == 'ifclause'), None)
+    ifclause = _child_by_label(n, 'ifclause')
     iter_expr_node, binders, mode = _parse_comphead(comphead)
     if not binders:
         implicit_names = _infer_implicit_binders([key_node, value_node], ifclause, env)
@@ -633,7 +652,7 @@ def _eval_dictcomp(n: Tree, env: Env) -> ShkObject:
     return ShkObject(slots)
 
 def _parse_comphead(node: Tree) -> tuple[Any, list[dict[str, Any]], str]:
-    overspec = next((ch for ch in node.children if _tree_label(ch) == 'overspec'), None)
+    overspec = _child_by_label(node, 'overspec')
     if overspec is None:
         raise ShakarRuntimeError("Malformed comprehension head")
     return _parse_overspec(overspec)
@@ -1172,7 +1191,7 @@ def _slice(recv: Any, arms: List[Any], env: Env) -> Any:
 # ---------------- Selectors ----------------
 
 def _apply_index_operation(recv: Any, op: Tree, env: Env) -> Any:
-    selectorlist = next((child for child in getattr(op, 'children', []) if _tree_label(child) == 'selectorlist'), None)
+    selectorlist = _child_by_label(op, 'selectorlist')
     if selectorlist is None:
         expr_node = _index_expr_from_children(op.children)
         idx_val = eval_node(expr_node, env)
@@ -1183,13 +1202,13 @@ def _apply_index_operation(recv: Any, op: Tree, env: Env) -> Any:
 def _evaluate_selectorlist(node: Tree, env: Env) -> list[SelectorPart]:
     results: list[SelectorPart] = []
     for raw_selector in getattr(node, 'children', []):
-        inner = next((child for child in getattr(raw_selector, 'children', []) if _tree_label(child) in {'slicesel', 'indexsel'}), raw_selector)
+        inner = _child_by_labels(raw_selector, {'slicesel', 'indexsel'}) or raw_selector
         label = _tree_label(inner)
         if label == 'slicesel':
             results.append(_selector_slice_from_slicesel(inner, env, clamp=True))
             continue
         if label == 'indexsel':
-            expr_node = next((child for child in getattr(inner, 'children', []) if not isinstance(child, Token)), None)
+            expr_node = _first_child(inner, lambda child: not isinstance(child, Token))
             if expr_node is None and inner.children:
                 expr_node = inner.children[0]
             value = eval_node(expr_node, env)
@@ -1201,7 +1220,7 @@ def _evaluate_selectorlist(node: Tree, env: Env) -> list[SelectorPart]:
     return results
 
 def _selector_parts_from_selitem(node: Tree, env: Env) -> list[SelectorPart]:
-    inner = next((child for child in getattr(node, 'children', []) if _tree_label(child) in {'sliceitem', 'indexitem'}), None)
+    inner = _child_by_labels(node, {'sliceitem', 'indexitem'})
     if inner is None:
         return []
     label = _tree_label(inner)
@@ -1209,7 +1228,7 @@ def _selector_parts_from_selitem(node: Tree, env: Env) -> list[SelectorPart]:
         slice_part = _selector_slice_from_sliceitem(inner, env)
         return [slice_part]
     if label == 'indexitem':
-        selatom = next((child for child in getattr(inner, 'children', []) if _tree_label(child) == 'selatom'), None)
+        selatom = _child_by_label(inner, 'selatom')
         value = _eval_selector_atom(selatom, env)
         return [SelectorIndex(value)]
     return []
@@ -1277,7 +1296,7 @@ def _eval_selector_atom(node: Any, env: Env) -> Any:
 def _eval_seloptstop(node: Any, env: Env) -> tuple[Any, bool]:
     if node is None:
         return None, False
-    selatom = next((child for child in getattr(node, 'children', []) if _tree_label(child) == 'selatom'), None)
+    selatom = _child_by_label(node, 'selatom')
     value = _eval_selector_atom(selatom, env)
     segment = _get_source_segment(node, env)
     exclusive = False
