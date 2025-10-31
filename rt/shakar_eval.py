@@ -12,7 +12,16 @@ from shakar_runtime import (
     ShakarRuntimeError, ShakarTypeError, ShakarArityError,
     call_builtin_method, call_shkfn, Builtins
 )
-from shakar_utils import value_in_list, shk_equals
+from shakar_utils import (
+    value_in_list,
+    shk_equals,
+    is_sequence_value,
+    sequence_items,
+    coerce_sequence,
+    fanout_values,
+    replicate_empty_sequence,
+    normalize_object_key,
+)
 
 # ---------------- Public API ----------------
 
@@ -338,7 +347,7 @@ def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
             names = [tok.value for tok in fieldlist_node.children if _token_kind(tok) == 'IDENT']
             if not names:
                 raise ShakarRuntimeError("Empty field fan-out list")
-            vals = _fanout_values(value, len(names))
+            vals = fanout_values(value, len(names))
             for name, val in zip(names, vals):
                 _set_field(target, name, val, env, create=create)
             return value
@@ -404,13 +413,13 @@ def _evaluate_destructure_rhs(rhs_node: Any, env: Env, target_count: int, allow_
         result = single
     if len(vals) == 1 and target_count > 1:
         single = vals[0]
-        if _is_sequence_value(single):
-            items = _sequence_items(single)
+        if is_sequence_value(single):
+            items = sequence_items(single)
             if len(items) == target_count:
                 vals = list(items)
                 result = ShkArray(vals)
             elif len(items) == 0 and allow_broadcast:
-                replicated = _replicate_empty_sequence(single, target_count)
+                replicated = replicate_empty_sequence(single, target_count)
                 vals = replicated
                 result = ShkArray(vals)
             else:
@@ -437,7 +446,7 @@ def _assign_pattern(pattern: Tree, value: Any, env: Env, create: bool, allow_bro
         subpatterns = [c for c in getattr(target, 'children', []) if _tree_label(c) == 'pattern']
         if not subpatterns:
             raise ShakarRuntimeError("Empty nested pattern")
-        seq = _coerce_sequence(value, len(subpatterns))
+        seq = coerce_sequence(value, len(subpatterns))
         if seq is None:
             if allow_broadcast and len(subpatterns) > 1:
                 seq = [value] * len(subpatterns)
@@ -447,19 +456,6 @@ def _assign_pattern(pattern: Tree, value: Any, env: Env, create: bool, allow_bro
             _assign_pattern(sub_pat, sub_val, env, create, allow_broadcast)
         return
     raise ShakarRuntimeError("Unsupported pattern element")
-
-def _normalize_object_key(value: Any) -> str:
-    match value:
-        case ShkString(value=s):
-            return s
-        case ShkNumber(value=num):
-            return str(int(num)) if num.is_integer() else str(num)
-        case ShkBool(value=b):
-            return 'true' if b else 'false'
-        case ShkNull():
-            return 'null'
-        case _:
-            return str(value)
 
 def _infer_implicit_binders(exprs: list[Any], ifclause: Tree | None, env: Env) -> list[str]:
     names: list[str] = []
@@ -587,7 +583,7 @@ def _eval_dictcomp(n: Tree, env: Env) -> ShkObject:
     for _, iter_env in _iterate_comprehension(n, env, [key_node, value_node]):
         key_val = eval_node(key_node, iter_env)
         value_val = eval_node(value_node, iter_env)
-        key_str = _normalize_object_key(key_val)
+        key_str = normalize_object_key(key_val)
         slots[key_str] = value_val
     return ShkObject(slots)
 
@@ -638,7 +634,7 @@ def _apply_comp_binders(binders: list[dict[str, Any]], mode: str, element: Any, 
     if len(binders) == 1:
         values = [element]
     else:
-        seq = _coerce_sequence(element, len(binders))
+        seq = coerce_sequence(element, len(binders))
         if seq is None:
             raise ShakarRuntimeError("Comprehension element arity mismatch")
         values = seq
@@ -664,45 +660,6 @@ def _iterable_values(value: Any) -> list[Any]:
             if isinstance(value, tuple):
                 return list(value)
             raise ShakarTypeError(f"Cannot iterate over {type(value).__name__}")
-
-# ---------------- Sequence helpers ----------------
-
-def _is_sequence_value(value: Any) -> bool:
-    return isinstance(value, (ShkArray, list, tuple))
-
-def _sequence_items(value: Any) -> list[Any]:
-    if isinstance(value, ShkArray):
-        return list(value.items)
-    if isinstance(value, list):
-        return list(value)
-    if isinstance(value, tuple):
-        return list(value)
-    return []
-
-def _coerce_sequence(value: Any, expected_len: int | None) -> list[Any] | None:
-    if not _is_sequence_value(value):
-        return None
-    items = _sequence_items(value)
-    if expected_len is not None and len(items) != expected_len:
-        raise ShakarRuntimeError("Destructure arity mismatch")
-    return items
-
-def _fanout_values(value: Any, count: int) -> list[Any]:
-    if isinstance(value, ShkArray) and len(value.items) == count:
-        return list(value.items)
-    if isinstance(value, list) and len(value) == count:
-        return list(value)
-    return [value] * count
-
-def _replicate_empty_sequence(value: Any, count: int) -> list[Any]:
-    if isinstance(value, ShkArray) and len(value.items) == 0:
-        return [ShkArray([]) for _ in range(count)]
-    if isinstance(value, list) and len(value) == 0:
-        return [[] for _ in range(count)]
-    if isinstance(value, tuple) and len(value) == 0:
-        return [tuple() for _ in range(count)]
-    return [value] * count
-
 # ---------------- Comparison ----------------
 
 def _eval_compare(children: List[Any], env: Env) -> Any:
@@ -1299,7 +1256,7 @@ def _apply_selectors_to_value(recv: Any, selectors: list[SelectorPart], env: Env
 
 def _apply_selectors_to_array(arr: ShkArray, selectors: list[SelectorPart], env: Env) -> ShkArray:
     result: list[Any] = []
-    items = _sequence_items(arr)
+    items = sequence_items(arr)
     length = len(items)
     for part in selectors:
         if isinstance(part, SelectorIndex):
