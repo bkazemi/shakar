@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 # ---------- Value Model (only Sh* -> Shk*) ----------
 
@@ -44,6 +44,39 @@ class ShkObject:
         for k, v in self.slots.items():
             pairs.append(f"{k}: {repr(v)}")
         return "{ " + ", ".join(pairs) + " }"
+
+@dataclass
+class SelectorIndex:
+    value: Any
+
+@dataclass
+class SelectorSlice:
+    start: Optional[int]
+    stop: Optional[int]
+    step: Optional[int]
+    clamp: bool
+    exclusive_stop: bool = False
+
+SelectorPart = Union[SelectorIndex, SelectorSlice]
+
+@dataclass
+class ShkSelector:
+    parts: List[SelectorPart]
+    def __repr__(self) -> str:
+        descr = []
+        for part in self.parts:
+            if isinstance(part, SelectorIndex):
+                descr.append(str(part.value))
+            else:
+                bits = []
+                bits.append("" if part.start is None else str(part.start))
+                bits.append("" if part.stop is None else ("<" + str(part.stop) if part.exclusive_stop else str(part.stop)))
+                if part.step is not None:
+                    bits.append(str(part.step))
+                while len(bits) < 3:
+                    bits.append("")
+                descr.append(":".join(bits[:3]).rstrip(":"))
+        return "selector{" + ", ".join(descr) + "}"
 
 @dataclass
 class ShkFn:

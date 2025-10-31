@@ -6,6 +6,7 @@ from lark import Tree, Token
 
 from shakar_runtime import (
     Env, ShkNumber, ShkString, ShkBool, ShkNull, ShkArray, ShkObject, Descriptor, ShkFn, BoundMethod,
+    ShkSelector, SelectorIndex, SelectorSlice, SelectorPart,
     ShakarRuntimeError, ShakarTypeError, ShakarArityError,
     call_builtin_method, call_shkfn, Builtins
 )
@@ -39,6 +40,18 @@ def _tree_label(node: Any) -> Optional[str]:
 def _is_literal_node(node: Any) -> bool:
     return not isinstance(node, (Tree, Token))
 
+def _get_source_segment(node: Any, env: Env) -> Optional[str]:
+    source = getattr(env, 'source', None)
+    if source is None:
+        return None
+    meta = getattr(node, "meta", None)
+    if meta is None:
+        return None
+    start = getattr(meta, "start_pos", None)
+    end = getattr(meta, "end_pos", None)
+    if start is None or end is None:
+        return None
+    return source[start:end]
 
 def eval_node(n: Any, env: Env) -> Any:
     if _is_literal_node(n):
@@ -87,6 +100,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_setliteral(n, env)
         case 'dictcomp':
             return _eval_dictcomp(n, env)
+        case 'selectorliteral':
+            return _eval_selectorliteral(n, env)
         case 'call':
             args_node = n.children[0] if n.children else None
             args = _eval_args_node(args_node, env)
@@ -567,6 +582,19 @@ def _eval_setliteral(n: Tree, env: Env) -> ShkArray:
             items.append(val)
     return ShkArray(items)
 
+def _eval_selectorliteral(n: Tree, env: Env) -> ShkSelector:
+    sellist = next((child for child in getattr(n, 'children', []) if _tree_label(child) == 'sellist'), None)
+    if sellist is None:
+        return ShkSelector([])
+    parts: list[SelectorPart] = []
+    for item in getattr(sellist, 'children', []):
+        label = _tree_label(item)
+        if label == 'selitem':
+            parts.extend(_selector_parts_from_selitem(item, env))
+        else:
+            parts.extend(_selector_parts_from_selitem(Tree('selitem', [item]), env))
+    return ShkSelector(parts)
+
 def _eval_dictcomp(n: Tree, env: Env) -> ShkObject:
     if len(n.children) < 3:
         raise ShakarRuntimeError("Malformed dict comprehension")
@@ -669,6 +697,8 @@ def _iterable_values(value: Any) -> list[Any]:
             return [ShkString(ch) for ch in s]
         case ShkObject(slots=slots):
             return [ShkString(k) for k in slots.keys()]
+        case ShkSelector():
+            return _selector_iter_values(value)
         case _:
             if isinstance(value, list):
                 return list(value)
@@ -948,9 +978,7 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
             assert isinstance(name_tok, Token) and name_tok.type == 'IDENT'
             return _get_field(recv, name_tok.value, env)
         case 'index':
-            expr_node = _index_expr_from_children(op.children)
-            idx = eval_node(expr_node, env)
-            return _index(recv, idx, env)
+            return _apply_index_operation(recv, op, env)
         case 'slicesel':
             return _slice(recv, op.children, env)
         case 'call':
@@ -1031,10 +1059,16 @@ def _get_field(recv: Any, name: str, env: Env) -> Any:
 def _index(recv: Any, idx: Any, env: Env) -> Any:
     match recv:
         case ShkArray(items=items):
+            if isinstance(idx, ShkSelector):
+                cloned = _clone_selector_parts(idx.parts, clamp=True)
+                return _apply_selectors_to_array(recv, cloned, env)
             if isinstance(idx, ShkNumber):
                 return items[int(idx.value)]
             raise ShakarTypeError("Array index must be a number")
         case ShkString(value=s):
+            if isinstance(idx, ShkSelector):
+                cloned = _clone_selector_parts(idx.parts, clamp=True)
+                return _apply_selectors_to_string(recv, cloned, env)
             if isinstance(idx, ShkNumber):
                 return ShkString(s[int(idx.value)])
             raise ShakarTypeError("String index must be a number")
@@ -1134,6 +1168,264 @@ def _slice(recv: Any, arms: List[Any], env: Env) -> Any:
             return ShkString(sval[s])
         case _:
             raise ShakarTypeError("Slice only supported on arrays/strings")
+
+# ---------------- Selectors ----------------
+
+def _apply_index_operation(recv: Any, op: Tree, env: Env) -> Any:
+    selectorlist = next((child for child in getattr(op, 'children', []) if _tree_label(child) == 'selectorlist'), None)
+    if selectorlist is None:
+        expr_node = _index_expr_from_children(op.children)
+        idx_val = eval_node(expr_node, env)
+        return _index(recv, idx_val, env)
+    selectors = _evaluate_selectorlist(selectorlist, env)
+    return _apply_selectors_to_value(recv, selectors, env)
+
+def _evaluate_selectorlist(node: Tree, env: Env) -> list[SelectorPart]:
+    results: list[SelectorPart] = []
+    for raw_selector in getattr(node, 'children', []):
+        inner = next((child for child in getattr(raw_selector, 'children', []) if _tree_label(child) in {'slicesel', 'indexsel'}), raw_selector)
+        label = _tree_label(inner)
+        if label == 'slicesel':
+            results.append(_selector_slice_from_slicesel(inner, env, clamp=True))
+            continue
+        if label == 'indexsel':
+            expr_node = next((child for child in getattr(inner, 'children', []) if not isinstance(child, Token)), None)
+            if expr_node is None and inner.children:
+                expr_node = inner.children[0]
+            value = eval_node(expr_node, env)
+            results.extend(_expand_selector_value(value, clamp=True))
+            continue
+        # fallback: evaluate entire node
+        value = eval_node(inner, env)
+        results.extend(_expand_selector_value(value, clamp=True))
+    return results
+
+def _selector_parts_from_selitem(node: Tree, env: Env) -> list[SelectorPart]:
+    inner = next((child for child in getattr(node, 'children', []) if _tree_label(child) in {'sliceitem', 'indexitem'}), None)
+    if inner is None:
+        return []
+    label = _tree_label(inner)
+    if label == 'sliceitem':
+        slice_part = _selector_slice_from_sliceitem(inner, env)
+        return [slice_part]
+    if label == 'indexitem':
+        selatom = next((child for child in getattr(inner, 'children', []) if _tree_label(child) == 'selatom'), None)
+        value = _eval_selector_atom(selatom, env)
+        return [SelectorIndex(value)]
+    return []
+
+def _selector_slice_from_sliceitem(node: Tree, env: Env) -> SelectorSlice:
+    children = list(getattr(node, 'children', []))
+    index = 0
+    start_node = None
+    if index < len(children) and _tree_label(children[index]) == 'selatom':
+        start_node = children[index]
+        index += 1
+    stop_node = None
+    if index < len(children) and _tree_label(children[index]) == 'seloptstop':
+        stop_node = children[index]
+        index += 1
+    step_node = None
+    if index < len(children) and _tree_label(children[index]) == 'selatom':
+        step_node = children[index]
+    start_val = _coerce_selector_number(_eval_selector_atom(start_node, env), allow_none=True)
+    stop_value, exclusive = _eval_seloptstop(stop_node, env)
+    stop_val = _coerce_selector_number(stop_value, allow_none=True)
+    step_val = _coerce_selector_number(_eval_selector_atom(step_node, env), allow_none=True)
+    return SelectorSlice(start=start_val, stop=stop_val, step=step_val, clamp=False, exclusive_stop=exclusive)
+
+def _selector_slice_from_slicesel(node: Tree, env: Env, clamp: bool) -> SelectorSlice:
+    children = list(getattr(node, 'children', []))
+    start_node = children[0] if len(children) > 0 else None
+    stop_node = children[1] if len(children) > 1 else None
+    step_node = children[2] if len(children) > 2 else None
+
+    def unwrap(expr_node):
+        if _tree_label(expr_node) == 'emptyexpr':
+            return None
+        return expr_node
+
+    start_val = _coerce_selector_number(_eval_optional_expr(unwrap(start_node), env), allow_none=True)
+    stop_val = _coerce_selector_number(_eval_optional_expr(unwrap(stop_node), env), allow_none=True)
+    step_val = _coerce_selector_number(_eval_optional_expr(unwrap(step_node), env), allow_none=True)
+    return SelectorSlice(start=start_val, stop=stop_val, step=step_val, clamp=clamp, exclusive_stop=True)
+
+def _eval_optional_expr(node: Any, env: Env) -> Any:
+    if node is None:
+        return None
+    return eval_node(node, env)
+
+def _eval_selector_atom(node: Any, env: Env) -> Any:
+    if node is None:
+        return None
+    if not _is_tree(node):
+        return eval_node(node, env)
+    if not getattr(node, 'children', None):
+        return eval_node(node, env)
+    child = node.children[0]
+    if _tree_label(child) == 'interp':
+        expr = next((grand for grand in getattr(child, 'children', []) if _tree_label(grand) == 'expr'), None)
+        if expr is None and getattr(child, 'children', None):
+            expr = child.children[0]
+        if expr is None:
+            raise ShakarRuntimeError("Empty interpolation in selector literal")
+        return eval_node(expr, env)
+    if _is_tree(child):
+        return eval_node(child, env)
+    return eval_node(child, env)
+
+def _eval_seloptstop(node: Any, env: Env) -> tuple[Any, bool]:
+    if node is None:
+        return None, False
+    selatom = next((child for child in getattr(node, 'children', []) if _tree_label(child) == 'selatom'), None)
+    value = _eval_selector_atom(selatom, env)
+    segment = _get_source_segment(node, env)
+    exclusive = False
+    if segment is not None:
+        exclusive = segment.lstrip().startswith('<')
+    return value, exclusive
+
+def _coerce_selector_number(value: Any, allow_none: bool=False) -> Optional[int]:
+    if value is None:
+        if allow_none:
+            return None
+        raise ShakarTypeError("Selector expects a numeric bound")
+    if isinstance(value, ShkNull):
+        if allow_none:
+            return None
+        raise ShakarTypeError("Selector expects a numeric bound")
+    if isinstance(value, ShkNumber):
+        num = value.value
+    elif isinstance(value, (int, float)):
+        num = float(value)
+    else:
+        raise ShakarTypeError("Selector expects a numeric bound")
+    if not float(num).is_integer():
+        raise ShakarTypeError("Selector bounds must be integral")
+    return int(num)
+
+def _expand_selector_value(value: Any, clamp: bool) -> list[SelectorPart]:
+    if isinstance(value, ShkSelector):
+        return _clone_selector_parts(value.parts, clamp)
+    return [SelectorIndex(value)]
+
+def _clone_selector_parts(parts: Iterable[SelectorPart], clamp: bool) -> list[SelectorPart]:
+    cloned: list[SelectorPart] = []
+    for part in parts:
+        if isinstance(part, SelectorSlice):
+            cloned.append(SelectorSlice(
+                start=part.start,
+                stop=part.stop,
+                step=part.step,
+                clamp=clamp,
+                exclusive_stop=part.exclusive_stop,
+            ))
+        elif isinstance(part, SelectorIndex):
+            cloned.append(SelectorIndex(part.value))
+    return cloned
+
+def _apply_selectors_to_value(recv: Any, selectors: list[SelectorPart], env: Env) -> Any:
+    if not selectors:
+        return ShkNull()
+    if isinstance(recv, ShkArray):
+        return _apply_selectors_to_array(recv, selectors, env)
+    if isinstance(recv, ShkString):
+        return _apply_selectors_to_string(recv, selectors, env)
+    if len(selectors) == 1 and isinstance(selectors[0], SelectorIndex):
+        return _index(recv, selectors[0].value, env)
+    raise ShakarTypeError("Complex selectors only supported on arrays or strings")
+
+def _apply_selectors_to_array(arr: ShkArray, selectors: list[SelectorPart], env: Env) -> ShkArray:
+    result: list[Any] = []
+    length = len(arr.items)
+    for part in selectors:
+        if isinstance(part, SelectorIndex):
+            idx = _selector_index_to_int(part.value)
+            pos = _normalize_index_position(idx, length)
+            if pos < 0 or pos >= length:
+                raise ShakarRuntimeError("Array index out of bounds")
+            result.append(arr.items[pos])
+            continue
+        slice_obj = _selector_slice_to_slice(part, length)
+        result.extend(arr.items[slice_obj])
+    return ShkArray(result)
+
+def _apply_selectors_to_string(s: ShkString, selectors: list[SelectorPart], env: Env) -> ShkString:
+    pieces: list[str] = []
+    length = len(s.value)
+    for part in selectors:
+        if isinstance(part, SelectorIndex):
+            idx = _selector_index_to_int(part.value)
+            pos = _normalize_index_position(idx, length)
+            if pos < 0 or pos >= length:
+                raise ShakarRuntimeError("String index out of bounds")
+            pieces.append(s.value[pos])
+            continue
+        slice_obj = _selector_slice_to_slice(part, length)
+        pieces.append(s.value[slice_obj])
+    return ShkString("".join(pieces))
+
+def _selector_index_to_int(value: Any) -> int:
+    if isinstance(value, ShkNumber):
+        num = value.value
+    elif isinstance(value, (int, float)):
+        num = float(value)
+    else:
+        raise ShakarTypeError("Index selector expects a numeric value")
+    if not float(num).is_integer():
+        raise ShakarTypeError("Index selector expects an integer value")
+    return int(num)
+
+def _normalize_index_position(index: int, length: int) -> int:
+    if index < 0:
+        return index + length
+    return index
+
+def _selector_slice_to_slice(part: SelectorSlice, length: int) -> slice:
+    step = part.step if part.step is not None else 1
+    if step == 0:
+        raise ShakarRuntimeError("Slice step cannot be zero")
+    start = part.start
+    stop = part.stop
+    if part.clamp:
+        stop_adj = stop
+        if not part.exclusive_stop and stop_adj is not None:
+            stop_adj = stop_adj + (1 if step > 0 else -1)
+        slice_obj = slice(start, stop_adj, step)
+        start_idx, stop_idx, step_idx = slice_obj.indices(length)
+        return slice(start_idx, stop_idx, step_idx)
+    if start is None:
+        start = 0 if step > 0 else length - 1
+    if stop is None:
+        stop = length if step > 0 else -1
+    if not part.exclusive_stop and stop is not None:
+        stop = stop + (1 if step > 0 else -1)
+    if start < 0:
+        start += length
+    if stop is not None and stop < 0:
+        stop += length
+    return slice(start, stop, step)
+
+def _selector_iter_values(selector: ShkSelector) -> list[Any]:
+    items: list[Any] = []
+    for part in selector.parts:
+        if isinstance(part, SelectorIndex):
+            idx = _selector_index_to_int(part.value)
+            items.append(ShkNumber(float(idx)))
+            continue
+        items.extend(ShkNumber(float(i)) for i in _iterate_selector_slice(part))
+    return items
+
+def _iterate_selector_slice(part: SelectorSlice) -> Iterable[int]:
+    step = part.step if part.step is not None else 1
+    if step == 0:
+        raise ShakarRuntimeError("Selector slice step cannot be zero")
+    if part.start is None or part.stop is None:
+        raise ShakarRuntimeError("Selector slice requires explicit start and stop when iterated")
+    start = part.start
+    stop = part.stop
+    stop_exclusive = stop if part.exclusive_stop else stop + (1 if step > 0 else -1)
+    return range(start, stop_exclusive, step)
 
 def _call_value(cal: Any, args: List[Any], env: Env) -> Any:
     match cal:
