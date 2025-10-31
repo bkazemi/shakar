@@ -12,6 +12,7 @@ from shakar_runtime import (
     ShakarRuntimeError, ShakarTypeError, ShakarArityError,
     call_builtin_method, call_shkfn, Builtins
 )
+from shakar_utils import value_in_list, shk_equals
 
 # ---------------- Public API ----------------
 
@@ -550,7 +551,7 @@ def _eval_setcomp(n: Tree, env: Env) -> ShkArray:
     items: list[Any] = []
     for _, iter_env in _iterate_comprehension(n, env, [body]):
         result = eval_node(body, iter_env)
-        if not _value_in_list(items, result):
+        if not value_in_list(items, result):
             items.append(result)
     return ShkArray(items)
 
@@ -558,7 +559,7 @@ def _eval_setliteral(n: Tree, env: Env) -> ShkArray:
     items: list[Any] = []
     for child in getattr(n, 'children', []):
         val = eval_node(child, env)
-        if not _value_in_list(items, val):
+        if not value_in_list(items, val):
             items.append(val)
     return ShkArray(items)
 
@@ -664,12 +665,6 @@ def _iterable_values(value: Any) -> list[Any]:
                 return list(value)
             raise ShakarTypeError(f"Cannot iterate over {type(value).__name__}")
 
-def _value_in_list(seq: list[Any], value: Any) -> bool:
-    for existing in seq:
-        if _shk_equals(existing, value):
-            return True
-    return False
-
 # ---------------- Sequence helpers ----------------
 
 def _is_sequence_value(value: Any) -> bool:
@@ -735,9 +730,9 @@ def _eval_compare(children: List[Any], env: Env) -> Any:
 def _compare_values(op: str, lhs: Any, rhs: Any) -> bool:
     match op:
         case '==':
-            return _shk_equals(lhs, rhs)
+            return shk_equals(lhs, rhs)
         case '!=':
-            return not _shk_equals(lhs, rhs)
+            return not shk_equals(lhs, rhs)
         case '<':
             _require_number(lhs); _require_number(rhs)
             return lhs.value < rhs.value
@@ -751,9 +746,9 @@ def _compare_values(op: str, lhs: Any, rhs: Any) -> bool:
             _require_number(lhs); _require_number(rhs)
             return lhs.value >= rhs.value
         case 'is':
-            return _shk_equals(lhs, rhs)
+            return shk_equals(lhs, rhs)
         case '!is' | 'is not':
-            return not _shk_equals(lhs, rhs)
+            return not shk_equals(lhs, rhs)
         case 'in':
             return _contains(rhs, lhs)
         case 'not in' | '!in':
@@ -764,7 +759,7 @@ def _compare_values(op: str, lhs: Any, rhs: Any) -> bool:
 def _contains(container: Any, item: Any) -> bool:
     match container:
         case ShkArray(items=items):
-            return any(_shk_equals(element, item) for element in items)
+            return any(shk_equals(element, item) for element in items)
         case ShkString(value=text):
             if isinstance(item, ShkString):
                 return item.value in text
@@ -775,35 +770,6 @@ def _contains(container: Any, item: Any) -> bool:
             raise ShakarTypeError("Object membership requires a string key")
         case _:
             raise ShakarTypeError(f"Unsupported container type for 'in': {type(container).__name__}")
-
-def _shk_equals(lhs: Any, rhs: Any) -> bool:
-    if type(lhs) is not type(rhs):
-        return False
-    match lhs:
-        case ShkNull():
-            return True
-        case ShkNumber(value=a):
-            return a == rhs.value
-        case ShkString(value=a):
-            return a == rhs.value
-        case ShkBool(value=a):
-            return a == rhs.value
-        case ShkArray(items=items):
-            rhs_items = rhs.items
-            if len(items) != len(rhs_items):
-                return False
-            return all(_shk_equals(a, b) for a, b in zip(items, rhs_items))
-        case ShkObject(slots=slots):
-            rhs_slots = rhs.slots
-            if slots.keys() != rhs_slots.keys():
-                return False
-            return all(_shk_equals(slots[k], rhs_slots[k]) for k in slots)
-        case ShkFn():
-            return lhs is rhs
-        case Descriptor():
-            return lhs is rhs
-        case _:
-            return lhs is rhs
 
 def _eval_logical(kind: str, children: List[Any], env: Env) -> Any:
     if not children:
