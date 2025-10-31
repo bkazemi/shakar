@@ -528,20 +528,22 @@ def _name_exists(env: Env, name: str) -> bool:
     except ShakarRuntimeError:
         return False
 
-def _eval_listcomp(n: Tree, env: Env) -> ShkArray:
-    body = n.children[0] if n.children else None
+def _prepare_comprehension(n: Tree, env: Env, head_nodes: list[Any]) -> tuple[Any, list[dict[str, Any]], str, Tree | None]:
     comphead = _child_by_label(n, 'comphead')
-    if comphead is None or body is None:
-        raise ShakarRuntimeError("Malformed list comprehension")
+    if comphead is None:
+        raise ShakarRuntimeError("Malformed comprehension")
     ifclause = _child_by_label(n, 'ifclause')
     iter_expr_node, binders, mode = _parse_comphead(comphead)
     if not binders:
-        implicit_names = _infer_implicit_binders([body], ifclause, env)
+        implicit_names = _infer_implicit_binders(head_nodes, ifclause, env)
         for name in implicit_names:
             pattern = Tree('pattern', [Token('IDENT', name)])
             binders.append({'pattern': pattern, 'hoist': False})
     iter_val = eval_node(iter_expr_node, env)
-    items: list[Any] = []
+    return iter_val, binders, mode, ifclause
+
+def _iterate_comprehension(n: Tree, env: Env, head_nodes: list[Any]) -> Iterable[tuple[Any, Env]]:
+    iter_val, binders, mode, ifclause = _prepare_comprehension(n, env, head_nodes)
     outer_dot = env.dot
     try:
         for element in _iterable_values(iter_val):
@@ -554,43 +556,26 @@ def _eval_listcomp(n: Tree, env: Env) -> ShkArray:
                 cond_val = eval_node(cond_node, iter_env)
                 if not _is_truthy(cond_val):
                     continue
-            result = eval_node(body, iter_env)
-            items.append(result)
+            yield element, iter_env
     finally:
         env.dot = outer_dot
+
+def _eval_listcomp(n: Tree, env: Env) -> ShkArray:
+    body = n.children[0] if n.children else None
+    if body is None:
+        raise ShakarRuntimeError("Malformed list comprehension")
+    items = [eval_node(body, iter_env) for _, iter_env in _iterate_comprehension(n, env, [body])]
     return ShkArray(items)
 
 def _eval_setcomp(n: Tree, env: Env) -> ShkArray:
     body = n.children[0] if n.children else None
-    comphead = _child_by_label(n, 'comphead')
-    if body is None or comphead is None:
+    if body is None:
         raise ShakarRuntimeError("Malformed set comprehension")
-    ifclause = _child_by_label(n, 'ifclause')
-    iter_expr_node, binders, mode = _parse_comphead(comphead)
-    if not binders:
-        implicit_names = _infer_implicit_binders([body], ifclause, env)
-        for name in implicit_names:
-            pattern = Tree('pattern', [Token('IDENT', name)])
-            binders.append({'pattern': pattern, 'hoist': False})
-    iter_val = eval_node(iter_expr_node, env)
     items: list[Any] = []
-    outer_dot = env.dot
-    try:
-        for element in _iterable_values(iter_val):
-            iter_env = Env(parent=env, dot=element)
-            _apply_comp_binders(binders, mode, element, iter_env, env)
-            if ifclause is not None:
-                cond_node = ifclause.children[-1] if ifclause.children else None
-                if cond_node is None:
-                    raise ShakarRuntimeError("Malformed comprehension guard")
-                cond_val = eval_node(cond_node, iter_env)
-                if not _is_truthy(cond_val):
-                    continue
-            result = eval_node(body, iter_env)
-            if not _value_in_list(items, result):
-                items.append(result)
-    finally:
-        env.dot = outer_dot
+    for _, iter_env in _iterate_comprehension(n, env, [body]):
+        result = eval_node(body, iter_env)
+        if not _value_in_list(items, result):
+            items.append(result)
     return ShkArray(items)
 
 def _eval_setliteral(n: Tree, env: Env) -> ShkArray:
@@ -619,36 +604,12 @@ def _eval_dictcomp(n: Tree, env: Env) -> ShkObject:
         raise ShakarRuntimeError("Malformed dict comprehension")
     key_node = n.children[0]
     value_node = n.children[1]
-    comphead = _child_by_label(n, 'comphead')
-    if comphead is None:
-        raise ShakarRuntimeError("Malformed dict comprehension")
-    ifclause = _child_by_label(n, 'ifclause')
-    iter_expr_node, binders, mode = _parse_comphead(comphead)
-    if not binders:
-        implicit_names = _infer_implicit_binders([key_node, value_node], ifclause, env)
-        for name in implicit_names:
-            pattern = Tree('pattern', [Token('IDENT', name)])
-            binders.append({'pattern': pattern, 'hoist': False})
-    iter_val = eval_node(iter_expr_node, env)
     slots: dict[str, Any] = {}
-    outer_dot = env.dot
-    try:
-        for element in _iterable_values(iter_val):
-            iter_env = Env(parent=env, dot=element)
-            _apply_comp_binders(binders, mode, element, iter_env, env)
-            if ifclause is not None:
-                cond_node = ifclause.children[-1] if ifclause.children else None
-                if cond_node is None:
-                    raise ShakarRuntimeError("Malformed comprehension guard")
-                cond_val = eval_node(cond_node, iter_env)
-                if not _is_truthy(cond_val):
-                    continue
-            key_val = eval_node(key_node, iter_env)
-            value_val = eval_node(value_node, iter_env)
-            key_str = _normalize_object_key(key_val)
-            slots[key_str] = value_val
-    finally:
-        env.dot = outer_dot
+    for _, iter_env in _iterate_comprehension(n, env, [key_node, value_node]):
+        key_val = eval_node(key_node, iter_env)
+        value_val = eval_node(value_node, iter_env)
+        key_str = _normalize_object_key(key_val)
+        slots[key_str] = value_val
     return ShkObject(slots)
 
 def _parse_comphead(node: Tree) -> tuple[Any, list[dict[str, Any]], str]:
