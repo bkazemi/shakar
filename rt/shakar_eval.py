@@ -15,11 +15,8 @@ from shakar_runtime import (
 from shakar_utils import (
     value_in_list,
     shk_equals,
-    is_sequence_value,
     sequence_items,
-    coerce_sequence,
     fanout_values,
-    replicate_empty_sequence,
     normalize_object_key,
 )
 from selector_eval import (
@@ -28,6 +25,12 @@ from selector_eval import (
     clone_selector_parts,
     apply_selectors_to_value,
     selector_iter_values,
+)
+from destructure_eval import (
+    evaluate_destructure_rhs,
+    assign_pattern as destructure_assign_pattern,
+    infer_implicit_binders as destructure_infer_implicit_binders,
+    apply_comp_binders as destructure_apply_comp_binders,
 )
 
 # ---------------- Public API ----------------
@@ -310,9 +313,9 @@ def _eval_destructure(n: Tree, env: Env, create: bool, allow_broadcast: bool) ->
     patterns = [c for c in getattr(pattern_list, 'children', []) if _tree_label(c) == 'pattern']
     if not patterns:
         raise ShakarRuntimeError("Empty destructure pattern")
-    values, result = _evaluate_destructure_rhs(rhs_node, env, len(patterns), allow_broadcast)
+    values, result = evaluate_destructure_rhs(eval_node, rhs_node, env, len(patterns), allow_broadcast)
     for pat, val in zip(patterns, values):
-        _assign_pattern(pat, val, env, create, allow_broadcast)
+        _assign_pattern_value(pat, val, env, create, allow_broadcast)
     return result if allow_broadcast else ShkNull()
 
 def _assign_ident(name: str, value: Any, env: Env, create: bool) -> Any:
@@ -324,6 +327,21 @@ def _assign_ident(name: str, value: Any, env: Env, create: bool) -> Any:
         else:
             raise
     return value
+
+def _assign_pattern_value(pattern: Tree, value: Any, env: Env, create: bool, allow_broadcast: bool) -> None:
+    def _assign_ident_wrapper(name: str, val: Any, target_env: Env, create_flag: bool) -> None:
+        _assign_ident(name, val, target_env, create=create_flag)
+    destructure_assign_pattern(eval_node, _assign_ident_wrapper, pattern, value, env, create, allow_broadcast)
+
+def _apply_comp_binders_wrapper(binders: list[dict[str, Any]], mode: str, element: Any, iter_env: Env, outer_env: Env) -> None:
+    destructure_apply_comp_binders(
+        lambda pattern, val, target_env, create, allow_broadcast: _assign_pattern_value(pattern, val, target_env, create, allow_broadcast),
+        binders,
+        mode,
+        element,
+        iter_env,
+        outer_env,
+    )
 
 def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
     if not _is_tree(node) or _tree_label(node) != 'lvalue':
@@ -410,79 +428,6 @@ def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
             return ShkArray(results)
     raise ShakarRuntimeError("Unsupported apply-assign target")
 
-def _evaluate_destructure_rhs(rhs_node: Any, env: Env, target_count: int, allow_broadcast: bool) -> tuple[list[Any], Any]:
-    if _tree_label(rhs_node) == 'pack':
-        vals = [eval_node(child, env) for child in rhs_node.children]
-        result = ShkArray(vals)
-    else:
-        single = eval_node(rhs_node, env)
-        vals = [single]
-        result = single
-    if len(vals) == 1 and target_count > 1:
-        single = vals[0]
-        if is_sequence_value(single):
-            items = sequence_items(single)
-            if len(items) == target_count:
-                vals = list(items)
-                result = ShkArray(vals)
-            elif len(items) == 0 and allow_broadcast:
-                replicated = replicate_empty_sequence(single, target_count)
-                vals = replicated
-                result = ShkArray(vals)
-            else:
-                raise ShakarRuntimeError("Destructure arity mismatch")
-        elif allow_broadcast:
-            vals = [single] * target_count
-        else:
-            raise ShakarRuntimeError("Destructure arity mismatch")
-    elif len(vals) != target_count:
-        raise ShakarRuntimeError("Destructure arity mismatch")
-    return vals, result
-
-def _assign_pattern(pattern: Tree, value: Any, env: Env, create: bool, allow_broadcast: bool) -> None:
-    if _tree_label(pattern) != 'pattern' or not getattr(pattern, 'children', None):
-        raise ShakarRuntimeError("Malformed pattern")
-    target = pattern.children[0]
-    if isinstance(target, Token) and target.type == 'IDENT':
-        if create:
-            env.define(target.value, value)
-        else:
-            _assign_ident(target.value, value, env, create=False)
-        return
-    if _tree_label(target) == 'pattern_list':
-        subpatterns = [c for c in getattr(target, 'children', []) if _tree_label(c) == 'pattern']
-        if not subpatterns:
-            raise ShakarRuntimeError("Empty nested pattern")
-        seq = coerce_sequence(value, len(subpatterns))
-        if seq is None:
-            if allow_broadcast and len(subpatterns) > 1:
-                seq = [value] * len(subpatterns)
-            else:
-                raise ShakarRuntimeError("Destructure expects a sequence")
-        for sub_pat, sub_val in zip(subpatterns, seq):
-            _assign_pattern(sub_pat, sub_val, env, create, allow_broadcast)
-        return
-    raise ShakarRuntimeError("Unsupported pattern element")
-
-def _infer_implicit_binders(exprs: list[Any], ifclause: Tree | None, env: Env) -> list[str]:
-    names: list[str] = []
-    seen: set[str] = set()
-
-    def consider(name: str) -> None:
-        if name in seen:
-            return
-        if _name_exists(env, name):
-            return
-        seen.add(name)
-        names.append(name)
-
-    for expr in exprs:
-        _collect_free_identifiers(expr, consider)
-    if ifclause is not None and ifclause.children:
-        guard_expr = ifclause.children[-1]
-        _collect_free_identifiers(guard_expr, consider)
-    return names
-
 def _collect_free_identifiers(node: Any, callback) -> None:
     skip_nodes = {'field', 'fieldsel', 'fieldfan', 'fieldlist', 'key_ident', 'key_string'}
 
@@ -501,13 +446,6 @@ def _collect_free_identifiers(node: Any, callback) -> None:
 
     walk(node)
 
-def _name_exists(env: Env, name: str) -> bool:
-    try:
-        env.get(name)
-        return True
-    except ShakarRuntimeError:
-        return False
-
 def _prepare_comprehension(n: Tree, env: Env, head_nodes: list[Any]) -> tuple[Any, list[dict[str, Any]], str, Tree | None]:
     comphead = _child_by_label(n, 'comphead')
     if comphead is None:
@@ -515,7 +453,12 @@ def _prepare_comprehension(n: Tree, env: Env, head_nodes: list[Any]) -> tuple[An
     ifclause = _child_by_label(n, 'ifclause')
     iter_expr_node, binders, mode = _parse_comphead(comphead)
     if not binders:
-        implicit_names = _infer_implicit_binders(head_nodes, ifclause, env)
+        implicit_names = destructure_infer_implicit_binders(
+            head_nodes,
+            ifclause,
+            env,
+            lambda expr, callback: _collect_free_identifiers(expr, callback)
+        )
         for name in implicit_names:
             pattern = Tree('pattern', [Token('IDENT', name)])
             binders.append({'pattern': pattern, 'hoist': False})
@@ -528,7 +471,7 @@ def _iterate_comprehension(n: Tree, env: Env, head_nodes: list[Any]) -> Iterable
     try:
         for element in _iterable_values(iter_val):
             iter_env = Env(parent=env, dot=element)
-            _apply_comp_binders(binders, mode, element, iter_env, env)
+            _apply_comp_binders_wrapper(binders, mode, element, iter_env, env)
             if ifclause is not None:
                 cond_node = ifclause.children[-1] if ifclause.children else None
                 if cond_node is None:
@@ -619,20 +562,6 @@ def _parse_overspec(node: Tree) -> tuple[Any, list[dict[str, Any]], str]:
     else:
         mode = 'none'
     return iter_expr_node, binders, mode
-
-def _apply_comp_binders(binders: list[dict[str, Any]], mode: str, element: Any, iter_env: Env, outer_env: Env) -> None:
-    if not binders:
-        return
-    if len(binders) == 1:
-        values = [element]
-    else:
-        seq = coerce_sequence(element, len(binders))
-        if seq is None:
-            raise ShakarRuntimeError("Comprehension element arity mismatch")
-        values = seq
-    for binder, val in zip(binders, values):
-        target_env = outer_env if binder.get('hoist') else iter_env
-        _assign_pattern(binder['pattern'], val, target_env, create=True, allow_broadcast=False)
 
 def _iterable_values(value: Any) -> list[Any]:
     match value:
