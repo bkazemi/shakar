@@ -4,6 +4,8 @@ from __future__ import annotations
 from typing import Any, Callable, Iterable, List, Optional
 from lark import Tree, Token
 
+from contextlib import contextmanager
+
 from shakar_runtime import (
     Env, ShkNumber, ShkString, ShkBool, ShkNull, ShkArray, ShkObject, Descriptor, ShkFn, BoundMethod,
     ShkSelector, SelectorIndex, SelectorSlice, SelectorPart,
@@ -237,26 +239,20 @@ def _eval_oneline_guard(children: List[Any], env: Env) -> Any:
         elif data == 'inlinebody':
             else_body = child
     outer_dot = env.dot
-    try:
-        for branch in branches:
-            if not _is_tree(branch) or len(branch.children) != 2:
-                raise ShakarRuntimeError("Malformed guard branch")
-            cond_node, body_node = branch.children
-            env.dot = outer_dot
+    for branch in branches:
+        if not _is_tree(branch) or len(branch.children) != 2:
+            raise ShakarRuntimeError("Malformed guard branch")
+        cond_node, body_node = branch.children
+        with _temporary_subject(env, outer_dot):
             cond_val = eval_node(cond_node, env)
-            if _is_truthy(cond_val):
-                result = _eval_inline_body(body_node, env)
-                env.dot = outer_dot
-                return result
-            env.dot = outer_dot
-        if else_body is not None:
-            env.dot = outer_dot
-            result = _eval_inline_body(else_body, env)
-            env.dot = outer_dot
-            return result
-        return ShkNull()
-    finally:
-        env.dot = outer_dot
+        if _is_truthy(cond_val):
+            with _temporary_subject(env, outer_dot):
+                return _eval_inline_body(body_node, env)
+    if else_body is not None:
+        with _temporary_subject(env, outer_dot):
+            return _eval_inline_body(else_body, env)
+    env.dot = outer_dot
+    return ShkNull()
 
 # ---------------- Assignment ----------------
 
@@ -1616,3 +1612,12 @@ def _eval_amp_lambda(n: Tree, env: Env) -> ShkFn:
         return ShkFn(params=params, body=body, env=Env(parent=env, dot=None))
 
     raise ShakarRuntimeError("amp_lambda malformed")
+
+@contextmanager
+def _temporary_subject(env: Env, dot: Any) -> Iterable[None]:
+    prev = env.dot
+    env.dot = dot
+    try:
+        yield
+    finally:
+        env.dot = prev
