@@ -451,26 +451,6 @@ def _assign_pattern(pattern: Tree, value: Any, env: Env, create: bool, allow_bro
         return
     raise ShakarRuntimeError("Unsupported pattern element")
 
-def _coerce_sequence(value: Any, expected_len: int | None) -> list[Any] | None:
-    if isinstance(value, ShkArray):
-        items = list(value.items)
-    elif isinstance(value, list):
-        items = list(value)
-    elif isinstance(value, tuple):
-        items = list(value)
-    else:
-        return None
-    if expected_len is not None and len(items) != expected_len:
-        raise ShakarRuntimeError("Destructure arity mismatch")
-    return items
-
-def _fanout_values(value: Any, count: int) -> list[Any]:
-    if isinstance(value, ShkArray) and len(value.items) == count:
-        return list(value.items)
-    if isinstance(value, list) and len(value) == count:
-        return list(value)
-    return [value] * count
-
 def _normalize_object_key(value: Any) -> str:
     match value:
         case ShkString(value=s):
@@ -586,6 +566,8 @@ def _eval_setliteral(n: Tree, env: Env) -> ShkArray:
             items.append(val)
     return ShkArray(items)
 
+# ---------------- Selector semantics ----------------
+
 def _eval_selectorliteral(n: Tree, env: Env) -> ShkSelector:
     sellist = _child_by_label(n, 'sellist')
     if sellist is None:
@@ -691,6 +673,44 @@ def _value_in_list(seq: list[Any], value: Any) -> bool:
         if _shk_equals(existing, value):
             return True
     return False
+
+# ---------------- Sequence helpers ----------------
+
+def _is_sequence_value(value: Any) -> bool:
+    return isinstance(value, (ShkArray, list, tuple))
+
+def _sequence_items(value: Any) -> list[Any]:
+    if isinstance(value, ShkArray):
+        return list(value.items)
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, tuple):
+        return list(value)
+    return []
+
+def _coerce_sequence(value: Any, expected_len: int | None) -> list[Any] | None:
+    if not _is_sequence_value(value):
+        return None
+    items = _sequence_items(value)
+    if expected_len is not None and len(items) != expected_len:
+        raise ShakarRuntimeError("Destructure arity mismatch")
+    return items
+
+def _fanout_values(value: Any, count: int) -> list[Any]:
+    if isinstance(value, ShkArray) and len(value.items) == count:
+        return list(value.items)
+    if isinstance(value, list) and len(value) == count:
+        return list(value)
+    return [value] * count
+
+def _replicate_empty_sequence(value: Any, count: int) -> list[Any]:
+    if isinstance(value, ShkArray) and len(value.items) == 0:
+        return [ShkArray([]) for _ in range(count)]
+    if isinstance(value, list) and len(value) == 0:
+        return [[] for _ in range(count)]
+    if isinstance(value, tuple) and len(value) == 0:
+        return [tuple() for _ in range(count)]
+    return [value] * count
 
 # ---------------- Comparison ----------------
 
@@ -1317,17 +1337,18 @@ def _apply_selectors_to_value(recv: Any, selectors: list[SelectorPart], env: Env
 
 def _apply_selectors_to_array(arr: ShkArray, selectors: list[SelectorPart], env: Env) -> ShkArray:
     result: list[Any] = []
-    length = len(arr.items)
+    items = _sequence_items(arr)
+    length = len(items)
     for part in selectors:
         if isinstance(part, SelectorIndex):
             idx = _selector_index_to_int(part.value)
             pos = _normalize_index_position(idx, length)
             if pos < 0 or pos >= length:
                 raise ShakarRuntimeError("Array index out of bounds")
-            result.append(arr.items[pos])
+            result.append(items[pos])
             continue
         slice_obj = _selector_slice_to_slice(part, length)
-        result.extend(arr.items[slice_obj])
+        result.extend(items[slice_obj])
     return ShkArray(result)
 
 def _apply_selectors_to_string(s: ShkString, selectors: list[SelectorPart], env: Env) -> ShkString:
@@ -1595,23 +1616,3 @@ def _eval_amp_lambda(n: Tree, env: Env) -> ShkFn:
         return ShkFn(params=params, body=body, env=Env(parent=env, dot=None))
 
     raise ShakarRuntimeError("amp_lambda malformed")
-def _is_sequence_value(value: Any) -> bool:
-    return isinstance(value, (ShkArray, list, tuple))
-
-def _sequence_items(value: Any) -> list[Any]:
-    if isinstance(value, ShkArray):
-        return list(value.items)
-    if isinstance(value, list):
-        return list(value)
-    if isinstance(value, tuple):
-        return list(value)
-    return []
-
-def _replicate_empty_sequence(value: Any, count: int) -> list[Any]:
-    if isinstance(value, ShkArray) and len(value.items) == 0:
-        return [ShkArray([]) for _ in range(count)]
-    if isinstance(value, list) and len(value) == 0:
-        return [[] for _ in range(count)]
-    if isinstance(value, tuple) and len(value) == 0:
-        return [tuple() for _ in range(count)]
-    return [value] * count
