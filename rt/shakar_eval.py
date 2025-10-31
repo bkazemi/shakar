@@ -19,14 +19,14 @@ from shakar_utils import (
     fanout_values,
     normalize_object_key,
 )
-from selector_eval import (
+from eval.selector_eval import (
     eval_selectorliteral,
     evaluate_selectorlist,
     clone_selector_parts,
     apply_selectors_to_value,
     selector_iter_values,
 )
-from destructure_eval import (
+from eval.destructure_eval import (
     evaluate_destructure_rhs,
     assign_pattern as destructure_assign_pattern,
     infer_implicit_binders as destructure_infer_implicit_binders,
