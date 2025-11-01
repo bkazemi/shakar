@@ -17,7 +17,7 @@ from shakar_runtime import (
     ShakarTypeError,
     call_shkfn,
 )
-from eval.selector_eval import clone_selector_parts, apply_selectors_to_value
+from eval.selector import clone_selector_parts, apply_selectors_to_value
 
 def set_field_value(recv: Any, name: str, value: Any, env: Env, *, create: bool) -> Any:
     match recv:
