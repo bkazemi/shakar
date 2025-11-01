@@ -60,6 +60,16 @@ def _is_token(node: Any) -> bool:
 def _token_kind(node: Any) -> Optional[str]:
     return node.type if isinstance(node, Token) else None
 
+def _expect_ident_token(node: Any, context: str) -> str:
+    if _is_token(node) and _token_kind(node) == 'IDENT':
+        return node.value
+    raise ShakarRuntimeError(f"{context} must be an identifier")
+
+def _ident_token_value(node: Any) -> Optional[str]:
+    if _is_token(node) and _token_kind(node) == 'IDENT':
+        return node.value
+    return None
+
 def _is_tree(node: Any) -> bool:
     return isinstance(node, Tree)
 
@@ -286,11 +296,10 @@ def _eval_oneline_guard(children: List[Any], env: Env) -> Any:
 def _eval_walrus(children: List[Any], env: Env) -> Any:
     if len(children) != 2:
         raise ShakarRuntimeError("Malformed walrus expression")
-    name, value_node = children
-    if not isinstance(name, Token) or name.type != 'IDENT':
-        raise ShakarRuntimeError("Walrus target must be an identifier")
+    name_node, value_node = children
+    name = _expect_ident_token(name_node, "Walrus target")
     value = eval_node(value_node, env)
-    return _assign_ident(name.value, value, env, create=True)
+    return _assign_ident(name, value, env, create=True)
 
 def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     if len(children) < 2:
@@ -367,9 +376,8 @@ def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
     label = _tree_label(final_op)
     match label:
         case 'field' | 'fieldsel':
-            name_tok = final_op.children[0]
-            assert _is_token(name_tok) and _token_kind(name_tok) == 'IDENT'
-            return set_field_value(target, name_tok.value, value, env, create=create)
+            field_name = _expect_ident_token(final_op.children[0], "Field assignment")
+            return set_field_value(target, field_name, value, env, create=create)
         case 'lv_index':
             idx_val = _evaluate_index_operand(final_op, env)
             return set_index_value(target, idx_val, value, env)
@@ -404,12 +412,11 @@ def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
     label = _tree_label(final_op)
     match label:
         case 'field' | 'fieldsel':
-            name_tok = final_op.children[0]
-            assert _token_kind(name_tok) == 'IDENT'
-            old_val = get_field_value(target, name_tok.value, env)
+            field_name = _expect_ident_token(final_op.children[0], "Field assignment")
+            old_val = get_field_value(target, field_name, env)
             rhs_env = Env(parent=env, dot=old_val)
             new_val = eval_node(rhs_node, rhs_env)
-            set_field_value(target, name_tok.value, new_val, env, create=False)
+            set_field_value(target, field_name, new_val, env, create=False)
             return new_val
         case 'lv_index':
             idx_val = _evaluate_index_operand(final_op, env)
@@ -443,8 +450,8 @@ def _collect_free_identifiers(node: Any, callback) -> None:
     skip_nodes = {'field', 'fieldsel', 'fieldfan', 'fieldlist', 'key_ident', 'key_string'}
 
     def walk(n: Any) -> None:
-        if isinstance(n, Token):
-            if n.type == 'IDENT':
+        if _is_token(n):
+            if _token_kind(n) == 'IDENT':
                 callback(n.value)
             return
         if _is_tree(n):
@@ -702,8 +709,8 @@ def _is_truthy(val: Any) -> bool:
             return True
 
 def _retargets_anchor(node: Any) -> bool:
-    if isinstance(node, Token):
-        return node.type not in {'SEMI', '_NL', 'INDENT', 'DEDENT'}
+    if _is_token(node):
+        return _token_kind(node) not in {'SEMI', '_NL', 'INDENT', 'DEDENT'}
     if _is_tree(node):
         return _tree_label(node) not in {'implicit_chain', 'subject'}
     return True
@@ -792,15 +799,15 @@ def _all_ops_in(children: List[Any], allowed: set) -> bool:
     return True
 
 def _as_op(x: Any) -> str:
-    if isinstance(x, Token):
+    if _is_token(x):
         return x.value
     label = _tree_label(x)
     if label is not None:
         # e.g. Tree('addop', [Token('PLUS','+')]) or mulop/powop
-        if label in ('addop', 'mulop', 'powop') and len(x.children) == 1 and isinstance(x.children[0], Token):
+        if label in ('addop', 'mulop', 'powop') and len(x.children) == 1 and _is_token(x.children[0]):
             return x.children[0].value
         if label == 'cmpop':
-            tokens = [tok.value for tok in x.children if isinstance(tok, Token)]
+            tokens = [tok.value for tok in x.children if _is_token(tok)]
             if not tokens:
                 raise ShakarRuntimeError("Empty comparison operator")
             if tokens[0] == '!' and len(tokens) > 1:
@@ -821,9 +828,8 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
     d = op.data
     match d:
         case 'field' | 'fieldsel':
-            name_tok = op.children[0]
-            assert isinstance(name_tok, Token) and name_tok.type == 'IDENT'
-            return get_field_value(recv, name_tok.value, env)
+            field_name = _expect_ident_token(op.children[0], "Field access")
+            return get_field_value(recv, field_name, env)
         case 'index':
             return _apply_index_operation(recv, op, env)
         case 'slicesel':
@@ -832,12 +838,12 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
             args = _eval_args_node(op.children[0] if op.children else None, env)
             return _call_value(recv, args, env)
         case 'method':
-            name_tok = op.children[0]; assert isinstance(name_tok, Token) and name_tok.type == 'IDENT'
+            method_name = _expect_ident_token(op.children[0], "Method call")
             args = _eval_args_node(op.children[1] if len(op.children)>1 else None, env)
             try:
-                return call_builtin_method(recv, name_tok.value, args, env)
+                return call_builtin_method(recv, method_name, args, env)
             except Exception:
-                cal = get_field_value(recv, name_tok.value, env)
+                cal = get_field_value(recv, method_name, env)
                 if isinstance(cal, BoundMethod):
                     return call_shkfn(cal.fn, args, subject=cal.subject, caller_env=env)
                 if isinstance(cal, ShkFn):
@@ -849,7 +855,7 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
 def _eval_args_node(args_node: Any, env: Env) -> List[Any]:
     def label(node: Tree) -> str | None:
         data = getattr(node, 'data', None)
-        if isinstance(data, Token):
+        if _is_token(data):
             return data.value
         return data
 
@@ -870,7 +876,7 @@ def _eval_args_node(args_node: Any, env: Env) -> List[Any]:
 
     if _is_tree(args_node):
         return [eval_node(n, env) for n in flatten(args_node)]
-    if isinstance(args_node, list):
+    if isinstance(args_node, list):  # deliberate: args_node can be pure python list from visitors
         res: List[Any] = []
         for n in args_node:
             res.extend(flatten(n))
@@ -881,7 +887,7 @@ def _index_expr_from_children(children: List[Any]) -> Any:
     queue = list(children)
     while queue:
         node = queue.pop(0)
-        if isinstance(node, Token):
+        if _is_token(node):
             continue
         if not _is_tree(node):
             return node
@@ -897,7 +903,9 @@ def _apply_slice(recv: Any, arms: List[Any], env: Env) -> Any:
         if _tree_label(node) == 'emptyexpr':
             return None
         value = eval_node(node, env)
-        return int(value.value) if isinstance(value, ShkNumber) else None
+        if isinstance(value, ShkNumber):
+            return int(value.value)
+        return None
     start, stop, step = map(arm_to_py, arms)
     return slice_value(recv, start, stop, step)
 
@@ -965,9 +973,7 @@ def _eval_object(n: Tree, env: Env) -> ShkObject:
             if len(cur.children) != 1:
                 break
             cur = cur.children[0]
-        if isinstance(cur, Token) and cur.type == 'IDENT':
-            return cur.value
-        return None
+        return _ident_token_value(cur)
 
     def _maybe_method_signature(key_node: Any) -> tuple[str, List[str]] | None:
         if _tree_label(key_node) != 'key_expr':
@@ -985,8 +991,7 @@ def _eval_object(n: Tree, env: Env) -> ShkObject:
         if chain is None or len(chain.children) != 2:
             return None
         head, call_node = chain.children
-        if not isinstance(head, Token) or head.type != 'IDENT':
-            return None
+        name = _expect_ident_token(head, "Object method key")
         if _tree_label(call_node) != 'call':
             return None
         args_node = call_node.children[0] if call_node.children else None
@@ -1015,7 +1020,7 @@ def _eval_object(n: Tree, env: Env) -> ShkObject:
             if ident is None:
                 return None
             params.append(ident)
-        return (head.value, params)
+        return (name, params)
 
     def handle_item(item: Tree) -> None:
         match item.data:
@@ -1055,7 +1060,7 @@ def _eval_object(n: Tree, env: Env) -> ShkObject:
                 raise ShakarRuntimeError(f"Unknown object item {item.data}")
 
     for child in n.children:
-        if isinstance(child, Token):
+        if _is_token(child):
             continue
         child_label = _tree_label(child)
         if child_label == 'object_items':
@@ -1085,7 +1090,7 @@ def _eval_key(k: Any, env: Env) -> Any:
                 v = eval_node(k.children[0], env)
                 return v.value if isinstance(v, ShkString) else v
 
-    if isinstance(k, Token) and k.type in ('IDENT','STRING'):
+    if _is_token(k) and _token_kind(k) in ('IDENT','STRING'):
         return k.value.strip('"').strip("'")
 
     return eval_node(k, env)
@@ -1098,10 +1103,10 @@ def _eval_amp_lambda(n: Tree, env: Env) -> ShkFn:
         params_node, body = n.children
         params: List[str] = []
         for p in getattr(params_node, 'children', []):
-            if isinstance(p, Token) and p.type == 'IDENT':
-                params.append(p.value)
-            else:
+            name = _ident_token_value(p)
+            if name is None:
                 raise ShakarRuntimeError(f"Unsupported param node in amp_lambda: {p}")
+            params.append(name)
         return ShkFn(params=params, body=body, env=Env(parent=env, dot=None))
 
     raise ShakarRuntimeError("amp_lambda malformed")
