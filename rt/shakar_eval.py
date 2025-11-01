@@ -37,6 +37,7 @@ from eval.mutation_eval import (
     set_index_value,
     index_value,
     slice_value,
+    get_field_value,
 )
 
 # ---------------- Public API ----------------
@@ -405,7 +406,7 @@ def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
         case 'field' | 'fieldsel':
             name_tok = final_op.children[0]
             assert _token_kind(name_tok) == 'IDENT'
-            old_val = _get_field(target, name_tok.value, env)
+            old_val = get_field_value(target, name_tok.value, env)
             rhs_env = Env(parent=env, dot=old_val)
             new_val = eval_node(rhs_node, rhs_env)
             set_field_value(target, name_tok.value, new_val, env, create=False)
@@ -426,7 +427,7 @@ def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
                 raise ShakarRuntimeError("Empty field fan-out list")
             results: list[Any] = []
             for name in names:
-                old_val = _get_field(target, name, env)
+                old_val = get_field_value(target, name, env)
                 rhs_env = Env(parent=env, dot=old_val)
                 new_val = eval_node(rhs_node, rhs_env)
                 set_field_value(target, name, new_val, env, create=False)
@@ -835,7 +836,7 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
         case 'field' | 'fieldsel':
             name_tok = op.children[0]
             assert isinstance(name_tok, Token) and name_tok.type == 'IDENT'
-            return _get_field(recv, name_tok.value, env)
+            return get_field_value(recv, name_tok.value, env)
         case 'index':
             return _apply_index_operation(recv, op, env)
         case 'slicesel':
@@ -849,7 +850,7 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
             try:
                 return call_builtin_method(recv, name_tok.value, args, env)
             except Exception:
-                cal = _get_field(recv, name_tok.value, env)
+                cal = get_field_value(recv, name_tok.value, env)
                 if isinstance(cal, BoundMethod):
                     return call_shkfn(cal.fn, args, subject=cal.subject, caller_env=env)
                 if isinstance(cal, ShkFn):
@@ -888,32 +889,6 @@ def _eval_args_node(args_node: Any, env: Env) -> List[Any]:
             res.extend(flatten(n))
         return [eval_node(n, env) for n in res]
     return []
-
-def _get_field(recv: Any, name: str, env: Env) -> Any:
-    match recv:
-        case ShkObject(slots=slots):
-            if name in slots:
-                slot = slots[name]
-                if isinstance(slot, Descriptor):
-                    if slot.getter is None:
-                        return ShkNull()
-                    return call_shkfn(slot.getter, [], subject=recv, caller_env=env)
-                if isinstance(slot, ShkFn):
-                    return BoundMethod(slot, recv)
-                return slot
-            raise ShakarRuntimeError(f"Key '{name}' not found")
-        case ShkArray(items=_):
-            if name == "len":
-                return ShkNumber(float(len(recv.items)))
-            raise ShakarTypeError(f"Array has no field '{name}'")
-        case ShkString(value=_):
-            if name == "len":
-                return ShkNumber(float(len(recv.value)))
-            raise ShakarTypeError(f"String has no field '{name}'")
-        case ShkFn():
-            raise ShakarTypeError("Function has no fields")
-        case _:
-            raise ShakarTypeError(f"Unsupported field access on {type(recv).__name__}")
 
 def _index_expr_from_children(children: List[Any]) -> Any:
     queue = list(children)

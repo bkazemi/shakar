@@ -4,8 +4,10 @@ from typing import Any
 
 from shakar_runtime import (
     Env,
+    BoundMethod,
     Descriptor,
     ShkArray,
+    ShkFn,
     ShkNull,
     ShkNumber,
     ShkObject,
@@ -93,6 +95,33 @@ def slice_value(recv: Any, start: int | None, stop: int | None, step: int | None
             return ShkString(sval[s])
         case _:
             raise ShakarTypeError("Slice only supported on arrays/strings")
+
+def get_field_value(recv: Any, name: str, env: Env) -> Any:
+    match recv:
+        case ShkObject(slots=slots):
+            if name in slots:
+                slot = slots[name]
+                if isinstance(slot, Descriptor):
+                    getter = slot.getter
+                    if getter is None:
+                        return ShkNull()
+                    return call_shkfn(getter, [], subject=recv, caller_env=env)
+                if isinstance(slot, ShkFn):
+                    return BoundMethod(slot, recv)
+                return slot
+            raise ShakarRuntimeError(f"Key '{name}' not found")
+        case ShkArray(items=items):
+            if name == "len":
+                return ShkNumber(float(len(items)))
+            raise ShakarTypeError(f"Array has no field '{name}'")
+        case ShkString(value=value):
+            if name == "len":
+                return ShkNumber(float(len(value)))
+            raise ShakarTypeError(f"String has no field '{name}'")
+        case ShkFn():
+            raise ShakarTypeError("Function has no fields")
+        case _:
+            raise ShakarTypeError(f"Unsupported field access on {type(recv).__name__}")
 
 def _normalize_index_key(idx: Any) -> str:
     if isinstance(idx, ShkString):
