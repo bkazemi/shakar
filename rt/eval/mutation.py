@@ -39,8 +39,6 @@ def set_index_value(recv: Any, index: Any, value: Any, env: Env) -> Any:
         case ShkArray(items=items):
             if isinstance(index, ShkNumber):
                 idx = int(index.value)
-            elif isinstance(index, int):
-                idx = index
             else:
                 raise ShakarTypeError("Array index must be an integer")
             items[idx] = value
@@ -60,8 +58,6 @@ def index_value(recv: Any, idx: Any, env: Env) -> Any:
                 return apply_selectors_to_value(recv, cloned, env)
             if isinstance(idx, ShkNumber):
                 return items[int(idx.value)]
-            if isinstance(idx, int):
-                return items[idx]
             raise ShakarTypeError("Array index must be a number")
         case ShkString(value=s):
             if isinstance(idx, ShkSelector):
@@ -69,8 +65,6 @@ def index_value(recv: Any, idx: Any, env: Env) -> Any:
                 return apply_selectors_to_value(recv, cloned, env)
             if isinstance(idx, ShkNumber):
                 return ShkString(s[int(idx.value)])
-            if isinstance(idx, int):
-                return ShkString(s[idx])
             raise ShakarTypeError("String index must be a number")
         case ShkObject(slots=slots):
             key = _normalize_index_key(idx)
@@ -128,6 +122,4 @@ def _normalize_index_key(idx: Any) -> str:
         return idx.value
     if isinstance(idx, ShkNumber):
         return str(int(idx.value))
-    if isinstance(idx, (int, bool)):
-        return str(int(idx))
-    return str(idx)
+    raise ShakarTypeError("Object index must be a string or number value")

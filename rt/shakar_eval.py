@@ -371,8 +371,8 @@ def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
             assert _is_token(name_tok) and _token_kind(name_tok) == 'IDENT'
             return set_field_value(target, name_tok.value, value, env, create=create)
         case 'lv_index':
-            _, coerced_idx = _evaluate_index_operand(final_op, env)
-            return set_index_value(target, coerced_idx, value, env)
+            idx_val = _evaluate_index_operand(final_op, env)
+            return set_index_value(target, idx_val, value, env)
         case 'fieldfan':
             fieldlist_node = _child_by_label(final_op, 'fieldlist')
             if fieldlist_node is None:
@@ -412,11 +412,11 @@ def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
             set_field_value(target, name_tok.value, new_val, env, create=False)
             return new_val
         case 'lv_index':
-            raw_idx, coerced_idx = _evaluate_index_operand(final_op, env)
-            old_val = index_value(target, raw_idx, env)
+            idx_val = _evaluate_index_operand(final_op, env)
+            old_val = index_value(target, idx_val, env)
             rhs_env = Env(parent=env, dot=old_val)
             new_val = eval_node(rhs_node, rhs_env)
-            set_index_value(target, coerced_idx, new_val, env)
+            set_index_value(target, idx_val, new_val, env)
             return new_val
         case 'fieldfan':
             fieldlist_node = _child_by_label(final_op, 'fieldlist')
@@ -435,18 +435,9 @@ def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
             return ShkArray(results)
     raise ShakarRuntimeError("Unsupported apply-assign target")
 
-def _coerce_index_operand(value: Any) -> Any:
-    if isinstance(value, ShkNumber):
-        return int(value.value)
-    if isinstance(value, ShkString):
-        return value.value
-    return value
-
-def _evaluate_index_operand(index_node: Tree, env: Env) -> tuple[Any, Any]:
+def _evaluate_index_operand(index_node: Tree, env: Env) -> Any:
     expr_node = _index_expr_from_children(index_node.children)
-    raw_value = eval_node(expr_node, env)
-    coerced_value = _coerce_index_operand(raw_value)
-    return raw_value, coerced_value
+    return eval_node(expr_node, env)
 
 def _collect_free_identifiers(node: Any, callback) -> None:
     skip_nodes = {'field', 'fieldsel', 'fieldfan', 'fieldlist', 'key_ident', 'key_string'}

@@ -190,8 +190,6 @@ def _coerce_selector_number(value: Any, allow_none: bool = False) -> Optional[in
         raise ShakarTypeError("Selector expects a numeric bound")
     if isinstance(value, ShkNumber):
         num = value.value
-    elif isinstance(value, (int, float)):
-        num = float(value)
     else:
         raise ShakarTypeError("Selector expects a numeric bound")
     if not float(num).is_integer():
@@ -241,8 +239,6 @@ def _apply_selectors_to_string(s: ShkString, selectors: List[SelectorPart]) -> S
 def _selector_index_to_int(value: Any) -> int:
     if isinstance(value, ShkNumber):
         num = value.value
-    elif isinstance(value, (int, float)):
-        num = float(value)
     else:
         raise ShakarTypeError("Index selector expects a numeric value")
     if not float(num).is_integer():
