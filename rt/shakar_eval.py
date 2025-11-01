@@ -36,6 +36,7 @@ from eval.mutation_eval import (
     set_field_value,
     set_index_value,
     index_value,
+    slice_value,
 )
 
 # ---------------- Public API ----------------
@@ -838,7 +839,7 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
         case 'index':
             return _apply_index_operation(recv, op, env)
         case 'slicesel':
-            return _slice(recv, op.children, env)
+            return _apply_slice(recv, op.children, env)
         case 'call':
             args = _eval_args_node(op.children[0] if op.children else None, env)
             return _call_value(recv, args, env)
@@ -929,21 +930,14 @@ def _index_expr_from_children(children: List[Any]) -> Any:
         return node
     raise ShakarRuntimeError("Malformed index expression")
 
-def _slice(recv: Any, arms: List[Any], env: Env) -> Any:
-    def arm_to_py(t):
-        if _tree_label(t) == 'emptyexpr':
+def _apply_slice(recv: Any, arms: List[Any], env: Env) -> Any:
+    def arm_to_py(node: Any) -> int | None:
+        if _tree_label(node) == 'emptyexpr':
             return None
-        v = eval_node(t, env)
-        return int(v.value) if isinstance(v, ShkNumber) else None
+        value = eval_node(node, env)
+        return int(value.value) if isinstance(value, ShkNumber) else None
     start, stop, step = map(arm_to_py, arms)
-    s = slice(start, stop, step)
-    match recv:
-        case ShkArray(items=items):
-            return ShkArray(items[s])
-        case ShkString(value=sval):
-            return ShkString(sval[s])
-        case _:
-            raise ShakarTypeError("Slice only supported on arrays/strings")
+    return slice_value(recv, start, stop, step)
 
 # ---------------- Selectors ----------------
 

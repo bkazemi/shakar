@@ -84,6 +84,16 @@ def index_value(recv: Any, idx: Any, env: Env) -> Any:
         case _:
             raise ShakarTypeError("Unsupported index operation")
 
+def slice_value(recv: Any, start: int | None, stop: int | None, step: int | None) -> Any:
+    s = slice(start, stop, step)
+    match recv:
+        case ShkArray(items=items):
+            return ShkArray(items[s])
+        case ShkString(value=sval):
+            return ShkString(sval[s])
+        case _:
+            raise ShakarTypeError("Slice only supported on arrays/strings")
+
 def _normalize_index_key(idx: Any) -> str:
     if isinstance(idx, ShkString):
         return idx.value
