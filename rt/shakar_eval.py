@@ -32,6 +32,11 @@ from eval.destructure_eval import (
     infer_implicit_binders as destructure_infer_implicit_binders,
     apply_comp_binders as destructure_apply_comp_binders,
 )
+from eval.mutation_eval import (
+    set_field_value,
+    set_index_value,
+    index_value,
+)
 
 # ---------------- Public API ----------------
 
@@ -362,9 +367,10 @@ def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
         case 'field' | 'fieldsel':
             name_tok = final_op.children[0]
             assert _is_token(name_tok) and _token_kind(name_tok) == 'IDENT'
-            return _set_field(target, name_tok.value, value, env, create=create)
+            return set_field_value(target, name_tok.value, value, env, create=create)
         case 'lv_index':
-            return _set_index(target, final_op, value, env)
+            _, coerced_idx = _evaluate_index_operand(final_op, env)
+            return set_index_value(target, coerced_idx, value, env)
         case 'fieldfan':
             fieldlist_node = _child_by_label(final_op, 'fieldlist')
             if fieldlist_node is None:
@@ -374,7 +380,7 @@ def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
                 raise ShakarRuntimeError("Empty field fan-out list")
             vals = fanout_values(value, len(names))
             for name, val in zip(names, vals):
-                _set_field(target, name, val, env, create=create)
+                set_field_value(target, name, val, env, create=create)
             return value
     raise ShakarRuntimeError("Unsupported assignment target")
 
@@ -401,15 +407,14 @@ def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
             old_val = _get_field(target, name_tok.value, env)
             rhs_env = Env(parent=env, dot=old_val)
             new_val = eval_node(rhs_node, rhs_env)
-            _set_field(target, name_tok.value, new_val, env, create=False)
+            set_field_value(target, name_tok.value, new_val, env, create=False)
             return new_val
         case 'lv_index':
-            idx_expr = _index_expr_from_children(final_op.children)
-            idx_val = eval_node(idx_expr, env)
-            old_val = _index(target, idx_val, env)
+            raw_idx, coerced_idx = _evaluate_index_operand(final_op, env)
+            old_val = index_value(target, raw_idx, env)
             rhs_env = Env(parent=env, dot=old_val)
             new_val = eval_node(rhs_node, rhs_env)
-            _set_index(target, final_op, new_val, env)
+            set_index_value(target, coerced_idx, new_val, env)
             return new_val
         case 'fieldfan':
             fieldlist_node = _child_by_label(final_op, 'fieldlist')
@@ -423,10 +428,23 @@ def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
                 old_val = _get_field(target, name, env)
                 rhs_env = Env(parent=env, dot=old_val)
                 new_val = eval_node(rhs_node, rhs_env)
-                _set_field(target, name, new_val, env, create=False)
+                set_field_value(target, name, new_val, env, create=False)
                 results.append(new_val)
             return ShkArray(results)
     raise ShakarRuntimeError("Unsupported apply-assign target")
+
+def _coerce_index_operand(value: Any) -> Any:
+    if isinstance(value, ShkNumber):
+        return int(value.value)
+    if isinstance(value, ShkString):
+        return value.value
+    return value
+
+def _evaluate_index_operand(index_node: Tree, env: Env) -> tuple[Any, Any]:
+    expr_node = _index_expr_from_children(index_node.children)
+    raw_value = eval_node(expr_node, env)
+    coerced_value = _coerce_index_operand(raw_value)
+    return raw_value, coerced_value
 
 def _collect_free_identifiers(node: Any, callback) -> None:
     skip_nodes = {'field', 'fieldsel', 'fieldfan', 'fieldlist', 'key_ident', 'key_string'}
@@ -896,41 +914,6 @@ def _get_field(recv: Any, name: str, env: Env) -> Any:
         case _:
             raise ShakarTypeError(f"Unsupported field access on {type(recv).__name__}")
 
-def _index(recv: Any, idx: Any, env: Env) -> Any:
-    match recv:
-        case ShkArray(items=items):
-            if isinstance(idx, ShkSelector):
-                cloned = clone_selector_parts(idx.parts, clamp=True)
-                return apply_selectors_to_value(recv, cloned, env)
-            if isinstance(idx, ShkNumber):
-                return items[int(idx.value)]
-            raise ShakarTypeError("Array index must be a number")
-        case ShkString(value=s):
-            if isinstance(idx, ShkSelector):
-                cloned = clone_selector_parts(idx.parts, clamp=True)
-                return apply_selectors_to_value(recv, cloned, env)
-            if isinstance(idx, ShkNumber):
-                return ShkString(s[int(idx.value)])
-            raise ShakarTypeError("String index must be a number")
-        case ShkObject(slots=slots):
-            if isinstance(idx, ShkString):
-                key = idx.value
-            elif isinstance(idx, ShkNumber):
-                key = str(int(idx.value))
-            else:
-                key = str(idx)
-            if key in slots:
-                val = slots[key]
-                if isinstance(val, Descriptor):
-                    getter = val.getter
-                    if getter is None:
-                        return ShkNull()
-                    return call_shkfn(getter, [], subject=recv, caller_env=env)
-                return val
-            raise ShakarRuntimeError(f"Key '{key}' not found")
-        case _:
-            raise ShakarTypeError("Unsupported index operation")
-
 def _index_expr_from_children(children: List[Any]) -> Any:
     queue = list(children)
     while queue:
@@ -945,53 +928,6 @@ def _index_expr_from_children(children: List[Any]) -> Any:
             continue
         return node
     raise ShakarRuntimeError("Malformed index expression")
-
-# Helpers for assignment mutation
-def _set_field(recv: Any, name: str, value: Any, env: Env, create: bool) -> Any:
-    match recv:
-        case ShkObject(slots=slots):
-            slot = slots.get(name)
-            if isinstance(slot, Descriptor):
-                setter = slot.setter
-                if setter is None:
-                    raise ShakarRuntimeError(f"Property '{name}' is read-only")
-                call_shkfn(setter, [value], subject=recv, caller_env=env)
-                return value
-            slots[name] = value
-            return value
-        case _:
-            raise ShakarTypeError(f"Cannot set field '{name}' on {type(recv).__name__}")
-
-def _set_index(recv: Any, index_node: Tree, value: Any, env: Env) -> Any:
-    index_val = _extract_index_value(index_node, env)
-    match recv:
-        case ShkArray(items=items):
-            if isinstance(index_val, ShkNumber):
-                idx = int(index_val.value)
-            elif isinstance(index_val, int):
-                idx = index_val
-            else:
-                raise ShakarTypeError("Array index must be an integer")
-            items[idx] = value
-            return value
-        case ShkObject(slots=slots):
-            key = index_val
-            if isinstance(key, ShkString):
-                key = key.value
-            slots[str(key)] = value
-            return value
-        case _:
-            raise ShakarTypeError("Unsupported index assignment target")
-
-def _extract_index_value(index_node: Tree, env: Env) -> Any:
-    expr_node = _index_expr_from_children(index_node.children)
-    operand = eval_node(expr_node, env)
-    if isinstance(operand, ShkNumber):
-        return int(operand.value)
-    if isinstance(operand, ShkString):
-        return operand.value
-    return operand
-    raise ShakarRuntimeError("Malformed index selector")
 
 def _slice(recv: Any, arms: List[Any], env: Env) -> Any:
     def arm_to_py(t):
@@ -1016,7 +952,7 @@ def _apply_index_operation(recv: Any, op: Tree, env: Env) -> Any:
     if selectorlist is None:
         expr_node = _index_expr_from_children(op.children)
         idx_val = eval_node(expr_node, env)
-        return _index(recv, idx_val, env)
+        return index_value(recv, idx_val, env)
     selectors = evaluate_selectorlist(selectorlist, env, eval_node)
     return apply_selectors_to_value(recv, selectors, env)
 

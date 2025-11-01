@@ -3,4 +3,5 @@
 __all__ = [
     "selector_eval",
     "destructure_eval",
+    "mutation_eval",
 ]
