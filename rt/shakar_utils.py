@@ -12,6 +12,7 @@ from shakar_runtime import (
     ShkFn,
     Descriptor,
     ShakarRuntimeError,
+    ShakarTypeError,
 )
 
 def value_in_list(seq: List[Any], value: Any) -> bool:
@@ -50,16 +51,12 @@ def shk_equals(lhs: Any, rhs: Any) -> bool:
             return lhs is rhs
 
 def is_sequence_value(value: Any) -> bool:
-    return isinstance(value, (ShkArray, list, tuple))
+    return isinstance(value, ShkArray)
 
 def sequence_items(value: Any) -> List[Any]:
     if isinstance(value, ShkArray):
         return list(value.items)
-    if isinstance(value, list):
-        return list(value)
-    if isinstance(value, tuple):
-        return list(value)
-    return []
+    raise ShakarTypeError("Expected ShkArray for sequence operations")
 
 def coerce_sequence(value: Any, expected_len: Optional[int]) -> Optional[List[Any]]:
     if not is_sequence_value(value):
@@ -72,17 +69,11 @@ def coerce_sequence(value: Any, expected_len: Optional[int]) -> Optional[List[An
 def fanout_values(value: Any, count: int) -> List[Any]:
     if isinstance(value, ShkArray) and len(value.items) == count:
         return list(value.items)
-    if isinstance(value, list) and len(value) == count:
-        return list(value)
     return [value] * count
 
 def replicate_empty_sequence(value: Any, count: int) -> List[Any]:
     if isinstance(value, ShkArray) and len(value.items) == 0:
         return [ShkArray([]) for _ in range(count)]
-    if isinstance(value, list) and len(value) == 0:
-        return [[] for _ in range(count)]
-    if isinstance(value, tuple) and len(value) == 0:
-        return [tuple() for _ in range(count)]
     return [value] * count
 
 def normalize_object_key(value: Any) -> str:
@@ -96,4 +87,4 @@ def normalize_object_key(value: Any) -> str:
         case ShkNull():
             return 'null'
         case _:
-            return str(value)
+            raise ShakarTypeError("Object key must be a Shakar string, number, bool, or null")

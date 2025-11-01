@@ -587,10 +587,6 @@ def _iterable_values(value: Any) -> list[Any]:
         case ShkSelector():
             return selector_iter_values(value)
         case _:
-            if isinstance(value, list):
-                return list(value)
-            if isinstance(value, tuple):
-                return list(value)
             raise ShakarTypeError(f"Cannot iterate over {type(value).__name__}")
 # ---------------- Comparison ----------------
 
