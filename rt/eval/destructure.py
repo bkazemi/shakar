@@ -12,6 +12,11 @@ from shakar_utils import (
     replicate_empty_sequence,
 )
 
+def _ident_token_value(node: Any) -> Optional[str]:
+    if isinstance(node, Token) and node.type == "IDENT":
+        return node.value
+    return None
+
 def evaluate_destructure_rhs(
     eval_fn: Callable[[Any, Env], Any],
     rhs_node: Any,
@@ -59,11 +64,12 @@ def assign_pattern(
     if _tree_label(pattern) != "pattern" or not getattr(pattern, "children", None):
         raise ShakarRuntimeError("Malformed pattern")
     target = pattern.children[0]
-    if isinstance(target, Token) and target.type == "IDENT":
+    ident = _ident_token_value(target)
+    if ident is not None:
         if create:
-            env.define(target.value, value)
+            env.define(ident, value)
         else:
-            assign_ident(target.value, value, env, create=False)
+            assign_ident(ident, value, env, create=False)
         return
     if _tree_label(target) == "pattern_list":
         subpatterns = [c for c in getattr(target, "children", []) if _tree_label(c) == "pattern"]

@@ -19,6 +19,11 @@ from shakar_runtime import (
 
 from shakar_utils import sequence_items
 
+def _is_token(node: Any) -> bool:
+    return isinstance(node, Token)
+
+def _is_tree(node: Any) -> bool:
+    return isinstance(node, Tree)
 
 def eval_selectorliteral(node, env, eval_fn) -> ShkSelector:
     sellist = _child_by_label(node, "sellist")
@@ -35,7 +40,6 @@ def eval_selectorliteral(node, env, eval_fn) -> ShkSelector:
             parts.extend(_selector_parts_from_selitem(target, env, eval_fn))
     return ShkSelector(parts)
 
-
 def evaluate_selectorlist(node, env, eval_fn, clamp: bool = True) -> List[SelectorPart]:
     selectors: List[SelectorPart] = []
     for raw_selector in getattr(node, "children", []):
@@ -46,7 +50,7 @@ def evaluate_selectorlist(node, env, eval_fn, clamp: bool = True) -> List[Select
             selectors.append(_selector_slice_from_slicesel(target, env, eval_fn, clamp))
             continue
         if label == "indexsel":
-            expr_node = _first_child(target, lambda child: not isinstance(child, Token))
+            expr_node = _first_child(target, lambda child: not _is_token(child))
             if expr_node is None and getattr(target, "children", None):
                 expr_node = target.children[0]
             value = eval_fn(expr_node, env)
@@ -55,7 +59,6 @@ def evaluate_selectorlist(node, env, eval_fn, clamp: bool = True) -> List[Select
         value = eval_fn(target, env)
         selectors.extend(_expand_selector_value(value, clamp))
     return selectors
-
 
 def clone_selector_parts(parts: Iterable[SelectorPart], clamp: bool) -> List[SelectorPart]:
     cloned: List[SelectorPart] = []
@@ -74,14 +77,12 @@ def clone_selector_parts(parts: Iterable[SelectorPart], clamp: bool) -> List[Sel
             cloned.append(SelectorIndex(part.value))
     return cloned
 
-
 def apply_selectors_to_value(recv: Any, selectors: List[SelectorPart], env) -> Any:
     if isinstance(recv, ShkArray):
         return _apply_selectors_to_array(recv, selectors)
     if isinstance(recv, ShkString):
         return _apply_selectors_to_string(recv, selectors)
     raise ShakarTypeError("Complex selectors only supported on arrays or strings")
-
 
 def selector_iter_values(selector: ShkSelector) -> List[Any]:
     values: List[Any] = []
@@ -92,7 +93,6 @@ def selector_iter_values(selector: ShkSelector) -> List[Any]:
             continue
         values.extend(ShkNumber(float(i)) for i in _iterate_selector_slice(part))
     return values
-
 
 def _selector_parts_from_selitem(node, env, eval_fn) -> List[SelectorPart]:
     inner = _child_by_labels(node, {"sliceitem", "indexitem"})
@@ -105,7 +105,6 @@ def _selector_parts_from_selitem(node, env, eval_fn) -> List[SelectorPart]:
         value = _eval_selector_atom(selatom, env, eval_fn)
         return [SelectorIndex(value)]
     return []
-
 
 def _selector_slice_from_sliceitem(node, env, eval_fn) -> SelectorSlice:
     children = list(getattr(node, "children", []))
@@ -127,7 +126,6 @@ def _selector_slice_from_sliceitem(node, env, eval_fn) -> SelectorSlice:
     step_val = _coerce_selector_number(_eval_selector_atom(step_node, env, eval_fn), allow_none=True)
     return SelectorSlice(start=start_val, stop=stop_val, step=step_val, clamp=False, exclusive_stop=exclusive)
 
-
 def _selector_slice_from_slicesel(node, env, eval_fn, clamp: bool) -> SelectorSlice:
     children = list(getattr(node, "children", []))
     start_node = children[0] if len(children) > 0 else None
@@ -138,14 +136,12 @@ def _selector_slice_from_slicesel(node, env, eval_fn, clamp: bool) -> SelectorSl
     step_val = _coerce_selector_number(_eval_optional_expr(step_node, env, eval_fn), allow_none=True)
     return SelectorSlice(start=start_val, stop=stop_val, step=step_val, clamp=clamp, exclusive_stop=True)
 
-
 def _eval_optional_expr(node, env, eval_fn):
     if node is None:
         return None
     if _tree_label(node) == "emptyexpr":
         return None
     return eval_fn(node, env)
-
 
 def _eval_selector_atom(node, env, eval_fn):
     if node is None:
@@ -166,7 +162,6 @@ def _eval_selector_atom(node, env, eval_fn):
         return eval_fn(child, env)
     return eval_fn(child, env)
 
-
 def _eval_seloptstop(node, env, eval_fn) -> tuple[Any, bool]:
     if node is None:
         return None, False
@@ -177,7 +172,6 @@ def _eval_seloptstop(node, env, eval_fn) -> tuple[Any, bool]:
     if segment is not None:
         exclusive = segment.lstrip().startswith("<")
     return value, exclusive
-
 
 def _coerce_selector_number(value: Any, allow_none: bool = False) -> Optional[int]:
     if value is None:
@@ -196,12 +190,10 @@ def _coerce_selector_number(value: Any, allow_none: bool = False) -> Optional[in
         raise ShakarTypeError("Selector bounds must be integral")
     return int(num)
 
-
 def _expand_selector_value(value: Any, clamp: bool) -> List[SelectorPart]:
     if isinstance(value, ShkSelector):
         return clone_selector_parts(value.parts, clamp)
     return [SelectorIndex(value)]
-
 
 def _apply_selectors_to_array(arr: ShkArray, selectors: List[SelectorPart]) -> ShkArray:
     result: List[Any] = []
@@ -219,7 +211,6 @@ def _apply_selectors_to_array(arr: ShkArray, selectors: List[SelectorPart]) -> S
         result.extend(items[slice_obj])
     return ShkArray(result)
 
-
 def _apply_selectors_to_string(s: ShkString, selectors: List[SelectorPart]) -> ShkString:
     pieces: List[str] = []
     length = len(s.value)
@@ -235,7 +226,6 @@ def _apply_selectors_to_string(s: ShkString, selectors: List[SelectorPart]) -> S
         pieces.append(s.value[slice_obj])
     return ShkString("".join(pieces))
 
-
 def _selector_index_to_int(value: Any) -> int:
     if isinstance(value, ShkNumber):
         num = value.value
@@ -245,12 +235,10 @@ def _selector_index_to_int(value: Any) -> int:
         raise ShakarTypeError("Index selector expects an integer value")
     return int(num)
 
-
 def _normalize_index_position(index: int, length: int) -> int:
     if index < 0:
         return index + length
     return index
-
 
 def _selector_slice_to_slice(part: SelectorSlice, length: int) -> slice:
     step = part.step if part.step is not None else 1
@@ -277,7 +265,6 @@ def _selector_slice_to_slice(part: SelectorSlice, length: int) -> slice:
         stop += length
     return slice(start, stop, step)
 
-
 def _iterate_selector_slice(part: SelectorSlice) -> Iterable[int]:
     step = part.step if part.step is not None else 1
     if step == 0:
@@ -286,7 +273,6 @@ def _iterate_selector_slice(part: SelectorSlice) -> Iterable[int]:
         raise ShakarRuntimeError("Selector slice requires explicit start and stop when iterated")
     stop = part.stop if part.exclusive_stop else part.stop + (1 if step > 0 else -1)
     return range(part.start, stop, step)
-
 
 def _get_source_segment(node, env) -> Optional[str]:
     source = getattr(env, "source", None)
@@ -301,14 +287,11 @@ def _get_source_segment(node, env) -> Optional[str]:
         return None
     return source[start:end]
 
-
 def _tree_label(node: Any) -> Optional[str]:
-    return node.data if isinstance(node, Tree) else None
-
+    return node.data if _is_tree(node) else None
 
 def _is_tree(node: Any) -> bool:
     return isinstance(node, Tree)
-
 
 def _child_by_label(node: Any, label: str):
     for child in getattr(node, "children", []):
@@ -316,14 +299,12 @@ def _child_by_label(node: Any, label: str):
             return child
     return None
 
-
 def _child_by_labels(node: Any, labels: Iterable[str]):
     label_set = set(labels)
     for child in getattr(node, "children", []):
         if _tree_label(child) in label_set:
             return child
     return None
-
 
 def _first_child(node: Any, predicate):
     for child in getattr(node, "children", []):
