@@ -354,6 +354,8 @@ class Prune(Transformer):
                         chain = callee.children[0]
                         callee.children[0] = Tree('explicit_chain', [head_ident, *chain.children])
                         return t
+            if t.data == 'amp_lambda':
+                return Tree('explicit_chain', [head_ident, Tree('call', [Tree('args', [t])])])
             # Case 3: existing explicit_chain + another chain segment -> fuse
             if t.data == 'explicit_chain':
                 return Tree('explicit_chain', [head_ident, *t.children])
