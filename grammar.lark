@@ -282,9 +282,9 @@ object_items: obj_sep* object_item (obj_sep+ object_item)* obj_sep*
 object_item: IDENT ":" (_NL* expr)                            -> obj_field_ident
            | STRING ":" (_NL* expr)                           -> obj_field_string
            | keyexpr ":" (_NL* expr)                          -> obj_field_expr
-           | GET IDENT ("(" ")")? ":" (indentblock | expr)    -> obj_get
-           | SET IDENT "(" IDENT ")" ":" (indentblock | expr) -> obj_set
-           | IDENT "(" paramlist? ")" ":" (indentblock | expr) -> obj_method
+          | GET IDENT ("(" ")")? ":" (indentblock | (_NL* expr))    -> obj_get
+          | SET IDENT "(" IDENT ")" ":" (indentblock | (_NL* expr)) -> obj_set
+          | IDENT "(" paramlist? ")" ":" (indentblock | (_NL* expr)) -> obj_method
 
 keyexpr: compareexpr_nc
 

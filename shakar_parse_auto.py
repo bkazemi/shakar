@@ -243,6 +243,9 @@ class Prune(Transformer):
         # c = [expr_key, expr_val]
         return Tree('obj_field', [Tree('key_expr', [c[0]]), c[1]])
 
+    def obj_sep(self, c):
+        return Discard
+
     # Keep getters/setters explicit; prune keeps only key + body shape later if you want
     def obj_get(self, c):
         from lark import Tree
