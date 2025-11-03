@@ -147,14 +147,18 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_object(n, env)
         case 'unary' | 'unary_nc':
             op, rhs_node = n.children
-            rhs = eval_node(rhs_node, env)
-            return _eval_unary(op, rhs, env)
+            return _eval_unary(op, rhs_node, env)
         case 'pow' | 'pow_nc':
             return _eval_infix(n.children, env, right_assoc_ops={'**', 'POW'})
         case 'mul' | 'mul_nc' | 'add' | 'add_nc':
             return _eval_infix(n.children, env)
         case 'explicit_chain':
             head, *ops = n.children
+            if ops and _tree_label(ops[-1]) in {'incr', 'decr'}:
+                tail = ops[-1]
+                context = _resolve_chain_assignment(head, ops[:-1], env)
+                old_val, _ = _apply_numeric_delta(context, 1 if _tree_label(tail) == 'incr' else -1)
+                return old_val
             val = eval_node(head, env)
             for op in ops:
                 val = _apply_op(val, op, env)
@@ -811,9 +815,18 @@ def _normalize_unary_op(op_node: Any, env: Env) -> Any:
         return ''
     return op_node
 
-def _eval_unary(op_tok_or_str: Any, rhs: Any, env: Env) -> Any:
-    op_tok_or_str = _normalize_unary_op(op_tok_or_str, env)
-    match op_tok_or_str:
+def _eval_unary(op_node: Any, rhs_node: Any, env: Env) -> Any:
+    op_norm = _normalize_unary_op(op_node, env)
+    op_value = op_norm.value if isinstance(op_norm, Token) else op_norm
+
+    if op_value in ('++', '--'):
+        context = _resolve_assignable_node(rhs_node, env)
+        _, new_val = _apply_numeric_delta(context, 1 if op_value == '++' else -1)
+        return new_val
+
+    rhs = eval_node(rhs_node, env)
+
+    match op_norm:
         case Token(type='PLUS') | '+':
           #return rhs
           raise ShakarRuntimeError("unary + not supported")
@@ -904,6 +917,82 @@ def _as_op(x: Any) -> str:
 def _require_number(v: Any) -> None:
     if not isinstance(v, ShkNumber):
         raise ShakarTypeError("Expected number")
+
+def _make_ident_context(name: str, env: Env) -> _RebindContext:
+    value = env.get(name)
+    def setter(new_value: Any) -> None:
+        _assign_ident(name, new_value, env, create=False)
+        env.dot = new_value
+    return _RebindContext(value, setter)
+
+def _resolve_assignable_node(node: Any, env: Env) -> _RebindContext:
+    while _is_tree(node) and _tree_label(node) in {'primary', 'group', 'group_expr'} and len(node.children) == 1:
+        node = node.children[0]
+
+    if _is_token(node) and _token_kind(node) == 'IDENT':
+        return _make_ident_context(node.value, env)
+
+    if _is_tree(node):
+        label = _tree_label(node)
+        if label == 'rebind_primary':
+            ctx = eval_node(node, env)
+            if isinstance(ctx, _RebindContext):
+                return ctx
+            raise ShakarRuntimeError("Rebind primary did not produce a context")
+        if label == 'explicit_chain':
+            if not node.children:
+                raise ShakarRuntimeError("Malformed explicit chain")
+            head = node.children[0]
+            ops = list(node.children[1:])
+            return _resolve_chain_assignment(head, ops, env)
+        if label in {'expr', 'expr_nc'} and node.children:
+            return _resolve_assignable_node(node.children[0], env)
+
+    raise ShakarRuntimeError("Increment target must be assignable")
+
+def _resolve_chain_assignment(head_node: Any, ops: List[Any], env: Env) -> _RebindContext:
+    if not ops:
+        return _resolve_assignable_node(head_node, env)
+
+    current = eval_node(head_node, env)
+    if isinstance(current, _RebindContext):
+        current = current.value
+
+    for idx, op in enumerate(ops):
+        is_last = idx == len(ops) - 1
+        label = _tree_label(op)
+
+        if is_last and label in {'field', 'fieldsel'}:
+            field_name = _expect_ident_token(op.children[0], "Field access")
+            owner = current
+            value = get_field_value(owner, field_name, env)
+            def setter(new_value: Any, owner: Any=owner, field_name: str=field_name) -> None:
+                set_field_value(owner, field_name, new_value, env, create=False)
+                env.dot = new_value
+            return _RebindContext(value, setter)
+
+        if is_last and label == 'index':
+            owner = current
+            idx_value = _evaluate_index_operand(op, env)
+            value = index_value(owner, idx_value, env)
+            def setter(new_value: Any, owner: Any=owner, idx_value: Any=idx_value) -> None:
+                set_index_value(owner, idx_value, new_value, env)
+                env.dot = new_value
+            return _RebindContext(value, setter)
+
+        current = _apply_op(current, op, env)
+        if isinstance(current, _RebindContext):
+            current = current.value
+
+    raise ShakarRuntimeError("Increment target must end with a field or index")
+
+def _apply_numeric_delta(ref: _RebindContext, delta: int) -> tuple[Any, Any]:
+    current = ref.value
+    _require_number(current)
+    new_val = ShkNumber(current.value + delta)
+    ref.setter(new_val)
+    ref.value = new_val
+    return current, new_val
 
 # ---------------- Chains ----------------
 

@@ -209,6 +209,8 @@ user.{phone, altPhone} .= .digits() ?? ""
 - Prefix and postfix `++` / `--` are allowed.
 - **Postfix is terminal**: at most once, and only at the **end** of a member/selector chain (e.g., `xs[i]++`).
 - Requires an **lvalue**; applying to non-lvalues is an error.
+- Prefix returns the updated value; postfix evaluates to the pre-update value.
+- Operates on numeric slots only; attempting to increment non-numeric targets raises a runtime type error.
 
 ### 3.8.1 Multi-field assign fan-out
 #### Surface
