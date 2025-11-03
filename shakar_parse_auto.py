@@ -354,7 +354,15 @@ class Prune(Transformer):
                         chain = callee.children[0]
                         callee.children[0] = Tree('explicit_chain', [head_ident, *chain.children])
                         return t
+            # Case 3: existing explicit_chain + another chain segment -> fuse
+            if t.data == 'explicit_chain':
+                return Tree('explicit_chain', [head_ident, *t.children])
         # Default: collapse wrapper if singleton
+        # Attempt to merge consecutive explicit_chain nodes that share structure
+        if len(c) == 2 and isinstance(c[0], Tree) and c[0].data == 'explicit_chain' and isinstance(c[1], Tree) and c[1].data == 'explicit_chain':
+            merged = list(c[0].children) + list(c[1].children)
+            return Tree('explicit_chain', merged)
+
         return self._keep_or_flatten('start_indented', c)
 
     # helper
@@ -443,7 +451,9 @@ class Prune(Transformer):
     def ternaryexpr(self, c):   return self._keep_or_flatten('ternaryexpr', c, 'ternary')
     def orexpr(self, c):        return self._keep_or_flatten('orexpr', c, 'or')
     def andexpr(self, c):       return self._keep_or_flatten('andexpr', c, 'and')
-    def bindexpr(self, c):      return self._keep_or_flatten('bindexpr', c, 'bind')
+    def bindexpr(self, c):
+        filtered = [item for item in c if not (isinstance(item, Token) and getattr(item, 'type', None) == 'APPLYASSIGN')]
+        return self._keep_or_flatten('bindexpr', filtered, 'bind')
     def walrusexpr(self, c):    return self._keep_or_flatten('walrusexpr', c, 'walrus')
     def nullishexpr(self, c):   return self._keep_or_flatten('nullishexpr', c, 'nullish')
     def compareexpr(self, c):   return self._keep_or_flatten('compareexpr', c, 'compare')
@@ -456,7 +466,9 @@ class Prune(Transformer):
     def ternaryexpr_nc(self, c):   return self._keep_or_flatten('ternaryexpr_nc', c, 'ternary_nc')
     def orexpr_nc(self, c):        return self._keep_or_flatten('orexpr_nc', c, 'or_nc')
     def andexpr_nc(self, c):       return self._keep_or_flatten('andexpr_nc', c, 'and_nc')
-    def bindexpr_nc(self, c):      return self._keep_or_flatten('bindexpr_nc', c, 'bind_nc')
+    def bindexpr_nc(self, c):
+        filtered = [item for item in c if not (isinstance(item, Token) and getattr(item, 'type', None) == 'APPLYASSIGN')]
+        return self._keep_or_flatten('bindexpr_nc', filtered, 'bind_nc')
     def walrusexpr_nc(self, c):    return self._keep_or_flatten('walrusexpr_nc', c, 'walrus_nc')
     def nullishexpr_nc(self, c):   return self._keep_or_flatten('nullishexpr_nc', c, 'nullish_nc')
     def compareexpr_nc(self, c):   return self._keep_or_flatten('compareexpr_nc', c, 'compare_nc')
@@ -477,6 +489,15 @@ class Prune(Transformer):
         # Normalize field to hold only the IDENT token (drop DOT), so printers show the name
         ident_only = [tok for tok in c if getattr(tok, 'type', None) == 'IDENT']
         return Tree('field', ident_only or c)
+
+    def bind(self, c):
+        from lark import Tree, Token
+        kept = []
+        for item in c:
+            if isinstance(item, Token) and getattr(item, 'type', None) == 'APPLYASSIGN':
+                continue
+            kept.append(item)
+        return Tree('bind', kept)
 
     def index(self, c):  return Tree('index', c)
     def call(self, c):   return Tree('call', c)
