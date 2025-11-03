@@ -7,7 +7,7 @@ from lark import Tree, Token
 from contextlib import contextmanager
 
 from shakar_runtime import (
-    Env, ShkNumber, ShkString, ShkBool, ShkNull, ShkArray, ShkObject, Descriptor, ShkFn, BoundMethod,
+    Env, ShkNumber, ShkString, ShkBool, ShkNull, ShkArray, ShkObject, Descriptor, ShkFn, BoundMethod, BuiltinMethod,
     ShkSelector,
     ShakarRuntimeError, ShakarTypeError, ShakarArityError,
     call_builtin_method, call_shkfn, Builtins
@@ -929,6 +929,8 @@ def _call_value(cal: Any, args: List[Any], env: Env) -> Any:
     match cal:
         case BoundMethod(fn=fn, subject=subject):
             return call_shkfn(fn, args, subject=subject, caller_env=env)
+        case BuiltinMethod(name=name, subject=subject):
+            return call_builtin_method(subject, name, args, env)
         case ShkFn():
             return call_shkfn(cal, args, subject=None, caller_env=env)
         case _:

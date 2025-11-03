@@ -90,6 +90,11 @@ class BoundMethod:
     subject: Any
 
 @dataclass
+class BuiltinMethod:
+    name: str
+    subject: Any
+
+@dataclass
 class Descriptor:
     getter: Any = None  # ShkFn or None
     setter: Any = None  # ShkFn or None
@@ -148,6 +153,11 @@ class Builtins:
         ("array","filter"):  ("exact", 1),
         ("array","zipWith"): ("exact", 2),
         ("string","len"):    ("exact", 0),
+        ("string","trim"):   ("exact", 0),
+        ("string","lower"):  ("exact", 0),
+        ("string","upper"):  ("exact", 0),
+        ("string","hasPrefix"): ("exact", 1),
+        ("string","hasSuffix"): ("exact", 1),
         ("object","items"):  ("exact", 0),
     }
 
@@ -168,6 +178,42 @@ def register_object(name: str):
         Builtins.object_methods[name] = fn
         return fn
     return dec
+
+def _string_expect_arity(method: str, args: List[Any], expected: int) -> None:
+    if len(args) != expected:
+        raise ShakarArityError(f"string.{method} expects {expected} argument(s); got {len(args)}")
+
+def _string_arg(method: str, arg: Any) -> str:
+    if isinstance(arg, ShkString):
+        return arg.value
+    raise ShakarTypeError(f"string.{method} expects a string argument")
+
+@register_string("trim")
+def _string_trim(env: Env, recv: ShkString, args: List[Any]) -> ShkString:
+    _string_expect_arity("trim", args, 0)
+    return ShkString(recv.value.strip())
+
+@register_string("lower")
+def _string_lower(env: Env, recv: ShkString, args: List[Any]) -> ShkString:
+    _string_expect_arity("lower", args, 0)
+    return ShkString(recv.value.lower())
+
+@register_string("upper")
+def _string_upper(env: Env, recv: ShkString, args: List[Any]) -> ShkString:
+    _string_expect_arity("upper", args, 0)
+    return ShkString(recv.value.upper())
+
+@register_string("hasPrefix")
+def _string_has_prefix(env: Env, recv: ShkString, args: List[Any]) -> ShkBool:
+    _string_expect_arity("hasPrefix", args, 1)
+    prefix = _string_arg("hasPrefix", args[0])
+    return ShkBool(recv.value.startswith(prefix))
+
+@register_string("hasSuffix")
+def _string_has_suffix(env: Env, recv: ShkString, args: List[Any]) -> ShkBool:
+    _string_expect_arity("hasSuffix", args, 1)
+    suffix = _string_arg("hasSuffix", args[0])
+    return ShkBool(recv.value.endswith(suffix))
 
 def call_builtin_method(recv: Any, name: str, args: List[Any], env: 'Env') -> Any:
     if isinstance(recv, ShkArray):

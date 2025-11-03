@@ -5,6 +5,9 @@ from typing import Any
 from shakar_runtime import (
     Env,
     BoundMethod,
+    BuiltinMethod,
+    Builtins,
+    BuiltinMethod,
     Descriptor,
     ShkArray,
     ShkFn,
@@ -111,6 +114,8 @@ def get_field_value(recv: Any, name: str, env: Env) -> Any:
         case ShkString(value=value):
             if name == "len":
                 return ShkNumber(float(len(value)))
+            if name in Builtins.string_methods:
+                return BuiltinMethod(name=name, subject=recv)
             raise ShakarTypeError(f"String has no field '{name}'")
         case ShkFn():
             raise ShakarTypeError("Function has no fields")
