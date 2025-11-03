@@ -158,6 +158,7 @@ class Builtins:
         ("string","upper"):  ("exact", 0),
         ("string","hasPrefix"): ("exact", 1),
         ("string","hasSuffix"): ("exact", 1),
+        ("string","isAscii"): ("exact", 0),
         ("object","items"):  ("exact", 0),
     }
 
@@ -214,6 +215,11 @@ def _string_has_suffix(env: Env, recv: ShkString, args: List[Any]) -> ShkBool:
     _string_expect_arity("hasSuffix", args, 1)
     suffix = _string_arg("hasSuffix", args[0])
     return ShkBool(recv.value.endswith(suffix))
+
+@register_string("isAscii")
+def _string_is_ascii(env: Env, recv: ShkString, args: List[Any]) -> ShkBool:
+    _string_expect_arity("isAscii", args, 0)
+    return ShkBool(recv.value.isascii())
 
 def call_builtin_method(recv: Any, name: str, args: List[Any], env: 'Env') -> Any:
     if isinstance(recv, ShkArray):
