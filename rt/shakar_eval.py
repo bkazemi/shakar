@@ -12,6 +12,14 @@ from shakar_runtime import (
     ShakarRuntimeError, ShakarTypeError, ShakarArityError,
     call_builtin_method, call_shkfn, Builtins
 )
+
+
+class _RebindContext:
+    __slots__ = ("value", "setter")
+
+    def __init__(self, value: Any, setter: Callable[[Any], None]) -> None:
+        self.value = value
+        self.setter = setter
 from shakar_utils import (
     value_in_list,
     shk_equals,
@@ -147,6 +155,10 @@ def eval_node(n: Any, env: Env) -> Any:
             val = eval_node(head, env)
             for op in ops:
                 val = _apply_op(val, op, env)
+            if isinstance(val, _RebindContext):
+                final = val.value
+                val.setter(final)
+                return final
             return val
         case 'implicit_chain':
             return _eval_implicit_chain(n.children, env)
@@ -164,6 +176,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_group(n, env)
         case 'ternary':
             return _eval_ternary(n, env)
+        case 'rebind_primary':
+            return _eval_rebind_primary(n, env)
         case 'call':
             args_node = n.children[0] if n.children else None
             args = _eval_args_node(args_node, env)
@@ -856,32 +870,46 @@ def _require_number(v: Any) -> None:
 # ---------------- Chains ----------------
 
 def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
+    context = None
+    if isinstance(recv, _RebindContext):
+        context = recv
+        recv = context.value
+
     d = op.data
-    match d:
-        case 'field' | 'fieldsel':
-            field_name = _expect_ident_token(op.children[0], "Field access")
-            return get_field_value(recv, field_name, env)
-        case 'index':
-            return _apply_index_operation(recv, op, env)
-        case 'slicesel':
-            return _apply_slice(recv, op.children, env)
-        case 'call':
-            args = _eval_args_node(op.children[0] if op.children else None, env)
-            return _call_value(recv, args, env)
-        case 'method':
-            method_name = _expect_ident_token(op.children[0], "Method call")
-            args = _eval_args_node(op.children[1] if len(op.children)>1 else None, env)
-            try:
-                return call_builtin_method(recv, method_name, args, env)
-            except Exception:
-                cal = get_field_value(recv, method_name, env)
-                if isinstance(cal, BoundMethod):
-                    return call_shkfn(cal.fn, args, subject=cal.subject, caller_env=env)
-                if isinstance(cal, ShkFn):
-                    return call_shkfn(cal, args, subject=recv, caller_env=env)
+    if d in {'field', 'fieldsel'}:
+        field_name = _expect_ident_token(op.children[0], "Field access")
+        result = get_field_value(recv, field_name, env)
+    elif d == 'index':
+        result = _apply_index_operation(recv, op, env)
+    elif d == 'slicesel':
+        result = _apply_slice(recv, op.children, env)
+    elif d == 'call':
+        args = _eval_args_node(op.children[0] if op.children else None, env)
+        result = _call_value(recv, args, env)
+    elif d == 'method':
+        method_name = _expect_ident_token(op.children[0], "Method call")
+        args = _eval_args_node(op.children[1] if len(op.children)>1 else None, env)
+        try:
+            result = call_builtin_method(recv, method_name, args, env)
+        except Exception:
+            cal = get_field_value(recv, method_name, env)
+            if isinstance(cal, BoundMethod):
+                result = call_shkfn(cal.fn, args, subject=cal.subject, caller_env=env)
+            elif isinstance(cal, ShkFn):
+                result = call_shkfn(cal, args, subject=recv, caller_env=env)
+            else:
                 raise
-        case _:
-            raise ShakarRuntimeError(f"Unknown chain op: {d}")
+    else:
+        raise ShakarRuntimeError(f"Unknown chain op: {d}")
+
+    if context is not None:
+        context.value = result
+        if not isinstance(result, (BuiltinMethod, BoundMethod, ShkFn)):
+            context.setter(result)
+        return context
+
+    return result
+
 
 def _eval_args_node(args_node: Any, env: Env) -> List[Any]:
     def label(node: Tree) -> str | None:
@@ -969,6 +997,22 @@ def _eval_ternary(n: Tree, env: Env) -> Any:
     if _is_truthy(cond_val):
         return eval_node(true_node, env)
     return eval_node(false_node, env)
+
+def _eval_rebind_primary(n: Tree, env: Env) -> Any:
+    if not n.children:
+        raise ShakarRuntimeError("Missing identifier for rebind")
+    target = n.children[0]
+    if not _is_token(target) or _token_kind(target) != 'IDENT':
+        raise ShakarRuntimeError("Rebind target must be identifier")
+    name = target.value
+    value = env.get(name)
+
+    def setter(new_value: Any) -> None:
+        _assign_ident(name, new_value, env, create=False)
+        env.dot = new_value
+
+    env.dot = value
+    return _RebindContext(value, setter)
 
 def _eval_optional_expr(node: Any, env: Env) -> Any:
     if node is None:
