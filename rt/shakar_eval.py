@@ -8,18 +8,11 @@ from contextlib import contextmanager
 
 from shakar_runtime import (
     Env, ShkNumber, ShkString, ShkBool, ShkNull, ShkArray, ShkObject, Descriptor, ShkFn, BoundMethod, BuiltinMethod,
-    ShkSelector,
+    ShkSelector, SelectorIndex, SelectorSlice,
     ShakarRuntimeError, ShakarTypeError, ShakarArityError,
     call_builtin_method, call_shkfn, Builtins
 )
 
-
-class _RebindContext:
-    __slots__ = ("value", "setter")
-
-    def __init__(self, value: Any, setter: Callable[[Any], None]) -> None:
-        self.value = value
-        self.setter = setter
 from shakar_utils import (
     value_in_list,
     shk_equals,
@@ -27,6 +20,7 @@ from shakar_utils import (
     fanout_values,
     normalize_object_key,
 )
+
 from eval.selector import (
     eval_selectorliteral,
     evaluate_selectorlist,
@@ -34,12 +28,14 @@ from eval.selector import (
     apply_selectors_to_value,
     selector_iter_values,
 )
+
 from eval.destructure import (
     evaluate_destructure_rhs,
     assign_pattern as destructure_assign_pattern,
     infer_implicit_binders as destructure_infer_implicit_binders,
     apply_comp_binders as destructure_apply_comp_binders,
 )
+
 from eval.mutation import (
     set_field_value,
     set_index_value,
@@ -47,6 +43,13 @@ from eval.mutation import (
     slice_value,
     get_field_value,
 )
+
+class _RebindContext:
+    __slots__ = ("value", "setter")
+
+    def __init__(self, value: Any, setter: Callable[[Any], None]) -> None:
+        self.value = value
+        self.setter = setter
 
 # ---------------- Public API ----------------
 
@@ -665,6 +668,8 @@ def _eval_compare(children: List[Any], env: Env) -> Any:
     return ShkBool(bool(agg)) if agg is not None else ShkBool(True)
 
 def _compare_values(op: str, lhs: Any, rhs: Any) -> bool:
+    if isinstance(rhs, ShkSelector):
+        return _compare_with_selector(op, lhs, rhs)
     match op:
         case '==':
             return shk_equals(lhs, rhs)
@@ -692,6 +697,39 @@ def _compare_values(op: str, lhs: Any, rhs: Any) -> bool:
             return not _contains(rhs, lhs)
         case _:
             raise ShakarRuntimeError(f"Unknown comparator {op}")
+
+def _selector_values(selector: ShkSelector) -> List[ShkNumber]:
+    values = selector_iter_values(selector)
+    if not values:
+        raise ShakarRuntimeError("Selector literal produced no values")
+    return values
+
+def _coerce_number(value: Any) -> float:
+    if isinstance(value, ShkNumber):
+        return value.value
+    raise ShakarTypeError("Expected number")
+
+def _compare_with_selector(op: str, lhs: Any, selector: ShkSelector) -> bool:
+    values = _selector_values(selector)
+    if op == '==':
+        return all(shk_equals(lhs, val) for val in values)
+    if op == '!=':
+        return any(not shk_equals(lhs, val) for val in values)
+
+    lhs_num = _coerce_number(lhs)
+    rhs_nums = [_coerce_number(val) for val in values]
+
+    match op:
+        case '<':
+            return all(lhs_num < num for num in rhs_nums)
+        case '<=':
+            return all(lhs_num <= num for num in rhs_nums)
+        case '>':
+            return all(lhs_num > num for num in rhs_nums)
+        case '>=':
+            return all(lhs_num >= num for num in rhs_nums)
+        case _:
+            raise ShakarTypeError(f"Unsupported comparator '{op}' for selector literal")
 
 def _contains(container: Any, item: Any) -> bool:
     match container:
@@ -909,7 +947,6 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
         return context
 
     return result
-
 
 def _eval_args_node(args_node: Any, env: Env) -> List[Any]:
     def label(node: Tree) -> str | None:
