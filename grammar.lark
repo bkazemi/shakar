@@ -124,7 +124,7 @@ primary: rebind_primary | IDENT
                   | object
                   | array
                   | listcomp | setliteral | setcomp | dictcomp
-                  | "(" expr ")"
+                  | "(" expr ")"            -> group_expr
                   | selectorliteral
                   | nullsafe
                   | ampval1 | ampvaln

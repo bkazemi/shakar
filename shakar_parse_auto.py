@@ -224,22 +224,18 @@ class ChainNormalize(Transformer):
 class Prune(Transformer):
     # ---- unified object literal ----
     def object(self, c):
-        from lark import Tree
         return Tree('object', c)
 
     # Canonicalize fields to a single node shape: obj_field(key, value)
     def obj_field_ident(self, c):
-        from lark import Tree
         # c = [IDENT, expr]
         return Tree('obj_field', [Tree('key_ident', [c[0]]), c[1]])
 
     def obj_field_string(self, c):
-        from lark import Tree
         # c = [STRING, expr]
         return Tree('obj_field', [Tree('key_string', [c[0]]), c[1]])
 
     def obj_field_expr(self, c):
-        from lark import Tree
         # c = [expr_key, expr_val]
         return Tree('obj_field', [Tree('key_expr', [c[0]]), c[1]])
 
@@ -248,7 +244,6 @@ class Prune(Transformer):
 
     # Keep getters/setters explicit; prune keeps only key + body shape later if you want
     def obj_get(self, c):
-        from lark import Tree
         name = None
         body = c[-1] if c else None
         for part in c:
@@ -258,7 +253,6 @@ class Prune(Transformer):
         return Tree('obj_get', [name, body])
 
     def obj_set(self, c):
-        from lark import Tree
         name = None
         param = None
         body = c[-1] if c else None
@@ -271,7 +265,6 @@ class Prune(Transformer):
         return Tree('obj_set', [name, param, body])
 
     def obj_method(self, c):
-        from lark import Tree
         name = None
         params = None
         body = c[-1] if c else None
@@ -284,28 +277,25 @@ class Prune(Transformer):
         return Tree('obj_method', [name, params, body])
 
     def key_ident(self, c):
-        from lark import Tree
         return Tree('key_ident', c)
 
     def key_string(self, c):
-        from lark import Tree
         return Tree('key_string', c)
 
     def key_expr(self, c):
-        from lark import Tree
         return Tree('key_expr', c)
 
+    def group_expr(self, c):
+        return Tree('group', c)
+
     def setliteral(self, c):
-        from lark import Tree, Token
         items = [x for x in c if not (isinstance(x, Token) and x.type == 'COMMA')]
         return Tree('setliteral', items)
 
     def setliteral_empty(self, _):
-        from lark import Tree
         return Tree('setliteral', [])
 
     def setcomp(self, c):
-        from lark import Tree, Token
         items = [x for x in c if not (isinstance(x, Token) and getattr(x, "type", "") == "SET")]
         return Tree('setcomp', items)
 
@@ -433,14 +423,12 @@ class Prune(Transformer):
 
     # Prune
     def slicearm_empty(self, _):    # unify all “missing expr” to a single sentinel
-        from lark import Tree
         return Tree('emptyexpr', [])
 
     def slicearm_expr(self, c):
         return c[0]                 # unwrap the expr
 
     def slicesel(self, c):
-        from lark import Tree
         arms = list(c)
         if len(arms) == 2:          # no third colon → empty step
             arms.append(Tree('emptyexpr', []))
@@ -496,7 +484,6 @@ class Prune(Transformer):
         return Tree('field', ident_only or c)
 
     def bind(self, c):
-        from lark import Tree, Token
         kept = []
         for item in c:
             if isinstance(item, Token) and getattr(item, 'type', None) == 'APPLYASSIGN':
@@ -810,8 +797,7 @@ def main():
         saw = f"{saw_tok.type} {repr(str(saw_tok))}" if saw_tok else "EOF"
         exp = ", ".join(sorted(getattr(e, "expected", [])))
         sys.stderr.write(f"[ParseError] line {e.line}, col {e.column}\n{ctx}\nSaw: {saw}\nExpected: {exp}\n")
-        import sys as _sys
-        _sys.exit(1)
+        sys.exit(1)
 
     if args.tree:
         if args.prune: tree = Prune().transform(tree)

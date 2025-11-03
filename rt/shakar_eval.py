@@ -160,6 +160,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_dictcomp(n, env)
         case 'selectorliteral':
             return eval_selectorliteral(n, env, eval_node)
+        case 'group':
+            return _eval_group(n, env)
         case 'call':
             args_node = n.children[0] if n.children else None
             args = _eval_args_node(args_node, env)
@@ -712,7 +714,7 @@ def _retargets_anchor(node: Any) -> bool:
     if _is_token(node):
         return _token_kind(node) not in {'SEMI', '_NL', 'INDENT', 'DEDENT'}
     if _is_tree(node):
-        return _tree_label(node) not in {'implicit_chain', 'subject'}
+        return _tree_label(node) not in {'implicit_chain', 'subject', 'group'}
     return True
 
 # ---------------- Arithmetic ----------------
@@ -919,6 +921,16 @@ def _apply_index_operation(recv: Any, op: Tree, env: Env) -> Any:
         return index_value(recv, idx_val, env)
     selectors = evaluate_selectorlist(selectorlist, env, eval_node)
     return apply_selectors_to_value(recv, selectors, env)
+
+def _eval_group(n: Tree, env: Env) -> Any:
+    child = n.children[0] if n.children else None
+    if child is None:
+        return ShkNull()
+    saved = env.dot
+    try:
+        return eval_node(child, env)
+    finally:
+        env.dot = saved
 
 def _eval_optional_expr(node: Any, env: Env) -> Any:
     if node is None:
