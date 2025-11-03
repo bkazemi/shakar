@@ -162,6 +162,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return eval_selectorliteral(n, env, eval_node)
         case 'group':
             return _eval_group(n, env)
+        case 'ternary':
+            return _eval_ternary(n, env)
         case 'call':
             args_node = n.children[0] if n.children else None
             args = _eval_args_node(args_node, env)
@@ -958,6 +960,15 @@ def _eval_group(n: Tree, env: Env) -> Any:
         return eval_node(child, env)
     finally:
         env.dot = saved
+
+def _eval_ternary(n: Tree, env: Env) -> Any:
+    if len(n.children) != 3:
+        raise ShakarRuntimeError("Malformed ternary expression")
+    cond_node, true_node, false_node = n.children
+    cond_val = eval_node(cond_node, env)
+    if _is_truthy(cond_val):
+        return eval_node(true_node, env)
+    return eval_node(false_node, env)
 
 def _eval_optional_expr(node: Any, env: Env) -> Any:
     if node is None:
