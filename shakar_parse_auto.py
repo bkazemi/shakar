@@ -2,7 +2,7 @@ import sys
 import argparse
 from pathlib import Path
 from lark import Lark, Transformer, Tree, UnexpectedInput, Token
-from lark.visitors import Discard
+from lark.visitors import Discard, v_args
 from lark.indenter import Indenter
 
 def pretty_inline(t, indent=""):
@@ -222,6 +222,18 @@ class ChainNormalize(Transformer):
     def explicit_chain(self, c): return Tree('explicit_chain', self._fuse(c))
 
 class Prune(Transformer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._compare_depth = 0
+
+    def _transform_tree(self, tree):
+        if isinstance(tree, Tree) and tree.data in {'compareexpr', 'compareexpr_nc'}:
+            self._compare_depth += 1
+            try:
+                return super()._transform_tree(tree)
+            finally:
+                self._compare_depth -= 1
+        return super()._transform_tree(tree)
     # ---- unified object literal ----
     def object(self, c):
         return Tree('object', c)
@@ -449,7 +461,8 @@ class Prune(Transformer):
         return self._keep_or_flatten('bindexpr', filtered, 'bind')
     def walrusexpr(self, c):    return self._keep_or_flatten('walrusexpr', c, 'walrus')
     def nullishexpr(self, c):   return self._keep_or_flatten('nullishexpr', c, 'nullish')
-    def compareexpr(self, c):   return self._keep_or_flatten('compareexpr', c, 'compare')
+    def compareexpr(self, c):
+        return self._keep_or_flatten('compareexpr', c, 'compare')
     def addexpr(self, c):       return self._keep_or_flatten('addexpr', c, 'add')
     def mulexpr(self, c):       return self._keep_or_flatten('mulexpr', c, 'mul')
     def powexpr(self, c):       return self._keep_or_flatten('powexpr', c, 'pow')
@@ -464,7 +477,8 @@ class Prune(Transformer):
         return self._keep_or_flatten('bindexpr_nc', filtered, 'bind_nc')
     def walrusexpr_nc(self, c):    return self._keep_or_flatten('walrusexpr_nc', c, 'walrus_nc')
     def nullishexpr_nc(self, c):   return self._keep_or_flatten('nullishexpr_nc', c, 'nullish_nc')
-    def compareexpr_nc(self, c):   return self._keep_or_flatten('compareexpr_nc', c, 'compare_nc')
+    def compareexpr_nc(self, c):
+        return self._keep_or_flatten('compareexpr_nc', c, 'compare_nc')
     def addexpr_nc(self, c):       return self._keep_or_flatten('addexpr_nc', c, 'add_nc')
     def mulexpr_nc(self, c):       return self._keep_or_flatten('mulexpr_nc', c, 'mul_nc')
     def powexpr_nc(self, c):       return self._keep_or_flatten('powexpr_nc', c, 'pow_nc')
@@ -502,8 +516,15 @@ class Prune(Transformer):
     def COMMENT(self, c): return Discard
     def comment(self, c): return Discard
 
-    def AND(self, c): return Discard
-    def OR(self, c): return Discard
+    def AND(self, c):
+        if getattr(self, '_compare_depth', 0) > 0:
+            return Token('AND', 'and')
+        return Discard
+
+    def OR(self, c):
+        if getattr(self, '_compare_depth', 0) > 0:
+            return Token('OR', 'or')
+        return Discard
 
     def COLON(self, c): return Discard
 

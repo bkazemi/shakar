@@ -606,20 +606,47 @@ def _eval_compare(children: List[Any], env: Env) -> Any:
     if len(children) == 1:
         return eval_node(children[0], env)
 
-    lhs = eval_node(children[0], env)
+    subject = eval_node(children[0], env)
     idx = 1
+    joiner = 'and'
+    last_comp: Optional[str] = None
+    agg: Optional[bool] = None
+
     while idx < len(children):
-        op_node = children[idx]
-        op = _as_op(op_node)
-        idx += 1
-        if idx >= len(children):
-            raise ShakarRuntimeError("Missing right-hand side for comparison")
-        rhs = eval_node(children[idx], env)
-        idx += 1
-        if not _compare_values(op, lhs, rhs):
-            return ShkBool(False)
-        lhs = rhs
-    return ShkBool(True)
+        node = children[idx]
+        token_kind = _token_kind(node)
+        if token_kind == 'AND':
+            joiner = 'and'
+            idx += 1
+            continue
+        if token_kind == 'OR':
+            joiner = 'or'
+            idx += 1
+            continue
+
+        label = _tree_label(node)
+        if label == 'cmpop':
+            comp = _as_op(node)
+            last_comp = comp
+            idx += 1
+            if idx >= len(children):
+                raise ShakarRuntimeError("Missing right-hand side for comparison")
+            rhs = eval_node(children[idx], env)
+            idx += 1
+        else:
+            if last_comp is None:
+                raise ShakarRuntimeError("Comparator required in comparison chain")
+            comp = last_comp
+            rhs = eval_node(node, env)
+            idx += 1
+
+        leg_val = _compare_values(comp, subject, rhs)
+        if agg is None:
+            agg = leg_val
+        else:
+            agg = (agg and leg_val) if joiner == 'and' else (agg or leg_val)
+
+    return ShkBool(bool(agg)) if agg is not None else ShkBool(True)
 
 def _compare_values(op: str, lhs: Any, rhs: Any) -> bool:
     match op:
