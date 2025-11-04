@@ -10,9 +10,8 @@ from shakar_utils import (
     sequence_items,
     coerce_sequence,
     replicate_empty_sequence,
-    tree_label,
-    tree_children,
 )
+from shakar_tree import tree_label, tree_children
 
 def _ident_token_value(node: Any) -> Optional[str]:
     if isinstance(node, Token) and node.type == "IDENT":

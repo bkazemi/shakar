@@ -16,8 +16,8 @@ from shakar_runtime import (
     ShakarTypeError,
 )
 
-from shakar_utils import (
-    sequence_items,
+from shakar_utils import sequence_items
+from shakar_tree import (
     tree_children,
     tree_label,
     child_by_label,

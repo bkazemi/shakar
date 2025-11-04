@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable, List, Optional
 
-from lark import Tree, Token
-
 from shakar_runtime import (
     ShkNull,
     ShkNumber,
@@ -90,43 +88,3 @@ def normalize_object_key(value: Any) -> str:
             return 'null'
         case _:
             raise ShakarTypeError("Object key must be a Shakar string, number, bool, or null")
-
-# ------------- Tree helpers -------------
-
-def is_token_node(node: Any) -> bool:
-    return isinstance(node, Token)
-
-def is_tree_node(node: Any) -> bool:
-    return isinstance(node, Tree)
-
-def tree_label(node: Any) -> Optional[str]:
-    return node.data if isinstance(node, Tree) else None
-
-def tree_children(node: Any) -> List[Any]:
-    children = getattr(node, 'children', None)
-    if children is None:
-        return []
-    # Ensure list semantics for callers that mutate/iterate multiple times
-    return list(children)
-
-def node_meta(node: Any) -> Any:
-    return getattr(node, 'meta', None)
-
-def child_by_label(node: Any, label: str):
-    for child in tree_children(node):
-        if tree_label(child) == label:
-            return child
-    return None
-
-def child_by_labels(node: Any, labels: Iterable[str]):
-    label_set = set(labels)
-    for child in tree_children(node):
-        if tree_label(child) in label_set:
-            return child
-    return None
-
-def first_child(node: Any, predicate: Callable[[Any], bool]):
-    for child in tree_children(node):
-        if predicate(child):
-            return child
-    return None

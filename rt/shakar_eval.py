@@ -19,6 +19,8 @@ from shakar_utils import (
     sequence_items,
     fanout_values,
     normalize_object_key,
+)
+from shakar_tree import (
     tree_label,
     tree_children,
     node_meta,

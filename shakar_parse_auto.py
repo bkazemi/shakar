@@ -1,25 +1,36 @@
 import sys
 import argparse
 from pathlib import Path
-from typing import Any, Iterable, List, Optional
+from typing import Any, Callable, Iterable, List, Optional, Tuple
 
 from lark import Lark, Transformer, Tree, UnexpectedInput, Token
 from lark.visitors import Discard, v_args
 from lark.indenter import Indenter
+from rt.shakar_tree import (
+    is_tree,
+    is_token,
+    tree_label,
+    tree_children,
+    node_meta,
+    child_by_label,
+    child_by_labels,
+    first_child,
+)
 
 def pretty_inline(t, indent=""):
     lines = []
-    if isinstance(t, Tree):
-        if t.data == 'method' and t.children and isinstance(t.children[0], Token):
+    if is_tree(t):
+        children = tree_children(t)
+        if tree_label(t) == 'method' and children and is_token(children[0]):
             # inline: method <name>
-            head = f"{indent}{t.data} {t.children[0].value}"
-            rest = t.children[1:]
+            head = f"{indent}{tree_label(t)} {children[0].value}"
+            rest = children[1:]
             lines.append(head)
             for c in rest:
                 lines.extend(pretty_inline(c, indent + "  "))
             return lines
-        lines.append(f"{indent}{t.data}")
-        for c in t.children:
+        lines.append(f"{indent}{tree_label(t)}")
+        for c in children:
             lines.extend(pretty_inline(c, indent + "  "))
         return lines
     else:
@@ -68,11 +79,9 @@ class ValidateSubjectScope(Transformer):
     def awaitstmt(self, children):
         # Find trailing body subtrees and validate them under subject
         new_children = []
-        colon_seen = False
         for ch in children:
-            if isinstance(ch, Tree) and ch.data in ('inlinebody', 'indentblock'):
+            if is_tree(ch) and tree_label(ch) in {'inlinebody', 'indentblock'}:
                 new_children.append(self._with_subject(ch))
-                colon_seen = False
             else:
                 new_children.append(ch)
         return Tree('awaitstmt', new_children)
@@ -122,24 +131,24 @@ def enforce_subject_scope(tree: Tree) -> None:
 class ChainNormalize(Transformer):
     @staticmethod
     def _fuse(items):
-        out: list[Any] = []
+        out: List[Any] = []
         i = 0
         while i < len(items):
             node = items[i]
             if (
-                isinstance(node, Tree) and node.data == 'field'
-                and i + 1 < len(items) and isinstance(items[i + 1], Tree)
+                is_tree(node) and tree_label(node) == 'field'
+                and i + 1 < len(items) and is_tree(items[i + 1])
             ):
                 nxt = items[i + 1]
-                if nxt.data == 'call':
+                if tree_label(nxt) == 'call':
                     name = node.children[0]
                     out.append(Tree('method', [name, *nxt.children]))
                     i += 2
                     continue
-                if nxt.data in {'lambdacall1', 'lambdacalln'}:
+                if tree_label(nxt) in {'lambdacall1', 'lambdacalln'}:
                     name = node.children[0]
                     body = nxt.children[-1] if nxt.children else None
-                    params = next((ch for ch in nxt.children if isinstance(ch, Tree) and ch.data == 'paramlist'), None)
+                    params = next((ch for ch in nxt.children if is_tree(ch) and tree_label(ch) == 'paramlist'), None)
                     lam_children = ([params] if params is not None else []) + ([body] if body is not None else [])
                     args_node = Tree('args', [Tree('amp_lambda', lam_children)])
                     out.append(Tree('method', [name, args_node]))
@@ -161,7 +170,7 @@ class Prune(Transformer):
         self._compare_depth = 0
 
     def _transform_tree(self, tree):
-        if isinstance(tree, Tree) and tree.data in {'compareexpr', 'compareexpr_nc'}:
+        if is_tree(tree) and tree_label(tree) in {'compareexpr', 'compareexpr_nc'}:
             self._compare_depth += 1
             try:
                 return super()._transform_tree(tree)
@@ -193,7 +202,7 @@ class Prune(Transformer):
         name = None
         body = c[-1] if c else None
         for part in c:
-            if isinstance(part, Token) and getattr(part, "type", "") == "IDENT":
+            if is_token(part) and getattr(part, "type", "") == "IDENT":
                 name = part
                 break
         return Tree('obj_get', [name, body])
@@ -203,7 +212,7 @@ class Prune(Transformer):
         param = None
         body = c[-1] if c else None
         for part in c:
-            if isinstance(part, Token) and getattr(part, "type", "") == "IDENT":
+            if is_token(part) and getattr(part, "type", "") == "IDENT":
                 if name is None:
                     name = part
                 elif param is None:
@@ -215,10 +224,10 @@ class Prune(Transformer):
         params = None
         body = c[-1] if c else None
         for part in c[:-1]:
-            if isinstance(part, Token) and getattr(part, "type", "") == "IDENT":
+            if is_token(part) and getattr(part, "type", "") == "IDENT":
                 if name is None:
                     name = part
-            elif isinstance(part, Tree) and getattr(part, "data", "") == "paramlist":
+            elif is_tree(part) and tree_label(part) == 'paramlist':
                 params = part
         return Tree('obj_method', [name, params, body])
 
@@ -235,14 +244,14 @@ class Prune(Transformer):
         return Tree('group', c)
 
     def setliteral(self, c):
-        items = [x for x in c if not (isinstance(x, Token) and x.type == 'COMMA')]
+        items = [x for x in c if not (is_token(x) and x.type == 'COMMA')]
         return Tree('setliteral', items)
 
     def setliteral_empty(self, _):
         return Tree('setliteral', [])
 
     def setcomp(self, c):
-        items = [x for x in c if not (isinstance(x, Token) and getattr(x, "type", "") == "SET")]
+        items = [x for x in c if not (is_token(x) and getattr(x, "type", "") == "SET")]
         return Tree('setcomp', items)
 
     def lambdacall1(self, c):
@@ -258,7 +267,7 @@ class Prune(Transformer):
         filtered = [
             node
             for node in c
-            if not (isinstance(node, Token) and node.type in {"LSQB", "RSQB", "COMMA", "_NL"})
+            if not (is_token(node) and node.type in {"LSQB", "RSQB", "COMMA", "_NL"})
         ]
         return Tree('array', filtered)
 
@@ -275,8 +284,8 @@ class Prune(Transformer):
 
         if (
             len(items) == 2
-            and isinstance(items[0], Tree) and items[0].data == 'explicit_chain'
-            and isinstance(items[1], Tree) and items[1].data == 'explicit_chain'
+            and is_tree(items[0]) and tree_label(items[0]) == 'explicit_chain'
+            and is_tree(items[1]) and tree_label(items[1]) == 'explicit_chain'
         ):
             return Tree('explicit_chain', list(items[0].children) + list(items[1].children))
 
@@ -284,25 +293,29 @@ class Prune(Transformer):
 
     @staticmethod
     def _is_ident_token(node: Any) -> bool:
-        return isinstance(node, Token) and getattr(node, 'type', None) == 'IDENT'
+        return is_token(node) and getattr(node, 'type', None) == 'IDENT'
 
     def _merge_ident_head(self, ident: Token, node: Any) -> Optional[Tree]:
-        if isinstance(node, Tree):
-            if node.data in {'implicit_chain', 'explicit_chain'}:
-                return Tree('explicit_chain', [ident, *node.children])
-            if node.data == 'call':
+        if is_tree(node):
+            label = tree_label(node)
+            children = tree_children(node)
+            if label in {'implicit_chain', 'explicit_chain'}:
+                return Tree('explicit_chain', [ident, *children])
+            if label == 'call':
                 return Tree('explicit_chain', [ident, node])
-            if node.data == 'amp_lambda':
+            if label == 'amp_lambda':
                 return Tree('explicit_chain', [ident, Tree('call', [Tree('args', [node])])])
-            if node.data == 'postfixexpr' and node.children:
-                first = node.children[0]
-                if isinstance(first, Tree) and first.data in {'lambdacall1', 'lambdacalln'}:
-                    callee = next((ch for ch in first.children if isinstance(ch, Tree) and ch.data == 'callee'), None)
-                    if callee and callee.children:
-                        chain = callee.children[0]
-                        if isinstance(chain, Tree) and chain.data in {'implicit_chain', 'explicit_chain'}:
-                            callee.children[0] = Tree('explicit_chain', [ident, *chain.children])
-                            return node
+            if label == 'postfixexpr' and children:
+                first = children[0]
+                if is_tree(first) and tree_label(first) in {'lambdacall1', 'lambdacalln'}:
+                    callee = next((ch for ch in tree_children(first) if is_tree(ch) and tree_label(ch) == 'callee'), None)
+                    if callee:
+                        callee_children = tree_children(callee)
+                        if callee_children:
+                            chain = callee_children[0]
+                            if is_tree(chain) and tree_label(chain) in {'implicit_chain', 'explicit_chain'}:
+                                callee.children[0] = Tree('explicit_chain', [ident, *chain.children])
+                                return node
         return None
 
     # helper
@@ -331,19 +344,19 @@ class Prune(Transformer):
             return Tree('simplecall', c)
 
         head = c[0]
-        if isinstance(head, Tree) and getattr(head, 'data', None) == 'explicit_chain':
+        if is_tree(head) and tree_label(head) == 'explicit_chain':
             chain, rest = head, c[1:]
         else:
             chain, rest = Tree('explicit_chain', [head]), c[1:]
 
         callnode = None
         for node in rest:
-            if isinstance(node, Tree) and getattr(node, 'data', None) == 'call':
+            if is_tree(node) and tree_label(node) == 'call':
                 callnode = node
                 break
-            if isinstance(node, Tree) and getattr(node, 'data', None) in ('args','arglist','arglistnamedmixed'):
+            if is_tree(node) and tree_label(node) in {'args', 'arglist', 'arglistnamedmixed'}:
                 # Wrap raw args into a call node
-                callnode = Tree('call', [node] if node.data == 'args' else list(node.children))
+                callnode = Tree('call', [node] if tree_label(node) == 'args' else list(node.children))
                 break
 
         if callnode is None:
@@ -390,7 +403,7 @@ class Prune(Transformer):
     def orexpr(self, c):        return self._keep_or_flatten('orexpr', c, 'or')
     def andexpr(self, c):       return self._keep_or_flatten('andexpr', c, 'and')
     def bindexpr(self, c):
-        filtered = [item for item in c if not (isinstance(item, Token) and getattr(item, 'type', None) == 'APPLYASSIGN')]
+        filtered = [item for item in c if not (is_token(item) and getattr(item, 'type', None) == 'APPLYASSIGN')]
         return self._keep_or_flatten('bindexpr', filtered, 'bind')
     def walrusexpr(self, c):    return self._keep_or_flatten('walrusexpr', c, 'walrus')
     def nullishexpr(self, c):   return self._keep_or_flatten('nullishexpr', c, 'nullish')
@@ -406,7 +419,7 @@ class Prune(Transformer):
     def orexpr_nc(self, c):        return self._keep_or_flatten('orexpr_nc', c, 'or_nc')
     def andexpr_nc(self, c):       return self._keep_or_flatten('andexpr_nc', c, 'and_nc')
     def bindexpr_nc(self, c):
-        filtered = [item for item in c if not (isinstance(item, Token) and getattr(item, 'type', None) == 'APPLYASSIGN')]
+        filtered = [item for item in c if not (is_token(item) and getattr(item, 'type', None) == 'APPLYASSIGN')]
         return self._keep_or_flatten('bindexpr_nc', filtered, 'bind_nc')
     def walrusexpr_nc(self, c):    return self._keep_or_flatten('walrusexpr_nc', c, 'walrus_nc')
     def nullishexpr_nc(self, c):   return self._keep_or_flatten('nullishexpr_nc', c, 'nullish_nc')
@@ -421,7 +434,7 @@ class Prune(Transformer):
     def explicit_chain(self, c):
         if len(c) == 1:
             child = c[0]
-            if not (isinstance(child, Tree) and child.data in {'field', 'index', 'call', 'incr', 'decr', 'fieldfan'}):
+            if not (is_tree(child) and tree_label(child) in {'field', 'index', 'call', 'incr', 'decr', 'fieldfan'}):
                 return child
         return Tree('explicit_chain', c)
     def implicit_chain(self, c): return Tree('implicit_chain', c)
@@ -433,7 +446,7 @@ class Prune(Transformer):
     def bind(self, c):
         kept = []
         for item in c:
-            if isinstance(item, Token) and getattr(item, 'type', None) == 'APPLYASSIGN':
+            if is_token(item) and getattr(item, 'type', None) == 'APPLYASSIGN':
                 continue
             kept.append(item)
         return Tree('bind', kept)
@@ -476,16 +489,16 @@ def _enforce_toplevel_line_separators(tree, code: str, start_sym: str):
 
     if start_sym != "start_indented":
         return
-    if not isinstance(tree, Tree) or getattr(tree, "data", None) != "start_indented":
+    if not is_tree(tree) or tree_label(tree) != "start_indented":
         return
 
     src = code.replace("\r\n", "\n")
 
     # Collect (start_pos, line) for top-level stmtlists only
     starts = []
-    for ch in tree.children:
-        if isinstance(ch, Tree) and ch.data == "stmtlist":
-            m = getattr(ch, "meta", None)
+    for ch in tree_children(tree):
+        if is_tree(ch) and tree_label(ch) == "stmtlist":
+            m = node_meta(ch)
             if m and hasattr(m, "start_pos") and hasattr(m, "line"):
                 starts.append((m.start_pos, m.line))
     if len(starts) < 2:
@@ -616,31 +629,39 @@ def parse_or_first_error(parser, src: str):
         raise whole_err
 
 def validate_named_args(tree):
-    def is_namedarg(n): return isinstance(n, Tree) and n.data == "namedarg"
+    def is_namedarg(n):
+        return is_tree(n) and tree_label(n) == "namedarg"
+
     def unwrap(n):
-        if isinstance(n, Tree) and n.data in ("argitem","arg"): return n.children[0] if n.children else n
+        if is_tree(n) and tree_label(n) in {"argitem", "arg"}:
+            return tree_children(n)[0] if tree_children(n) else n
         return n
+
     def visit(n):
-        if not isinstance(n, Tree): return
-        if n.data == "call":
+        if not is_tree(n):
+            return
+        if tree_label(n) == "call":
             argnode = None
-            for ch in n.children:
-                if isinstance(ch, Tree) and ch.data in ("arglistnamedmixed","arglist","args"):
+            for ch in tree_children(n):
+                if is_tree(ch) and tree_label(ch) in {"arglistnamedmixed", "arglist", "args"}:
                     argnode = ch; break
             if argnode is not None:
                 seen_named = False
                 names = set()
-                for raw in argnode.children:
+                for raw in tree_children(argnode):
                     a = unwrap(raw)
                     if is_namedarg(a):
                         seen_named = True
-                        if not a.children or not isinstance(a.children[0], Token): continue
-                        name = a.children[0].value
+                        children = tree_children(a)
+                        if not children or not is_token(children[0]):
+                            continue
+                        name = children[0].value
                         if name in names: raise SyntaxError(f"Duplicate named argument '{name}'")
                         names.add(name)
                     else:
                         if seen_named: raise SyntaxError("Positional argument after named argument")
-        for ch in getattr(n, "children", ()): visit(ch)
+        for ch in tree_children(n):
+            visit(ch)
     visit(tree)
 
 
@@ -648,39 +669,42 @@ def validate_named_args(tree):
 def validate_hoisted_binders(tree):
     def hoist_info_from_node(n):
         res = []
-        if isinstance(n, Tree) and n.data == "forindexed":
-            for ch in n.children:
-                if isinstance(ch, Tree) and ch.data == "hoist":
-                    if ch.children and isinstance(ch.children[0], Token):
+        if is_tree(n) and tree_label(n) == "forindexed":
+            for ch in tree_children(n):
+                if is_tree(ch) and tree_label(ch) == "hoist":
+                    children = tree_children(ch)
+                    if children and is_token(children[0]):
                         res.append((ch.children[0].value, True))
                     else:
                         res.append(("<anon>", True))
                     break
-                if isinstance(ch, Token) and getattr(ch, "type", "") == "IDENT":
+                if is_token(ch) and getattr(ch, "type", "") == "IDENT":
                     res.append((ch.value, False))
                     break
-        if isinstance(n, Tree) and n.data == "formap2":
+        if is_tree(n) and tree_label(n) == "formap2":
             seen = 0
-            for ch in n.children:
-                if isinstance(ch, Tree) and ch.data == "hoist":
-                    if ch.children and isinstance(ch.children[0], Token):
+            for ch in tree_children(n):
+                if is_tree(ch) and tree_label(ch) == "hoist":
+                    children = tree_children(ch)
+                    if children and is_token(children[0]):
                         res.append((ch.children[0].value, True)); seen += 1
-                elif isinstance(ch, Token) and getattr(ch, "type", "") == "IDENT":
+                elif is_token(ch) and getattr(ch, "type", "") == "IDENT":
                     res.append((ch.value, False)); seen += 1
                 if seen >= 2: break
-        if isinstance(n, Tree) and n.data == "overspec":
-            for ch in n.children:
-                if isinstance(ch, Tree) and ch.data == "binderlist":
-                    for item in ch.children:
-                        if isinstance(item, Tree) and item.data == "hoist":
-                            if item.children and isinstance(item.children[0], Token):
+        if is_tree(n) and tree_label(n) == "overspec":
+            for ch in tree_children(n):
+                if is_tree(ch) and tree_label(ch) == "binderlist":
+                    for item in tree_children(ch):
+                        if is_tree(item) and tree_label(item) == "hoist":
+                            children = tree_children(item)
+                            if children and is_token(children[0]):
                                 res.append((item.children[0].value, True))
-                        elif isinstance(item, Token) and getattr(item, "type", "") == "IDENT":
+                        elif is_token(item) and getattr(item, "type", "") == "IDENT":
                             res.append((item.value, False))
         return res
 
     def walk(n):
-        if not isinstance(n, Tree):
+        if not is_tree(n):
             return
         pairs = hoist_info_from_node(n)
         if pairs:
@@ -693,9 +717,74 @@ def validate_hoisted_binders(tree):
                     raise SyntaxError(f"Cannot use both hoisted and local binder for '{base}' in the same binder list")
                 if sum(1 for nm, is_h in pairs if nm == base and is_h) > 1:
                     raise SyntaxError(f"Duplicate hoisted binder '{base}' in binder list")
-        for ch in getattr(n, "children", ()):
+        for ch in tree_children(n):
             walk(ch)
     walk(tree)
+
+
+def parse_source(
+    code: str,
+    grammar_text: str,
+    *,
+    parser_kind: str = "earley",
+    force_indenter: Optional[bool] = None,
+) -> Tuple[Tree, str]:
+    """Parse source text and return the raw Lark tree and start symbol."""
+
+    tried: List[tuple[str, str]] = []
+
+    def try_parse(use_indenter: bool) -> Tuple[Tree, str]:
+        start_sym = "start_indented" if use_indenter else "start_noindent"
+        parser = build_parser(grammar_text, parser_kind, use_indenter, start_sym)
+        tried.append((("indenter" if use_indenter else "no-indenter"), parser_kind))
+        return parse_or_first_error(parser, code), start_sym
+
+    def auto_mode() -> Tuple[Tree, str]:
+        use_indenter = looks_like_offside(code)
+        try:
+            return try_parse(use_indenter)
+        except UnexpectedInput:
+            return try_parse(not use_indenter)
+
+    try:
+        if force_indenter is None:
+            return auto_mode()
+        return try_parse(force_indenter)
+    except UnexpectedInput as err:
+        tried_modes = ", ".join(f"{mode}/{kind}" for mode, kind in tried)
+        ctx = err.get_context(code, span=80)
+        token = getattr(err, "token", None)
+        saw = f"{token.type} {repr(str(token))}" if token else "EOF"
+        expected = ", ".join(sorted(getattr(err, "expected", [])))
+        raise SyntaxError(
+            f"[ParseError] modes tried: {tried_modes}\n"
+            f"line {err.line}, col {err.column}\n{ctx}\nSaw: {saw}\nExpected: {expected}"
+        ) from err
+
+
+def parse_to_ast(
+    code: str,
+    grammar_text: str,
+    *,
+    parser_kind: str = "earley",
+    force_indenter: Optional[bool] = None,
+    normalize: bool = False,
+) -> Tree:
+    """Parse source and return the canonical AST used by the runtime."""
+
+    tree, _ = parse_source(
+        code,
+        grammar_text,
+        parser_kind=parser_kind,
+        force_indenter=force_indenter,
+    )
+    enforce_subject_scope(tree)
+    validate_named_args(tree)
+    validate_hoisted_binders(tree)
+    pruned = Prune().transform(tree)
+    if normalize:
+        pruned = ChainNormalize().transform(pruned)
+    return pruned
 
 
 def main():
@@ -723,38 +812,22 @@ def main():
     elif args.no_indenter:
         force = False
 
-    tried = []
-
-    def try_parse(use_indenter: bool):
-        start_sym = "start_indented" if use_indenter else "start_noindent"
-        p = build_parser(grammar_text, parser_kind, use_indenter, start_sym)
-        tried.append(("indenter" if use_indenter else "no-indenter", parser_kind))
-        return parse_or_first_error(p, code), start_sym
-
-    # Auto strategy: try no-indenter first (IDE-like), then indenter if needed or looks like a block
     try:
-        if force is None:
-            use_indenter = False
-            if looks_like_offside(code):
-                use_indenter = True
-            try:
-                tree, start_sym = try_parse(use_indenter)
-            except:
-                tree, start_sym = try_parse(not use_indenter)
-        else:
-            tree, start_sym = try_parse(force)
+        tree, start_sym = parse_source(
+            code,
+            grammar_text,
+            parser_kind=parser_kind,
+            force_indenter=force,
+        )
         #_enforce_toplevel_line_separators(tree, code, start_sym)
-    except UnexpectedInput as e:
-        sys.stderr.write("[ERROR] Parse failed in modes tried: %s\n" % (", ".join(f"{m}/{k}" for m,k in tried)))
-        ctx = e.get_context(code, span=80)
-        saw_tok = getattr(e, "token", None)
-        saw = f"{saw_tok.type} {repr(str(saw_tok))}" if saw_tok else "EOF"
-        exp = ", ".join(sorted(getattr(e, "expected", [])))
-        sys.stderr.write(f"[ParseError] line {e.line}, col {e.column}\n{ctx}\nSaw: {saw}\nExpected: {exp}\n")
+    except SyntaxError as err:
+        sys.stderr.write(str(err) + "\n")
         sys.exit(1)
 
     if args.tree:
-        if args.prune: tree = Prune().transform(tree)
+        if args.prune:
+            tree = Prune().transform(tree)
+        enforce_subject_scope(tree)
         validate_named_args(tree)
         validate_hoisted_binders(tree)
         if args.normalize:
