@@ -1,6 +1,8 @@
 import sys
 import argparse
 from pathlib import Path
+from typing import Any, Iterable, List, Optional
+
 from lark import Lark, Transformer, Tree, UnexpectedInput, Token
 from lark.visitors import Discard, v_args
 from lark.indenter import Indenter
@@ -23,63 +25,6 @@ def pretty_inline(t, indent=""):
     else:
         # Token
         return [f"{indent}{t.type.lower()}  {t.value}"]
-
-def validate_subject_scope(tree):
-    SUBJECT_NODES = {"subject"}
-
-    def walk(n, depth):
-        if not isinstance(n, Tree):
-            return
-        d = n.data
-
-        # bare dot
-        if d in SUBJECT_NODES:
-            if depth == 0:
-                raise SyntaxError("bare '.' outside a binder/anchor context")
-            return
-
-        # .+ = RHS   (stmt form)
-        if d == 'bind' and n.children:
-            *head, rhs = n.children
-            for ch in head: walk(ch, depth)
-            walk(rhs, depth + 1)
-            return
-
-        # LHS .= RHS (expr form)
-        if d == 'bindexpr' and len(n.children) == 2:
-            lhs, rhs = n.children
-            walk(lhs, depth)
-            walk(rhs, depth + 1)
-            return
-
-        # await … : (inlinebody|indentblock)
-        if d == 'awaitstmt':
-            for ch in n.children:
-                if isinstance(ch, Tree) and ch.data in ('inlinebody', 'indentblock'):
-                    walk(ch, depth + 1)
-                else:
-                    walk(ch, depth)
-            return
-
-        # subjectful loops
-        if d in ('forsubject', 'forindexed'):
-            # last child is the body
-            for i, ch in enumerate(n.children):
-                walk(ch, depth + 1 if i == len(n.children) - 1 else depth)
-            return
-
-        # lambda callee sigil bodies
-        if d in ('lambdacall1', 'lambdacalln'):
-            # last child is the lambda body expr
-            for i, ch in enumerate(n.children):
-                walk(ch, depth + 1 if i == len(n.children) - 1 else depth)
-            return
-
-        # default
-        for ch in n.children:
-            walk(ch, depth)
-
-    walk(tree, 0)
 
 class ValidateSubjectScope(Transformer):
     """
@@ -166,60 +111,49 @@ class ValidateSubjectScope(Transformer):
             children[-1] = self._with_subject(children[-1])
         return Tree('stmtsubjectassign', children)
 
-class ValidateArity(Transformer):
-    def destructure(self, c):
-        if not c:
-            return Tree('destructure', c)
-        lhs, rhs = c[0], c[1] if len(c) > 1 else None
-        if isinstance(lhs, Tree) and lhs.data == 'pattern_list' and isinstance(rhs, Tree) and rhs.data == 'tuple':
-            lhs_count = len(lhs.children)
-            rhs_count = len(rhs.children)
-            if lhs_count != rhs_count:
-                raise ValueError(f"Destructure arity mismatch: LHS has {lhs_count} names, RHS has {rhs_count} values")
-        return Tree('destructure', c)
 
-    def destructure_walrus(self, c):
-        if not c:
-            return Tree('destructure_walrus', c)
-        lhs, rhs = c[0], c[1] if len(c) > 1 else None
-        if isinstance(lhs, Tree) and lhs.data == 'pattern_list' and isinstance(rhs, Tree) and rhs.data == 'tuple':
-            lhs_count = len(lhs.children)
-            rhs_count = len(rhs.children)
-            if lhs_count != rhs_count:
-                raise ValueError(f"Destructure walrus arity mismatch: LHS has {lhs_count} names, RHS has {rhs_count} values")
-        return Tree('destructure_walrus', c)
+def enforce_subject_scope(tree: Tree) -> None:
+    """Validate that bare '.' only appears inside an anchor/binder context."""
+    validator = ValidateSubjectScope()
+    validator.transform(tree)
+    if validator.errors:
+        raise SyntaxError(validator.errors[0])
 
 class ChainNormalize(Transformer):
-    def _fuse(self, items):
-      out, i = [], 0
-      while i < len(items):
-          t = items[i]
-          if (isinstance(t, Tree) and getattr(t, 'data', None) == 'field'
-              and i+1 < len(items) and isinstance(items[i+1], Tree)):
-              nxt = items[i+1]
-              if getattr(nxt, 'data', None) == 'call':
-                  name = t.children[0]
-                  out.append(Tree('method', [name, *nxt.children]))  # args live on call.children
-                  i += 2
-                  continue
-              if getattr(nxt, 'data', None) in ('lambdacall1', 'lambdacalln'):
-                  name = t.children[0]
-                  # Normalize ampersand-lambda -> args(amp_lambda(...))
-                  body = nxt.children[-1] if getattr(nxt, 'children', None) else None
-                  param = None
-                  for ch in getattr(nxt, 'children', []):
-                      if isinstance(ch, Tree) and getattr(ch, 'data', None) == 'paramlist':
-                          param = ch; break
-                  lam_children = ([param] if param is not None else []) + ([body] if body is not None else [])
-                  args_node = Tree('args', [Tree('amp_lambda', lam_children)])
-                  out.append(Tree('method', [name, args_node]))
-                  i += 2
-                  continue
-          out.append(t); i += 1
-      return out
+    @staticmethod
+    def _fuse(items):
+        out: list[Any] = []
+        i = 0
+        while i < len(items):
+            node = items[i]
+            if (
+                isinstance(node, Tree) and node.data == 'field'
+                and i + 1 < len(items) and isinstance(items[i + 1], Tree)
+            ):
+                nxt = items[i + 1]
+                if nxt.data == 'call':
+                    name = node.children[0]
+                    out.append(Tree('method', [name, *nxt.children]))
+                    i += 2
+                    continue
+                if nxt.data in {'lambdacall1', 'lambdacalln'}:
+                    name = node.children[0]
+                    body = nxt.children[-1] if nxt.children else None
+                    params = next((ch for ch in nxt.children if isinstance(ch, Tree) and ch.data == 'paramlist'), None)
+                    lam_children = ([params] if params is not None else []) + ([body] if body is not None else [])
+                    args_node = Tree('args', [Tree('amp_lambda', lam_children)])
+                    out.append(Tree('method', [name, args_node]))
+                    i += 2
+                    continue
+            out.append(node)
+            i += 1
+        return out
 
-    def implicit_chain(self, c): return Tree('implicit_chain', self._fuse(c))
-    def explicit_chain(self, c): return Tree('explicit_chain', self._fuse(c))
+    def implicit_chain(self, c):
+        return Tree('implicit_chain', self._fuse(c))
+
+    def explicit_chain(self, c):
+        return Tree('explicit_chain', self._fuse(c))
 
 class Prune(Transformer):
     def __init__(self, *args, **kwargs):
@@ -321,56 +255,55 @@ class Prune(Transformer):
         return Tree('call', [Tree('args', [Tree('amp_lambda', [params, body])])])
 
     def array(self, c):
-      elems = []
-      for node in c:
-          # keep only real child expressions/values; drop punctuation/whitespace markers
-          if isinstance(node, Token):
-            # Skip tokens like [, ], , and any newline tokens you pass through
-            if node.type in ("LSQB", "RSQB", "COMMA", "_NL"):
-              continue
-          elems.append(node)
+        filtered = [
+            node
+            for node in c
+            if not (isinstance(node, Token) and node.type in {"LSQB", "RSQB", "COMMA", "_NL"})
+        ]
+        return Tree('array', filtered)
 
-      return Tree('array', elems)
+    def start_indented(self, children):
+        """Normalize neutral expressions parsed under indented start."""
+        items = [x for x in children if x is not Discard]
+        if not items:
+            return Discard
 
-    def start_indented(self, c):
-        """Normalize neutral expressions parsed under indented start:
-        - Fuse [IDENT, implicit/explicit chain] into a single explicit_chain
-        - For lambdacall callee with an implicit/explicit chain, prepend the IDENT head
-        - Strip the 'start_indented' wrapper by returning the inner expression
-        """
-        c = [x for x in c if x is not Discard]
+        if len(items) == 2 and self._is_ident_token(items[0]):
+            merged = self._merge_ident_head(items[0], items[1])
+            if merged is not None:
+                return merged
 
-        if len(c) == 2 and isinstance(c[0], Token) and getattr(c[0], 'type', None) == 'IDENT' and isinstance(c[1], Tree) and c[1].data == 'call':
-          # fuse root [IDENT, call(...)] into explicit_chain(IDENT, call)
-          return Tree('explicit_chain', [c[0], c[1]])
+        if (
+            len(items) == 2
+            and isinstance(items[0], Tree) and items[0].data == 'explicit_chain'
+            and isinstance(items[1], Tree) and items[1].data == 'explicit_chain'
+        ):
+            return Tree('explicit_chain', list(items[0].children) + list(items[1].children))
 
-        if len(c) == 2 and isinstance(c[0], Token) and getattr(c[0], 'type', None) == 'IDENT' and isinstance(c[1], Tree):
-            head_ident = c[0]
-            t = c[1]
-            # Case 1: bare implicit/explicit chain at root
-            if t.data in ('implicit_chain', 'explicit_chain'):
-                return Tree('explicit_chain', [head_ident, *t.children])
-            # Case 2: lambdacallN/1 where callee holds an implicit/explicit chain
-            if t.data == 'postfixexpr' and t.children and isinstance(t.children[0], Tree) and t.children[0].data in ('lambdacall1','lambdacalln'):
-                lc = t.children[0]
-                if lc.children and isinstance(lc.children[0], Tree) and lc.children[0].data == 'callee':
-                    callee = lc.children[0]
-                    if callee.children and isinstance(callee.children[0], Tree) and callee.children[0].data in ('implicit_chain','explicit_chain'):
+        return self._keep_or_flatten('start_indented', items)
+
+    @staticmethod
+    def _is_ident_token(node: Any) -> bool:
+        return isinstance(node, Token) and getattr(node, 'type', None) == 'IDENT'
+
+    def _merge_ident_head(self, ident: Token, node: Any) -> Optional[Tree]:
+        if isinstance(node, Tree):
+            if node.data in {'implicit_chain', 'explicit_chain'}:
+                return Tree('explicit_chain', [ident, *node.children])
+            if node.data == 'call':
+                return Tree('explicit_chain', [ident, node])
+            if node.data == 'amp_lambda':
+                return Tree('explicit_chain', [ident, Tree('call', [Tree('args', [node])])])
+            if node.data == 'postfixexpr' and node.children:
+                first = node.children[0]
+                if isinstance(first, Tree) and first.data in {'lambdacall1', 'lambdacalln'}:
+                    callee = next((ch for ch in first.children if isinstance(ch, Tree) and ch.data == 'callee'), None)
+                    if callee and callee.children:
                         chain = callee.children[0]
-                        callee.children[0] = Tree('explicit_chain', [head_ident, *chain.children])
-                        return t
-            if t.data == 'amp_lambda':
-                return Tree('explicit_chain', [head_ident, Tree('call', [Tree('args', [t])])])
-            # Case 3: existing explicit_chain + another chain segment -> fuse
-            if t.data == 'explicit_chain':
-                return Tree('explicit_chain', [head_ident, *t.children])
-        # Default: collapse wrapper if singleton
-        # Attempt to merge consecutive explicit_chain nodes that share structure
-        if len(c) == 2 and isinstance(c[0], Tree) and c[0].data == 'explicit_chain' and isinstance(c[1], Tree) and c[1].data == 'explicit_chain':
-            merged = list(c[0].children) + list(c[1].children)
-            return Tree('explicit_chain', merged)
-
-        return self._keep_or_flatten('start_indented', c)
+                        if isinstance(chain, Tree) and chain.data in {'implicit_chain', 'explicit_chain'}:
+                            callee.children[0] = Tree('explicit_chain', [ident, *chain.children])
+                            return node
+        return None
 
     # helper
     def _keep_or_flatten(self, name, children, alias=None):
@@ -824,11 +757,12 @@ def main():
         if args.prune: tree = Prune().transform(tree)
         validate_named_args(tree)
         validate_hoisted_binders(tree)
-        if args.normalize: tree = ChainNormalize().transform(tree)
+        if args.normalize:
+            tree = ChainNormalize().transform(tree)
         tree = ArgTidy().transform(tree)
         print("\n".join(pretty_inline(tree)))
     else:
-        validate_subject_scope(tree)
+        enforce_subject_scope(tree)
         print("OK")
 if __name__ == "__main__":
     main()
