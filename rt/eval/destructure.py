@@ -10,6 +10,8 @@ from shakar_utils import (
     sequence_items,
     coerce_sequence,
     replicate_empty_sequence,
+    tree_label,
+    tree_children,
 )
 
 def _ident_token_value(node: Any) -> Optional[str]:
@@ -24,7 +26,7 @@ def evaluate_destructure_rhs(
     target_count: int,
     allow_broadcast: bool
 ) -> tuple[list[Any], Any]:
-    if _tree_label(rhs_node) == "pack":
+    if tree_label(rhs_node) == "pack":
         vals = [eval_fn(child, env) for child in rhs_node.children]
         result = ShkArray(vals)
     else:
@@ -61,7 +63,7 @@ def assign_pattern(
     create: bool,
     allow_broadcast: bool
 ) -> None:
-    if _tree_label(pattern) != "pattern" or not getattr(pattern, "children", None):
+    if tree_label(pattern) != "pattern" or not tree_children(pattern):
         raise ShakarRuntimeError("Malformed pattern")
     target = pattern.children[0]
     ident = _ident_token_value(target)
@@ -71,8 +73,8 @@ def assign_pattern(
         else:
             assign_ident(ident, value, env, create=False)
         return
-    if _tree_label(target) == "pattern_list":
-        subpatterns = [c for c in getattr(target, "children", []) if _tree_label(c) == "pattern"]
+    if tree_label(target) == "pattern_list":
+        subpatterns = [c for c in tree_children(target) if tree_label(c) == "pattern"]
         if not subpatterns:
             raise ShakarRuntimeError("Empty nested pattern")
         seq = coerce_sequence(value, len(subpatterns))
@@ -131,18 +133,9 @@ def apply_comp_binders(
         target_env = outer_env if binder.get("hoist") else iter_env
         assign_fn(binder["pattern"], val, target_env, create=True, allow_broadcast=False)
 
-def _tree_label(node: Any) -> Optional[str]:
-    return node.data if isinstance(node, Tree) else None
-
 def _name_exists(env: Env, name: str) -> bool:
     try:
         env.get(name)
         return True
     except ShakarRuntimeError:
         return False
-
-def _child_by_label(node: Any, label: str):
-    for child in getattr(node, "children", []):
-        if _tree_label(child) == label:
-            return child
-    return None

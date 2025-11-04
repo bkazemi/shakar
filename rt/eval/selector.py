@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Iterable, List, Optional
 
-from lark import Tree, Token
 
 from shakar_runtime import (
     ShkArray,
@@ -17,42 +16,48 @@ from shakar_runtime import (
     ShakarTypeError,
 )
 
-from shakar_utils import sequence_items
-
-def _is_token(node: Any) -> bool:
-    return isinstance(node, Token)
-
-def _is_tree(node: Any) -> bool:
-    return isinstance(node, Tree)
+from shakar_utils import (
+    sequence_items,
+    tree_children,
+    tree_label,
+    child_by_label,
+    child_by_labels,
+    first_child,
+    node_meta,
+    is_tree_node,
+    is_token_node,
+)
 
 def eval_selectorliteral(node, env, eval_fn) -> ShkSelector:
-    sellist = _child_by_label(node, "sellist")
+    sellist = child_by_label(node, "sellist")
     if sellist is None:
         return ShkSelector([])
     parts: List[SelectorPart] = []
-    for item in getattr(sellist, "children", []):
-        label = _tree_label(item)
+    for item in tree_children(sellist):
+        label = tree_label(item)
         if label == "selitem":
             parts.extend(_selector_parts_from_selitem(item, env, eval_fn))
         else:
-            wrapped = _child_by_label(item, "selitem")
+            wrapped = child_by_label(item, "selitem")
             target = wrapped if wrapped is not None else item
             parts.extend(_selector_parts_from_selitem(target, env, eval_fn))
     return ShkSelector(parts)
 
 def evaluate_selectorlist(node, env, eval_fn, clamp: bool = True) -> List[SelectorPart]:
     selectors: List[SelectorPart] = []
-    for raw_selector in getattr(node, "children", []):
-        inner = _child_by_labels(raw_selector, {"slicesel", "indexsel"})
+    for raw_selector in tree_children(node):
+        inner = child_by_labels(raw_selector, {"slicesel", "indexsel"})
         target = inner if inner is not None else raw_selector
-        label = _tree_label(target)
+        label = tree_label(target)
         if label == "slicesel":
             selectors.append(_selector_slice_from_slicesel(target, env, eval_fn, clamp))
             continue
         if label == "indexsel":
-            expr_node = _first_child(target, lambda child: not _is_token(child))
-            if expr_node is None and getattr(target, "children", None):
-                expr_node = target.children[0]
+            expr_node = first_child(target, lambda child: not is_token_node(child))
+            if expr_node is None:
+                children = tree_children(target)
+                if children:
+                    expr_node = children[0]
             value = eval_fn(expr_node, env)
             selectors.extend(_expand_selector_value(value, clamp))
             continue
@@ -95,30 +100,30 @@ def selector_iter_values(selector: ShkSelector) -> List[Any]:
     return values
 
 def _selector_parts_from_selitem(node, env, eval_fn) -> List[SelectorPart]:
-    inner = _child_by_labels(node, {"sliceitem", "indexitem"})
+    inner = child_by_labels(node, {"sliceitem", "indexitem"})
     target = inner if inner is not None else node
-    label = _tree_label(target)
+    label = tree_label(target)
     if label == "sliceitem":
         return [_selector_slice_from_sliceitem(target, env, eval_fn)]
     if label == "indexitem":
-        selatom = _child_by_label(target, "selatom")
+        selatom = child_by_label(target, "selatom")
         value = _eval_selector_atom(selatom, env, eval_fn)
         return [SelectorIndex(value)]
     return []
 
 def _selector_slice_from_sliceitem(node, env, eval_fn) -> SelectorSlice:
-    children = list(getattr(node, "children", []))
+    children = list(tree_children(node))
     index = 0
     start_node = None
-    if index < len(children) and _tree_label(children[index]) == "selatom":
+    if index < len(children) and tree_label(children[index]) == "selatom":
         start_node = children[index]
         index += 1
     stop_node = None
-    if index < len(children) and _tree_label(children[index]) == "seloptstop":
+    if index < len(children) and tree_label(children[index]) == "seloptstop":
         stop_node = children[index]
         index += 1
     step_node = None
-    if index < len(children) and _tree_label(children[index]) == "selatom":
+    if index < len(children) and tree_label(children[index]) == "selatom":
         step_node = children[index]
     start_val = _coerce_selector_number(_eval_selector_atom(start_node, env, eval_fn), allow_none=True)
     stop_value, exclusive = _eval_seloptstop(stop_node, env, eval_fn)
@@ -127,7 +132,7 @@ def _selector_slice_from_sliceitem(node, env, eval_fn) -> SelectorSlice:
     return SelectorSlice(start=start_val, stop=stop_val, step=step_val, clamp=False, exclusive_stop=exclusive)
 
 def _selector_slice_from_slicesel(node, env, eval_fn, clamp: bool) -> SelectorSlice:
-    children = list(getattr(node, "children", []))
+    children = list(tree_children(node))
     start_node = children[0] if len(children) > 0 else None
     stop_node = children[1] if len(children) > 1 else None
     step_node = children[2] if len(children) > 2 else None
@@ -139,33 +144,36 @@ def _selector_slice_from_slicesel(node, env, eval_fn, clamp: bool) -> SelectorSl
 def _eval_optional_expr(node, env, eval_fn):
     if node is None:
         return None
-    if _tree_label(node) == "emptyexpr":
+    if tree_label(node) == "emptyexpr":
         return None
     return eval_fn(node, env)
 
 def _eval_selector_atom(node, env, eval_fn):
     if node is None:
         return None
-    if not _is_tree(node):
+    if not is_tree_node(node):
         return eval_fn(node, env)
-    if not getattr(node, "children", None):
+    node_children = tree_children(node)
+    if not node_children:
         return eval_fn(node, env)
-    child = node.children[0]
-    if _tree_label(child) == "interp":
-        expr = _child_by_label(child, "expr")
-        if expr is None and getattr(child, "children", None):
-            expr = child.children[0]
+    child = node_children[0]
+    if tree_label(child) == "interp":
+        expr = child_by_label(child, "expr")
+        if expr is None:
+            child_children = tree_children(child)
+            if child_children:
+                expr = child_children[0]
         if expr is None:
             raise ShakarRuntimeError("Empty interpolation in selector literal")
         return eval_fn(expr, env)
-    if _is_tree(child):
+    if is_tree_node(child):
         return eval_fn(child, env)
     return eval_fn(child, env)
 
 def _eval_seloptstop(node, env, eval_fn) -> tuple[Any, bool]:
     if node is None:
         return None, False
-    selatom = _child_by_label(node, "selatom")
+    selatom = child_by_label(node, "selatom")
     value = _eval_selector_atom(selatom, env, eval_fn)
     segment = _get_source_segment(node, env)
     exclusive = False
@@ -278,7 +286,7 @@ def _get_source_segment(node, env) -> Optional[str]:
     source = getattr(env, "source", None)
     if source is None:
         return None
-    meta = getattr(node, "meta", None)
+    meta = node_meta(node)
     if meta is None:
         return None
     start = getattr(meta, "start_pos", None)
@@ -286,28 +294,3 @@ def _get_source_segment(node, env) -> Optional[str]:
     if start is None or end is None:
         return None
     return source[start:end]
-
-def _tree_label(node: Any) -> Optional[str]:
-    return node.data if _is_tree(node) else None
-
-def _is_tree(node: Any) -> bool:
-    return isinstance(node, Tree)
-
-def _child_by_label(node: Any, label: str):
-    for child in getattr(node, "children", []):
-        if _tree_label(child) == label:
-            return child
-    return None
-
-def _child_by_labels(node: Any, labels: Iterable[str]):
-    label_set = set(labels)
-    for child in getattr(node, "children", []):
-        if _tree_label(child) in label_set:
-            return child
-    return None
-
-def _first_child(node: Any, predicate):
-    for child in getattr(node, "children", []):
-        if predicate(child):
-            return child
-    return None
