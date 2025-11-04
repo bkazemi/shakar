@@ -107,7 +107,7 @@ postfix_call:  "(" arglistnamedmixed? ")" -> call
 imphead: "." IDENT -> field
        | "." "(" arglist? ")"
        | "." LSQB selectorlist ("," "default" ":" expr)? RSQB -> index
-?postfix: postfix_field | postfix_index | postfix_call | postfix_lam1 | postfix_lamn
+?postfix: postfix_field | postfix_index | postfix_call | postfix_lam1 | postfix_lamn | fieldfan
 postfixincr: "++" -> incr | "--" -> decr
 
 array: LSQB _NL* [ expr (_NL* "," _NL* expr)* _NL* ("," _NL*)? ] RSQB -> array

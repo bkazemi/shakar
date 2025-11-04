@@ -59,6 +59,19 @@ class _RebindContext:
         self.value = value
         self.setter = setter
 
+class _FanContext:
+    __slots__ = ("contexts", "values")
+
+    def __init__(self, contexts: List[_RebindContext]) -> None:
+        self.contexts = contexts
+        self.values = [ctx.value for ctx in contexts]
+
+    def update_from_contexts(self) -> None:
+        self.values = [ctx.value for ctx in self.contexts]
+
+    def snapshot(self) -> List[Any]:
+        return list(self.values)
+
 # ---------------- Public API ----------------
 
 def eval_expr(ast: Any, env: Optional[Env]=None, source: Optional[str]=None) -> Any:
@@ -137,7 +150,10 @@ def eval_node(n: Any, env: Env) -> Any:
             if ops and tree_label(ops[-1]) in {'incr', 'decr'}:
                 tail = ops[-1]
                 context = _resolve_chain_assignment(head, ops[:-1], env)
-                old_val, _ = _apply_numeric_delta(context, 1 if tree_label(tail) == 'incr' else -1)
+                delta = 1 if tree_label(tail) == 'incr' else -1
+                if isinstance(context, _FanContext):
+                    raise ShakarRuntimeError("++/-- not supported on field fan assignments")
+                old_val, _ = _apply_numeric_delta(context, delta)
                 return old_val
             val = eval_node(head, env)
             for op in ops:
@@ -146,6 +162,8 @@ def eval_node(n: Any, env: Env) -> Any:
                 final = val.value
                 val.setter(final)
                 return final
+            if isinstance(val, _FanContext):
+                return ShkArray(val.snapshot())
             return val
         case 'implicit_chain':
             return _eval_implicit_chain(n.children, env)
@@ -409,6 +427,8 @@ def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
         _assign_ident(head.value, new_val, env, create=False)
         return new_val
     target = eval_node(head, env)
+    if isinstance(target, _RebindContext):
+        target = target.value
     if not ops:
         raise ShakarRuntimeError("Malformed apply-assign target")
     for op in ops[:-1]:
@@ -905,7 +925,7 @@ def _make_ident_context(name: str, env: Env) -> _RebindContext:
         env.dot = new_value
     return _RebindContext(value, setter)
 
-def _resolve_assignable_node(node: Any, env: Env) -> _RebindContext:
+def _resolve_assignable_node(node: Any, env: Env) -> Any:
     while is_tree_node(node) and tree_label(node) in {'primary', 'group', 'group_expr'} and len(node.children) == 1:
         node = node.children[0]
 
@@ -930,7 +950,7 @@ def _resolve_assignable_node(node: Any, env: Env) -> _RebindContext:
 
     raise ShakarRuntimeError("Increment target must be assignable")
 
-def _resolve_chain_assignment(head_node: Any, ops: List[Any], env: Env) -> _RebindContext:
+def _resolve_chain_assignment(head_node: Any, ops: List[Any], env: Env) -> Any:
     if not ops:
         return _resolve_assignable_node(head_node, env)
 
@@ -960,6 +980,9 @@ def _resolve_chain_assignment(head_node: Any, ops: List[Any], env: Env) -> _Rebi
                 env.dot = new_value
             return _RebindContext(value, setter)
 
+        if is_last and label == 'fieldfan':
+            return _build_fieldfan_context(current, op, env)
+
         current = _apply_op(current, op, env)
         if isinstance(current, _RebindContext):
             current = current.value
@@ -974,9 +997,60 @@ def _apply_numeric_delta(ref: _RebindContext, delta: int) -> tuple[Any, Any]:
     ref.value = new_val
     return current, new_val
 
+def _build_fieldfan_context(owner: Any, fan_node: Tree, env: Env) -> _FanContext:
+    fieldlist_node = child_by_label(fan_node, 'fieldlist')
+    if fieldlist_node is None:
+        raise ShakarRuntimeError("Malformed field fan")
+    names = [tok.value for tok in tree_children(fieldlist_node) if is_token_node(tok) and _token_kind(tok) == 'IDENT']
+    if not names:
+        raise ShakarRuntimeError("Field fan requires at least one identifier")
+    contexts: List[_RebindContext] = []
+    for name in names:
+        value = get_field_value(owner, name, env)
+        def setter(new_value: Any, owner: Any=owner, field_name: str=name) -> None:
+            set_field_value(owner, field_name, new_value, env, create=False)
+            env.dot = new_value
+        contexts.append(_RebindContext(value, setter))
+    return _FanContext(contexts)
+
+def _apply_fan_op(fan: _FanContext, op: Tree, env: Env) -> _FanContext:
+    new_contexts: List[_RebindContext] = []
+    new_values: List[Any] = []
+    has_contexts = False
+    has_values = False
+    for ctx in fan.contexts:
+        res = _apply_op(ctx, op, env)
+        if isinstance(res, _FanContext):
+            if res.contexts:
+                new_contexts.extend(res.contexts)
+                has_contexts = True
+            else:
+                new_values.extend(res.values)
+                has_values = True
+        elif isinstance(res, _RebindContext):
+            new_contexts.append(res)
+            has_contexts = True
+        else:
+            new_values.append(res)
+            has_values = True
+    if not fan.contexts and not new_contexts and not new_values:
+        return fan
+    if has_contexts and has_values:
+        raise ShakarRuntimeError("Mixed field fan results not supported")
+    if has_contexts:
+        fan.contexts = new_contexts
+        fan.update_from_contexts()
+    else:
+        fan.contexts = []
+        fan.values = new_values
+    return fan
+
 # ---------------- Chains ----------------
 
 def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
+    if isinstance(recv, _FanContext):
+        return _apply_fan_op(recv, op, env)
+
     context = None
     if isinstance(recv, _RebindContext):
         context = recv
@@ -990,6 +1064,8 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
         result = _apply_index_operation(recv, op, env)
     elif d == 'slicesel':
         result = _apply_slice(recv, op.children, env)
+    elif d == 'fieldfan':
+        return _build_fieldfan_context(recv, op, env)
     elif d == 'call':
         args = _eval_args_node(op.children[0] if op.children else None, env)
         result = _call_value(recv, args, env)

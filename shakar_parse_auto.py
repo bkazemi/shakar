@@ -488,7 +488,7 @@ class Prune(Transformer):
     def explicit_chain(self, c):
         if len(c) == 1:
             child = c[0]
-            if not (isinstance(child, Tree) and child.data in {'field', 'index', 'call', 'incr', 'decr'}):
+            if not (isinstance(child, Tree) and child.data in {'field', 'index', 'call', 'incr', 'decr', 'fieldfan'}):
                 return child
         return Tree('explicit_chain', c)
     def implicit_chain(self, c): return Tree('implicit_chain', c)

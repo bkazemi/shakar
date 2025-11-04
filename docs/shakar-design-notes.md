@@ -238,6 +238,7 @@ user.first .= .title(); user.last .= .title()
 - Only after a path; `.{…}` here is not a set literal.
 - In `.=` RHS, `.` is the old per-field value.
 - Left-to-right order; duplicates collapse; missing fields are errors.
+- Rebind chains can fan out directly: `=user.{name, email}.trim()` trims both slots and evaluates to `["trimmedName", "trimmedEmail"]`.
 
 ### 3.9 Deep object merge `+>` and `+>=`
 
