@@ -6,16 +6,29 @@ from typing import Any, Callable, Iterable, List, Optional, Tuple
 from lark import Lark, Transformer, Tree, UnexpectedInput, Token
 from lark.visitors import Discard, v_args
 from lark.indenter import Indenter
-from rt.shakar_tree import (
-    is_tree,
-    is_token,
-    tree_label,
-    tree_children,
-    node_meta,
-    child_by_label,
-    child_by_labels,
-    first_child,
-)
+
+try:  # prefer package import when available
+    from rt.shakar_tree import (
+        is_tree,
+        is_token,
+        tree_label,
+        tree_children,
+        node_meta,
+        child_by_label,
+        child_by_labels,
+        first_child,
+    )
+except ImportError:  # fallback for direct execution
+    from shakar_tree import (
+        is_tree,
+        is_token,
+        tree_label,
+        tree_children,
+        node_meta,
+        child_by_label,
+        child_by_labels,
+        first_child,
+    )
 
 def pretty_inline(t, indent=""):
     lines = []
@@ -784,7 +797,32 @@ def parse_to_ast(
     pruned = Prune().transform(tree)
     if normalize:
         pruned = ChainNormalize().transform(pruned)
-    return pruned
+    return _normalize_root(pruned)
+
+# Canonical AST node expectations for downstream consumers. Every Tree returned
+# by parse_to_ast adheres to these shapes:
+#   module(head, ...)            - single root node grouping the program
+#   stmtlist(stmt, ...)          - ordered statements (no Discard children)
+#   explicit_chain(head, op...)  - head expression followed by postfix ops
+#   fieldfan(fieldlist)          - fan-out fields with IDENT tokens only
+#   call(args)                   - call nodes always contain a single args tree
+#   args(expr, ...)              - positional arguments in evaluation order
+#   walrus/assign/bind/etc.      - keep grammar names but operands flattened
+# The runtime relies on these invariants to avoid runtime tree_shape probing.
+def _normalize_root(tree: Tree) -> Tree:
+    label = tree_label(tree)
+    if label not in {"start_noindent", "start_indented"}:
+        return tree
+    children = [child for child in tree_children(tree) if child is not Discard]
+    if len(children) == 1 and is_tree(children[0]) and tree_label(children[0]) == "stmtlist":
+        stmtlist = _strip_discard(children[0])
+    else:
+        stmtlist = _strip_discard(Tree("stmtlist", children))
+    return Tree("module", [stmtlist])
+
+def _strip_discard(node: Tree) -> Tree:
+    kept = [child for child in tree_children(node) if child is not Discard]
+    return Tree(node.data, kept)
 
 
 def main():
