@@ -258,7 +258,7 @@ def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env'
     if fn.params is None:
         if subject is None:
             if not positional:
-                raise ShakarRuntimeError("No subject available for '.'")
+                raise ShakarArityError("Subject-only amp_lambda expects a subject argument")
             subject, *positional = positional
         if positional:
             raise ShakarArityError(f"Subject-only amp_lambda does not take positional args; got {len(positional)} extra")
