@@ -797,7 +797,30 @@ def parse_to_ast(
     pruned = Prune().transform(tree)
     if normalize:
         pruned = ChainNormalize().transform(pruned)
-    return _normalize_root(pruned)
+    normalized = _normalize_root(pruned)
+    canonical = _canonicalize_ast(normalized)
+    if not is_tree(canonical):
+        canonical = Tree('module', [canonical])
+    return canonical
+
+_CANONICAL_RENAMES = {
+    'expr_nc': 'expr',
+    'ternary_nc': 'ternary',
+    'or_nc': 'or',
+    'and_nc': 'and',
+    'bind_nc': 'bind',
+    'walrus_nc': 'walrus',
+    'nullish_nc': 'nullish',
+    'compare_nc': 'compare',
+    'add_nc': 'add',
+    'mul_nc': 'mul',
+    'pow_nc': 'pow',
+    'unary_nc': 'unary',
+}
+
+_FLATTEN_SINGLE = {'expr'}
+
+_IGNORED_TOKEN_TYPES = {'SEMI', '_NL', 'INDENT', 'DEDENT'}
 
 # Canonical AST node expectations for downstream consumers. Every Tree returned
 # by parse_to_ast adheres to these shapes:
@@ -823,6 +846,23 @@ def _normalize_root(tree: Tree) -> Tree:
 def _strip_discard(node: Tree) -> Tree:
     kept = [child for child in tree_children(node) if child is not Discard]
     return Tree(node.data, kept)
+
+def _canonicalize_ast(node: Any) -> Any:
+    if is_token(node):
+        return None if node.type in _IGNORED_TOKEN_TYPES else node
+    if not is_tree(node):
+        return node
+    label = tree_label(node)
+    renamed = _CANONICAL_RENAMES.get(label, label)
+    new_children: List[Any] = []
+    for child in tree_children(node):
+        canon = _canonicalize_ast(child)
+        if canon is None:
+            continue
+        new_children.append(canon)
+    if renamed in _FLATTEN_SINGLE and len(new_children) == 1:
+        return new_children[0]
+    return Tree(renamed, new_children)
 
 
 def main():
