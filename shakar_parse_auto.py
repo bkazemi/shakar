@@ -800,6 +800,7 @@ def parse_to_ast(
     normalized = _normalize_root(pruned)
     canonical = _canonicalize_ast(normalized)
     canonical = _desugar_call_holes(canonical)
+    canonical = _infer_amp_lambda_params(canonical)
     if not is_tree(canonical):
         canonical = Tree('module', [canonical])
     return canonical
@@ -881,6 +882,68 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Tree | None:
     params = [Token('IDENT', name) for name in holes]
     paramlist = Tree('paramlist', params)
     return Tree('amp_lambda', [paramlist, cloned_chain])
+
+def _infer_amp_lambda_params(node: Any) -> Any:
+    if is_token(node) or not is_tree(node):
+        return node
+    label = tree_label(node)
+    if label == 'amp_lambda' and len(node.children) == 1:
+        body = _infer_amp_lambda_params(node.children[0])
+        names, uses_subject = _collect_lambda_free_names(body)
+        if uses_subject and names:
+            raise SyntaxError("Cannot mix subject '.' with implicit parameters in amp_lambda body")
+        if uses_subject or not names:
+            node.children = [body]
+        else:
+            params = [Token('IDENT', name) for name in names]
+            node.children = [Tree('paramlist', params), body]
+        return node
+    node.children = [_infer_amp_lambda_params(child) for child in tree_children(node)]
+    return node
+
+def _collect_lambda_free_names(node: Any) -> tuple[List[str], bool]:
+    names: List[str] = []
+    uses_subject = False
+
+    def append(name: str) -> None:
+        if name not in names:
+            names.append(name)
+
+    def walk(n: Any, parent_label: Optional[str]) -> None:
+        nonlocal uses_subject
+        if is_tree(n):
+            label = tree_label(n)
+            if label == 'amp_lambda':
+                return
+            if label in {'implicit_chain', 'subject'}:
+                uses_subject = True
+            if label == 'explicit_chain':
+                children = tree_children(n)
+                if children:
+                    head = children[0]
+                    ident = _get_ident_value(head)
+                    if ident is not None:
+                        append(ident)
+                    else:
+                        walk(head, label)
+                    for tail in children[1:]:
+                        walk(tail, label)
+                return
+            for idx, child in enumerate(tree_children(n)):
+                walk(child, label)
+            return
+        if is_token(n) and getattr(n, 'type', None) == 'IDENT':
+            if parent_label in {'field', 'paramlist', 'key_ident', 'key_string'}:
+                return
+            append(n.value)
+
+    walk(node, None)
+    return names, uses_subject
+
+def _get_ident_value(node: Any) -> Optional[str]:
+    if is_token(node) and getattr(node, 'type', None) == 'IDENT':
+        return node.value
+    return None
 
 def _canonicalize_ast(node: Any) -> Any:
     if is_token(node):
