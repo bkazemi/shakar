@@ -194,6 +194,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_amp_lambda(n, env)
         case 'compare' | 'compare_nc':
             return _eval_compare(n.children, env)
+        case 'nullish':
+            return _eval_nullish(n.children, env)
         case 'and' | 'or' | 'and_nc' | 'or_nc':
             return _eval_logical(d, n.children, env)
         case 'walrus' | 'walrus_nc':
@@ -779,6 +781,17 @@ def _eval_logical(kind: str, children: List[Any], env: Env) -> Any:
         return last_val
     finally:
         env.dot = prev_dot
+
+def _eval_nullish(children: List[Any], env: Env) -> Any:
+    exprs = [child for child in children if not (is_token_node(child) and _token_kind(child) == 'NULLISH')]
+    if not exprs:
+        return ShkNull()
+    current = eval_node(exprs[0], env)
+    for expr in exprs[1:]:
+        if not isinstance(current, ShkNull):
+            return current
+        current = eval_node(expr, env)
+    return current
 
 def _is_truthy(val: Any) -> bool:
     match val:
