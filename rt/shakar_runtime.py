@@ -255,9 +255,16 @@ def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env'
     - Else: arity must match len(fn.params); bind params; dot=subject.
     """
     from shakar_eval import eval_node  # local import to avoid cycle
-    callee_env = Env(parent=fn.env, dot=subject)
     if fn.params is None:
+        if subject is None:
+            if not positional:
+                raise ShakarRuntimeError("No subject available for '.'")
+            subject, *positional = positional
+        if positional:
+            raise ShakarArityError(f"Subject-only amp_lambda does not take positional args; got {len(positional)} extra")
+        callee_env = Env(parent=fn.env, dot=subject)
         return eval_node(fn.body, callee_env)
+    callee_env = Env(parent=fn.env, dot=subject)
     if len(positional) != len(fn.params):
         raise ShakarArityError(f"Function expects {len(fn.params)} args; got {len(positional)}")
     for name, val in zip(fn.params, positional):
