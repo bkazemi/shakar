@@ -796,17 +796,48 @@ def _eval_nullish(children: List[Any], env: Env) -> Any:
     return current
 
 def _eval_nullsafe(children: List[Any], env: Env) -> Any:
-    exprs = [child for child in children if not is_token_node(child)]
-    if not exprs:
+    if not children:
         return ShkNull()
-    target = exprs[0]
+    expr = children[0]
     saved_dot = env.dot
     try:
-        return eval_node(target, env)
-    except (ShakarRuntimeError, ShakarTypeError):
-        return ShkNull()
+        return _eval_chain_nullsafe(expr, env)
     finally:
         env.dot = saved_dot
+
+def _eval_chain_nullsafe(node: Any, env: Env) -> Any:
+    if not is_tree_node(node) or tree_label(node) != 'explicit_chain':
+        return eval_node(node, env)
+    children = tree_children(node)
+    if not children:
+        return ShkNull()
+    head = children[0]
+    current = eval_node(head, env)
+    if isinstance(current, ShkNull):
+        return ShkNull()
+    for op in children[1:]:
+        try:
+            current = _apply_op(current, op, env)
+        except (ShakarRuntimeError, ShakarTypeError) as err:
+            if _nullsafe_recovers(err, current):
+                return ShkNull()
+            raise
+        if isinstance(current, _RebindContext):
+            current = current.value
+        if isinstance(current, ShkNull):
+            return ShkNull()
+    return current
+
+def _nullsafe_recovers(err: Exception, recv: Any) -> bool:
+    if isinstance(recv, ShkNull):
+        return True
+    if isinstance(err, ShakarRuntimeError):
+        msg = str(err)
+        return msg.startswith("Key '") or "out of bounds" in msg
+    if isinstance(err, ShakarTypeError):
+        msg = str(err)
+        return "Unsupported field access" in msg and "ShkNull" in msg
+    return False
 
 def _is_truthy(val: Any) -> bool:
     match val:
