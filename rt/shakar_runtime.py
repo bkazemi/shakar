@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -141,6 +140,21 @@ class ShakarTypeError(ShakarRuntimeError):
 class ShakarArityError(ShakarRuntimeError):
     pass
 
+class ShakarKeyError(ShakarRuntimeError):
+    def __init__(self, key: str):
+        super().__init__(f"Key '{key}' not found")
+        self.key = key
+
+class ShakarIndexError(ShakarRuntimeError):
+    def __init__(self, message: str = "Index out of bounds"):
+        super().__init__(message)
+
+class ShakarMethodNotFound(ShakarRuntimeError):
+    def __init__(self, recv: Any, name: str):
+        super().__init__(f"{type(recv).__name__} has no builtin method '{name}'")
+        self.receiver = recv
+        self.name = name
+
 # ---------- Built-in method registry ----------
 
 class Builtins:
@@ -231,7 +245,7 @@ def call_builtin_method(recv: Any, name: str, args: List[Any], env: 'Env') -> An
     if isinstance(recv, ShkObject):
         fn = Builtins.object_methods.get(name)
         if fn: return fn(env, recv, args)
-    raise ShakarRuntimeError("No builtin method")
+    raise ShakarMethodNotFound(recv, name)
 
 def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env') -> Any:
     """

@@ -14,6 +14,7 @@ from shakar_runtime import (
     SelectorPart,
     ShakarRuntimeError,
     ShakarTypeError,
+    ShakarIndexError,
 )
 
 from shakar_utils import sequence_items
@@ -212,7 +213,7 @@ def _apply_selectors_to_array(arr: ShkArray, selectors: List[SelectorPart]) -> S
             idx = _selector_index_to_int(part.value)
             pos = _normalize_index_position(idx, length)
             if pos < 0 or pos >= length:
-                raise ShakarRuntimeError("Array index out of bounds")
+                raise ShakarIndexError("Array index out of bounds")
             result.append(items[pos])
             continue
         slice_obj = _selector_slice_to_slice(part, length)
@@ -227,7 +228,7 @@ def _apply_selectors_to_string(s: ShkString, selectors: List[SelectorPart]) -> S
             idx = _selector_index_to_int(part.value)
             pos = _normalize_index_position(idx, length)
             if pos < 0 or pos >= length:
-                raise ShakarRuntimeError("String index out of bounds")
+                raise ShakarIndexError("String index out of bounds")
             pieces.append(s.value[pos])
             continue
         slice_obj = _selector_slice_to_slice(part, length)

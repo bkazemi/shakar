@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from shakar_runtime import (
     Env, ShkNumber, ShkString, ShkBool, ShkNull, ShkArray, ShkObject, Descriptor, ShkFn, BoundMethod, BuiltinMethod,
     ShkSelector, SelectorIndex, SelectorSlice,
-    ShakarRuntimeError, ShakarTypeError, ShakarArityError,
+    ShakarRuntimeError, ShakarTypeError, ShakarArityError, ShakarKeyError, ShakarIndexError, ShakarMethodNotFound,
     call_builtin_method, call_shkfn, Builtins
 )
 
@@ -831,13 +831,7 @@ def _eval_chain_nullsafe(node: Any, env: Env) -> Any:
 def _nullsafe_recovers(err: Exception, recv: Any) -> bool:
     if isinstance(recv, ShkNull):
         return True
-    if isinstance(err, ShakarRuntimeError):
-        msg = str(err)
-        return msg.startswith("Key '") or "out of bounds" in msg
-    if isinstance(err, ShakarTypeError):
-        msg = str(err)
-        return "Unsupported field access" in msg and "ShkNull" in msg
-    return False
+    return isinstance(err, (ShakarKeyError, ShakarIndexError))
 
 def _is_truthy(val: Any) -> bool:
     match val:
@@ -1135,7 +1129,7 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
         args = _eval_args_node(op.children[1] if len(op.children)>1 else None, env)
         try:
             result = call_builtin_method(recv, method_name, args, env)
-        except Exception:
+        except ShakarMethodNotFound:
             cal = get_field_value(recv, method_name, env)
             if isinstance(cal, BoundMethod):
                 result = call_shkfn(cal.fn, args, subject=cal.subject, caller_env=env)

@@ -18,6 +18,8 @@ from shakar_runtime import (
     ShkString,
     ShakarRuntimeError,
     ShakarTypeError,
+    ShakarKeyError,
+    ShakarIndexError,
     call_shkfn,
 )
 from eval.selector import clone_selector_parts, apply_selectors_to_value
@@ -60,14 +62,20 @@ def index_value(recv: Any, idx: Any, env: Env) -> Any:
                 cloned = clone_selector_parts(idx.parts, clamp=True)
                 return apply_selectors_to_value(recv, cloned, env)
             if isinstance(idx, ShkNumber):
-                return items[int(idx.value)]
+                try:
+                    return items[int(idx.value)]
+                except IndexError:
+                    raise ShakarIndexError("Array index out of bounds")
             raise ShakarTypeError("Array index must be a number")
         case ShkString(value=s):
             if isinstance(idx, ShkSelector):
                 cloned = clone_selector_parts(idx.parts, clamp=True)
                 return apply_selectors_to_value(recv, cloned, env)
             if isinstance(idx, ShkNumber):
-                return ShkString(s[int(idx.value)])
+                try:
+                    return ShkString(s[int(idx.value)])
+                except IndexError:
+                    raise ShakarIndexError("String index out of bounds")
             raise ShakarTypeError("String index must be a number")
         case ShkObject(slots=slots):
             key = _normalize_index_key(idx)
@@ -79,7 +87,7 @@ def index_value(recv: Any, idx: Any, env: Env) -> Any:
                         return ShkNull()
                     return call_shkfn(getter, [], subject=recv, caller_env=env)
                 return val
-            raise ShakarRuntimeError(f"Key '{key}' not found")
+            raise ShakarKeyError(key)
         case _:
             raise ShakarTypeError("Unsupported index operation")
 
@@ -106,7 +114,7 @@ def get_field_value(recv: Any, name: str, env: Env) -> Any:
                 if isinstance(slot, ShkFn):
                     return BoundMethod(slot, recv)
                 return slot
-            raise ShakarRuntimeError(f"Key '{name}' not found")
+            raise ShakarKeyError(name)
         case ShkArray(items=items):
             if name == "len":
                 return ShkNumber(float(len(items)))
