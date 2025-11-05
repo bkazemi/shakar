@@ -799,6 +799,7 @@ def parse_to_ast(
         pruned = ChainNormalize().transform(pruned)
     normalized = _normalize_root(pruned)
     canonical = _canonicalize_ast(normalized)
+    canonical = _desugar_call_holes(canonical)
     if not is_tree(canonical):
         canonical = Tree('module', [canonical])
     return canonical
@@ -846,6 +847,40 @@ def _normalize_root(tree: Tree) -> Tree:
 def _strip_discard(node: Tree) -> Tree:
     kept = [child for child in tree_children(node) if child is not Discard]
     return Tree(node.data, kept)
+
+def _desugar_call_holes(node: Any) -> Any:
+    if is_token(node) or not is_tree(node):
+        return node
+    transformed_children = [_desugar_call_holes(child) for child in tree_children(node)]
+    new_node = Tree(tree_label(node), transformed_children)
+    if tree_label(node) == 'explicit_chain':
+        replacement = _chain_to_lambda_if_holes(new_node)
+        if replacement is not None:
+            return replacement
+    return new_node
+
+def _chain_to_lambda_if_holes(chain: Tree) -> Tree | None:
+    holes: List[str] = []
+
+    def clone(node: Any) -> Any:
+        if is_token(node):
+            return node
+        if not is_tree(node):
+            return node
+        label = tree_label(node)
+        if label == 'holeexpr':
+            name = f"_hole{len(holes)}"
+            holes.append(name)
+            return Token('IDENT', name)
+        cloned_children = [clone(child) for child in tree_children(node)]
+        return Tree(label, cloned_children)
+
+    cloned_chain = clone(chain)
+    if not holes:
+        return None
+    params = [Token('IDENT', name) for name in holes]
+    paramlist = Tree('paramlist', params)
+    return Tree('amp_lambda', [paramlist, cloned_chain])
 
 def _canonicalize_ast(node: Any) -> Any:
     if is_token(node):
