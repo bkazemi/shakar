@@ -196,6 +196,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_compare(n.children, env)
         case 'nullish':
             return _eval_nullish(n.children, env)
+        case 'nullsafe':
+            return _eval_nullsafe(n.children, env)
         case 'and' | 'or' | 'and_nc' | 'or_nc':
             return _eval_logical(d, n.children, env)
         case 'walrus' | 'walrus_nc':
@@ -792,6 +794,19 @@ def _eval_nullish(children: List[Any], env: Env) -> Any:
             return current
         current = eval_node(expr, env)
     return current
+
+def _eval_nullsafe(children: List[Any], env: Env) -> Any:
+    exprs = [child for child in children if not is_token_node(child)]
+    if not exprs:
+        return ShkNull()
+    target = exprs[0]
+    saved_dot = env.dot
+    try:
+        return eval_node(target, env)
+    except (ShakarRuntimeError, ShakarTypeError):
+        return ShkNull()
+    finally:
+        env.dot = saved_dot
 
 def _is_truthy(val: Any) -> bool:
     match val:
