@@ -1097,7 +1097,7 @@ reduce&(acc + x)(xs, 0)            # error: implicit params disabled; write &[ac
   ```
 - **assert expr, "msg"** raises if falsey; build can strip or keep.
 - **dbg expr** logs and returns expr; can be stripped in release.
-- **Events**: `hook "name" => &(handler(.))` ⇒ `Event.on(name, handler)`
+- **Events**: `hook "name": .emit()` ⇒ `Event.on(name, &( .emit()))`
 
 ---
 
@@ -1427,7 +1427,7 @@ CatchExpr       ::= Expr "catch" IDENT? "=>" Expr ;
 CatchStmt       ::= Expr "catch" (InlineBody | IndentBlock) ;
 CatchSugar      ::= Expr "@@" IDENT? "=>" Expr ;
 
-Hook            ::= "hook" STRING "=>" LambdaExpr ;
+Hook            ::= "hook" STRING ":" Body ;
 LambdaExpr      ::= "(" ParamList? ")" "=>" (Expr | IndentBlock) ;
 
 (* ===== Objects ===== *)

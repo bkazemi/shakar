@@ -50,96 +50,52 @@ def pretty_inline(t, indent=""):
         # Token
         return [f"{indent}{t.type.lower()}  {t.value}"]
 
-class ValidateSubjectScope(Transformer):
-    """
-    Enforce spec rule: bare '.' is only legal inside a binder/anchor context.
-    Binders:
-      - bindexpr (LHS .= RHS): subject during RHS
-      - awaitstmt with trailing body: subject inside the body
-      - forsubject / forindexed bodies: subject inside body
-      - lambdacall1 / lambdacalln: subject inside the lambda body
-      - stmtsubjectassign: subject while parsing its tail
-    """
-    def __init__(self):
-        super().__init__()
-        self.depth = 0
-        self.errors = []
-
-    # helper to validate an arbitrary subtree under a temporary subject scope
-    def _with_subject(self, subtree):
-        self.depth += 1
-        out = self.transform(subtree)
-        self.depth -= 1
-        return out
-
-    # Node emitted by grammar for bare '.'
-    def subject(self, children):
-        if self.depth == 0:
-            self.errors.append("bare '.' outside a binder/anchor context")
-        return Tree('subject', children)
-
-    # LHS .= RHS (as per your grammar: bindexpr: walrusexpr | lvalue '.=' bindexexpr)
-    def bindexpr(self, children):
-        # right-assoc chain: lvalue '.=' <bindexpr>
-        if len(children) == 2:
-            lhs, rhs = children
-            # validate RHS under subject
-            rhs_valid = self._with_subject(rhs)
-            return Tree('bindexpr', [lhs, rhs_valid])
-        return Tree('bindexpr', children)
-
-    # await expr ':' (inlinebody | indentblock)
-    def awaitstmt(self, children):
-        # Find trailing body subtrees and validate them under subject
-        new_children = []
-        for ch in children:
-            if is_tree(ch) and tree_label(ch) in {'inlinebody', 'indentblock'}:
-                new_children.append(self._with_subject(ch))
-            else:
-                new_children.append(ch)
-        return Tree('awaitstmt', new_children)
-
-    # Subjectful loops (your grammar has forsubject / forindexed)
-    def forsubject(self, children):
-        # body is last child after ':'
-        if children:
-            body = children[-1]
-            children[-1] = self._with_subject(body)
-        return Tree('forsubject', children)
-
-    def forindexed(self, children):
-        if children:
-            body = children[-1]
-            children[-1] = self._with_subject(body)
-        return Tree('forindexed', children)
-
-    # Lambda callee sigil forms; enable subject in the lambda body expr
-    def lambdacall1(self, children):
-        # callee '&' '(' expr ')'
-        if children:
-            children[-1] = self._with_subject(children[-1])
-        return Tree('lambdacall1', children)
-
-    def lambdacalln(self, children):
-        # callee '&' '[' paramlist ']' '(' expr ')'
-        if children:
-            children[-1] = self._with_subject(children[-1])
-        return Tree('lambdacalln', children)
-
-    # Statement-subject assignment (=LHS tail)
-    def stmtsubjectassign(self, children):
-        if children:
-            # convention: tail is last child
-            children[-1] = self._with_subject(children[-1])
-        return Tree('stmtsubjectassign', children)
-
-
 def enforce_subject_scope(tree: Tree) -> None:
     """Validate that bare '.' only appears inside an anchor/binder context."""
-    validator = ValidateSubjectScope()
-    validator.transform(tree)
-    if validator.errors:
-        raise SyntaxError(validator.errors[0])
+    errors: List[str] = []
+
+    def visit(node: Any, depth: int) -> None:
+        if not is_tree(node):
+            return
+        label = tree_label(node)
+        children = list(tree_children(node))
+
+        if label == 'subject':
+            if depth == 0:
+                errors.append("bare '.' outside a binder/anchor context")
+            return
+
+        if label == 'bindexpr' and len(children) == 2:
+            visit(children[0], depth)
+            visit(children[1], depth + 1)
+            return
+
+        if label in {'awaitstmt', 'hook'}:
+            for ch in children:
+                if is_tree(ch) and tree_label(ch) in {'inlinebody', 'indentblock'}:
+                    visit(ch, depth + 1)
+                else:
+                    visit(ch, depth)
+            return
+
+        if label in {'forsubject', 'forindexed'} and children:
+            for ch in children[:-1]:
+                visit(ch, depth)
+            visit(children[-1], depth + 1)
+            return
+
+        if label in {'lambdacall1', 'lambdacalln', 'stmtsubjectassign'} and children:
+            for ch in children[:-1]:
+                visit(ch, depth)
+            visit(children[-1], depth + 1)
+            return
+
+        for ch in children:
+            visit(ch, depth)
+
+    visit(tree, 0)
+    if errors:
+        raise SyntaxError(errors[0])
 
 class ChainNormalize(Transformer):
     @staticmethod
@@ -266,6 +222,23 @@ class Prune(Transformer):
     def setcomp(self, c):
         items = [x for x in c if not (is_token(x) and getattr(x, "type", "") == "SET")]
         return Tree('setcomp', items)
+
+    def hook(self, c):
+        event_name = None
+        body = None
+        for node in c:
+            if is_token(node) and getattr(node, "type", "") == "STRING":
+                event_name = node
+            elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+                body = node
+        children: list[Any] = []
+        if event_name is not None:
+            children.append(event_name)
+        if body is not None:
+            children.append(Tree('amp_lambda', [body]))
+        else:
+            children.append(Tree('amp_lambda', [Tree('inlinebody', [])]))
+        return Tree('hook', children)
 
     def lambdacall1(self, c):
         body = c[-1] if c else None

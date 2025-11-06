@@ -265,10 +265,7 @@ catchexpr: expr "catch" IDENT? "=>" expr
 !catchstmt: expr "catch" (inlinebody | indentblock)
 catchsugar: expr "@@" IDENT? "=>" expr
 
-hook: HOOK STRING "=>" lambdaexpr
-
-//lambdaexpr: "(" paramlist? ")" "=>" (expr | indentblock)
-lambdaexpr: "&" ("[" paramlist "]")? "(" expr ")"
+hook: HOOK STRING ":" (inlinebody | indentblock)
 
 // SINGLE-TOKEN separators
 obj_sep: COMMA | SEMI | _NL | INDENT | DEDENT
