@@ -44,12 +44,19 @@ DEDENT: /_SHK_DED_/
 
 DEEPMERGE: "+>"
 CARET: "^"
-PLUS: "+"
-MINUS: "-"
-STAR: "*"
+POWEQ: "**="
 POW : "**"
+STAREQ: "*="
+STAR: "*"
+FLOORDIVEQ: "//="
 FLOORDIV: "//"
+SLASHEQ: "/="
 SLASH: "/"
+PLUSEQ: "+="
+PLUS: "+"
+MINUSEQ: "-="
+MINUS: "-"
+MODEQ: "%="
 MOD: "%"
 NEG: "!"
 
@@ -157,6 +164,7 @@ fieldfan: "." "{" fieldlist "}"
 ?basesimplestmt: expr
                   | returnstmt
                   | assignor
+                  | compound_assign
                   | stmtsubjectassign
                   | assignstmt
                   | destructure
@@ -267,6 +275,8 @@ catchexpr: expr "catch" IDENT? "=>" expr
 catchsugar: expr "@@" IDENT? "=>" expr
 
 hook: HOOK STRING ":" (inlinebody | indentblock)
+
+compound_assign: lvalue (PLUSEQ | MINUSEQ | STAREQ | SLASHEQ | FLOORDIVEQ | MODEQ | POWEQ) expr_nc
 
 // SINGLE-TOKEN separators
 obj_sep: COMMA | SEMI | _NL | INDENT | DEDENT

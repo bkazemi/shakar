@@ -205,6 +205,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_walrus(n.children, env)
         case 'assignstmt':
             return _eval_assign_stmt(n.children, env)
+        case 'compound_assign':
+            return _eval_compound_assign(n.children, env)
         case 'bind' | 'bind_nc':
             return _eval_apply_assign(n.children, env)
         case 'subject':
@@ -340,6 +342,28 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     _assign_lvalue(lvalue_node, value, env, create=False)
     return ShkNull()
 
+def _eval_compound_assign(children: List[Any], env: Env) -> Any:
+    if len(children) < 3:
+        raise ShakarRuntimeError("Malformed compound assignment")
+    lvalue_node = children[0]
+    rhs_node = children[-1]
+    op_token = None
+    for child in children[1:-1]:
+        if is_token_node(child):
+            op_token = child
+            break
+    if op_token is None:
+        raise ShakarRuntimeError("Compound assignment missing operator")
+    op_value = op_token.value
+    op_symbol = _COMPOUND_ASSIGN_OPERATORS.get(op_value)
+    if op_symbol is None:
+        raise ShakarRuntimeError(f"Unsupported compound operator {op_value}")
+    current_value = _read_lvalue_value(lvalue_node, env)
+    rhs_value = eval_node(rhs_node, env)
+    new_value = _apply_binary_operator(op_symbol, current_value, rhs_value)
+    _assign_lvalue(lvalue_node, new_value, env, create=False)
+    return ShkNull()
+
 def _eval_apply_assign(children: List[Any], env: Env) -> Any:
     lvalue_node = None
     rhs_node = None
@@ -423,6 +447,30 @@ def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
                 set_field_value(target, name, val, env, create=create)
             return value
     raise ShakarRuntimeError("Unsupported assignment target")
+
+def _read_lvalue_value(node: Any, env: Env) -> Any:
+    if not is_tree_node(node) or tree_label(node) != 'lvalue':
+        raise ShakarRuntimeError("Invalid lvalue")
+    if not node.children:
+        raise ShakarRuntimeError("Empty lvalue")
+    head, *ops = node.children
+    if not ops and is_token_node(head) and _token_kind(head) == 'IDENT':
+        return env.get(head.value)
+    target = eval_node(head, env)
+    if not ops:
+        raise ShakarRuntimeError("Malformed lvalue")
+    for op in ops[:-1]:
+        target = _apply_op(target, op, env)
+    final_op = ops[-1]
+    label = tree_label(final_op)
+    match label:
+        case 'field' | 'fieldsel':
+            field_name = _expect_ident_token(final_op.children[0], "Field value access")
+            return get_field_value(target, field_name, env)
+        case 'lv_index':
+            idx_val = _evaluate_index_operand(final_op, env)
+            return index_value(target, idx_val, env)
+    raise ShakarRuntimeError("Compound assignment not supported for this target")
 
 def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
     head, *ops = lvalue_node.children
@@ -920,30 +968,7 @@ def _eval_infix(children: List[Any], env: Env, right_assoc_ops: set|None=None) -
     for x in it:
         op = _as_op(x)
         rhs = eval_node(next(it), env)
-        match op:
-            case '+':
-                if isinstance(acc, ShkString) or isinstance(rhs, ShkString):
-                    acc = ShkString(str(getattr(acc, 'value', acc)) + str(getattr(rhs, 'value', rhs)))
-                else:
-                    _require_number(acc); _require_number(rhs)
-                    acc = ShkNumber(acc.value + rhs.value)
-            case '-':
-                _require_number(acc); _require_number(rhs)
-                acc = ShkNumber(acc.value - rhs.value)
-            case '*':
-                _require_number(acc); _require_number(rhs)
-                acc = ShkNumber(acc.value * rhs.value)
-            case '/':
-                _require_number(acc); _require_number(rhs)
-                acc = ShkNumber(acc.value / rhs.value)
-            case '//':
-                _require_number(acc); _require_number(rhs)
-                acc = ShkNumber(math.floor(acc.value / rhs.value))
-            case '%':
-                _require_number(acc); _require_number(rhs)
-                acc = ShkNumber(acc.value % rhs.value)
-            case _:
-                raise ShakarRuntimeError(f"Unknown operator {op}")
+        acc = _apply_binary_operator(op, acc, rhs)
     return acc
 
 def _all_ops_in(children: List[Any], allowed: set) -> bool:
@@ -972,6 +997,49 @@ def _as_op(x: Any) -> str:
             return tokens[0]
 
     raise ShakarRuntimeError(f"Expected operator token, got {x!r}")
+
+_COMPOUND_ASSIGN_OPERATORS: dict[str, str] = {
+    '+=': '+',
+    '-=': '-',
+    '*=': '*',
+    '/=': '/',
+    '//=': '//',
+    '%=': '%',
+    '**=': '**',
+}
+
+def _stringify(value: Any) -> str:
+    if isinstance(value, ShkString):
+        return value.value
+    inner = getattr(value, 'value', value)
+    return str(inner)
+
+def _apply_binary_operator(op: str, lhs: Any, rhs: Any) -> Any:
+    match op:
+        case '+':
+            if isinstance(lhs, ShkString) or isinstance(rhs, ShkString):
+                return ShkString(_stringify(lhs) + _stringify(rhs))
+            _require_number(lhs); _require_number(rhs)
+            return ShkNumber(lhs.value + rhs.value)
+        case '-':
+            _require_number(lhs); _require_number(rhs)
+            return ShkNumber(lhs.value - rhs.value)
+        case '*':
+            _require_number(lhs); _require_number(rhs)
+            return ShkNumber(lhs.value * rhs.value)
+        case '/':
+            _require_number(lhs); _require_number(rhs)
+            return ShkNumber(lhs.value / rhs.value)
+        case '//':
+            _require_number(lhs); _require_number(rhs)
+            return ShkNumber(math.floor(lhs.value / rhs.value))
+        case '%':
+            _require_number(lhs); _require_number(rhs)
+            return ShkNumber(lhs.value % rhs.value)
+        case '**':
+            _require_number(lhs); _require_number(rhs)
+            return ShkNumber(lhs.value ** rhs.value)
+    raise ShakarRuntimeError(f"Unknown operator {op}")
 
 def _require_number(v: Any) -> None:
     if not isinstance(v, ShkNumber):
