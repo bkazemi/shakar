@@ -48,6 +48,7 @@ PLUS: "+"
 MINUS: "-"
 STAR: "*"
 POW : "**"
+FLOORDIV: "//"
 SLASH: "/"
 MOD: "%"
 NEG: "!"
@@ -91,7 +92,7 @@ addexpr: mulexpr ( addop mulexpr )*
 addop: DEEPMERGE | CARET | PLUS | MINUS
 powexpr: unaryexpr ( POW powexpr )?
 mulexpr: powexpr ( mulop powexpr )*
-mulop: STAR | SLASH | MOD
+mulop: STAR | SLASH | FLOORDIV | MOD
 unaryexpr: await_value
          | unaryprefixop unaryexpr
          | postfixexpr

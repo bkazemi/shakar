@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable, Iterable, List, Optional
+import math
 from lark import Tree, Token
 
 from contextlib import contextmanager
@@ -935,6 +936,9 @@ def _eval_infix(children: List[Any], env: Env, right_assoc_ops: set|None=None) -
             case '/':
                 _require_number(acc); _require_number(rhs)
                 acc = ShkNumber(acc.value / rhs.value)
+            case '//':
+                _require_number(acc); _require_number(rhs)
+                acc = ShkNumber(math.floor(acc.value / rhs.value))
             case '%':
                 _require_number(acc); _require_number(rhs)
                 acc = ShkNumber(acc.value % rhs.value)
