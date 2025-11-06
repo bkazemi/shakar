@@ -1,7 +1,7 @@
 //start: (comment | stmtlist | NEWLINE | _NL)*
 
 start_noindent: stmtlist (_NL+ stmtlist)* _NL*
-start_indented: stmtlist ( (_NL+)? stmtlist)* _NL*
+start_indented: stmtlist (_NL+ stmtlist)* _NL*
 //start_indented: stmtlist (NEWLINE+ stmtlist)* NEWLINE*
 
 RBRACE: "}"
