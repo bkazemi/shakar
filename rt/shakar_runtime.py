@@ -155,6 +155,9 @@ class ShakarMethodNotFound(ShakarRuntimeError):
         self.receiver = recv
         self.name = name
 
+class ShakarAssertionError(ShakarRuntimeError):
+    pass
+
 # ---------- Built-in method registry ----------
 
 class Builtins:

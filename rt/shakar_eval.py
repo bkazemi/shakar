@@ -11,6 +11,7 @@ from shakar_runtime import (
     Env, ShkNumber, ShkString, ShkBool, ShkNull, ShkArray, ShkObject, Descriptor, ShkFn, BoundMethod, BuiltinMethod,
     ShkSelector, SelectorIndex, SelectorSlice,
     ShakarRuntimeError, ShakarTypeError, ShakarArityError, ShakarKeyError, ShakarIndexError, ShakarMethodNotFound,
+    ShakarAssertionError,
     call_builtin_method, call_shkfn, Builtins
 )
 
@@ -207,6 +208,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_assign_stmt(n.children, env)
         case 'compound_assign':
             return _eval_compound_assign(n.children, env)
+        case 'assert':
+            return _eval_assert(n.children, env)
         case 'bind' | 'bind_nc':
             return _eval_apply_assign(n.children, env)
         case 'subject':
@@ -341,6 +344,18 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     value = eval_node(value_node, env)
     _assign_lvalue(lvalue_node, value, env, create=False)
     return ShkNull()
+
+def _eval_assert(children: List[Any], env: Env) -> Any:
+    if not children:
+        raise ShakarRuntimeError("Malformed assert statement")
+    cond_val = eval_node(children[0], env)
+    if _is_truthy(cond_val):
+        return ShkNull()
+    message = f"Assertion failed: {_assert_source_snippet(children[0], env)}"
+    if len(children) > 1:
+        msg_val = eval_node(children[1], env)
+        message = _stringify(msg_val)
+    raise ShakarAssertionError(message)
 
 def _eval_compound_assign(children: List[Any], env: Env) -> Any:
     if len(children) < 3:
@@ -1014,6 +1029,17 @@ def _stringify(value: Any) -> str:
     inner = getattr(value, 'value', value)
     return str(inner)
 
+def _assert_source_snippet(node: Any, env: Env) -> str:
+    src = getattr(env, 'source', None)
+    if src is not None:
+        start, end = _node_source_span(node)
+        if start is not None and end is not None and 0 <= start < end <= len(src):
+            snippet = src[start:end].strip()
+            if snippet:
+                return snippet
+    rendered = _render_expr(node)
+    return rendered if rendered else "<expr>"
+
 def _apply_binary_operator(op: str, lhs: Any, rhs: Any) -> Any:
     match op:
         case '+':
@@ -1040,6 +1066,32 @@ def _apply_binary_operator(op: str, lhs: Any, rhs: Any) -> Any:
             _require_number(lhs); _require_number(rhs)
             return ShkNumber(lhs.value ** rhs.value)
     raise ShakarRuntimeError(f"Unknown operator {op}")
+
+def _render_expr(node: Any) -> str:
+    if is_token_node(node):
+        return node.value
+    if not is_tree_node(node):
+        return str(node)
+    parts: List[str] = []
+    for child in tree_children(node):
+        rendered = _render_expr(child)
+        if rendered:
+            parts.append(rendered)
+    return " ".join(parts)
+
+def _node_source_span(node: Any) -> tuple[int | None, int | None]:
+    meta = node_meta(node)
+    start = getattr(meta, 'start_pos', None)
+    end = getattr(meta, 'end_pos', None)
+    if start is not None and end is not None:
+        return start, end
+    if is_tree_node(node):
+        child_spans = [_node_source_span(child) for child in tree_children(node)]
+        child_starts = [s for s, _ in child_spans if s is not None]
+        child_ends = [e for _, e in child_spans if e is not None]
+        if child_starts and child_ends:
+            return min(child_starts), max(child_ends)
+    return None, None
 
 def _require_number(v: Any) -> None:
     if not isinstance(v, ShkNumber):

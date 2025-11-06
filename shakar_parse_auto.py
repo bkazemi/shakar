@@ -357,7 +357,6 @@ class Prune(Transformer):
         except NameError:
             return Tree('explicit_chain', list(chain.children) + [callnode])
 
-    # value-level lambdas
     def amp_lambda1(self, c):
         return Tree('amp_lambda', [c[0]]) # body only; unary implicit '.'
 
@@ -986,5 +985,16 @@ def main():
     else:
         enforce_subject_scope(tree)
         print("OK")
+
+def _prune_assert(self, c):
+    filtered = [node for node in c if not (is_token(node) and getattr(node, "type", "") == "ASSERT")]
+    node = Tree('assert', filtered)
+    meta = getattr(c[0], 'meta', None) if c else None
+    if meta is not None:
+        node.meta = meta
+    return node
+
+setattr(Prune, 'assert', _prune_assert)
+
 if __name__ == "__main__":
     main()
