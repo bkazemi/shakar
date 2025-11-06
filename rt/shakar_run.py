@@ -43,13 +43,24 @@ def run(src: str, grammar_path: str|None=None, use_indenter: bool=False) -> obje
 
     return eval_expr(ast2, Env(source=src), source=src)
 
+def _load_source(arg: str | None) -> str:
+    """
+    Resolve CLI input into source text.
+    - None or "-" => read stdin.
+    - Existing path => read file contents.
+    - Otherwise treat the argument as literal source.
+    """
+    if arg in (None, "-"):
+        data = sys.stdin.read()
+        if not data:
+            raise SystemExit("No input provided on stdin")
+        return data
+    candidate = Path(arg)
+    if candidate.exists():
+        return candidate.read_text(encoding="utf-8")
+    return arg
+
 if __name__ == "__main__":
-    # quick smoke
-    #print(run("1 !is 2"))
-    #print(run("[1,2,3].map&(x * x).to_list()"))
-    #print(run("func(\"yo\")"))
-    #print(run("1*1"))
-    #print(run("&(.trim())"))
-    #print(run("a = 1"))
-    if len(sys.argv) > 1:
-      print(run(sys.argv[1]))
+    arg = sys.argv[1] if len(sys.argv) > 1 else "-"
+    source = _load_source(arg)
+    print(run(source))
