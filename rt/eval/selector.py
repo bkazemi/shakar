@@ -40,6 +40,7 @@ def eval_selectorliteral(node, env, eval_fn) -> ShkSelector:
         if label == "selitem":
             parts.extend(_selector_parts_from_selitem(item, env, eval_fn))
         else:
+            # grammar may wrap selitem inside helper nodes; unwrap when present.
             wrapped = child_by_label(item, "selitem")
             target = wrapped if wrapped is not None else item
             parts.extend(_selector_parts_from_selitem(target, env, eval_fn))
@@ -53,6 +54,7 @@ def evaluate_selectorlist(node, env, eval_fn, clamp: bool = True) -> List[Select
         target = inner if inner is not None else raw_selector
         label = tree_label(target)
         if label == "slicesel":
+            # slicesel already encodes explicit start/stop/step nodes.
             selectors.append(_selector_slice_from_slicesel(target, env, eval_fn, clamp))
             continue
         if label == "indexsel":
@@ -62,6 +64,7 @@ def evaluate_selectorlist(node, env, eval_fn, clamp: bool = True) -> List[Select
                 if children:
                     expr_node = children[0]
             value = eval_fn(expr_node, env)
+            # indexsel can evaluate to either a single index or another selector literal.
             selectors.extend(_expand_selector_value(value, clamp))
             continue
         value = eval_fn(target, env)
@@ -132,6 +135,7 @@ def _selector_slice_from_sliceitem(node, env, eval_fn) -> SelectorSlice:
     step_node = None
     if index < len(children) and tree_label(children[index]) == "selatom":
         step_node = children[index]
+    # sliceitem uses selatom nodes for start/step and seloptstop for stop.
     start_val = _coerce_selector_number(_eval_selector_atom(start_node, env, eval_fn), allow_none=True)
     stop_value, exclusive = _eval_seloptstop(stop_node, env, eval_fn)
     stop_val = _coerce_selector_number(stop_value, allow_none=True)
@@ -146,6 +150,7 @@ def _selector_slice_from_slicesel(node, env, eval_fn, clamp: bool) -> SelectorSl
     start_val = _coerce_selector_number(_eval_optional_expr(start_node, env, eval_fn), allow_none=True)
     stop_val = _coerce_selector_number(_eval_optional_expr(stop_node, env, eval_fn), allow_none=True)
     step_val = _coerce_selector_number(_eval_optional_expr(step_node, env, eval_fn), allow_none=True)
+    # slicesel originates from runtime selector expressions `xs[start:stop:step]`.
     return SelectorSlice(start=start_val, stop=stop_val, step=step_val, clamp=clamp, exclusive_stop=True)
 
 def _eval_optional_expr(node, env, eval_fn):
@@ -172,6 +177,7 @@ def _eval_selector_atom(node, env, eval_fn):
                 expr = child_children[0]
         if expr is None:
             raise ShakarRuntimeError("Empty interpolation in selector literal")
+        # `` `start:${expr}` `` — evaluate embedded expression on demand.
         return eval_fn(expr, env)
     if is_tree_node(child):
         return eval_fn(child, env)

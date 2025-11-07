@@ -155,6 +155,7 @@ def eval_node(n: Any, env: Env) -> Any:
             head, *ops = n.children
             if ops and tree_label(ops[-1]) in {'incr', 'decr'}:
                 tail = ops[-1]
+                # ++/-- mutate the final receiver; resolve assignable context first.
                 context = _resolve_chain_assignment(head, ops[:-1], env)
                 delta = 1 if tree_label(tail) == 'incr' else -1
                 if isinstance(context, _FanContext):

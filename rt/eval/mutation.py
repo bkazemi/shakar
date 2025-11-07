@@ -30,6 +30,7 @@ def set_field_value(recv: Any, name: str, value: Any, env: Env, *, create: bool)
         case ShkObject(slots=slots):
             slot = slots.get(name)
             if isinstance(slot, Descriptor):
+                # property slot: defer to its setter so user code can enforce invariants.
                 setter = slot.setter
                 if setter is None:
                     raise ShakarRuntimeError(f"Property '{name}' is read-only")
@@ -51,6 +52,7 @@ def set_index_value(recv: Any, index: Any, value: Any, env: Env) -> Any:
             items[idx] = value
             return value
         case ShkObject(slots=slots):
+            # objects store arbitrary keys; normalize to string for consistency.
             key = _normalize_index_key(index)
             slots[key] = value
             return value
@@ -62,6 +64,7 @@ def index_value(recv: Any, idx: Any, env: Env) -> Any:
     match recv:
         case ShkArray(items=items):
             if isinstance(idx, ShkSelector):
+                # cloning prevents later selectors from mutating the shared object.
                 cloned = clone_selector_parts(idx.parts, clamp=True)
                 return apply_selectors_to_value(recv, cloned, env)
             if isinstance(idx, ShkNumber):
@@ -85,6 +88,7 @@ def index_value(recv: Any, idx: Any, env: Env) -> Any:
             if key in slots:
                 val = slots[key]
                 if isinstance(val, Descriptor):
+                    # getter-only descriptor behaves like a computed property.
                     getter = val.getter
                     if getter is None:
                         return ShkNull()
@@ -112,11 +116,13 @@ def get_field_value(recv: Any, name: str, env: Env) -> Any:
             if name in slots:
                 slot = slots[name]
                 if isinstance(slot, Descriptor):
+                    # defer to descriptor getter; absence returns nil to mirror Go-style access.
                     getter = slot.getter
                     if getter is None:
                         return ShkNull()
                     return call_shkfn(getter, [], subject=recv, caller_env=env)
                 if isinstance(slot, ShkFn):
+                    # methods capture the receiver via BoundMethod to keep dot semantics.
                     return BoundMethod(slot, recv)
                 return slot
             raise ShakarKeyError(name)
