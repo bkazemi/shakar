@@ -57,6 +57,7 @@ from eval.mutation import (
 )
 
 class _RebindContext:
+    """Tracks an assignable slot (identifier or field) so tail ops can write back."""
     __slots__ = ("value", "setter")
 
     def __init__(self, value: Any, setter: Callable[[Any], None]) -> None:
@@ -64,6 +65,7 @@ class _RebindContext:
         self.setter = setter
 
 class _FanContext:
+    """Represents `.={a,b}` fan assignments; stores every target's context."""
     __slots__ = ("contexts", "values")
 
     def __init__(self, contexts: List[_RebindContext]) -> None:
@@ -272,6 +274,7 @@ def _eval_keyword_literal(node: Tree) -> Any:
     raise ShakarRuntimeError("Unknown literal")
 
 def _eval_program(children: List[Any], env: Env) -> Any:
+    """Run a stmt list under a fresh defer scope, returning last value."""
     result: Any = ShkNull()
     skip_tokens = {'SEMI', '_NL', 'INDENT', 'DEDENT'}
     _push_defer_scope(env)
@@ -350,12 +353,14 @@ def _schedule_defer(env: Env, thunk: Callable[[], None], label: str | None=None,
     frame.append(entry)  # defer runs when the owning scope unwinds
 
 def _eval_implicit_chain(ops: List[Any], env: Env) -> Any:
+    """Evaluate `.foo().bar` style chains using the current subject anchor."""
     val = _get_subject(env)
     for op in ops:
         val = _apply_op(val, op, env)
     return val
 
 def _eval_inline_body(node: Any, env: Env) -> Any:
+    """Execute a single-statement body or `{}` block attached to colon headers."""
     if tree_label(node) == 'inlinebody':
         for child in tree_children(node):
             if tree_label(child) == 'stmtlist':
@@ -525,6 +530,7 @@ def _eval_apply_assign(children: List[Any], env: Env) -> Any:
     return _apply_assign(lvalue_node, rhs_node, env)
 
 def _eval_destructure(n: Tree, env: Env, create: bool, allow_broadcast: bool) -> Any:
+    """Evaluate `a, b := expr` destructures with optional broadcast semantics."""
     if len(n.children) != 2:
         raise ShakarRuntimeError("Malformed destructure")
     pattern_list, rhs_node = n.children
@@ -730,6 +736,7 @@ def _iterate_comprehension(n: Tree, env: Env, head_nodes: list[Any]) -> Iterable
         env.dot = outer_dot
 
 def _eval_listcomp(n: Tree, env: Env) -> ShkArray:
+    """Evaluate `[expr over xs if cond]` comprehensions using explicit binder envs."""
     body = n.children[0] if n.children else None
     if body is None:
         raise ShakarRuntimeError("Malformed list comprehension")
@@ -748,6 +755,7 @@ def _eval_setcomp(n: Tree, env: Env) -> ShkArray:
     return ShkArray(items)
 
 def _eval_setliteral(n: Tree, env: Env) -> ShkArray:
+    """Set literals desugar to arrays internally; maintain order while deduping."""
     items: list[Any] = []
     for child in tree_children(n):
         val = eval_node(child, env)
@@ -1231,6 +1239,7 @@ def _require_number(v: Any) -> None:
         raise ShakarTypeError("Expected number")
 
 def _make_ident_context(name: str, env: Env) -> _RebindContext:
+    """Produce a `_RebindContext` for identifier assignments so tail ops can persist."""
     value = env.get(name)
     def setter(new_value: Any) -> None:
         _assign_ident(name, new_value, env, create=False)
@@ -1263,6 +1272,7 @@ def _resolve_assignable_node(node: Any, env: Env) -> Any:
     raise ShakarRuntimeError("Increment target must be assignable")
 
 def _resolve_chain_assignment(head_node: Any, ops: List[Any], env: Env) -> Any:
+    """Walk `a.b[0]` and return the final assignable context (object slot, index, etc.)."""
     if not ops:
         return _resolve_assignable_node(head_node, env)
 
@@ -1375,6 +1385,7 @@ def _extract_param_names(params_node: Any, context: str="parameter list") -> Lis
 # ---------------- Chains ----------------
 
 def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
+    """Apply one explicit-chain operation (call/index/member) to `recv`."""
     if isinstance(recv, _FanContext):
         return _apply_fan_op(recv, op, env)
 
@@ -1539,6 +1550,7 @@ def _call_value(cal: Any, args: List[Any], env: Env) -> Any:
 # ---------------- Objects ----------------
 
 def _eval_object(n: Tree, env: Env) -> ShkObject:
+    """Build an object literal, installing descriptors/getters as needed."""
     slots: dict[str, Any] = {}
 
     def _install_descriptor(name: str, getter: ShkFn|None=None, setter: ShkFn|None=None) -> None:
@@ -1711,6 +1723,7 @@ def _eval_amp_lambda(n: Tree, env: Env) -> ShkFn:
 
 @contextmanager
 def _temporary_subject(env: Env, dot: Any) -> Iterable[None]:
+    """Temporarily bind `env.dot` while evaluating nested subjectful constructs."""
     prev = env.dot
     env.dot = dot
     try:

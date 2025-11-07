@@ -25,6 +25,7 @@ def evaluate_destructure_rhs(
     target_count: int,
     allow_broadcast: bool
 ) -> tuple[list[Any], Any]:
+    """Evaluate RHS once and expand/broadcast values to match the target count."""
     if tree_label(rhs_node) == "pack":
         vals = [eval_fn(child, env) for child in rhs_node.children]
         result = ShkArray(vals)
@@ -62,6 +63,7 @@ def assign_pattern(
     create: bool,
     allow_broadcast: bool
 ) -> None:
+    """Bind a destructuring pattern to a value, recursing into nested tuples."""
     if tree_label(pattern) != "pattern" or not tree_children(pattern):
         raise ShakarRuntimeError("Malformed pattern")
     target = pattern.children[0]
@@ -93,6 +95,7 @@ def infer_implicit_binders(
     env: Env,
     collect_fn: Callable[[Any, Callable[[str], None]], None]
 ) -> list[str]:
+    """Collect implicit binder names used inside comprehensions, skipping clashes."""
     names: list[str] = []
     seen: set[str] = set()
 
@@ -119,6 +122,7 @@ def apply_comp_binders(
     iter_env: Env,
     outer_env: Env
 ) -> None:
+    """Assign comprehension binder patterns for each element, honoring hoisting."""
     if not binders:
         return
     if len(binders) == 1:

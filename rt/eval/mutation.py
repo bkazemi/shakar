@@ -25,6 +25,7 @@ from shakar_runtime import (
 from eval.selector import clone_selector_parts, apply_selectors_to_value
 
 def set_field_value(recv: Any, name: str, value: Any, env: Env, *, create: bool) -> Any:
+    """Assign `recv.name = value`, honoring descriptors and creation semantics."""
     match recv:
         case ShkObject(slots=slots):
             slot = slots.get(name)
@@ -40,6 +41,7 @@ def set_field_value(recv: Any, name: str, value: Any, env: Env, *, create: bool)
             raise ShakarTypeError(f"Cannot set field '{name}' on {type(recv).__name__}")
 
 def set_index_value(recv: Any, index: Any, value: Any, env: Env) -> Any:
+    """Assign `recv[index] = value` for arrays/objects with minimal coercions."""
     match recv:
         case ShkArray(items=items):
             if isinstance(index, ShkNumber):
@@ -56,6 +58,7 @@ def set_index_value(recv: Any, index: Any, value: Any, env: Env) -> Any:
             raise ShakarTypeError("Unsupported index assignment target")
 
 def index_value(recv: Any, idx: Any, env: Env) -> Any:
+    """Read `recv[idx]`, supporting selectors, descriptors, and builtins."""
     match recv:
         case ShkArray(items=items):
             if isinstance(idx, ShkSelector):
@@ -92,6 +95,7 @@ def index_value(recv: Any, idx: Any, env: Env) -> Any:
             raise ShakarTypeError("Unsupported index operation")
 
 def slice_value(recv: Any, start: int | None, stop: int | None, step: int | None) -> Any:
+    """Return a shallow slice of an array/string (selector extraction)."""
     s = slice(start, stop, step)
     match recv:
         case ShkArray(items=items):
@@ -102,6 +106,7 @@ def slice_value(recv: Any, start: int | None, stop: int | None, step: int | None
             raise ShakarTypeError("Slice only supported on arrays/strings")
 
 def get_field_value(recv: Any, name: str, env: Env) -> Any:
+    """Fetch `recv.name`, resolving descriptors and builtin method sugar."""
     match recv:
         case ShkObject(slots=slots):
             if name in slots:
@@ -131,6 +136,7 @@ def get_field_value(recv: Any, name: str, env: Env) -> Any:
             raise ShakarTypeError(f"Unsupported field access on {type(recv).__name__}")
 
 def _normalize_index_key(idx: Any) -> str:
+    """Map object index operands to canonical slot keys."""
     if isinstance(idx, ShkString):
         return idx.value
     if isinstance(idx, ShkNumber):

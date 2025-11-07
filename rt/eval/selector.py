@@ -30,6 +30,7 @@ from shakar_tree import (
 )
 
 def eval_selectorliteral(node, env, eval_fn) -> ShkSelector:
+    """Build a Selector value from a literal `` `...` `` expression."""
     sellist = child_by_label(node, "sellist")
     if sellist is None:
         return ShkSelector([])
@@ -45,6 +46,7 @@ def eval_selectorliteral(node, env, eval_fn) -> ShkSelector:
     return ShkSelector(parts)
 
 def evaluate_selectorlist(node, env, eval_fn, clamp: bool = True) -> List[SelectorPart]:
+    """Evaluate runtime selector expressions like `xs[sel1, sel2]` into parts."""
     selectors: List[SelectorPart] = []
     for raw_selector in tree_children(node):
         inner = child_by_labels(raw_selector, {"slicesel", "indexsel"})
@@ -67,6 +69,7 @@ def evaluate_selectorlist(node, env, eval_fn, clamp: bool = True) -> List[Select
     return selectors
 
 def clone_selector_parts(parts: Iterable[SelectorPart], clamp: bool) -> List[SelectorPart]:
+    """Copy selector parts so mutations (e.g., clamping) do not affect originals."""
     cloned: List[SelectorPart] = []
     for part in parts:
         if isinstance(part, SelectorSlice):
@@ -84,6 +87,7 @@ def clone_selector_parts(parts: Iterable[SelectorPart], clamp: bool) -> List[Sel
     return cloned
 
 def apply_selectors_to_value(recv: Any, selectors: List[SelectorPart], env) -> Any:
+    """Apply a list of selector parts to an array/string receiver."""
     if isinstance(recv, ShkArray):
         return _apply_selectors_to_array(recv, selectors)
     if isinstance(recv, ShkString):
@@ -91,6 +95,7 @@ def apply_selectors_to_value(recv: Any, selectors: List[SelectorPart], env) -> A
     raise ShakarTypeError("Complex selectors only supported on arrays or strings")
 
 def selector_iter_values(selector: ShkSelector) -> List[Any]:
+    """Expand a selector literal into the sequence of indices it would visit."""
     values: List[Any] = []
     for part in selector.parts:
         if isinstance(part, SelectorIndex):
@@ -101,6 +106,7 @@ def selector_iter_values(selector: ShkSelector) -> List[Any]:
     return values
 
 def _selector_parts_from_selitem(node, env, eval_fn) -> List[SelectorPart]:
+    """Turn a literal selitem node into concrete slice/index parts."""
     inner = child_by_labels(node, {"sliceitem", "indexitem"})
     target = inner if inner is not None else node
     label = tree_label(target)
