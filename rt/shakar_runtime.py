@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 # ---------- Value Model (only Sh* -> Shk*) ----------
@@ -98,12 +98,18 @@ class Descriptor:
     getter: Any = None  # ShkFn or None
     setter: Any = None  # ShkFn or None
 
+@dataclass
+class DeferEntry:
+    thunk: Callable[[], None]
+    label: Optional[str] = None
+    deps: List[str] = field(default_factory=list)
+
 class Env:
     def __init__(self, parent: Optional['Env']=None, dot: Any=None, source: Optional[str]=None):
         self.parent = parent
         self.vars: Dict[str, Any] = {}
         self.dot = dot
-        self._defer_stack: List[List[dict[str, Any]]] = []
+        self._defer_stack: List[List[DeferEntry]] = []
         if source is not None:
             self.source = source
         elif parent is not None and hasattr(parent, 'source'):
