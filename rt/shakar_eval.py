@@ -306,9 +306,9 @@ def _pop_defer_scope(env: Env) -> None:
     entries = stack.pop()
     _run_defer_entries(entries)
 
-_DEFER_UNVISITED = 0
-_DEFER_VISITING = 1
-_DEFER_DONE = 2
+_DEFER_UNVISITED = 0  # entry not touched yet
+_DEFER_VISITING = 1   # DFS currently walking this entry's deps
+_DEFER_DONE = 2       # entry executed (or scheduled) already
 
 def _run_defer_entries(entries: List[DeferEntry]) -> None:
     if not entries:
@@ -344,7 +344,7 @@ def _schedule_defer(env: Env, thunk: Callable[[], None], label: str | None=None,
         env._defer_stack = []
     if not env._defer_stack:
         raise ShakarRuntimeError("Cannot use defer outside of a block")
-    frame: List[DeferEntry] = env._defer_stack[-1]
+    frame: List[DeferEntry] = env._defer_stack[-1]  # newest scope on stack
     entry = DeferEntry(thunk=thunk, label=label, deps=list(deps or []))
     if label:
         for existing in frame:
@@ -401,6 +401,7 @@ def _eval_oneline_guard(children: List[Any], env: Env) -> Any:
 # ---------------- Assignment ----------------
 
 def _eval_walrus(children: List[Any], env: Env) -> Any:
+    """Implements `name := expr` inline assignments."""
     if len(children) != 2:
         raise ShakarRuntimeError("Malformed walrus expression")
     name_node, value_node = children
@@ -409,6 +410,7 @@ def _eval_walrus(children: List[Any], env: Env) -> Any:
     return _assign_ident(name, value, env, create=True)
 
 def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
+    """Handles simple `lhs = rhs` statements (no destructuring)."""
     if len(children) < 2:
         raise ShakarRuntimeError("Malformed assignment statement")
     lvalue_node = children[0]
@@ -418,6 +420,7 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     return ShkNull()
 
 def _eval_defer_stmt(children: List[Any], env: Env) -> Any:
+    """Schedule a deferred thunk, unpacking optional label/dependency metadata."""
     if not children:
         raise ShakarRuntimeError("Malformed defer statement")
     idx = 0
@@ -484,6 +487,7 @@ def _eval_fn_def(children: List[Any], env: Env) -> Any:
     return ShkNull()
 
 def _eval_assert(children: List[Any], env: Env) -> Any:
+    """Evaluate `assert expr [, message]`, raising ShakarAssertionError when falsy."""
     if not children:
         raise ShakarRuntimeError("Malformed assert statement")
     cond_val = eval_node(children[0], env)
@@ -496,6 +500,7 @@ def _eval_assert(children: List[Any], env: Env) -> Any:
     raise ShakarAssertionError(message)
 
 def _eval_compound_assign(children: List[Any], env: Env) -> Any:
+    """Handle `x += y` and friends."""
     if len(children) < 3:
         raise ShakarRuntimeError("Malformed compound assignment")
     lvalue_node = children[0]
@@ -518,6 +523,7 @@ def _eval_compound_assign(children: List[Any], env: Env) -> Any:
     return ShkNull()
 
 def _eval_apply_assign(children: List[Any], env: Env) -> Any:
+    """Evaluate the `.= expr` apply-assign form (subject-aware updates)."""
     lvalue_node = None
     rhs_node = None
     for child in children:
