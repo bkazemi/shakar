@@ -214,22 +214,12 @@ def eval_node(n: Any, env: Env) -> Any:
 # ---------------- Tokens ----------------
 
 def _eval_token(t: Token, env: Env) -> Any:
-    match t.type:
-        case 'NUMBER':
-            return ShkNumber(float(t.value))
-        case 'STRING':
-            v = t.value
-            if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")):
-                v = v[1:-1]
-            return ShkString(v)
-        case 'TRUE':
-            return ShkBool(True)
-        case 'FALSE':
-            return ShkBool(False)
-        case 'IDENT':
-            return env.get(t.value)
-        case _:
-            raise ShakarRuntimeError(f"Unhandled token {t.type}:{t.value}")
+    handler = _TOKEN_DISPATCH.get(t.type)
+    if handler:
+        return handler(t, env)
+    if t.type == 'IDENT':
+        return env.get(t.value)
+    raise ShakarRuntimeError(f"Unhandled token {t.type}:{t.value}")
 
 def _eval_keyword_literal(node: Tree) -> Any:
     meta = node_meta(node)
@@ -1244,6 +1234,15 @@ def _current_function_env(env: Env) -> Env | None:
         cur = getattr(cur, "parent", None)
     return None
 
+def _token_number(t: Token, _: Env) -> ShkNumber:
+    return ShkNumber(float(t.value))
+
+def _token_string(t: Token, _: Env) -> ShkString:
+    v = t.value
+    if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")):
+        v = v[1:-1]
+    return ShkString(v)
+
 _NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
     'listcomp': lambda n, env: _eval_listcomp(n, env),
     'setcomp': lambda n, env: _eval_setcomp(n, env),
@@ -1261,6 +1260,13 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
     'inlinebody': lambda n, env: _eval_inline_body(n, env),
     'indentblock': lambda n, env: _eval_indent_block(n, env),
     'onelineguard': lambda n, env: _eval_oneline_guard(n.children, env),
+}
+
+_TOKEN_DISPATCH: dict[str, Callable[[Token, Env], Any]] = {
+    'NUMBER': _token_number,
+    'STRING': _token_string,
+    'TRUE': lambda t, env: ShkBool(True),
+    'FALSE': lambda t, env: ShkBool(False),
 }
 
 def _resolve_assignable_node(node: Any, env: Env) -> Any:
