@@ -103,6 +103,7 @@ class Env:
         self.parent = parent
         self.vars: Dict[str, Any] = {}
         self.dot = dot
+        self._defer_stack: List[List[Callable[[], None]]] = []
         if source is not None:
             self.source = source
         elif parent is not None and hasattr(parent, 'source'):

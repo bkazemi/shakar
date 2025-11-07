@@ -210,6 +210,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_compound_assign(n.children, env)
         case 'fndef':
             return _eval_fn_def(n.children, env)
+        case 'deferstmt':
+            return _eval_defer_stmt(n.children, env)
         case 'assert':
             return _eval_assert(n.children, env)
         case 'bind' | 'bind_nc':
@@ -272,17 +274,41 @@ def _eval_keyword_literal(node: Tree) -> Any:
 def _eval_program(children: List[Any], env: Env) -> Any:
     result: Any = ShkNull()
     skip_tokens = {'SEMI', '_NL', 'INDENT', 'DEDENT'}
-    for child in children:
-        tok_kind = _token_kind(child)
-        if tok_kind in skip_tokens:
-            continue
-        result = eval_node(child, env)
+    _push_defer_scope(env)
+    try:
+        for child in children:
+            tok_kind = _token_kind(child)
+            if tok_kind in skip_tokens:
+                continue
+            result = eval_node(child, env)
+    finally:
+        _pop_defer_scope(env)
     return result
 
 def _get_subject(env: Env) -> Any:
     if env.dot is None:
         raise ShakarRuntimeError("No subject available for '.'")
     return env.dot
+
+def _push_defer_scope(env: Env) -> None:
+    if not hasattr(env, "_defer_stack"):
+        env._defer_stack = []
+    env._defer_stack.append([])
+
+def _pop_defer_scope(env: Env) -> None:
+    stack = getattr(env, "_defer_stack", None)
+    if not stack:
+        return
+    callbacks = stack.pop()
+    for thunk in reversed(callbacks):
+        thunk()
+
+def _schedule_defer(env: Env, thunk: Callable[[], None]) -> None:
+    if not hasattr(env, "_defer_stack"):
+        env._defer_stack = []
+    if not env._defer_stack:
+        raise ShakarRuntimeError("Cannot use defer outside of a block")
+    env._defer_stack[-1].append(thunk)
 
 def _eval_implicit_chain(ops: List[Any], env: Env) -> Any:
     val = _get_subject(env)
@@ -345,6 +371,24 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     value_node = children[-1]
     value = eval_node(value_node, env)
     _assign_lvalue(lvalue_node, value, env, create=False)
+    return ShkNull()
+
+def _eval_defer_stmt(children: List[Any], env: Env) -> Any:
+    if not children:
+        raise ShakarRuntimeError("Malformed defer statement")
+    call_node = children[0]
+    saved_dot = env.dot
+    source = getattr(env, 'source', None)
+
+    def thunk() -> None:
+        child_env = Env(parent=env, dot=saved_dot, source=source)
+        _push_defer_scope(child_env)
+        try:
+            eval_node(call_node, child_env)
+        finally:
+            _pop_defer_scope(child_env)
+
+    _schedule_defer(env, thunk)
     return ShkNull()
 
 def _eval_fn_def(children: List[Any], env: Env) -> Any:

@@ -330,6 +330,8 @@ class Prune(Transformer):
             return Tree('simplecall', c)
 
         head = c[0]
+        if is_tree(head) and tree_label(head) == 'callee' and head.children:
+            head = head.children[0]
         if is_tree(head) and tree_label(head) == 'explicit_chain':
             chain, rest = head, c[1:]
         else:
@@ -346,8 +348,7 @@ class Prune(Transformer):
                 break
 
         if callnode is None:
-            # Not a direct one-liner call; leave shape unchanged
-            return Tree('simplecall', c)
+            callnode = Tree('call', [])
 
         # Prefer the canonical chain fuse if available, otherwise build directly
         try:
@@ -376,6 +377,14 @@ class Prune(Transformer):
         if body is not None:
             children.append(body)
         return Tree('fndef', children)
+
+    def deferstmt(self, c):
+        call_expr = next((node for node in c if is_tree(node)), None)
+        if call_expr is not None:
+            call_expr = self._transform_tree(call_expr)
+        if call_expr is None:
+            return Tree('deferstmt', [])
+        return Tree('deferstmt', [call_expr])
 
     def amp_lambda1(self, c):
         return Tree('amp_lambda', [c[0]]) # body only; unary implicit '.'
