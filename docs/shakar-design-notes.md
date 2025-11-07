@@ -578,6 +578,48 @@ using[f] getTempFile():
 # close() is called after the block
 ```
 
+### Defer
+
+Purpose: delay cleanup work until the current block finishes (including early exits).
+
+**Surface**
+```shakar
+defer closeHandle()
+defer log("done") after cleanup
+defer cleanup: closeHandle()
+defer cleanup:
+  closeHandle()
+  log("closed")
+defer final after (prepare, audit):
+  close()
+  report()
+```
+
+- Without a handle, defers run strictly in **LIFO** order when the surrounding block completes, mirroring Go semantics.
+- `handle` (the identifier between `defer` and the colon) labels a defer so that other defers in the same block can depend on it.
+- `after (h1, h2, …)` is optional. When present, the defer runs only after all listed handles finish. Handles can be declared later in the source; scheduling resolves the dependency graph before execution.
+- Handles are per-block; reusing a handle in the same block raises `ShakarRuntimeError`.
+- Referencing an unknown handle or forming a cycle (direct or indirect) raises a runtime error.
+- Bodies come in two shapes:
+  - **Simple call** (no colon): `defer closeHandle()` — only valid when there is **no handle**. You may add a trailing `after` here (`defer log("done") after cleanup`), but the defer itself stays anonymous.
+  - **Block body** (colon + inline or indented block): `defer cleanup: closeHandle()` or `defer cleanup:\n  closeHandle()`
+- Any defer that declares a handle or uses `after` **must** use the colon form unless it is the anonymous simple-call shape above. In the block form, place `after` in the header: `defer cleanup after close: ...` (wrap the handles in parentheses if you need to specify zero or multiple dependencies).
+- Block bodies execute in their own child environment that inherits the surrounding scope and subject `.`. Nested defers inside the body stack independently and flush before the parent defer completes.
+- `defer` may only appear inside executable blocks (functions, guards, loops, etc.); using it at the absolute top level raises `ShakarRuntimeError`.
+
+**Examples**
+```shakar
+fn run():
+  defer cleanup: conn.close()
+  conn := connect()
+  use(conn)
+
+fn ordered():
+  defer second after first: log("second")
+  defer first: log("first")
+# prints "firstsecond"
+```
+
 ---
 
 ## 7) Punctuation guards (drop `if/elif/else` noise)
@@ -1438,7 +1480,10 @@ ObjectItem      ::= IDENT ":" Expr
 
 (* ===== Using / Defer / Assert / Debug ===== *)
 
-DeferStmt       ::= "defer" SimpleCall ;
+DeferStmt       ::= "defer" ( SimpleCall DeferAfter? | DeferLabel? DeferAfter? DeferBody ) ;
+DeferLabel      ::= IDENT ;
+DeferBody       ::= ":" (InlineBody | IndentBlock) ;
+DeferAfter      ::= "after" ( IDENT | "(" (IDENT ("," IDENT)*)? ")" ) ;
 SimpleCall      ::= Callee "(" ArgList? ")" ;
 UsingStmt       ::= "using" ( "[" IDENT "]" )? Expr ("bind" IDENT)? ":" IndentBlock ;
 Assert          ::= "assert" Expr ("," Expr)? ;

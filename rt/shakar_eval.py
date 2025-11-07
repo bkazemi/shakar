@@ -299,16 +299,51 @@ def _pop_defer_scope(env: Env) -> None:
     stack = getattr(env, "_defer_stack", None)
     if not stack:
         return
-    callbacks = stack.pop()
-    for thunk in reversed(callbacks):
-        thunk()
+    entries = stack.pop()
+    _run_defer_entries(entries)
 
-def _schedule_defer(env: Env, thunk: Callable[[], None]) -> None:
+def _run_defer_entries(entries: List[dict[str, Any]]) -> None:
+    if not entries:
+        return
+    label_map: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        label = entry.get('label')
+        if label:
+            label_map[label] = entry
+
+    visited: dict[int, bool] = {}
+
+    def run_entry(entry: dict[str, Any]) -> None:
+        idx = id(entry)
+        state = visited.get(idx)
+        if state == True:
+            return
+        if state == False:
+            raise ShakarRuntimeError("Defer dependency cycle detected")
+        visited[idx] = False
+        for dep in entry.get('deps', []):
+            dep_entry = label_map.get(dep)
+            if dep_entry is None:
+                raise ShakarRuntimeError(f"Unknown defer handle '{dep}'")
+            run_entry(dep_entry)
+        visited[idx] = True
+        entry['thunk']()
+
+    for entry in reversed(entries):
+        run_entry(entry)
+
+def _schedule_defer(env: Env, thunk: Callable[[], None], label: str | None=None, deps: List[str] | None=None) -> None:
     if not hasattr(env, "_defer_stack"):
         env._defer_stack = []
     if not env._defer_stack:
         raise ShakarRuntimeError("Cannot use defer outside of a block")
-    env._defer_stack[-1].append(thunk)
+    frame = env._defer_stack[-1]
+    entry = {'thunk': thunk, 'label': label, 'deps': deps or [], 'kind': 'defer'}
+    if label:
+        for e in frame:
+            if e.get('label') == label and e.get('kind') == 'defer':
+                raise ShakarRuntimeError(f"Duplicate defer handle '{label}'")
+    frame.append(entry)
 
 def _eval_implicit_chain(ops: List[Any], env: Env) -> Any:
     val = _get_subject(env)
@@ -376,7 +411,26 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
 def _eval_defer_stmt(children: List[Any], env: Env) -> Any:
     if not children:
         raise ShakarRuntimeError("Malformed defer statement")
-    call_node = children[0]
+    label = None
+    deps: List[str] = []
+    body_node = None
+    body_kind = 'call'
+    for child in children:
+        tag = tree_label(child) if is_tree_node(child) else None
+        if tag == 'deferlabel' and label is None:
+            label = _expect_ident_token(child.children[0], "Defer label")
+            continue
+        if tag == 'deferdeps':
+            deps.extend(_expect_ident_token(tok, "Defer dependency") for tok in child.children if is_token_node(tok))
+            continue
+        if tag == 'deferblock':
+            body_kind = 'block'
+            body_node = child.children[0] if child.children else Tree('inlinebody', [])
+        else:
+            body_kind = 'call'
+            body_node = child
+    if body_node is None:
+        raise ShakarRuntimeError("Missing deferred body")
     saved_dot = env.dot
     source = getattr(env, 'source', None)
 
@@ -384,11 +438,14 @@ def _eval_defer_stmt(children: List[Any], env: Env) -> Any:
         child_env = Env(parent=env, dot=saved_dot, source=source)
         _push_defer_scope(child_env)
         try:
-            eval_node(call_node, child_env)
+            if body_kind == 'block':
+                _eval_inline_body(body_node, child_env)
+            else:
+                eval_node(body_node, child_env)
         finally:
             _pop_defer_scope(child_env)
 
-    _schedule_defer(env, thunk)
+    _schedule_defer(env, thunk, label=label, deps=deps)
     return ShkNull()
 
 def _eval_fn_def(children: List[Any], env: Env) -> Any:

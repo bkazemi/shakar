@@ -379,12 +379,31 @@ class Prune(Transformer):
         return Tree('fndef', children)
 
     def deferstmt(self, c):
-        call_expr = next((node for node in c if is_tree(node)), None)
-        if call_expr is not None:
-            call_expr = self._transform_tree(call_expr)
-        if call_expr is None:
-            return Tree('deferstmt', [])
-        return Tree('deferstmt', [call_expr])
+        label = None
+        deps: List[Any] = []
+        body_node = None
+        for node in c:
+            if is_tree(node):
+                tag = tree_label(node)
+                if tag == 'deferlabel' and label is None:
+                    label = _first_ident(node)
+                    continue
+                if tag == 'deferafter':
+                    deps.extend(_collect_defer_after(node))
+                    continue
+                if tag == 'defer_block':
+                    block = self._transform_tree(node.children[0])
+                    body_node = Tree('deferblock', [block])
+                else:
+                    body_node = self._transform_tree(node)
+        children: List[Any] = []
+        if label is not None:
+            children.append(Tree('deferlabel', [Token('IDENT', label)]))
+        if body_node is not None:
+            children.append(body_node)
+        if deps:
+            children.append(Tree('deferdeps', deps))
+        return Tree('deferstmt', children)
 
     def amp_lambda1(self, c):
         return Tree('amp_lambda', [c[0]]) # body only; unary implicit '.'
@@ -1028,3 +1047,21 @@ setattr(Prune, 'assert', _prune_assert)
 
 if __name__ == "__main__":
     main()
+
+def _first_ident(node: Any) -> str | None:
+    queue = [node]
+    while queue:
+        cur = queue.pop(0)
+        if is_token(cur) and getattr(cur, "type", "") == "IDENT":
+            return cur.value
+        if is_tree(cur):
+            queue.extend(tree_children(cur))
+    return None
+
+def _collect_defer_after(node: Tree) -> List[Token]:
+    deps: List[Token] = []
+    for ch in tree_children(node):
+        name = _first_ident(ch)
+        if name:
+            deps.append(Token('IDENT', name))
+    return deps

@@ -301,7 +301,11 @@ keyexpr: compareexpr_nc
 
 !returnstmt: RETURN expr?
 
-!deferstmt: DEFER simplecall
+!deferstmt: DEFER (simplecall deferafter? | deferlabel? deferafter? deferbody)
+deferlabel: IDENT
+deferbody: ":" inlinebody -> defer_block
+         | ":" indentblock -> defer_block
+deferafter: "after" (IDENT | "(" (IDENT ("," IDENT)*)? ")")
 
 simplecall: callee "(" arglist? ")"
 
