@@ -100,6 +100,7 @@ class Descriptor:
 
 @dataclass
 class DeferEntry:
+    """Scheduled defer thunk plus optional metadata for dependency ordering."""
     thunk: Callable[[], None]
     label: Optional[str] = None
     deps: List[str] = field(default_factory=list)

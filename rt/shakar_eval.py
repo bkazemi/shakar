@@ -293,6 +293,7 @@ def _get_subject(env: Env) -> Any:
 def _push_defer_scope(env: Env) -> None:
     if not hasattr(env, "_defer_stack"):
         env._defer_stack = []
+    # Each scope owns its own LIFO queue of entries; nested scopes flush before parents.
     env._defer_stack.append([])
 
 def _pop_defer_scope(env: Env) -> None:
@@ -313,7 +314,7 @@ def _run_defer_entries(entries: List[DeferEntry]) -> None:
     for idx, entry in enumerate(entries):
         if entry.label:
             label_map[entry.label] = idx
-    state = [_DEFER_UNVISITED] * len(entries)
+    state = [_DEFER_UNVISITED] * len(entries)  # per-entry visit status for topo walk
 
     def run_index(idx: int) -> None:
         marker = state[idx]
@@ -331,6 +332,7 @@ def _run_defer_entries(entries: List[DeferEntry]) -> None:
         state[idx] = _DEFER_DONE
         entry.thunk()
 
+    # Entries still execute in overall LIFO order; deps may cause earlier entries to run first.
     for idx in reversed(range(len(entries))):
         run_index(idx)
 
@@ -345,7 +347,7 @@ def _schedule_defer(env: Env, thunk: Callable[[], None], label: str | None=None,
         for existing in frame:
             if existing.label == label:
                 raise ShakarRuntimeError(f"Duplicate defer handle '{label}'")
-    frame.append(entry)
+    frame.append(entry)  # defer runs when the owning scope unwinds
 
 def _eval_implicit_chain(ops: List[Any], env: Env) -> Any:
     val = _get_subject(env)
@@ -415,6 +417,7 @@ def _eval_defer_stmt(children: List[Any], env: Env) -> Any:
         raise ShakarRuntimeError("Malformed defer statement")
     idx = 0
     label = None
+    # Parser guarantees the shape [label? , body , deps?]; walk in that order.
     if is_tree_node(children[0]) and tree_label(children[0]) == 'deferlabel':
         label = _expect_ident_token(children[0].children[0], "Defer label")
         idx += 1
