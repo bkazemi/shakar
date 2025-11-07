@@ -405,6 +405,14 @@ class Prune(Transformer):
             children.append(Tree('deferdeps', deps))
         return Tree('deferstmt', children)
 
+    def returnstmt(self, c):
+        exprs: List[Any] = []
+        for node in c:
+            if is_token(node):
+                continue
+            exprs.append(self._transform_tree(node) if is_tree(node) else node)
+        return Tree('returnstmt', exprs)
+
     def amp_lambda1(self, c):
         return Tree('amp_lambda', [c[0]]) # body only; unary implicit '.'
 

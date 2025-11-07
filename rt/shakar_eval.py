@@ -11,7 +11,7 @@ from shakar_runtime import (
     Env, ShkNumber, ShkString, ShkBool, ShkNull, ShkArray, ShkObject, Descriptor, ShkFn, BoundMethod, BuiltinMethod,
     ShkSelector, SelectorIndex, SelectorSlice,
     ShakarRuntimeError, ShakarTypeError, ShakarArityError, ShakarKeyError, ShakarIndexError, ShakarMethodNotFound,
-    ShakarAssertionError, DeferEntry,
+    ShakarAssertionError, ShakarReturnSignal, DeferEntry,
     call_builtin_method, call_shkfn, Builtins
 )
 
@@ -128,6 +128,9 @@ def eval_node(n: Any, env: Env) -> Any:
         return _eval_token(n, env)
 
     d = n.data
+    handler = _NODE_DISPATCH.get(d)
+    if handler is not None:
+        return handler(n, env)
     match d:
         # common wrapper nodes (delegate to single child)
         case 'start_noindent' | 'start_indented' | 'stmtlist':
@@ -174,39 +177,17 @@ def eval_node(n: Any, env: Env) -> Any:
             return val
         case 'implicit_chain':
             return _eval_implicit_chain(n.children, env)
-        case 'listcomp':
-            return _eval_listcomp(n, env)
-        case 'setcomp':
-            return _eval_setcomp(n, env)
-        case 'setliteral':
-            return _eval_setliteral(n, env)
-        case 'dictcomp':
-            return _eval_dictcomp(n, env)
-        case 'selectorliteral':
-            return eval_selectorliteral(n, env, eval_node)
-        case 'group':
-            return _eval_group(n, env)
-        case 'ternary':
-            return _eval_ternary(n, env)
-        case 'rebind_primary':
-            return _eval_rebind_primary(n, env)
         case 'call':
             args_node = n.children[0] if n.children else None
             args = _eval_args_node(args_node, env)
             cal = env.get('')  # unreachable in practice
             return _call_value(cal, args, env)
-        case 'amp_lambda':
-            return _eval_amp_lambda(n, env)
-        case 'compare' | 'compare_nc':
-            return _eval_compare(n.children, env)
-        case 'nullish':
-            return _eval_nullish(n.children, env)
-        case 'nullsafe':
-            return _eval_nullsafe(n.children, env)
         case 'and' | 'or' | 'and_nc' | 'or_nc':
             return _eval_logical(d, n.children, env)
         case 'walrus' | 'walrus_nc':
             return _eval_walrus(n.children, env)
+        case 'returnstmt':
+            return _eval_return_stmt(n.children, env)
         case 'assignstmt':
             return _eval_assign_stmt(n.children, env)
         case 'compound_assign':
@@ -227,12 +208,6 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_destructure(n, env, create=False, allow_broadcast=False)
         case 'destructure_walrus':
             return _eval_destructure(n, env, create=True, allow_broadcast=True)
-        case 'inlinebody':
-            return _eval_inline_body(n, env)
-        case 'indentblock':
-            return _eval_indent_block(n, env)
-        case 'onelineguard':
-            return _eval_oneline_guard(n.children, env)
         case _:
             raise ShakarRuntimeError(f"Unknown node: {d}")
 
@@ -297,7 +272,7 @@ def _get_subject(env: Env) -> Any:
 def _push_defer_scope(env: Env) -> None:
     if not hasattr(env, "_defer_stack"):
         env._defer_stack = []
-    # Each scope owns its own LIFO queue of entries; nested scopes flush before parents.
+    # each scope owns its own LIFO queue of entries; nested scopes flush before parents.
     env._defer_stack.append([])
 
 def _pop_defer_scope(env: Env) -> None:
@@ -336,7 +311,7 @@ def _run_defer_entries(entries: List[DeferEntry]) -> None:
         state[idx] = _DEFER_DONE
         entry.thunk()
 
-    # Entries still execute in overall LIFO order; deps may cause earlier entries to run first.
+    # entries still execute in overall LIFO order; deps may cause earlier entries to run first.
     for idx in reversed(range(len(entries))):
         run_index(idx)
 
@@ -420,13 +395,20 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     _assign_lvalue(lvalue_node, value, env, create=False)
     return ShkNull()
 
+def _eval_return_stmt(children: List[Any], env: Env) -> Any:
+    """implements `return` with optional expression, unwinding via control signal."""
+    if _current_function_env(env) is None:
+        raise ShakarRuntimeError("return outside of a function")
+    value = eval_node(children[0], env) if children else ShkNull()
+    raise ShakarReturnSignal(value)
+
 def _eval_defer_stmt(children: List[Any], env: Env) -> Any:
     """Schedule a deferred thunk, unpacking optional label/dependency metadata."""
     if not children:
         raise ShakarRuntimeError("Malformed defer statement")
     idx = 0
     label = None
-    # Parser guarantees the shape [label? , body , deps?]; walk in that order.
+    # parser guarantees the shape [label? , body , deps?]; walk in that order.
     if is_tree_node(children[0]) and tree_label(children[0]) == 'deferlabel':
         label = _expect_ident_token(children[0].children[0], "Defer label")
         idx += 1
@@ -1252,6 +1234,34 @@ def _make_ident_context(name: str, env: Env) -> _RebindContext:
         _assign_ident(name, new_value, env, create=False)
         env.dot = new_value
     return _RebindContext(value, setter)
+
+def _current_function_env(env: Env) -> Env | None:
+    """Walk parents to find the nearest function-call environment marker."""
+    cur = env
+    while cur is not None:
+        if getattr(cur, "_is_function_env", False):
+            return cur
+        cur = getattr(cur, "parent", None)
+    return None
+
+_NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
+    'listcomp': lambda n, env: _eval_listcomp(n, env),
+    'setcomp': lambda n, env: _eval_setcomp(n, env),
+    'setliteral': lambda n, env: _eval_setliteral(n, env),
+    'dictcomp': lambda n, env: _eval_dictcomp(n, env),
+    'selectorliteral': lambda n, env: eval_selectorliteral(n, env, eval_node),
+    'group': lambda n, env: _eval_group(n, env),
+    'ternary': lambda n, env: _eval_ternary(n, env),
+    'rebind_primary': lambda n, env: _eval_rebind_primary(n, env),
+    'amp_lambda': lambda n, env: _eval_amp_lambda(n, env),
+    'compare': lambda n, env: _eval_compare(n.children, env),
+    'compare_nc': lambda n, env: _eval_compare(n.children, env),
+    'nullish': lambda n, env: _eval_nullish(n.children, env),
+    'nullsafe': lambda n, env: _eval_nullsafe(n.children, env),
+    'inlinebody': lambda n, env: _eval_inline_body(n, env),
+    'indentblock': lambda n, env: _eval_indent_block(n, env),
+    'onelineguard': lambda n, env: _eval_oneline_guard(n.children, env),
+}
 
 def _resolve_assignable_node(node: Any, env: Env) -> Any:
     while is_tree_node(node) and tree_label(node) in {'primary', 'group', 'group_expr'} and len(node.children) == 1:

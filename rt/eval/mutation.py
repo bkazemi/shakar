@@ -116,7 +116,7 @@ def get_field_value(recv: Any, name: str, env: Env) -> Any:
             if name in slots:
                 slot = slots[name]
                 if isinstance(slot, Descriptor):
-                    # defer to descriptor getter; absence returns nil to mirror Go-style access.
+                    # defer to descriptor getter; absence returns nil to mirror go-style access.
                     getter = slot.getter
                     if getter is None:
                         return ShkNull()
