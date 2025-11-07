@@ -1104,7 +1104,7 @@ reduce&(acc + x)(xs, 0)            # error: implicit params disabled; write &[ac
 ## 16) Keywords (v0.1)
 
 **Reserved (cannot be identifiers):**
-`and, or, not, if, elif, else, for, in, break, continue, return, assert, using, defer, catch, decorator, decorate, hook, get, set, bind, over, true, false, nil`
+`and, or, not, if, elif, else, for, in, break, continue, return, assert, using, defer, catch, decorator, decorate, hook, fn, get, set, bind, over, true, false, nil`
 
 **Contextual:**
 - `for` in comprehensions (`[...] for src …` as alias for `over`)

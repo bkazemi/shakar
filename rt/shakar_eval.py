@@ -208,6 +208,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_assign_stmt(n.children, env)
         case 'compound_assign':
             return _eval_compound_assign(n.children, env)
+        case 'fndef':
+            return _eval_fn_def(n.children, env)
         case 'assert':
             return _eval_assert(n.children, env)
         case 'bind' | 'bind_nc':
@@ -343,6 +345,24 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     value_node = children[-1]
     value = eval_node(value_node, env)
     _assign_lvalue(lvalue_node, value, env, create=False)
+    return ShkNull()
+
+def _eval_fn_def(children: List[Any], env: Env) -> Any:
+    if not children:
+        raise ShakarRuntimeError("Malformed function definition")
+    name = _expect_ident_token(children[0], "Function name")
+    params_node = None
+    body_node = None
+    for node in children[1:]:
+        if params_node is None and is_tree_node(node) and tree_label(node) == 'paramlist':
+            params_node = node
+        elif body_node is None and is_tree_node(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+            body_node = node
+    if body_node is None:
+        body_node = Tree('inlinebody', [])
+    params = _extract_param_names(params_node, context="function definition")
+    fn_value = ShkFn(params=params, body=body_node, env=Env(parent=env, dot=None))
+    _assign_ident(name, fn_value, env, create=True)
     return ShkNull()
 
 def _eval_assert(children: List[Any], env: Env) -> Any:
@@ -1224,6 +1244,21 @@ def _apply_fan_op(fan: _FanContext, op: Tree, env: Env) -> _FanContext:
         fan.values = new_values
     return fan
 
+def _extract_param_names(params_node: Any, context: str="parameter list") -> List[str]:
+    if params_node is None:
+        return []
+    names: List[str] = []
+    for p in tree_children(params_node):
+        name = _ident_token_value(p)
+        if name is not None:
+            names.append(name)
+            continue
+        kind = _token_kind(p)
+        if kind in {'COMMA'}:
+            continue
+        raise ShakarRuntimeError(f"Unsupported parameter node in {context}: {p}")
+    return names
+
 # ---------------- Chains ----------------
 
 def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
@@ -1556,12 +1591,7 @@ def _eval_amp_lambda(n: Tree, env: Env) -> ShkFn:
 
     if len(n.children) == 2:
         params_node, body = n.children
-        params: List[str] = []
-        for p in tree_children(params_node):
-            name = _ident_token_value(p)
-            if name is None:
-                raise ShakarRuntimeError(f"Unsupported param node in amp_lambda: {p}")
-            params.append(name)
+        params = _extract_param_names(params_node, context="amp_lambda")
         return ShkFn(params=params, body=body, env=Env(parent=env, dot=None))
 
     raise ShakarRuntimeError("amp_lambda malformed")

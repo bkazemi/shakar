@@ -32,7 +32,7 @@ COMMENT: "#" /[^\n\r]*/
 %import common.ESCAPED_STRING -> STRING
 %import common.NUMBER -> NUMBER
 
-%declare AND OR IS IN NOT FOR IF ELIF ELSE AWAIT ANY USING OVER ALL HOOK RETURN DEFER ASSERT DBG GET SET
+%declare AND OR IS IN NOT FOR IF ELIF ELSE AWAIT ANY USING OVER ALL HOOK RETURN DEFER ASSERT DBG GET SET FN
 
 %import common.CNAME -> IDENT
 
@@ -165,6 +165,7 @@ fieldfan: "." "{" fieldlist "}"
                   | returnstmt
                   | assignor
                   | compound_assign
+                  | fnstmt
                   | stmtsubjectassign
                   | assignstmt
                   | destructure
@@ -275,6 +276,8 @@ catchexpr: expr "catch" IDENT? "=>" expr
 catchsugar: expr "@@" IDENT? "=>" expr
 
 hook: HOOK STRING ":" (inlinebody | indentblock)
+
+fnstmt: FN IDENT "(" paramlist? ")" ":" (inlinebody | indentblock)
 
 compound_assign: lvalue (PLUSEQ | MINUSEQ | STAREQ | SLASHEQ | FLOORDIVEQ | MODEQ | POWEQ) expr_nc
 

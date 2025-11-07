@@ -357,6 +357,26 @@ class Prune(Transformer):
         except NameError:
             return Tree('explicit_chain', list(chain.children) + [callnode])
 
+    def fnstmt(self, c):
+        name = None
+        params = None
+        body = None
+        for node in c:
+            if is_token(node) and getattr(node, "type", "") == "IDENT" and name is None:
+                name = node
+            elif is_tree(node) and tree_label(node) == 'paramlist':
+                params = node
+            elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+                body = node
+        children: list[Any] = []
+        if name is not None:
+            children.append(name)
+        if params is not None:
+            children.append(params)
+        if body is not None:
+            children.append(body)
+        return Tree('fndef', children)
+
     def amp_lambda1(self, c):
         return Tree('amp_lambda', [c[0]]) # body only; unary implicit '.'
 
@@ -537,6 +557,7 @@ KEYWORDS = {
     "using": "USING",
     "over": "OVER",
     "hook": "HOOK",
+    "fn": "FN",
     "defer": "DEFER",
     "dbg": "DBG",
     "return": "RETURN",
