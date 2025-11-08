@@ -111,6 +111,9 @@ class Env:
         self.vars: Dict[str, Any] = {}
         self.dot = dot
         self._defer_stack: List[List[DeferEntry]] = []
+        if parent is None and Builtins.stdlib_functions:
+            for name, std in Builtins.stdlib_functions.items():
+                self.vars[name] = std
         if source is not None:
             self.source = source
         elif parent is not None and hasattr(parent, 'source'):
@@ -173,10 +176,17 @@ class ShakarReturnSignal(Exception):
 
 # ---------- Built-in method registry ----------
 
+@dataclass(frozen=True)
+class StdlibFunction:
+    fn: Callable[['Env', List[Any]], Any]
+    arity: Optional[int] = None
+
 class Builtins:
     array_methods: Dict[str, Callable[['Env', 'ShkArray', List[Any]], Any]] = {}
     string_methods: Dict[str, Callable[['Env', 'ShkString', List[Any]], Any]] = {}
     object_methods: Dict[str, Callable[['Env', 'ShkObject', List[Any]], Any]] = {}
+    stdlib_functions: Dict[str, StdlibFunction] = {}
+    stdlib_expect_arity: Dict[str, int] = {}
 
     known_arity: Dict[Tuple[str, str], Tuple[str, int]] = {
         ("array","map"):     ("exact", 1),
@@ -207,6 +217,12 @@ def register_string(name: str):
 def register_object(name: str):
     def dec(fn):
         Builtins.object_methods[name] = fn
+        return fn
+    return dec
+
+def register_stdlib(name: str, *, arity: int | None = None):
+    def dec(fn: Callable[['Env', List[Any]], Any]):
+        Builtins.stdlib_functions[name] = StdlibFunction(fn=fn, arity=arity)
         return fn
     return dec
 

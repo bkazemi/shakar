@@ -8,12 +8,14 @@ from lark import Tree, Token
 from contextlib import contextmanager
 
 from shakar_runtime import (
-    Env, ShkNumber, ShkString, ShkBool, ShkNull, ShkArray, ShkObject, Descriptor, ShkFn, BoundMethod, BuiltinMethod,
+    Env, ShkNumber, ShkString, ShkBool, ShkNull, ShkArray, ShkObject, Descriptor, ShkFn, BoundMethod, BuiltinMethod, StdlibFunction,
     ShkSelector, SelectorIndex, SelectorSlice,
     ShakarRuntimeError, ShakarTypeError, ShakarArityError, ShakarKeyError, ShakarIndexError, ShakarMethodNotFound,
     ShakarAssertionError, ShakarReturnSignal, DeferEntry,
     call_builtin_method, call_shkfn, Builtins
 )
+
+import shakar_stdlib  # registers stdlib functions
 
 from shakar_utils import (
     value_in_list,
@@ -1265,8 +1267,8 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
 _TOKEN_DISPATCH: dict[str, Callable[[Token, Env], Any]] = {
     'NUMBER': _token_number,
     'STRING': _token_string,
-    'TRUE': lambda t, env: ShkBool(True),
-    'FALSE': lambda t, env: ShkBool(False),
+    'TRUE': lambda _, __: ShkBool(True),
+    'FALSE': lambda _, __: ShkBool(False),
 }
 
 def _resolve_assignable_node(node: Any, env: Env) -> Any:
@@ -1565,6 +1567,10 @@ def _call_value(cal: Any, args: List[Any], env: Env) -> Any:
             return call_shkfn(fn, args, subject=subject, caller_env=env)
         case BuiltinMethod(name=name, subject=subject):
             return call_builtin_method(subject, name, args, env)
+        case StdlibFunction(fn=fn, arity=arity):
+            if arity is not None and len(args) != arity:
+                raise ShakarArityError(f"Function expects {arity} args; got {len(args)}")
+            return fn(env, args)
         case ShkFn():
             return call_shkfn(cal, args, subject=None, caller_env=env)
         case _:
