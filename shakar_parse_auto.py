@@ -200,6 +200,18 @@ class Prune(Transformer):
                 params = part
         return Tree('obj_method', [name, params, body])
 
+    def pattern_list_inline(self, c):
+        items = []
+        for tok in c:
+            if is_token(tok) and getattr(tok, "type", "") == "IDENT":
+                items.append(Tree('pattern', [tok]))
+        if not items:
+            raise SyntaxError("Empty inline pattern list")
+        return Tree('pattern', [Tree('pattern_list', items)])
+
+    def forin_pattern(self, c):
+        return c[0] if c else Tree('pattern', [])
+
     def key_ident(self, c):
         return Tree('key_ident', c)
 

@@ -810,7 +810,7 @@ for __it in xs:
 Binder forms:
 - `for xs:` — subjectful loop; body sees `.` = element.
 - `for[i] xs:` — indexed; `i` = view index; `.` = element.
-- `for[k] m:` / `for[k, v] m:` — object; `k` = key, `.` = value (or `v` if bound). Equivalent destructuring form: `for (k, v) in m:`.
+- `for[k] m:` / `for[k, v] m:` — object; `k` = key, `.` = value (or `v` if bound). Equivalent destructuring form: `for (k, v) in m:` (parentheses optional when binding only identifiers: `for k, v in m:`).
 - `for … in <selectors>:` — iterate a **selector list** (selector values (ranges), slices, indices).
 
 **Hoisted binders (`^name`) — final v0.1 semantics**

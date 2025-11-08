@@ -212,7 +212,10 @@ onelineguard: AWAIT ( "(" expr ")" | expr ) ":" inlinebody -> awaitstmt
 guardbranch: expr ":" inlinebody
 inlinebody: simplestmt | "{" stmtlist? "}"
 
-forin: FOR pattern IN expr ":" (inlinebody | indentblock)
+forin: FOR forin_pattern IN expr ":" (inlinebody | indentblock)
+forin_pattern: pattern
+             | pattern_list_inline
+pattern_list_inline: IDENT ("," IDENT)+
 forsubject: FOR expr ":" (inlinebody | indentblock)
 forindexed: FOR "[" binderpattern "]" expr ":" (inlinebody | indentblock)
 formap1: forindexed
