@@ -15,8 +15,6 @@ from shakar_runtime import (
     call_builtin_method, call_shkfn, Builtins
 )
 
-import shakar_stdlib  # registers stdlib functions
-
 from shakar_utils import (
     value_in_list,
     shk_equals,

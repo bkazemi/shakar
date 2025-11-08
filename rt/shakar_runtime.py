@@ -310,3 +310,12 @@ def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env'
         return eval_node(fn.body, callee_env)
     except ShakarReturnSignal as signal:
         return signal.value
+
+# Ensure stdlib registrations execute even if shakar_eval isn't imported yet
+try:  # pragma: no cover - defensive import
+    import shakar_stdlib  # type: ignore  # noqa: F401
+except ImportError:
+    try:
+        from rt import shakar_stdlib  # type: ignore  # noqa: F401
+    except ImportError:
+        pass
