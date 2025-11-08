@@ -512,11 +512,7 @@ def _eval_compound_assign(children: List[Any], env: Env) -> Any:
         raise ShakarRuntimeError("Malformed compound assignment")
     lvalue_node = children[0]
     rhs_node = children[-1]
-    op_token = None
-    for child in children[1:-1]:
-        if is_token_node(child):
-            op_token = child
-            break
+    op_token = next((child for child in children[1:-1] if is_token_node(child)), None)
     if op_token is None:
         raise ShakarRuntimeError("Compound assignment missing operator")
     op_value = op_token.value
@@ -959,19 +955,14 @@ def _extract_loop_iter_and_body(children: List[Any]) -> tuple[Any | None, Any | 
     return iter_expr, body_node
 
 def _extract_clause(node: Tree, label: str) -> tuple[Any | None, Any]:
-    cond_node = None
-    body_node = None
-    for child in tree_children(node):
-        if is_token_node(child):
-            continue
-        if label == 'else':
-            body_node = child
-            break
-        if cond_node is None:
-            cond_node = child
-        else:
-            body_node = child
-    if label != 'else' and cond_node is None:
+    nodes = [child for child in tree_children(node) if not is_token_node(child)]
+    if label == 'else':
+        if not nodes:
+            raise ShakarRuntimeError("Malformed else clause")
+        return None, nodes[0]
+    cond_node = nodes[0] if nodes else None
+    body_node = nodes[1] if len(nodes) > 1 else None
+    if cond_node is None:
         raise ShakarRuntimeError("Malformed elif clause")
     if body_node is None:
         raise ShakarRuntimeError("Malformed clause body")
@@ -997,11 +988,11 @@ def _coerce_loop_binder(node: Tree) -> dict[str, Any]:
 def _pattern_requires_object_pair(pattern: Tree) -> bool:
     if not is_tree_node(pattern):
         return False
-    for child in tree_children(pattern):
-        if tree_label(child) == 'pattern_list':
-            elems = [c for c in tree_children(child) if tree_label(c) == 'pattern']
-            return len(elems) >= 2
-    return False
+    return any(
+        tree_label(child) == 'pattern_list'
+        and sum(1 for elem in tree_children(child) if tree_label(elem) == 'pattern') >= 2
+        for child in tree_children(pattern)
+    )
 
 def _execute_loop_body(body_node: Any, env: Env) -> Any:
     label = tree_label(body_node) if is_tree_node(body_node) else None
@@ -1359,11 +1350,7 @@ def _eval_infix(children: List[Any], env: Env, right_assoc_ops: set|None=None) -
     return acc
 
 def _all_ops_in(children: List[Any], allowed: set) -> bool:
-    for i in range(1, len(children), 2):
-        op = _as_op(children[i])
-        if op not in allowed:
-            return False
-    return True
+    return all(_as_op(children[i]) in allowed for i in range(1, len(children), 2))
 
 def _as_op(x: Any) -> str:
     if is_token_node(x):
@@ -1883,10 +1870,10 @@ def _eval_object(n: Tree, env: Env) -> ShkObject:
             if tree_label(target) == 'explicit_chain':
                 chain = target
             else:
-                for ch in tree_children(target):
-                    if tree_label(ch) == 'explicit_chain':
-                        chain = ch
-                        break
+                chain = next(
+                    (ch for ch in tree_children(target) if tree_label(ch) == 'explicit_chain'),
+                    None,
+                )
         if chain is None or len(chain.children) != 2:
             return None
         head, call_node = chain.children
