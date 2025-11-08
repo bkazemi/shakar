@@ -511,26 +511,51 @@ def _eval_apply_assign(children: List[Any], env: Env) -> Any:
     return _apply_assign(lvalue_node, rhs_node, env)
 
 def _eval_for_in(n: Tree, env: Env) -> Any:
-    name_token = None
+    pattern_node = None
     iter_expr = None
     body_node = None
+    after_in = False
     for child in tree_children(n):
+        if is_tree_node(child) and tree_label(child) == 'pattern':
+            pattern_node = child
+            continue
         if is_token_node(child):
-            if _token_kind(child) == 'IDENT' and name_token is None:
-                name_token = child
+            kind = _token_kind(child)
+            if kind == 'FOR':
+                continue
+            if kind == 'IN':
+                after_in = True
+                continue
+            if kind == 'COLON':
+                continue
+            if pattern_node is None and kind == 'IDENT':
+                pattern_node = Tree('pattern', [child])
+                continue
+            if after_in and iter_expr is None:
+                iter_expr = child
             continue
         if iter_expr is None:
             iter_expr = child
         else:
             body_node = child
-    if name_token is None or iter_expr is None or body_node is None:
+    if iter_expr is None or body_node is None:
         raise ShakarRuntimeError("Malformed for-in loop")
-    iterable = _iterable_values(eval_node(iter_expr, env))
+    if pattern_node is None:
+        raise ShakarRuntimeError("For-in loop missing pattern")
+    iter_source = eval_node(iter_expr, env)
+    iterable = _iterable_values(iter_source)
     outer_dot = env.dot
+    object_pairs: list[tuple[str, Any]] | None = None
+    if isinstance(iter_source, ShkObject):
+        object_pairs = list(iter_source.slots.items())
     try:
-        for value in iterable:
+        for idx, value in enumerate(iterable):
             loop_env = Env(parent=env, dot=outer_dot)
-            _assign_ident(name_token.value, value, loop_env, create=True)
+            assigned = value
+            if object_pairs and _pattern_requires_object_pair(pattern_node):
+                key, val = object_pairs[idx]
+                assigned = ShkArray([ShkString(key), val])
+            _assign_pattern_value(pattern_node, assigned, loop_env, create=True, allow_broadcast=False)
             _execute_loop_body(body_node, loop_env)
     finally:
         env.dot = outer_dot
@@ -917,6 +942,15 @@ def _coerce_loop_binder(node: Tree) -> dict[str, Any]:
         pattern = Tree('pattern', [target])
         return {'pattern': pattern, 'hoist': False}
     raise ShakarRuntimeError("Malformed binder pattern")
+
+def _pattern_requires_object_pair(pattern: Tree) -> bool:
+    if not is_tree_node(pattern):
+        return False
+    for child in tree_children(pattern):
+        if tree_label(child) == 'pattern_list':
+            elems = [c for c in tree_children(child) if tree_label(c) == 'pattern']
+            return len(elems) >= 2
+    return False
 
 def _execute_loop_body(body_node: Any, env: Env) -> None:
     label = tree_label(body_node) if is_tree_node(body_node) else None
