@@ -1310,8 +1310,7 @@ def _eval_unary(op_node: Any, rhs_node: Any, env: Env) -> Any:
 
     match op_norm:
         case Token(type='PLUS') | '+':
-          #return rhs
-          raise ShakarRuntimeError("unary + not supported")
+            raise ShakarRuntimeError("unary + not supported")
         case Token(type='MINUS') | '-':
             _require_number(rhs)
             return ShkNumber(-rhs.value)
@@ -1322,10 +1321,6 @@ def _eval_unary(op_node: Any, rhs_node: Any, env: Env) -> Any:
         case Token(type='NEG') | '!':
             return ShkBool(not _is_truthy(rhs))
         case _:
-            if op_tok_or_str in ('', None):
-                if isinstance(rhs, ShkNumber):
-                    return ShkNumber(-rhs.value)
-                return ShkBool(not _is_truthy(rhs))
             raise ShakarRuntimeError("Unsupported unary op")
 
 def _eval_infix(children: List[Any], env: Env, right_assoc_ops: set|None=None) -> Any:
