@@ -474,6 +474,38 @@ def _eval_assert(children: List[Any], env: Env) -> Any:
         message = _stringify(msg_val)
     raise ShakarAssertionError(message)
 
+def _eval_if_stmt(n: Tree, env: Env) -> Any:
+    children = tree_children(n)
+    cond_node = None
+    body_node = None
+    elif_clauses: list[tuple[Any, Any]] = []
+    else_body = None
+    for child in children:
+        if is_token_node(child):
+            continue
+        label = tree_label(child)
+        if label == 'elifclause':
+            clause_cond, clause_body = _extract_clause(child, label='elif')
+            elif_clauses.append((clause_cond, clause_body))
+            continue
+        if label == 'elseclause':
+            _, else_body = _extract_clause(child, label='else')
+            continue
+        if cond_node is None:
+            cond_node = child
+        elif body_node is None:
+            body_node = child
+    if cond_node is None or body_node is None:
+        raise ShakarRuntimeError("Malformed if statement")
+    if _is_truthy(eval_node(cond_node, env)):
+        return _execute_loop_body(body_node, env)
+    for clause_cond, clause_body in elif_clauses:
+        if _is_truthy(eval_node(clause_cond, env)):
+            return _execute_loop_body(clause_body, env)
+    if else_body is not None:
+        return _execute_loop_body(else_body, env)
+    return ShkNull()
+
 def _eval_compound_assign(children: List[Any], env: Env) -> Any:
     """Handle `x += y` and friends."""
     if len(children) < 3:
@@ -926,6 +958,25 @@ def _extract_loop_iter_and_body(children: List[Any]) -> tuple[Any | None, Any | 
                 body_node = child
     return iter_expr, body_node
 
+def _extract_clause(node: Tree, label: str) -> tuple[Any | None, Any]:
+    cond_node = None
+    body_node = None
+    for child in tree_children(node):
+        if is_token_node(child):
+            continue
+        if label == 'else':
+            body_node = child
+            break
+        if cond_node is None:
+            cond_node = child
+        else:
+            body_node = child
+    if label != 'else' and cond_node is None:
+        raise ShakarRuntimeError("Malformed elif clause")
+    if body_node is None:
+        raise ShakarRuntimeError("Malformed clause body")
+    return cond_node, body_node
+
 def _coerce_loop_binder(node: Tree) -> dict[str, Any]:
     target = node
     if tree_label(target) == 'binderpattern' and target.children:
@@ -952,14 +1003,13 @@ def _pattern_requires_object_pair(pattern: Tree) -> bool:
             return len(elems) >= 2
     return False
 
-def _execute_loop_body(body_node: Any, env: Env) -> None:
+def _execute_loop_body(body_node: Any, env: Env) -> Any:
     label = tree_label(body_node) if is_tree_node(body_node) else None
     if label == 'inlinebody':
-        _eval_inline_body(body_node, env)
-    elif label == 'indentblock':
-        _eval_indent_block(body_node, env)
-    else:
-        eval_node(body_node, env)
+        return _eval_inline_body(body_node, env)
+    if label == 'indentblock':
+        return _eval_indent_block(body_node, env)
+    return eval_node(body_node, env)
 
 def _iter_indexed_entries(value: Any, binder_count: int) -> list[tuple[Any, list[Any]]]:
     if binder_count <= 0:
@@ -1459,6 +1509,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
     'compare_nc': lambda n, env: _eval_compare(n.children, env),
     'nullish': lambda n, env: _eval_nullish(n.children, env),
     'nullsafe': lambda n, env: _eval_nullsafe(n.children, env),
+    'ifstmt': lambda n, env: _eval_if_stmt(n, env),
     'forin': lambda n, env: _eval_for_in(n, env),
     'forsubject': lambda n, env: _eval_for_subject(n, env),
     'forindexed': lambda n, env: _eval_for_indexed(n, env),
