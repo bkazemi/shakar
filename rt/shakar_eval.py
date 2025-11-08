@@ -510,6 +510,85 @@ def _eval_apply_assign(children: List[Any], env: Env) -> Any:
         raise ShakarRuntimeError("Malformed apply-assign expression")
     return _apply_assign(lvalue_node, rhs_node, env)
 
+def _eval_for_in(n: Tree, env: Env) -> Any:
+    name_token = None
+    iter_expr = None
+    body_node = None
+    for child in tree_children(n):
+        if is_token_node(child):
+            if _token_kind(child) == 'IDENT' and name_token is None:
+                name_token = child
+            continue
+        if iter_expr is None:
+            iter_expr = child
+        else:
+            body_node = child
+    if name_token is None or iter_expr is None or body_node is None:
+        raise ShakarRuntimeError("Malformed for-in loop")
+    iterable = _iterable_values(eval_node(iter_expr, env))
+    outer_dot = env.dot
+    try:
+        for value in iterable:
+            loop_env = Env(parent=env, dot=outer_dot)
+            _assign_ident(name_token.value, value, loop_env, create=True)
+            _execute_loop_body(body_node, loop_env)
+    finally:
+        env.dot = outer_dot
+    return ShkNull()
+
+def _eval_for_subject(n: Tree, env: Env) -> Any:
+    iter_expr = None
+    body_node = None
+    for child in tree_children(n):
+        if is_token_node(child):
+            continue
+        if iter_expr is None:
+            iter_expr = child
+        else:
+            body_node = child
+    if iter_expr is None or body_node is None:
+        raise ShakarRuntimeError("Malformed subjectful for loop")
+    iterable = _iterable_values(eval_node(iter_expr, env))
+    outer_dot = env.dot
+    try:
+        for value in iterable:
+            loop_env = Env(parent=env, dot=value)
+            _execute_loop_body(body_node, loop_env)
+    finally:
+        env.dot = outer_dot
+    return ShkNull()
+
+def _eval_for_indexed(n: Tree, env: Env) -> Any:
+    if n is None:
+        raise ShakarRuntimeError("Malformed indexed loop")
+    children = tree_children(n)
+    binder_nodes: list[Tree] = []
+    for child in children:
+        if is_tree_node(child) and tree_label(child) in {'binderpattern', 'hoist', 'pattern'}:
+            binder_nodes.append(child)
+    if not binder_nodes:
+        raise ShakarRuntimeError("Indexed loop missing binder")
+    iter_expr, body_node = _extract_loop_iter_and_body(children)
+    if iter_expr is None or body_node is None:
+        raise ShakarRuntimeError("Malformed indexed loop")
+    binders = [_coerce_loop_binder(node) for node in binder_nodes]
+    iterable = eval_node(iter_expr, env)
+    entries = _iter_indexed_entries(iterable, len(binders))
+    outer_dot = env.dot
+    try:
+        for subject, binder_values in entries:
+            loop_env = Env(parent=env, dot=subject)
+            for binder, binder_value in zip(binders, binder_values):
+                target_env = env if binder.get('hoist') else loop_env
+                _assign_pattern_value(binder['pattern'], binder_value, target_env, create=True, allow_broadcast=False)
+            _execute_loop_body(body_node, loop_env)
+    finally:
+        env.dot = outer_dot
+    return ShkNull()
+
+def _eval_for_map2(n: Tree, env: Env) -> Any:
+    return _eval_for_indexed(n, env)
+
 def _eval_destructure(n: Tree, env: Env, create: bool, allow_broadcast: bool) -> Any:
     """Evaluate `a, b := expr` destructures with optional broadcast semantics."""
     if len(n.children) != 2:
@@ -797,6 +876,93 @@ def _parse_overspec(node: Tree) -> tuple[Any, list[dict[str, Any]], str]:
     else:
         mode = 'none'
     return iter_expr_node, binders, mode
+
+def _extract_loop_iter_and_body(children: List[Any]) -> tuple[Any | None, Any | None]:
+    iter_expr = None
+    body_node = None
+    for child in children:
+        if is_tree_node(child):
+            label = tree_label(child)
+            if label in {'binderpattern', 'hoist', 'pattern'}:
+                continue
+            if label in {'inlinebody', 'indentblock'}:
+                body_node = child
+            elif iter_expr is None:
+                iter_expr = child
+            else:
+                body_node = child
+        else:
+            kind = _token_kind(child)
+            if kind in {'FOR', 'IN', 'LSQB', 'RSQB', 'COMMA', 'COLON'}:
+                continue
+            if iter_expr is None:
+                iter_expr = child
+            else:
+                body_node = child
+    return iter_expr, body_node
+
+def _coerce_loop_binder(node: Tree) -> dict[str, Any]:
+    target = node
+    if tree_label(target) == 'binderpattern' and target.children:
+        target = target.children[0]
+    if tree_label(target) == 'hoist':
+        tok = target.children[0] if target.children else None
+        if tok is None or not is_token_node(tok):
+            raise ShakarRuntimeError("Malformed hoisted binder")
+        pattern = Tree('pattern', [tok])
+        return {'pattern': pattern, 'hoist': True}
+    if tree_label(target) == 'pattern':
+        return {'pattern': target, 'hoist': False}
+    if is_token_node(target) and _token_kind(target) == 'IDENT':
+        pattern = Tree('pattern', [target])
+        return {'pattern': pattern, 'hoist': False}
+    raise ShakarRuntimeError("Malformed binder pattern")
+
+def _execute_loop_body(body_node: Any, env: Env) -> None:
+    label = tree_label(body_node) if is_tree_node(body_node) else None
+    if label == 'inlinebody':
+        _eval_inline_body(body_node, env)
+    elif label == 'indentblock':
+        _eval_indent_block(body_node, env)
+    else:
+        eval_node(body_node, env)
+
+def _iter_indexed_entries(value: Any, binder_count: int) -> list[tuple[Any, list[Any]]]:
+    if binder_count <= 0:
+        raise ShakarRuntimeError("Indexed loop requires at least one binder")
+    if binder_count > 2:
+        raise ShakarRuntimeError("Indexed loop supports at most two binders")
+    entries: list[tuple[Any, list[Any]]] = []
+    match value:
+        case ShkArray(items=items):
+            for idx, item in enumerate(items):
+                binders = [ShkNumber(float(idx))]
+                if binder_count > 1:
+                    binders.append(item)
+                entries.append((item, binders[:binder_count]))
+        case ShkString(value=s):
+            for idx, ch in enumerate(s):
+                char = ShkString(ch)
+                binders = [ShkNumber(float(idx))]
+                if binder_count > 1:
+                    binders.append(char)
+                entries.append((char, binders[:binder_count]))
+        case ShkObject(slots=slots):
+            for key, val in slots.items():
+                binders = [ShkString(key)]
+                if binder_count > 1:
+                    binders.append(val)
+                entries.append((val, binders[:binder_count]))
+        case ShkSelector():
+            values = selector_iter_values(value)
+            for idx, sel in enumerate(values):
+                binders = [ShkNumber(float(idx))]
+                if binder_count > 1:
+                    binders.append(sel)
+                entries.append((sel, binders[:binder_count]))
+        case _:
+            raise ShakarTypeError(f"Cannot use indexed loop on {type(value).__name__}")
+    return entries
 
 def _iterable_values(value: Any) -> list[Any]:
     match value:
@@ -1259,6 +1425,11 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
     'compare_nc': lambda n, env: _eval_compare(n.children, env),
     'nullish': lambda n, env: _eval_nullish(n.children, env),
     'nullsafe': lambda n, env: _eval_nullsafe(n.children, env),
+    'forin': lambda n, env: _eval_for_in(n, env),
+    'forsubject': lambda n, env: _eval_for_subject(n, env),
+    'forindexed': lambda n, env: _eval_for_indexed(n, env),
+    'formap1': lambda n, env: _eval_for_indexed(n.children[0] if n.children else None, env),
+    'formap2': lambda n, env: _eval_for_map2(n, env),
     'inlinebody': lambda n, env: _eval_inline_body(n, env),
     'indentblock': lambda n, env: _eval_indent_block(n, env),
     'onelineguard': lambda n, env: _eval_oneline_guard(n.children, env),
