@@ -612,6 +612,8 @@ KEYWORDS = {
     "assert": "ASSERT",
     "get": "GET",
     "set": "SET",
+    "break": "BREAK",
+    "continue": "CONTINUE",
 }
 
 def _remap_ident(t: Token) -> Token:

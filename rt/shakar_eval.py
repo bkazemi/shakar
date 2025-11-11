@@ -27,6 +27,8 @@ from shakar_runtime import (
     ShakarIndexError,
     ShakarMethodNotFound,
     ShakarReturnSignal,
+    ShakarBreakSignal,
+    ShakarContinueSignal,
     ShakarRuntimeError,
     ShakarTypeError,
     ShakarKeyError,
@@ -206,6 +208,10 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_walrus(n.children, env)
         case 'returnstmt':
             return _eval_return_stmt(n.children, env)
+        case 'breakstmt':
+            return _eval_break_stmt(env)
+        case 'continuestmt':
+            return _eval_continue_stmt(env)
         case 'assignstmt':
             return _eval_assign_stmt(n.children, env)
         case 'compound_assign':
@@ -257,17 +263,26 @@ def _eval_keyword_literal(node: Tree) -> Any:
             return ShkBool(False)
     raise ShakarRuntimeError("Unknown literal")
 
-def _eval_program(children: List[Any], env: Env) -> Any:
+def _eval_program(children: List[Any], env: Env, allow_loop_control: bool=False) -> Any:
     """Run a stmt list under a fresh defer scope, returning last value."""
     result: Any = ShkNull()
     skip_tokens = {'SEMI', '_NL', 'INDENT', 'DEDENT'}
     _push_defer_scope(env)
     try:
-        for child in children:
-            tok_kind = _token_kind(child)
-            if tok_kind in skip_tokens:
-                continue
-            result = eval_node(child, env)
+        try:
+            for child in children:
+                tok_kind = _token_kind(child)
+                if tok_kind in skip_tokens:
+                    continue
+                result = eval_node(child, env)
+        except ShakarBreakSignal:
+            if allow_loop_control:
+                raise
+            raise ShakarRuntimeError("break outside of a loop") from None
+        except ShakarContinueSignal:
+            if allow_loop_control:
+                raise
+            raise ShakarRuntimeError("continue outside of a loop") from None
     finally:
         _pop_defer_scope(env)
     return result
@@ -343,19 +358,19 @@ def _eval_implicit_chain(ops: List[Any], env: Env) -> Any:
         val = _apply_op(val, op, env)
     return val
 
-def _eval_inline_body(node: Any, env: Env) -> Any:
+def _eval_inline_body(node: Any, env: Env, allow_loop_control: bool=False) -> Any:
     """Execute a single-statement body or `{}` block attached to colon headers."""
     if tree_label(node) == 'inlinebody':
         for child in tree_children(node):
             if tree_label(child) == 'stmtlist':
-                return _eval_program(child.children, env)
+                return _eval_program(child.children, env, allow_loop_control=allow_loop_control)
         if not tree_children(node):
             return ShkNull()
         return eval_node(node.children[0], env)
     return eval_node(node, env)
 
-def _eval_indent_block(node: Tree, env: Env) -> Any:
-    return _eval_program(node.children, env)
+def _eval_indent_block(node: Tree, env: Env, allow_loop_control: bool=False) -> Any:
+    return _eval_program(node.children, env, allow_loop_control=allow_loop_control)
 
 def _eval_oneline_guard(children: List[Any], env: Env) -> Any:
     branches: List[Tree] = []
@@ -409,6 +424,12 @@ def _eval_return_stmt(children: List[Any], env: Env) -> Any:
         raise ShakarRuntimeError("return outside of a function")
     value = eval_node(children[0], env) if children else ShkNull()
     raise ShakarReturnSignal(value)
+
+def _eval_break_stmt(env: Env) -> Any:
+    raise ShakarBreakSignal()
+
+def _eval_continue_stmt(env: Env) -> Any:
+    raise ShakarContinueSignal()
 
 def _eval_defer_stmt(children: List[Any], env: Env) -> Any:
     """Schedule a deferred thunk, unpacking optional label/dependency metadata."""
@@ -600,7 +621,12 @@ def _eval_for_in(n: Tree, env: Env) -> Any:
                 key, val = object_pairs[idx]
                 assigned = ShkArray([ShkString(key), val])
             _assign_pattern_value(pattern_node, assigned, loop_env, create=True, allow_broadcast=False)
-            _execute_loop_body(body_node, loop_env)
+            try:
+                _execute_loop_body(body_node, loop_env)
+            except ShakarContinueSignal:
+                continue
+            except ShakarBreakSignal:
+                break
     finally:
         env.dot = outer_dot
     return ShkNull()
@@ -622,7 +648,12 @@ def _eval_for_subject(n: Tree, env: Env) -> Any:
     try:
         for value in iterable:
             loop_env = Env(parent=env, dot=value)
-            _execute_loop_body(body_node, loop_env)
+            try:
+                _execute_loop_body(body_node, loop_env)
+            except ShakarContinueSignal:
+                continue
+            except ShakarBreakSignal:
+                break
     finally:
         env.dot = outer_dot
     return ShkNull()
@@ -650,7 +681,12 @@ def _eval_for_indexed(n: Tree, env: Env) -> Any:
             for binder, binder_value in zip(binders, binder_values):
                 target_env = env if binder.get('hoist') else loop_env
                 _assign_pattern_value(binder['pattern'], binder_value, target_env, create=True, allow_broadcast=False)
-            _execute_loop_body(body_node, loop_env)
+            try:
+                _execute_loop_body(body_node, loop_env)
+            except ShakarContinueSignal:
+                continue
+            except ShakarBreakSignal:
+                break
     finally:
         env.dot = outer_dot
     return ShkNull()
@@ -1013,9 +1049,9 @@ def _pattern_requires_object_pair(pattern: Tree) -> bool:
 def _execute_loop_body(body_node: Any, env: Env) -> Any:
     label = tree_label(body_node) if is_tree_node(body_node) else None
     if label == 'inlinebody':
-        return _eval_inline_body(body_node, env)
+        return _eval_inline_body(body_node, env, allow_loop_control=True)
     if label == 'indentblock':
-        return _eval_indent_block(body_node, env)
+        return _eval_indent_block(body_node, env, allow_loop_control=True)
     return eval_node(body_node, env)
 
 def _iter_indexed_entries(value: Any, binder_count: int) -> list[tuple[Any, list[Any]]]:
@@ -1507,6 +1543,8 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
     'compare_nc': lambda n, env: _eval_compare(n.children, env),
     'nullish': lambda n, env: _eval_nullish(n.children, env),
     'nullsafe': lambda n, env: _eval_nullsafe(n.children, env),
+    'breakstmt': lambda n, env: _eval_break_stmt(env),
+    'continuestmt': lambda n, env: _eval_continue_stmt(env),
     'ifstmt': lambda n, env: _eval_if_stmt(n, env),
     'forin': lambda n, env: _eval_for_in(n, env),
     'forsubject': lambda n, env: _eval_for_subject(n, env),

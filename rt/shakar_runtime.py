@@ -175,6 +175,12 @@ class ShakarReturnSignal(Exception):
     def __init__(self, value: Any):
         self.value = value
 
+class ShakarBreakSignal(Exception):
+    """Internal control flow for `break`."""
+
+class ShakarContinueSignal(Exception):
+    """Internal control flow for `continue`."""
+
 # ---------- Built-in method registry ----------
 
 @dataclass(frozen=True)

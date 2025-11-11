@@ -32,7 +32,7 @@ COMMENT: "#" /[^\n\r]*/
 %import common.ESCAPED_STRING -> STRING
 %import common.NUMBER -> NUMBER
 
-%declare AND OR IS IN NOT FOR IF ELIF ELSE AWAIT ANY USING OVER ALL HOOK RETURN DEFER ASSERT DBG GET SET FN
+%declare AND OR IS IN NOT FOR IF ELIF ELSE AWAIT ANY USING OVER ALL HOOK RETURN DEFER ASSERT DBG GET SET FN BREAK CONTINUE
 
 %import common.CNAME -> IDENT
 
@@ -161,6 +161,9 @@ lvalue: primary ( postfix_field | lv_index )* ( fieldfan )?
 fieldlist: IDENT ("," IDENT)*
 fieldfan: "." "{" fieldlist "}"
 
+breakstmt: BREAK
+continuestmt: CONTINUE
+
 ?basesimplestmt: expr
                   | returnstmt
                   | assignor
@@ -172,6 +175,8 @@ fieldfan: "." "{" fieldlist "}"
                   | destructure_walrus
                   | onelineguard
                   | returnif
+                  | breakstmt
+                  | continuestmt
                   | dbg
                   | assert
                   | usingstmt
