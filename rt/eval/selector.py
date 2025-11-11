@@ -89,7 +89,7 @@ def clone_selector_parts(parts: Iterable[SelectorPart], clamp: bool) -> List[Sel
             cloned.append(SelectorIndex(part.value))
     return cloned
 
-def apply_selectors_to_value(recv: Any, selectors: List[SelectorPart], env) -> Any:
+def apply_selectors_to_value(recv: Any, selectors: List[SelectorPart]) -> Any:
     """Apply a list of selector parts to an array/string receiver."""
     if isinstance(recv, ShkArray):
         return _apply_selectors_to_array(recv, selectors)

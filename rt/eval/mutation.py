@@ -7,7 +7,6 @@ from shakar_runtime import (
     BoundMethod,
     BuiltinMethod,
     Builtins,
-    BuiltinMethod,
     Descriptor,
     ShkArray,
     ShkFn,
@@ -36,12 +35,14 @@ def set_field_value(recv: Any, name: str, value: Any, env: Env, *, create: bool)
                     raise ShakarRuntimeError(f"Property '{name}' is read-only")
                 call_shkfn(setter, [value], subject=recv, caller_env=env)
                 return value
+            if slot is None and not create:
+                raise ShakarRuntimeError(f"Field '{name}' is undefined; use ':=' to create it")
             slots[name] = value
             return value
         case _:
             raise ShakarTypeError(f"Cannot set field '{name}' on {type(recv).__name__}")
 
-def set_index_value(recv: Any, index: Any, value: Any, env: Env) -> Any:
+def set_index_value(recv: Any, index: Any, value: Any, _env: Env) -> Any:
     """Assign `recv[index] = value` for arrays/objects with minimal coercions."""
     match recv:
         case ShkArray(items=items):
@@ -66,7 +67,7 @@ def index_value(recv: Any, idx: Any, env: Env) -> Any:
             if isinstance(idx, ShkSelector):
                 # cloning prevents later selectors from mutating the shared object.
                 cloned = clone_selector_parts(idx.parts, clamp=True)
-                return apply_selectors_to_value(recv, cloned, env)
+                return apply_selectors_to_value(recv, cloned)
             if isinstance(idx, ShkNumber):
                 try:
                     return items[int(idx.value)]
@@ -76,7 +77,7 @@ def index_value(recv: Any, idx: Any, env: Env) -> Any:
         case ShkString(value=s):
             if isinstance(idx, ShkSelector):
                 cloned = clone_selector_parts(idx.parts, clamp=True)
-                return apply_selectors_to_value(recv, cloned, env)
+                return apply_selectors_to_value(recv, cloned)
             if isinstance(idx, ShkNumber):
                 try:
                     return ShkString(s[int(idx.value)])

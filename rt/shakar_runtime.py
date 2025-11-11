@@ -281,34 +281,34 @@ def _string_arg(method: str, arg: Any) -> str:
     raise ShakarTypeError(f"string.{method} expects a string argument")
 
 @register_string("trim")
-def _string_trim(env: Env, recv: ShkString, args: List[Any]) -> ShkString:
+def _string_trim(_env: Env, recv: ShkString, args: List[Any]) -> ShkString:
     _string_expect_arity("trim", args, 0)
     return ShkString(recv.value.strip())
 
 @register_string("lower")
-def _string_lower(env: Env, recv: ShkString, args: List[Any]) -> ShkString:
+def _string_lower(_env: Env, recv: ShkString, args: List[Any]) -> ShkString:
     _string_expect_arity("lower", args, 0)
     return ShkString(recv.value.lower())
 
 @register_string("upper")
-def _string_upper(env: Env, recv: ShkString, args: List[Any]) -> ShkString:
+def _string_upper(_env: Env, recv: ShkString, args: List[Any]) -> ShkString:
     _string_expect_arity("upper", args, 0)
     return ShkString(recv.value.upper())
 
 @register_string("hasPrefix")
-def _string_has_prefix(env: Env, recv: ShkString, args: List[Any]) -> ShkBool:
+def _string_has_prefix(_env: Env, recv: ShkString, args: List[Any]) -> ShkBool:
     _string_expect_arity("hasPrefix", args, 1)
     prefix = _string_arg("hasPrefix", args[0])
     return ShkBool(recv.value.startswith(prefix))
 
 @register_string("hasSuffix")
-def _string_has_suffix(env: Env, recv: ShkString, args: List[Any]) -> ShkBool:
+def _string_has_suffix(_env: Env, recv: ShkString, args: List[Any]) -> ShkBool:
     _string_expect_arity("hasSuffix", args, 1)
     suffix = _string_arg("hasSuffix", args[0])
     return ShkBool(recv.value.endswith(suffix))
 
 @register_string("isAscii")
-def _string_is_ascii(env: Env, recv: ShkString, args: List[Any]) -> ShkBool:
+def _string_is_ascii(_env: Env, recv: ShkString, args: List[Any]) -> ShkBool:
     _string_expect_arity("isAscii", args, 0)
     return ShkBool(recv.value.isascii())
 
@@ -325,6 +325,7 @@ def call_builtin_method(recv: Any, name: str, args: List[Any], env: 'Env') -> An
     raise ShakarMethodNotFound(recv, name)
 
 def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env') -> Any:
+    _ = caller_env
     """
     Subjectful call semantics:
     - subject is available to callee as env.dot

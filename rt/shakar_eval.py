@@ -1760,7 +1760,7 @@ def _apply_index_operation(recv: Any, op: Tree, env: Env) -> Any:
         idx_val = eval_node(expr_node, env)
         return index_value(recv, idx_val, env)
     selectors = evaluate_selectorlist(selectorlist, env, eval_node)
-    return apply_selectors_to_value(recv, selectors, env)
+    return apply_selectors_to_value(recv, selectors)
 
 def _eval_group(n: Tree, env: Env) -> Any:
     child = n.children[0] if n.children else None

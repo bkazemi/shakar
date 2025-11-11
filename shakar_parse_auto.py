@@ -157,7 +157,7 @@ class Prune(Transformer):
         # c = [expr_key, expr_val]
         return Tree('obj_field', [Tree('key_expr', [c[0]]), c[1]])
 
-    def obj_sep(self, c):
+    def obj_sep(self, _c):
         return Discard
 
     # Keep getters/setters explicit; prune keeps only key + body shape later if you want
@@ -506,20 +506,20 @@ class Prune(Transformer):
     def expr(self, c):          return c[0]  # expr is always a wrapper in this grammar
 
     # ignore comments
-    def COMMENT(self, c): return Discard
-    def comment(self, c): return Discard
+    def COMMENT(self, _c): return Discard
+    def comment(self, _c): return Discard
 
-    def AND(self, c):
+    def AND(self, _c):
         if getattr(self, '_compare_depth', 0) > 0:
             return Token('AND', 'and')
         return Discard
 
-    def OR(self, c):
+    def OR(self, _c):
         if getattr(self, '_compare_depth', 0) > 0:
             return Token('OR', 'or')
         return Discard
 
-    def COLON(self, c): return Discard
+    def COLON(self, _c): return Discard
 
 # tidy arg nodes for printing
 class ArgTidy(Transformer):
@@ -1051,7 +1051,7 @@ def main():
         enforce_subject_scope(tree)
         print("OK")
 
-def _prune_assert(self, c):
+def _prune_assert(_self, c):
     filtered = [node for node in c if not (is_token(node) and getattr(node, "type", "") == "ASSERT")]
     node = Tree('assert', filtered)
     meta = getattr(c[0], 'meta', None) if c else None

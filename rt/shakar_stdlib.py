@@ -21,7 +21,7 @@ def _render(value):
 
 
 @register_stdlib("print")
-def std_print(env, args: List[object]) -> ShkNull:
+def std_print(_env, args: List[object]) -> ShkNull:
     rendered = [_render(arg) for arg in args]
     print(*rendered)
     return ShkNull()
