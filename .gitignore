@@ -1,0 +1,22 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+
+# Tooling artifacts
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.pylint.d/
+
+# Reports / logs
+sanity_report.txt
+sanity_tree_report.txt
+pylint.log
+
+# Misc
+.DS_Store
+*.swp
