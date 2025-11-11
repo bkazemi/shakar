@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from typing import Any, Callable, Iterable, List, Optional
@@ -67,6 +66,12 @@ from eval.mutation import (
     index_value,
     slice_value,
     get_field_value,
+)
+
+from eval._await import (
+    await_any_entries,
+    await_all_entries,
+    resolve_await_result,
 )
 
 class _RebindContext:
@@ -1751,6 +1756,137 @@ def _apply_slice(recv: Any, arms: List[Any], env: Env) -> Any:
     start, stop, step = map(arm_to_py, arms)
     return slice_value(recv, start, stop, step)
 
+# ---------------- Await primitives ----------------
+
+def _collect_await_arms(list_node: Tree, prefix: str) -> list[dict[str, Any]]:
+    arms: list[dict[str, Any]] = []
+    for idx, arm_node in enumerate(tree_children(list_node)):
+        children = tree_children(arm_node)
+        label = None
+        expr_node = None
+        body_node = None
+        pos = 0
+        if children and is_token_node(children[0]) and _token_kind(children[0]) == 'IDENT':
+            label = children[0].value
+            pos = 1
+        if pos >= len(children):
+            raise ShakarRuntimeError("Malformed await arm")
+        expr_node = children[pos]
+        pos += 1
+        if pos < len(children):
+            candidate = children[pos]
+            if is_tree_node(candidate) and tree_label(candidate) in {'inlinebody', 'indentblock'}:
+                body_node = candidate
+        arms.append({
+            'label': label or f"{prefix}{idx}",
+            'expr': expr_node,
+            'body': body_node,
+        })
+    return arms
+
+def _extract_trailing_body(children: List[Any]) -> Any | None:
+    seen_rpar = False
+    for child in children:
+        if is_token_node(child):
+            if _token_kind(child) == 'RPAR':
+                seen_rpar = True
+            continue
+        if seen_rpar and tree_label(child) in {'inlinebody', 'indentblock'}:
+            return child
+    return None
+
+def _eval_body_node(body_node: Any, env: Env) -> Any:
+    label = tree_label(body_node) if is_tree_node(body_node) else None
+    if label == 'inlinebody':
+        return _eval_inline_body(body_node, env)
+    if label == 'indentblock':
+        return _eval_indent_block(body_node, env)
+    return eval_node(body_node, env)
+
+def _run_body_with_subject(body_node: Any, env: Env, subject_value: Any, extra_bindings: dict[str, Any] | None=None) -> Any:
+    if extra_bindings:
+        with _temporary_subject(env, subject_value), _temporary_bindings(env, extra_bindings):
+            return _eval_body_node(body_node, env)
+    with _temporary_subject(env, subject_value):
+        return _eval_body_node(body_node, env)
+
+def _await_winner_object(label: str, value: Any) -> ShkObject:
+    return ShkObject({'winner': ShkString(label), 'value': value})
+
+def _eval_await_value(n: Tree, env: Env) -> Any:
+    for child in tree_children(n):
+        if not is_token_node(child):
+            value = eval_node(child, env)
+            return resolve_await_result(value)
+    raise ShakarRuntimeError("Malformed await expression")
+
+def _eval_await_stmt(n: Tree, env: Env) -> Any:
+    expr_node = None
+    body_node = None
+    for child in tree_children(n):
+        if is_tree_node(child) and tree_label(child) in {'inlinebody', 'indentblock'}:
+            body_node = child
+        elif not is_token_node(child) and expr_node is None:
+            expr_node = child
+    if expr_node is None or body_node is None:
+        raise ShakarRuntimeError("Malformed await statement")
+    value = resolve_await_result(eval_node(expr_node, env))
+    _run_body_with_subject(body_node, env, value)
+    return ShkNull()
+
+def _eval_await_any_call(n: Tree, env: Env) -> Any:
+    arms_node = child_by_label(n, 'anyarmlist')
+    if arms_node is None:
+        raise ShakarRuntimeError("await[any] missing arm list")
+    arms = _collect_await_arms(arms_node, "arm")
+    if not arms:
+        raise ShakarRuntimeError("await[any] requires at least one arm")
+    trailing_body = _extract_trailing_body(tree_children(n))
+    per_arm_bodies = [arm for arm in arms if arm['body'] is not None]
+    if trailing_body is not None and per_arm_bodies:
+        raise ShakarRuntimeError("await[any] cannot mix per-arm bodies with a trailing body")
+    entries: list[tuple[dict[str, Any], Any]] = []
+    errors: list[ShakarRuntimeError] = []
+    for arm in arms:
+        try:
+            value = eval_node(arm['expr'], env)
+        except ShakarRuntimeError as err:
+            errors.append(err)
+            continue
+        entries.append((arm, value))
+    if not entries:
+        if errors:
+            raise errors[-1]
+        raise ShakarRuntimeError("await[any] arms did not produce a value")
+    winner_arm, winner_value = await_any_entries(entries)
+    if winner_arm['body'] is not None:
+        return _run_body_with_subject(winner_arm['body'], env, winner_value)
+    if trailing_body is not None:
+        bindings = {'winner': ShkString(winner_arm['label'])}
+        return _run_body_with_subject(trailing_body, env, winner_value, bindings)
+    return _await_winner_object(winner_arm['label'], winner_value)
+
+def _eval_await_all_call(n: Tree, env: Env) -> Any:
+    arms_node = child_by_label(n, 'allarmlist')
+    if arms_node is None:
+        raise ShakarRuntimeError("await[all] missing arm list")
+    arms = _collect_await_arms(arms_node, "arm")
+    if not arms:
+        raise ShakarRuntimeError("await[all] requires at least one arm")
+    if any(arm['body'] is not None for arm in arms):
+        raise ShakarRuntimeError("await[all] does not support per-arm bodies")
+    entries: list[tuple[dict[str, Any], Any]] = []
+    for arm in arms:
+        value = eval_node(arm['expr'], env)
+        entries.append((arm, value))
+    resolved = await_all_entries(entries)
+    results_object: dict[str, Any] = {arm['label']: value for arm, value in resolved}
+    trailing_body = _extract_trailing_body(tree_children(n))
+    if trailing_body is not None:
+        with _temporary_bindings(env, results_object):
+            return _eval_body_node(trailing_body, env)
+    return ShkObject(results_object)
+
 # ---------------- Selectors ----------------
 
 def _apply_index_operation(recv: Any, op: Tree, env: Env) -> Any:
@@ -2001,6 +2137,30 @@ def _temporary_subject(env: Env, dot: Any) -> Iterable[None]:
     finally:
         env.dot = prev
 
+@contextmanager
+def _temporary_bindings(env: Env, bindings: dict[str, Any]) -> Iterable[None]:
+    """Temporarily bind a set of identifiers within the current environment chain."""
+    records: list[tuple[Env, str, Any | None, bool]] = []
+    for name, value in bindings.items():
+        target = env
+        while target is not None and name not in target.vars:
+            target = getattr(target, "parent", None)
+        if target is None:
+            env.define(name, value)
+            records.append((env, name, None, False))
+        else:
+            prev = target.vars[name]
+            target.vars[name] = value
+            records.append((target, name, prev, True))
+    try:
+        yield
+    finally:
+        for target, name, prev, existed in reversed(records):
+            if existed:
+                target.vars[name] = prev
+            else:
+                target.vars.pop(name, None)
+
 _NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
     'listcomp': _eval_listcomp,
     'setcomp': _eval_setcomp,
@@ -2011,12 +2171,16 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
     'ternary': _eval_ternary,
     'rebind_primary': _eval_rebind_primary,
     'amp_lambda': _eval_amp_lambda,
+    'await_value': _eval_await_value,
     'compare': lambda n, env: _eval_compare(n.children, env),
     'compare_nc': lambda n, env: _eval_compare(n.children, env),
     'nullish': lambda n, env: _eval_nullish(n.children, env),
     'nullsafe': lambda n, env: _eval_nullsafe(n.children, env),
     'breakstmt': lambda _, env: _eval_break_stmt(env),
     'continuestmt': lambda _, env: _eval_continue_stmt(env),
+    'awaitstmt': _eval_await_stmt,
+    'awaitanycall': _eval_await_any_call,
+    'awaitallcall': _eval_await_all_call,
     'ifstmt': _eval_if_stmt,
     'forin': _eval_for_in,
     'forsubject': _eval_for_subject,
