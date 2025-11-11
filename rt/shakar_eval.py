@@ -8,29 +8,46 @@ from lark import Tree, Token
 from contextlib import contextmanager
 
 from shakar_runtime import (
-    Env, ShkNumber, ShkString, ShkBool, ShkNull, ShkArray, ShkObject, Descriptor, ShkFn, BoundMethod, BuiltinMethod, StdlibFunction,
-    ShkSelector, SelectorIndex, SelectorSlice,
-    ShakarRuntimeError, ShakarTypeError, ShakarArityError, ShakarKeyError, ShakarIndexError, ShakarMethodNotFound,
-    ShakarAssertionError, ShakarReturnSignal, DeferEntry,
-    call_builtin_method, call_shkfn, Builtins
+    BoundMethod,
+    BuiltinMethod,
+    Builtins,
+    DeferEntry,
+    Descriptor,
+    Env,
+    ShkArray,
+    ShkBool,
+    ShkFn,
+    ShkNull,
+    ShkNumber,
+    ShkObject,
+    ShkSelector,
+    ShkString,
+    ShakarArityError,
+    ShakarAssertionError,
+    ShakarIndexError,
+    ShakarMethodNotFound,
+    ShakarReturnSignal,
+    ShakarRuntimeError,
+    ShakarTypeError,
+    ShakarKeyError,
+    SelectorIndex,
+    SelectorSlice,
+    StdlibFunction,
+    call_builtin_method,
+    call_shkfn,
+    init_stdlib,
 )
 
-from shakar_utils import (
-    value_in_list,
-    shk_equals,
-    sequence_items,
-    fanout_values,
-    normalize_object_key,
-)
+from shakar_utils import fanout_values, normalize_object_key, sequence_items, shk_equals, value_in_list
 from shakar_tree import (
-    tree_label,
-    tree_children,
-    node_meta,
     child_by_label,
     child_by_labels,
     first_child,
-    is_tree_node,
     is_token_node,
+    is_tree_node,
+    node_meta,
+    tree_children,
+    tree_label,
 )
 
 from eval.selector import (
@@ -81,6 +98,7 @@ class _FanContext:
 # ---------------- Public API ----------------
 
 def eval_expr(ast: Any, env: Optional[Env]=None, source: Optional[str]=None) -> Any:
+    init_stdlib()
     if env is None:
         env = Env(source=source)
     else:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -186,6 +187,21 @@ class Builtins:
     string_methods: Dict[str, Callable[['Env', 'ShkString', List[Any]], Any]] = {}
     object_methods: Dict[str, Callable[['Env', 'ShkObject', List[Any]], Any]] = {}
     stdlib_functions: Dict[str, StdlibFunction] = {}
+
+_STDLIB_INITIALIZED = False
+
+def init_stdlib() -> None:
+    """Load stdlib modules (idempotent) so register_stdlib hooks run."""
+    global _STDLIB_INITIALIZED
+    if _STDLIB_INITIALIZED:
+        return
+    for module_name in ("rt.shakar_stdlib", "shakar_stdlib"):
+        try:
+            importlib.import_module(module_name)
+            _STDLIB_INITIALIZED = True
+            return
+        except ModuleNotFoundError:
+            continue
     stdlib_expect_arity: Dict[str, int] = {}
 
     known_arity: Dict[Tuple[str, str], Tuple[str, int]] = {
@@ -310,12 +326,3 @@ def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env'
         return eval_node(fn.body, callee_env)
     except ShakarReturnSignal as signal:
         return signal.value
-
-# Ensure stdlib registrations execute even if shakar_eval isn't imported yet
-try:  # pragma: no cover - defensive import
-    import shakar_stdlib  # type: ignore  # noqa: F401
-except ImportError:
-    try:
-        from rt import shakar_stdlib  # type: ignore  # noqa: F401
-    except ImportError:
-        pass

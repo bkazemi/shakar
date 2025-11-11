@@ -7,7 +7,7 @@ from shakar_parse_auto import build_parser  # use the project's builder (lexer r
 from shakar_parse_auto import Prune
 from shakar_lower import lower
 from shakar_eval import eval_expr
-from shakar_runtime import Env
+from shakar_runtime import Env, init_stdlib
 
 def _read_grammar(grammar_path: str|None) -> str:
     if grammar_path:
@@ -29,6 +29,7 @@ def make_parser(grammar_path: str|None=None, use_indenter: bool=False, start_sym
     return build_parser(g, parser_kind="earley", use_indenter=use_indenter, start_sym=start_sym)
 
 def run(src: str, grammar_path: str|None=None, use_indenter: bool=False) -> object:
+    init_stdlib()
     parser = make_parser(grammar_path, use_indenter=use_indenter)
     tree = parser.parse(src)
     ast = Prune().transform(tree)
