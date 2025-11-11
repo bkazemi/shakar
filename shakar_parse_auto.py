@@ -1,10 +1,10 @@
 import sys
 import argparse
 from pathlib import Path
-from typing import Any, Callable, Iterable, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from lark import Lark, Transformer, Tree, UnexpectedInput, Token
-from lark.visitors import Discard, v_args
+from lark.visitors import Discard
 from lark.indenter import Indenter
 
 try:  # prefer package import when available
@@ -14,9 +14,6 @@ try:  # prefer package import when available
         tree_label,
         tree_children,
         node_meta,
-        child_by_label,
-        child_by_labels,
-        first_child,
     )
 except ImportError:  # fallback for direct execution
     from shakar_tree import (
@@ -25,9 +22,6 @@ except ImportError:  # fallback for direct execution
         tree_label,
         tree_children,
         node_meta,
-        child_by_label,
-        child_by_labels,
-        first_child,
     )
 
 def pretty_inline(t, indent=""):

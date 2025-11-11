@@ -10,7 +10,6 @@ from contextlib import contextmanager
 from shakar_runtime import (
     BoundMethod,
     BuiltinMethod,
-    Builtins,
     DeferEntry,
     Descriptor,
     Env,
@@ -32,19 +31,15 @@ from shakar_runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
     ShakarKeyError,
-    SelectorIndex,
-    SelectorSlice,
     StdlibFunction,
     call_builtin_method,
     call_shkfn,
     init_stdlib,
 )
 
-from shakar_utils import fanout_values, normalize_object_key, sequence_items, shk_equals, value_in_list
+from shakar_utils import fanout_values, normalize_object_key, shk_equals, value_in_list
 from shakar_tree import (
     child_by_label,
-    child_by_labels,
-    first_child,
     is_token_node,
     is_tree_node,
     node_meta,
@@ -55,7 +50,6 @@ from shakar_tree import (
 from eval.selector import (
     eval_selectorliteral,
     evaluate_selectorlist,
-    clone_selector_parts,
     apply_selectors_to_value,
     selector_iter_values,
 )
