@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, List, Optional
+from typing import Any, List, Optional
 
 from shakar_runtime import (
     ShkNull,

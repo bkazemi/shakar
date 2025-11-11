@@ -321,18 +321,18 @@ class Prune(Transformer):
         return children[0] if len(children) == 1 else Tree(alias or name, children)
 
     def stmt(self, c):
-      c = [x for x in c if x is not Discard]
-      if not c:
-        return Discard
+        c = [x for x in c if x is not Discard]
+        if not c:
+            return Discard
 
-      return self._keep_or_flatten('stmt', c)
+        return self._keep_or_flatten('stmt', c)
 
     def stmtlist(self, c):
-      c = [x for x in c if x is not Discard]
-      if not c:
-        return Discard
+        c = [x for x in c if x is not Discard]
+        if not c:
+            return Discard
 
-      return self._keep_or_flatten('stmtlist', c)
+        return self._keep_or_flatten('stmtlist', c)
 
     def simplecall(self, c):
         """Normalize one-liner call statements to the same explicit_chain+call
@@ -364,9 +364,9 @@ class Prune(Transformer):
 
         # Prefer the canonical chain fuse if available, otherwise build directly
         try:
-          # XXX
-          #return ChainNormalize._fuse(chain, callnode)  # keeps chain invariants identical to expr-mode
-          raise NameError()
+            # XXX
+            #return ChainNormalize._fuse(chain, callnode)  # keeps chain invariants identical to expr-mode
+            raise NameError()
         except NameError:
             return Tree('explicit_chain', list(chain.children) + [callnode])
 
@@ -634,15 +634,15 @@ def build_parser(grammar_text: str, parser_kind: str, use_indenter: bool, start_
             lexer_callbacks={"IDENT": _remap_ident},
         )
     else:
-      return Lark(
-          grammar_text,
-          parser=parser_kind,
-          lexer="basic",
-          start=start_sym,
-          maybe_placeholders=False,
-          propagate_positions=True,
-          lexer_callbacks={"IDENT": _remap_ident},
-      )
+        return Lark(
+            grammar_text,
+            parser=parser_kind,
+            lexer="basic",
+            start=start_sym,
+            maybe_placeholders=False,
+            propagate_positions=True,
+            lexer_callbacks={"IDENT": _remap_ident},
+        )
     '''else: # dynamic ver
         return Lark(
             grammar_text,

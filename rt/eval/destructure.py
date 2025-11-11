@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, List, Optional, Callable
+"""Helper routines for destructuring assignments and comprehensions."""
+
+from typing import Any, Iterable, Optional, Callable
 
 from lark import Tree, Token
 
@@ -123,7 +125,6 @@ def infer_implicit_binders(
 def apply_comp_binders(
     assign_fn: Callable[[Tree, Any, Env, bool, bool], None],
     binders: list[dict[str, Any]],
-    mode: str,
     element: Any,
     iter_env: Env,
     outer_env: Env

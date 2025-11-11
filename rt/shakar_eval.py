@@ -722,11 +722,10 @@ def _assign_pattern_value(pattern: Tree, value: Any, env: Env, create: bool, all
         _assign_ident(name, val, target_env, create=create_flag)
     destructure_assign_pattern(eval_node, _assign_ident_wrapper, pattern, value, env, create, allow_broadcast)
 
-def _apply_comp_binders_wrapper(binders: list[dict[str, Any]], mode: str, element: Any, iter_env: Env, outer_env: Env) -> None:
+def _apply_comp_binders_wrapper(binders: list[dict[str, Any]], element: Any, iter_env: Env, outer_env: Env) -> None:
     destructure_apply_comp_binders(
         lambda pattern, val, target_env, create, allow_broadcast: _assign_pattern_value(pattern, val, target_env, create, allow_broadcast),
         binders,
-        mode,
         element,
         iter_env,
         outer_env,
@@ -863,12 +862,12 @@ def _collect_free_identifiers(node: Any, callback) -> None:
 
     walk(node)
 
-def _prepare_comprehension(n: Tree, env: Env, head_nodes: list[Any]) -> tuple[Any, list[dict[str, Any]], str, Tree | None]:
+def _prepare_comprehension(n: Tree, env: Env, head_nodes: list[Any]) -> tuple[Any, list[dict[str, Any]], Tree | None]:
     comphead = child_by_label(n, 'comphead')
     if comphead is None:
         raise ShakarRuntimeError("Malformed comprehension")
     ifclause = child_by_label(n, 'ifclause')
-    iter_expr_node, binders, mode = _parse_comphead(comphead)
+    iter_expr_node, binders = _parse_comphead(comphead)
     if not binders:
         implicit_names = destructure_infer_implicit_binders(
             head_nodes,
@@ -880,15 +879,15 @@ def _prepare_comprehension(n: Tree, env: Env, head_nodes: list[Any]) -> tuple[An
             pattern = Tree('pattern', [Token('IDENT', name)])
             binders.append({'pattern': pattern, 'hoist': False})
     iter_val = eval_node(iter_expr_node, env)
-    return iter_val, binders, mode, ifclause
+    return iter_val, binders, ifclause
 
 def _iterate_comprehension(n: Tree, env: Env, head_nodes: list[Any]) -> Iterable[tuple[Any, Env]]:
-    iter_val, binders, mode, ifclause = _prepare_comprehension(n, env, head_nodes)
+    iter_val, binders, ifclause = _prepare_comprehension(n, env, head_nodes)
     outer_dot = env.dot
     try:
         for element in _iterable_values(iter_val):
             iter_env = Env(parent=env, dot=element)
-            _apply_comp_binders_wrapper(binders, mode, element, iter_env, env)
+            _apply_comp_binders_wrapper(binders, element, iter_env, env)
             if ifclause is not None:
                 cond_node = ifclause.children[-1] if ifclause.children else None
                 if cond_node is None:
@@ -941,20 +940,19 @@ def _eval_dictcomp(n: Tree, env: Env) -> ShkObject:
         slots[key_str] = value_val
     return ShkObject(slots)
 
-def _parse_comphead(node: Tree) -> tuple[Any, list[dict[str, Any]], str]:
+def _parse_comphead(node: Tree) -> tuple[Any, list[dict[str, Any]]]:
     overspec = child_by_label(node, 'overspec')
     if overspec is None:
         raise ShakarRuntimeError("Malformed comprehension head")
     return _parse_overspec(overspec)
 
-def _parse_overspec(node: Tree) -> tuple[Any, list[dict[str, Any]], str]:
+def _parse_overspec(node: Tree) -> tuple[Any, list[dict[str, Any]]]:
     children = list(node.children)
     binders: list[dict[str, Any]] = []
     if not children:
         raise ShakarRuntimeError("Malformed overspec")
     first = children[0]
     if tree_label(first) == 'binderlist':
-        mode = 'list'
         if len(children) < 2:
             raise ShakarRuntimeError("Binder list requires a source")
         iter_expr_node = children[1]
@@ -972,15 +970,12 @@ def _parse_overspec(node: Tree) -> tuple[Any, list[dict[str, Any]], str]:
                 tok = bp.children[0]
                 pattern = Tree('pattern', [tok])
                 binders.append({'pattern': pattern, 'hoist': True})
-        return iter_expr_node, binders, mode
+        return iter_expr_node, binders
     iter_expr_node = children[0]
     if len(children) > 1:
         pattern = children[1]
         binders.append({'pattern': pattern, 'hoist': False})
-        mode = 'single'
-    else:
-        mode = 'none'
-    return iter_expr_node, binders, mode
+    return iter_expr_node, binders
 
 def _extract_loop_iter_and_body(children: List[Any]) -> tuple[Any | None, Any | None]:
     iter_expr = None
