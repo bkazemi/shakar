@@ -112,6 +112,7 @@ class Env:
         self.vars: Dict[str, Any] = {}
         self.dot = dot
         self._defer_stack: List[List[DeferEntry]] = []
+        self._is_function_env = False
         if parent is None and Builtins.stdlib_functions:
             for name, std in Builtins.stdlib_functions.items():
                 self.vars[name] = std
@@ -140,6 +141,28 @@ class Env:
             self.parent.set(name, val)
             return
         raise ShakarRuntimeError(f"Name '{name}' not found")
+
+    def push_defer_frame(self) -> None:
+        self._defer_stack.append([])
+
+    def pop_defer_frame(self) -> List[DeferEntry]:
+        if not self._defer_stack:
+            return []
+        return self._defer_stack.pop()
+
+    def current_defer_frame(self) -> List[DeferEntry]:
+        if not self._defer_stack:
+            raise ShakarRuntimeError("Cannot use defer outside of a block")
+        return self._defer_stack[-1]
+
+    def has_defer_frame(self) -> bool:
+        return bool(self._defer_stack)
+
+    def mark_function_env(self) -> None:
+        self._is_function_env = True
+
+    def is_function_env(self) -> bool:
+        return self._is_function_env
 
 # ---------- Exceptions (keep Shakar* canonical) ----------
 
@@ -317,7 +340,7 @@ def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env'
         if positional:
             raise ShakarArityError(f"Subject-only amp_lambda does not take positional args; got {len(positional)} extra")
         callee_env = Env(parent=fn.env, dot=subject)
-        callee_env._is_function_env = True
+        callee_env.mark_function_env()
         try:
             return eval_node(fn.body, callee_env)
         except ShakarReturnSignal as signal:
@@ -327,7 +350,7 @@ def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env'
         raise ShakarArityError(f"Function expects {len(fn.params)} args; got {len(positional)}")
     for name, val in zip(fn.params, positional):
         callee_env.define(name, val)
-    callee_env._is_function_env = True
+    callee_env.mark_function_env()
     try:
         return eval_node(fn.body, callee_env)
     except ShakarReturnSignal as signal:

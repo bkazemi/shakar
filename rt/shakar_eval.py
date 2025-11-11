@@ -293,17 +293,13 @@ def _get_subject(env: Env) -> Any:
     return env.dot
 
 def _push_defer_scope(env: Env) -> None:
-    if not hasattr(env, "_defer_stack"):
-        env._defer_stack = []
     # each scope owns its own LIFO queue of entries; nested scopes flush before parents.
-    env._defer_stack.append([])
+    env.push_defer_frame()
 
 def _pop_defer_scope(env: Env) -> None:
-    stack = getattr(env, "_defer_stack", None)
-    if not stack:
-        return
-    entries = stack.pop()
-    _run_defer_entries(entries)
+    entries = env.pop_defer_frame()
+    if entries:
+        _run_defer_entries(entries)
 
 _DEFER_UNVISITED = 0  # entry not touched yet
 _DEFER_VISITING = 1   # DFS currently walking this entry's deps
@@ -339,11 +335,9 @@ def _run_defer_entries(entries: List[DeferEntry]) -> None:
         run_index(idx)
 
 def _schedule_defer(env: Env, thunk: Callable[[], None], label: str | None=None, deps: List[str] | None=None) -> None:
-    if not hasattr(env, "_defer_stack"):
-        env._defer_stack = []
-    if not env._defer_stack:
+    if not env.has_defer_frame():
         raise ShakarRuntimeError("Cannot use defer outside of a block")
-    frame: List[DeferEntry] = env._defer_stack[-1]  # newest scope on stack
+    frame = env.current_defer_frame()
     entry = DeferEntry(thunk=thunk, label=label, deps=list(deps or []))
     if label:
         for existing in frame:
@@ -1510,7 +1504,7 @@ def _current_function_env(env: Env) -> Env | None:
     """Walk parents to find the nearest function-call environment marker."""
     cur = env
     while cur is not None:
-        if getattr(cur, "_is_function_env", False):
+        if cur.is_function_env():
             return cur
         cur = getattr(cur, "parent", None)
     return None
