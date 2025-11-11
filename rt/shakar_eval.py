@@ -1529,40 +1529,6 @@ def _token_string(t: Token, _: Env) -> ShkString:
         v = v[1:-1]
     return ShkString(v)
 
-_NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
-    'listcomp': lambda n, env: _eval_listcomp(n, env),
-    'setcomp': lambda n, env: _eval_setcomp(n, env),
-    'setliteral': lambda n, env: _eval_setliteral(n, env),
-    'dictcomp': lambda n, env: _eval_dictcomp(n, env),
-    'selectorliteral': lambda n, env: eval_selectorliteral(n, env, eval_node),
-    'group': lambda n, env: _eval_group(n, env),
-    'ternary': lambda n, env: _eval_ternary(n, env),
-    'rebind_primary': lambda n, env: _eval_rebind_primary(n, env),
-    'amp_lambda': lambda n, env: _eval_amp_lambda(n, env),
-    'compare': lambda n, env: _eval_compare(n.children, env),
-    'compare_nc': lambda n, env: _eval_compare(n.children, env),
-    'nullish': lambda n, env: _eval_nullish(n.children, env),
-    'nullsafe': lambda n, env: _eval_nullsafe(n.children, env),
-    'breakstmt': lambda n, env: _eval_break_stmt(env),
-    'continuestmt': lambda n, env: _eval_continue_stmt(env),
-    'ifstmt': lambda n, env: _eval_if_stmt(n, env),
-    'forin': lambda n, env: _eval_for_in(n, env),
-    'forsubject': lambda n, env: _eval_for_subject(n, env),
-    'forindexed': lambda n, env: _eval_for_indexed(n, env),
-    'formap1': lambda n, env: _eval_for_indexed(n.children[0] if n.children else None, env),
-    'formap2': lambda n, env: _eval_for_map2(n, env),
-    'inlinebody': lambda n, env: _eval_inline_body(n, env),
-    'indentblock': lambda n, env: _eval_indent_block(n, env),
-    'onelineguard': lambda n, env: _eval_oneline_guard(n.children, env),
-}
-
-_TOKEN_DISPATCH: dict[str, Callable[[Token, Env], Any]] = {
-    'NUMBER': _token_number,
-    'STRING': _token_string,
-    'TRUE': lambda _, __: ShkBool(True),
-    'FALSE': lambda _, __: ShkBool(False),
-}
-
 def _resolve_assignable_node(node: Any, env: Env) -> Any:
     while is_tree_node(node) and tree_label(node) in {'primary', 'group', 'group_expr'} and len(node.children) == 1:
         node = node.children[0]
@@ -2051,3 +2017,37 @@ def _temporary_subject(env: Env, dot: Any) -> Iterable[None]:
         yield
     finally:
         env.dot = prev
+
+_NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
+    'listcomp': _eval_listcomp,
+    'setcomp': _eval_setcomp,
+    'setliteral': _eval_setliteral,
+    'dictcomp': _eval_dictcomp,
+    'selectorliteral': lambda n, env: eval_selectorliteral(n, env, eval_node),
+    'group': _eval_group,
+    'ternary': _eval_ternary,
+    'rebind_primary': _eval_rebind_primary,
+    'amp_lambda': _eval_amp_lambda,
+    'compare': lambda n, env: _eval_compare(n.children, env),
+    'compare_nc': lambda n, env: _eval_compare(n.children, env),
+    'nullish': lambda n, env: _eval_nullish(n.children, env),
+    'nullsafe': lambda n, env: _eval_nullsafe(n.children, env),
+    'breakstmt': lambda _, env: _eval_break_stmt(env),
+    'continuestmt': lambda _, env: _eval_continue_stmt(env),
+    'ifstmt': _eval_if_stmt,
+    'forin': _eval_for_in,
+    'forsubject': _eval_for_subject,
+    'forindexed': _eval_for_indexed,
+    'formap1': lambda n, env: _eval_for_indexed(n.children[0] if n.children else None, env),
+    'formap2': _eval_for_map2,
+    'inlinebody': _eval_inline_body,
+    'indentblock': _eval_indent_block,
+    'onelineguard': lambda n, env: _eval_oneline_guard(n.children, env),
+}
+
+_TOKEN_DISPATCH: dict[str, Callable[[Token, Env], Any]] = {
+    'NUMBER': _token_number,
+    'STRING': _token_string,
+    'TRUE': lambda _, __: ShkBool(True),
+    'FALSE': lambda _, __: ShkBool(False),
+}
