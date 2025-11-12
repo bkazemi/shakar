@@ -32,7 +32,8 @@ def std_sleep(_env, args: List[object]):
     duration = args[0]
     if not isinstance(duration, ShkNumber):
         raise ShakarTypeError("sleep expects a numeric duration")
-    seconds = float(max(0.0, duration.value))
+    milliseconds = max(0.0, float(duration.value))
+    seconds = milliseconds / 1000.0
 
     async def _sleep_coro() -> ShkNull:
         await asyncio.sleep(seconds)

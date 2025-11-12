@@ -68,7 +68,9 @@ LTE: "<="
 GT: ">"
 GTE: ">="
 
-expr: ternaryexpr
+expr: anonymous_fn
+    | anonymous_fn_auto
+    | ternaryexpr
 ternaryexpr: orexpr ( "?" expr ":" ternaryexpr )?
 orexpr: andexpr ( OR andexpr )*
 andexpr: bindexpr ( AND bindexpr )*
@@ -86,7 +88,9 @@ cmpop: EQ | NEQ | LT | LTE | GT | GTE
      | NEG IN        // !in
 
 # ===== No-Comma (NC) expressions: forbid top-level CCC at select sites =====
-expr_nc: ternaryexpr_nc
+expr_nc: anonymous_fn
+       | anonymous_fn_auto
+       | ternaryexpr_nc
 ternaryexpr_nc: orexpr_nc ( "?" expr ":" ternaryexpr_nc )?
 orexpr_nc: andexpr_nc ( OR andexpr_nc )*
 andexpr_nc: bindexpr_nc ( AND bindexpr_nc )*
@@ -215,7 +219,9 @@ guardelse: ("|:" | "||:") indentblock
 onelineguard: AWAIT ( "(" expr ")" | expr ) ":" inlinebody -> awaitstmt
             | guardbranch ("|" guardbranch)* ("|:" inlinebody)?
 guardbranch: expr ":" inlinebody
-inlinebody: simplestmt | "{" stmtlist? "}"
+inlinebody: inlinecall | simplestmt | "{" stmtlist? "}"
+
+!inlinecall: callee "(" arglistnamedmixed? ")"
 
 forin: FOR forin_pattern IN expr ":" (inlinebody | indentblock)
 forin_pattern: pattern
@@ -286,6 +292,8 @@ catchsugar: expr "@@" IDENT? "=>" expr
 hook: HOOK STRING ":" (inlinebody | indentblock)
 
 fnstmt: FN IDENT "(" paramlist? ")" ":" (inlinebody | indentblock)
+anonymous_fn: FN "(" paramlist? ")" ":" (inlinebody | indentblock)
+anonymous_fn_auto: FN "(" "(" ")" ")" ":" (inlinebody | indentblock)
 
 compound_assign: lvalue (PLUSEQ | MINUSEQ | STAREQ | SLASHEQ | FLOORDIVEQ | MODEQ | POWEQ) expr_nc
 

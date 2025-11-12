@@ -491,6 +491,19 @@ def _eval_fn_def(children: List[Any], env: Env) -> Any:
     _assign_ident(name, fn_value, env, create=True)
     return ShkNull()
 
+def _eval_anonymous_fn(children: List[Any], env: Env) -> ShkFn:
+    params_node = None
+    body_node = None
+    for node in children:
+        if is_tree_node(node) and tree_label(node) == 'paramlist':
+            params_node = node
+        elif is_tree_node(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+            body_node = node
+    if body_node is None:
+        body_node = Tree('inlinebody', [])
+    params = _extract_param_names(params_node, context="anonymous function")
+    return ShkFn(params=params, body=body_node, env=Env(parent=env, dot=None))
+
 def _eval_assert(children: List[Any], env: Env) -> Any:
     """Evaluate `assert expr [, message]`, raising ShakarAssertionError when falsy."""
     if not children:
@@ -2171,6 +2184,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
     'ternary': _eval_ternary,
     'rebind_primary': _eval_rebind_primary,
     'amp_lambda': _eval_amp_lambda,
+    'anonfn': lambda n, env: _eval_anonymous_fn(n.children, env),
     'await_value': _eval_await_value,
     'compare': lambda n, env: _eval_compare(n.children, env),
     'compare_nc': lambda n, env: _eval_compare(n.children, env),

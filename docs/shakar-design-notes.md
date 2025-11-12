@@ -688,6 +688,7 @@ await(fetchUser(id)): show(.)
 ```
 
 - `timeout` default unit: **milliseconds**; supports suffixes `ms`, `s`, `m`.
+- Stdlib helper: `sleep(ms)` returns an awaitable; use `await sleep(100)` or drop it inside `await[any]/await[all]` arms to stage async workflows without custom futures.
 
 **Goals:** one `await` per construct, no repetition; clear and cancellable.
 
@@ -937,8 +938,6 @@ send "bob@x.com", subject: "Hi", body: "…"
 ```
 If a head expression with named args is used as a punctuation‑guard head, wrap it in `(...)` (§7).
 
----
-
 ## 12) Strings & performance (critical)
 
 ## 12.5) Slicing & selector lists
@@ -1114,6 +1113,13 @@ Known-arity callees declare an `implicit_params` policy that controls whether im
 - `exact` (**default**): the number of distinct free, unqualified names in the body must equal the callee arity **N**.
 - `pad`: the body may use fewer than **N** names; missing positions are filled with anonymous parameters that are not usable in the body.
 - `off`: implicit parameters are disabled; write an explicit parameter list (`&[params](...)`).
+
+### Anonymous `fn` expressions
+
+- `fn(params?): body` is an expression that produces a callable value. Body syntax matches named `fn` (colon + inline or indented block).
+- Example: `inc := fn(x): { x + 1 }; inc(5)` → `6`.
+- Zero-arg IIFE sugar: `fn(()): body` defines a zero-arg anonymous function and immediately invokes it (desugars to `(fn(): body)()`).
+- Expression bodies without braces execute when the function is invoked, not when the `fn` literal is evaluated, so `handler := fn(): print("awd")` simply stores the function until you call `handler()`. Braces remain the preferred way to wrap multi-statement bodies.
 
 **Rules that still apply**
 - Only active at **known-arity** call sites.

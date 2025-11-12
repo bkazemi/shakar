@@ -364,6 +364,9 @@ class Prune(Transformer):
         except NameError:
             return Tree('explicit_chain', list(chain.children) + [callnode])
 
+    def inlinecall(self, c):
+        return self.simplecall(c)
+
     def fnstmt(self, c):
         name = None
         params = None
@@ -383,6 +386,31 @@ class Prune(Transformer):
         if body is not None:
             children.append(body)
         return Tree('fndef', children)
+
+    def _build_anonfn_node(self, parts, allow_params: bool=True) -> Tree:
+        params = None
+        body = None
+        for node in parts:
+            if is_tree(node) and tree_label(node) == 'paramlist':
+                if not allow_params:
+                    raise SyntaxError("Auto-invoked anonymous fn cannot have parameters")
+                params = node
+            elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+                body = node
+        children: list[Any] = []
+        if params is not None:
+            children.append(params)
+        if body is not None:
+            children.append(body)
+        return Tree('anonfn', children)
+
+    def anonymous_fn(self, c):
+        return self._build_anonfn_node(c)
+
+    def anonymous_fn_auto(self, c):
+        fn_node = self._build_anonfn_node(c, allow_params=False)
+        call_node = Tree('call', [])
+        return Tree('explicit_chain', [fn_node, call_node])
 
     def deferstmt(self, c):
         label = None
