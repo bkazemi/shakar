@@ -418,6 +418,71 @@ def _eval_return_stmt(children: List[Any], env: Env) -> Any:
     value = eval_node(children[0], env) if children else ShkNull()
     raise ShakarReturnSignal(value)
 
+def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
+    """Expose exception metadata to catch handlers as a lightweight object."""
+    slots = {
+        "message": ShkString(str(exc)),
+        "type": ShkString(type(exc).__name__),
+    }
+    if isinstance(exc, ShakarKeyError):
+        slots["key"] = ShkString(str(exc.key))
+    if isinstance(exc, ShakarMethodNotFound):
+        slots["method"] = ShkString(exc.name)
+    return ShkObject(slots)
+
+def _run_catch_handler(handler: Any, env: Env, binder: Any | None, payload: ShkObject) -> Any:
+    binder_name = None
+    if binder is not None:
+        binder_name = _expect_ident_token(binder, "Catch binder")
+
+    def _exec_handler() -> Any:
+        label = tree_label(handler)
+        if label == 'inlinebody':
+            return _eval_inline_body(handler, env)
+        if label == 'indentblock':
+            return _eval_indent_block(handler, env)
+        return eval_node(handler, env)
+
+    with _temporary_subject(env, payload):
+        if binder_name:
+            with _temporary_bindings(env, {binder_name: payload}):
+                return _exec_handler()
+        return _exec_handler()
+
+def _eval_catch_expr(children: List[Any], env: Env) -> Any:
+    if len(children) < 2:
+        raise ShakarRuntimeError("Malformed catch expression")
+    try_node = children[0]
+    if len(children) == 3:
+        binder = children[1]
+        handler = children[2]
+    else:
+        binder = None
+        handler = children[1]
+    try:
+        return eval_node(try_node, env)
+    except ShakarRuntimeError as exc:
+        payload = _build_error_payload(exc)
+        return _run_catch_handler(handler, env, binder, payload)
+
+def _eval_catch_stmt(children: List[Any], env: Env) -> Any:
+    if len(children) < 2:
+        raise ShakarRuntimeError("Malformed catch statement")
+    try_node = children[0]
+    if len(children) == 3:
+        binder = children[1]
+        body = children[2]
+    else:
+        binder = None
+        body = children[1]
+    try:
+        eval_node(try_node, env)
+        return ShkNull()
+    except ShakarRuntimeError as exc:
+        payload = _build_error_payload(exc)
+        _run_catch_handler(body, env, binder, payload)
+        return ShkNull()
+
 def _eval_break_stmt(env: Env) -> Any:
     raise ShakarBreakSignal()
 
@@ -2196,6 +2261,8 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
     'awaitanycall': _eval_await_any_call,
     'awaitallcall': _eval_await_all_call,
     'ifstmt': _eval_if_stmt,
+    'catchexpr': lambda n, env: _eval_catch_expr(n.children, env),
+    'catchstmt': lambda n, env: _eval_catch_stmt(n.children, env),
     'forin': _eval_for_in,
     'forsubject': _eval_for_subject,
     'forindexed': _eval_for_indexed,

@@ -447,6 +447,58 @@ class Prune(Transformer):
             exprs.append(self._transform_tree(node) if is_tree(node) else node)
         return Tree('returnstmt', exprs)
 
+    def catchexpr(self, c):
+        if not c:
+            return Tree('catchexpr', c)
+        try_node = self._transform_tree(c[0]) if is_tree(c[0]) else c[0]
+        binder = None
+        handler_node = None
+        for node in c[1:]:
+            if is_token(node) and getattr(node, "type", "") == "IDENT" and binder is None:
+                binder = node
+                continue
+            handler_node = self._transform_tree(node) if is_tree(node) else node
+        children: List[Any] = [try_node]
+        if binder is not None:
+            children.append(binder)
+        if handler_node is not None:
+            children.append(handler_node)
+        return Tree('catchexpr', children)
+
+    def catchstmt(self, c):
+        try_node = None
+        binder = None
+        body_node = None
+        saw_catch_kw = False
+        for node in c:
+            if is_token(node):
+                token_type = getattr(node, "type", "")
+                if token_type == "CATCH":
+                    saw_catch_kw = True
+                    continue
+                if token_type == "COLON":
+                    continue
+                if not saw_catch_kw and try_node is None:
+                    try_node = node
+                    continue
+                if saw_catch_kw and token_type == "IDENT" and binder is None:
+                    binder = node
+                    continue
+                continue
+            transformed = self._transform_tree(node)
+            if try_node is None:
+                try_node = transformed
+            else:
+                body_node = transformed
+        children: List[Any] = []
+        if try_node is not None:
+            children.append(try_node)
+        if binder is not None:
+            children.append(binder)
+        if body_node is not None:
+            children.append(body_node)
+        return Tree('catchstmt', children)
+
     def amp_lambda1(self, c):
         return Tree('amp_lambda', [c[0]]) # body only; unary implicit '.'
 

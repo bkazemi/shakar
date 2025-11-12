@@ -1141,12 +1141,26 @@ reduce&(acc + x)(xs, 0)            # error: implicit params disabled; write &[ac
 ```
 ## 15) Errors, catch, assert, dbg, events
 
-- **One‑stmt catch**:
+- **Catch expressions**:
   ```shakar
-  val = risky() catch e: handle(e)
-  val = risky() @@ e: handle(e)   # shorthand
-  risky() catch { log("oops") }     # statement form
+  val = risky() catch err: recover(err)
+  val = risky() @@ err: recover(err)   # @@ is shorthand for catch
+  fallback = risky() catch: "ok"      # binder optional
   ```
+  `catch` (and `@@`) evaluate the left side; if it succeeds, the original value is returned unchanged. If a `ShakarRuntimeError` (or subclass) escapes, the handler runs instead and its value becomes the result. Inside the handler:
+  - `err` (when provided) is bound to an error payload object.
+  - `.` (the subject) also points to that payload.
+  - The payload exposes `.type` (exception class name), `.message` (stringified message), `.key` for `ShakarKeyError`, and `.method` for `ShakarMethodNotFound`.
+  - To rethrow, simply `catch` a handler that raises again (e.g., `catch err: err` once a future `throw` helper exists).
+- **Catch statements**:
+  ```shakar
+  risky() catch err: { log(err.message) }
+  risky() catch: {
+    log("oops")
+    alert(.type)
+  }
+  ```
+  The statement form mirrors the expression semantics but discards the original value (always producing `nil`). The body may be an inline `:` block or an indented block, and it only executes if the left-hand expression fails.
 - **assert expr, "msg"** raises if falsey; build can strip or keep.
 - **dbg expr** logs and returns expr; can be stripped in release.
 - **Events**: `hook "name": .emit()` ⇒ `Event.on(name, &( .emit()))`
@@ -1475,9 +1489,8 @@ OptComma        ::= /* empty */ | "," ;
 
 (* ===== Error handling / hooks ===== *)
 
-CatchExpr       ::= Expr "catch" IDENT? ":" Expr ;
-CatchStmt       ::= Expr "catch" (InlineBody | IndentBlock) ;
-CatchSugar      ::= Expr "@@" IDENT? ":" Expr ;
+CatchExpr       ::= Expr ("catch" | "@@") IDENT? ":" Expr ;
+CatchStmt       ::= Expr "catch" IDENT? ":" (InlineBody | IndentBlock) ;
 
 Hook            ::= "hook" STRING ":" Body ;
 LambdaExpr      ::= "(" ParamList? ")" "=>" (Expr | IndentBlock) ;
