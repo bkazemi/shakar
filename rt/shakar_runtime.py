@@ -113,6 +113,7 @@ class Env:
         self.dot = dot
         self._defer_stack: List[List[DeferEntry]] = []
         self._is_function_env = False
+        self._active_error: Optional[ShakarRuntimeError] = None
         if parent is None and Builtins.stdlib_functions:
             for name, std in Builtins.stdlib_functions.items():
                 self.vars[name] = std

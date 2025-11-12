@@ -1144,14 +1144,16 @@ reduce&(acc + x)(xs, 0)            # error: implicit params disabled; write &[ac
 - **Catch expressions**:
   ```shakar
   val = risky() catch err: recover(err)
-  val = risky() @@ err: recover(err)   # @@ is shorthand for catch
-  fallback = risky() catch: "ok"      # binder optional
+  val = risky() @@ err: recover(err)          # @@ is shorthand for catch
+  fallback = risky() catch: "ok"              # omit binder to rely on .
+  user := risky() catch (ValidationError, ParseError) bind err: err.payload
   ```
   `catch` (and `@@`) evaluate the left side; if it succeeds, the original value is returned unchanged. If a `ShakarRuntimeError` (or subclass) escapes, the handler runs instead and its value becomes the result. Inside the handler:
-  - `err` (when provided) is bound to an error payload object.
-  - `.` (the subject) also points to that payload.
+  - Without a type guard, `catch err:` binds the payload (omit `err` to rely solely on `.`). With a guard, write `catch (Type, …) bind name:` to bind while filtering.
+  - `.` (the subject) always points to the same payload object.
   - The payload exposes `.type` (exception class name), `.message` (stringified message), `.key` for `ShakarKeyError`, and `.method` for `ShakarMethodNotFound`.
-  - To rethrow, simply `catch` a handler that raises again (e.g., `catch err: err` once a future `throw` helper exists).
+  - Optional `(TypeA, TypeB)` parentheses immediately after `catch` restrict the handler to those exception types; follow them with `bind name` if you need a payload alias. Non-matching errors bubble out automatically.
+  - Bare `catch` (no binder, no parentheses) is a catch-all.
 - **Catch statements**:
   ```shakar
   risky() catch err: { log(err.message) }
@@ -1489,8 +1491,10 @@ OptComma        ::= /* empty */ | "," ;
 
 (* ===== Error handling / hooks ===== *)
 
-CatchExpr       ::= Expr ("catch" | "@@") IDENT? ":" Expr ;
-CatchStmt       ::= Expr "catch" IDENT? ":" (InlineBody | IndentBlock) ;
+CatchExpr       ::= Expr ("catch" | "@@") CatchBinder? CatchTypes? ":" Expr ;
+CatchStmt       ::= Expr "catch" CatchBinder? CatchTypes? ":" (InlineBody | IndentBlock) ;
+CatchBinder     ::= IDENT | "bind" IDENT ;
+CatchTypes      ::= "(" IDENT ("," IDENT)* ")" ;
 
 Hook            ::= "hook" STRING ":" Body ;
 LambdaExpr      ::= "(" ParamList? ")" "=>" (Expr | IndentBlock) ;

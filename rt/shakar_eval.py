@@ -430,7 +430,50 @@ def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
         slots["method"] = ShkString(exc.name)
     return ShkObject(slots)
 
-def _run_catch_handler(handler: Any, env: Env, binder: Any | None, payload: ShkObject) -> Any:
+def _parse_catch_components(children: List[Any]) -> tuple[Any, Any | None, List[str], Any]:
+    """Split canonical catch nodes into try expression, binder token, type list, and handler."""
+    if not children:
+        raise ShakarRuntimeError("Malformed catch node")
+    idx = 0
+    try_node = children[idx]
+    idx += 1
+    binder = None
+    type_names: List[str] = []
+    if idx < len(children) and is_token_node(children[idx]):
+        binder = children[idx]
+        idx += 1
+    if idx < len(children) and is_tree_node(children[idx]) and tree_label(children[idx]) == 'catchtypes':
+        type_names = [
+            _expect_ident_token(tok, "Catch type")
+            for tok in tree_children(children[idx])
+            if is_token_node(tok)
+        ]
+        idx += 1
+    if idx >= len(children):
+        raise ShakarRuntimeError("Missing catch handler")
+    handler = children[idx]
+    return try_node, binder, type_names, handler
+
+def _run_catch_handler(
+    handler: Any,
+    env: Env,
+    binder: Any | None,
+    payload: ShkObject,
+    original_exc: ShakarRuntimeError,
+    allowed_types: List[str],
+) -> Any:
+    # type matching happens before we evaluate the handler body so unmatched errors bubble up
+    payload_type = None
+    if isinstance(payload, ShkObject):
+        slot = payload.slots.get('type') if hasattr(payload, 'slots') else None
+        if isinstance(slot, ShkString):
+            payload_type = slot.value
+        elif isinstance(slot, str):
+            payload_type = slot
+    if allowed_types:
+        if not isinstance(payload_type, str) or payload_type not in allowed_types:
+            raise original_exc
+
     binder_name = None
     if binder is not None:
         binder_name = _expect_ident_token(binder, "Catch binder")
@@ -443,44 +486,34 @@ def _run_catch_handler(handler: Any, env: Env, binder: Any | None, payload: ShkO
             return _eval_indent_block(handler, env)
         return eval_node(handler, env)
 
-    with _temporary_subject(env, payload):
-        if binder_name:
-            with _temporary_bindings(env, {binder_name: payload}):
-                return _exec_handler()
-        return _exec_handler()
+    # track the currently handled exception so a bare `throw` can rethrow it later
+    prev_error = getattr(env, '_active_error', None)
+    env._active_error = original_exc
+    try:
+        with _temporary_subject(env, payload):
+            if binder_name:
+                with _temporary_bindings(env, {binder_name: payload}):
+                    return _exec_handler()
+            return _exec_handler()
+    finally:
+        env._active_error = prev_error
 
 def _eval_catch_expr(children: List[Any], env: Env) -> Any:
-    if len(children) < 2:
-        raise ShakarRuntimeError("Malformed catch expression")
-    try_node = children[0]
-    if len(children) == 3:
-        binder = children[1]
-        handler = children[2]
-    else:
-        binder = None
-        handler = children[1]
+    try_node, binder, type_names, handler = _parse_catch_components(children)
     try:
         return eval_node(try_node, env)
     except ShakarRuntimeError as exc:
         payload = _build_error_payload(exc)
-        return _run_catch_handler(handler, env, binder, payload)
+        return _run_catch_handler(handler, env, binder, payload, exc, type_names)
 
 def _eval_catch_stmt(children: List[Any], env: Env) -> Any:
-    if len(children) < 2:
-        raise ShakarRuntimeError("Malformed catch statement")
-    try_node = children[0]
-    if len(children) == 3:
-        binder = children[1]
-        body = children[2]
-    else:
-        binder = None
-        body = children[1]
+    try_node, binder, type_names, body = _parse_catch_components(children)
     try:
         eval_node(try_node, env)
         return ShkNull()
     except ShakarRuntimeError as exc:
         payload = _build_error_payload(exc)
-        _run_catch_handler(body, env, binder, payload)
+        _run_catch_handler(body, env, binder, payload, exc, type_names)
         return ShkNull()
 
 def _eval_break_stmt(env: Env) -> Any:

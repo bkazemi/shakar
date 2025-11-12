@@ -447,54 +447,76 @@ class Prune(Transformer):
             exprs.append(self._transform_tree(node) if is_tree(node) else node)
         return Tree('returnstmt', exprs)
 
-    def catchexpr(self, c):
-        if not c:
-            return Tree('catchexpr', c)
-        try_node = self._transform_tree(c[0]) if is_tree(c[0]) else c[0]
-        binder = None
-        handler_node = None
-        for node in c[1:]:
-            if is_token(node) and getattr(node, "type", "") == "IDENT" and binder is None:
-                binder = node
-                continue
-            handler_node = self._transform_tree(node) if is_tree(node) else node
-        children: List[Any] = [try_node]
-        if binder is not None:
-            children.append(binder)
-        if handler_node is not None:
-            children.append(handler_node)
-        return Tree('catchexpr', children)
-
-    def catchstmt(self, c):
+    def _parse_catch_head(self, nodes: List[Any]) -> tuple[Any, Any, List[Token], Any]:
         try_node = None
         binder = None
-        body_node = None
-        saw_catch_kw = False
-        for node in c:
+        types: List[Token] = []
+        handler = None
+        flat_nodes: List[Any] = []
+        for node in nodes:
+            if is_tree(node) and tree_label(node) == 'catchtail':
+                flat_nodes.extend(tree_children(node))
+            else:
+                flat_nodes.append(node)
+        iter_nodes = iter(flat_nodes)
+        # first node is always the try expression; the rest comes from the catch head/body
+        for node in iter_nodes:
+            try_node = self._transform_tree(node) if is_tree(node) else node
+            break
+        # remaining nodes arrive in order: binder?, types?, handler
+        for node in iter_nodes:
             if is_token(node):
                 token_type = getattr(node, "type", "")
-                if token_type == "CATCH":
-                    saw_catch_kw = True
+                if token_type in {"CATCH", "@@", "COLON"}:
                     continue
-                if token_type == "COLON":
-                    continue
-                if not saw_catch_kw and try_node is None:
-                    try_node = node
-                    continue
-                if saw_catch_kw and token_type == "IDENT" and binder is None:
-                    binder = node
-                    continue
+            label = tree_label(node)
+            if label == 'catchtyped':
+                for child in tree_children(node):
+                    child_label = tree_label(child)
+                    if child_label == 'catchtypes':
+                        types = [tok for tok in tree_children(child) if is_token(tok)]
+                    elif child_label in {'catchbinder_kw', 'catchbinder_simple'}:
+                        if child.children:
+                            binder = child.children[0]
                 continue
-            transformed = self._transform_tree(node)
-            if try_node is None:
-                try_node = transformed
-            else:
-                body_node = transformed
+            if label == 'catchbinder_simple':
+                binder = node.children[0] if node.children else None
+                continue
+            if label == 'catchbinder_kw':
+                binder = node.children[0] if node.children else None
+                continue
+            if label == 'catchtypes':
+                types = [tok for tok in tree_children(node) if is_token(tok)]
+                continue
+            handler = self._transform_tree(node) if is_tree(node) else node
+            break
+        return try_node, binder, types, handler
+
+    def catchexpr(self, c):
+        nodes = c
+        if len(c) >= 2 and is_tree(c[1]) and tree_label(c[1]) == 'catchhead':
+            nodes = [c[0]] + tree_children(c[1]) + c[2:]
+        try_node, binder, types, handler = self._parse_catch_head(nodes)
         children: List[Any] = []
         if try_node is not None:
             children.append(try_node)
         if binder is not None:
             children.append(binder)
+        if types:
+            children.append(Tree('catchtypes', types))
+        if handler is not None:
+            children.append(handler)
+        return Tree('catchexpr', children)
+
+    def catchstmt(self, c):
+        try_node, binder, types, body_node = self._parse_catch_head(c)
+        children: List[Any] = []
+        if try_node is not None:
+            children.append(try_node)
+        if binder is not None:
+            children.append(binder)
+        if types:
+            children.append(Tree('catchtypes', types))
         if body_node is not None:
             children.append(body_node)
         return Tree('catchstmt', children)

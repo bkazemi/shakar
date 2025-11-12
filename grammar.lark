@@ -69,12 +69,18 @@ GT: ">"
 GTE: ">="
 
 expr: catchbase
-    | catchbase "catch" IDENT? ":" expr -> catchexpr
-    | catchbase "@@" IDENT? ":" expr -> catchexpr
+    | catchbase catchhead expr -> catchexpr
 
 ?catchbase: anonymous_fn
           | anonymous_fn_auto
           | ternaryexpr
+
+catchhead: ("catch" | "@@") catchtail? ":"
+catchtail: catchtyped | catchbinder_simple
+catchtyped: catchtypes catchbinder_kw?
+catchbinder_simple: IDENT
+catchbinder_kw: "bind" IDENT
+catchtypes: "(" IDENT ("," IDENT)* ")"
 ternaryexpr: orexpr ( "?" expr ":" ternaryexpr )?
 orexpr: andexpr ( OR andexpr )*
 andexpr: bindexpr ( AND bindexpr )*
@@ -93,8 +99,7 @@ cmpop: EQ | NEQ | LT | LTE | GT | GTE
 
 # ===== No-Comma (NC) expressions: forbid top-level CCC at select sites =====
 expr_nc: catchbase_nc
-       | catchbase_nc "catch" IDENT? ":" expr_nc -> catchexpr
-       | catchbase_nc "@@" IDENT? ":" expr_nc -> catchexpr
+       | catchbase_nc catchhead expr_nc -> catchexpr
 
 ?catchbase_nc: anonymous_fn
              | anonymous_fn_auto
@@ -293,7 +298,7 @@ allarmlist: anyarm ("," anyarm)*
 anyarm: (IDENT ":")? expr (":" (inlinebody | indentblock))? | "timeout" expr (":" (inlinebody | indentblock))?
 
 optcomma: ","?
-!catchstmt: expr "catch" IDENT? ":" (inlinebody | indentblock)
+!catchstmt: expr "catch" catchtail? ":" (inlinebody | indentblock)
 
 hook: HOOK STRING ":" (inlinebody | indentblock)
 
