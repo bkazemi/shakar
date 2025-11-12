@@ -1143,8 +1143,8 @@ reduce&(acc + x)(xs, 0)            # error: implicit params disabled; write &[ac
 
 - **One‑stmt catch**:
   ```shakar
-  val = risky() catch e => handle(e)
-  val = risky() @@ e => handle(e)   # shorthand
+  val = risky() catch e: handle(e)
+  val = risky() @@ e: handle(e)   # shorthand
   risky() catch { log("oops") }     # statement form
   ```
 - **assert expr, "msg"** raises if falsey; build can strip or keep.
@@ -1475,9 +1475,9 @@ OptComma        ::= /* empty */ | "," ;
 
 (* ===== Error handling / hooks ===== *)
 
-CatchExpr       ::= Expr "catch" IDENT? "=>" Expr ;
+CatchExpr       ::= Expr "catch" IDENT? ":" Expr ;
 CatchStmt       ::= Expr "catch" (InlineBody | IndentBlock) ;
-CatchSugar      ::= Expr "@@" IDENT? "=>" Expr ;
+CatchSugar      ::= Expr "@@" IDENT? ":" Expr ;
 
 Hook            ::= "hook" STRING ":" Body ;
 LambdaExpr      ::= "(" ParamList? ")" "=>" (Expr | IndentBlock) ;
