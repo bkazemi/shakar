@@ -272,8 +272,7 @@ def _eval_program(children: List[Any], env: Env, allow_loop_control: bool=False)
     try:
         try:
             for child in children:
-                tok_kind = _token_kind(child)
-                if tok_kind in skip_tokens:
+                if _token_kind(child) in skip_tokens:
                     continue
                 result = eval_node(child, env)
         except ShakarBreakSignal:
@@ -726,15 +725,15 @@ def _eval_for_in(n: Tree, env: Env) -> Any:
             pattern_node = child
             continue
         if is_token_node(child):
-            kind = _token_kind(child)
-            if kind == 'FOR':
+            tok = _token_kind(child)
+            if tok == 'FOR':
                 continue
-            if kind == 'IN':
+            if tok == 'IN':
                 after_in = True
                 continue
-            if kind == 'COLON':
+            if tok == 'COLON':
                 continue
-            if pattern_node is None and kind == 'IDENT':
+            if pattern_node is None and tok == 'IDENT':
                 pattern_node = Tree('pattern', [child])
                 continue
             if after_in and iter_expr is None:
@@ -1133,8 +1132,7 @@ def _extract_loop_iter_and_body(children: List[Any]) -> tuple[Any | None, Any | 
             else:
                 body_node = child
         else:
-            kind = _token_kind(child)
-            if kind in {'FOR', 'IN', 'LSQB', 'RSQB', 'COMMA', 'COLON'}:
+            if _token_kind(child) in {'FOR', 'IN', 'LSQB', 'RSQB', 'COMMA', 'COLON'}:
                 continue
             if iter_expr is None:
                 iter_expr = child
@@ -1258,12 +1256,12 @@ def _eval_compare(children: List[Any], env: Env) -> Any:
 
     while idx < len(children):
         node = children[idx]
-        token_kind = _token_kind(node)
-        if token_kind == 'AND':
+        tok = _token_kind(node)
+        if tok == 'AND':
             joiner = 'and'
             idx += 1
             continue
-        if token_kind == 'OR':
+        if tok == 'OR':
             joiner = 'or'
             idx += 1
             continue
@@ -1380,10 +1378,8 @@ def _eval_logical(kind: str, children: List[Any], env: Env) -> Any:
         if normalized == 'and':
             last_val: Any = ShkBool(True)
             for child in children:
-                if is_token_node(child):
-                    tok_kind = _token_kind(child)
-                    if tok_kind in {'AND', 'OR'}:
-                        continue
+                if is_token_node(child) and _token_kind(child) in {'AND', 'OR'}:
+                    continue
                 val = eval_node(child, env)
                 env.dot = val if _retargets_anchor(child) else env.dot
                 last_val = val
@@ -1392,10 +1388,8 @@ def _eval_logical(kind: str, children: List[Any], env: Env) -> Any:
             return last_val
         last_val: Any = ShkBool(False)
         for child in children:
-            if is_token_node(child):
-                tok_kind = _token_kind(child)
-                if tok_kind in {'AND', 'OR'}:
-                    continue
+            if is_token_node(child) and _token_kind(child) in {'AND', 'OR'}:
+                continue
             val = eval_node(child, env)
             env.dot = val if _retargets_anchor(child) else env.dot
             last_val = val
@@ -1801,8 +1795,7 @@ def _extract_param_names(params_node: Any, context: str="parameter list") -> Lis
         if name is not None:
             names.append(name)
             continue
-        kind = _token_kind(p)
-        if kind in {'COMMA'}:
+        if _token_kind(p) == 'COMMA':
             continue
         raise ShakarRuntimeError(f"Unsupported parameter node in {context}: {p}")
     return names
