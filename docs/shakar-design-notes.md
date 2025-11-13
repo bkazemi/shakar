@@ -349,7 +349,7 @@ Each step’s **result becomes the next receiver** within that same chain, but t
 
   Example: `a and (b) and .c()`  ⇒  `a and b and a.c()`
 
-- **No-anchor `$`**: `$expr` evaluates but does **not** create/retarget an explicit subject. Leading‑dot chains remain anchored to the prior subject.
+- **No-anchor `$`**: `$expr` evaluates but does **not** create/retarget an explicit subject. Leading-dot chains remain anchored to the prior subject. Implementation-wise it simply saves and restores the current anchor around the expression, so inner leading dots still see the previous subject while siblings ignore the result.
   Example: `a and $b and .c` ⇒ `a and b and a.c`
 
 Grouping constructs **push/pop** the current anchor:

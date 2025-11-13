@@ -118,10 +118,11 @@ powexpr: unaryexpr ( POW powexpr )?
 mulexpr: powexpr ( mulop powexpr )*
 mulop: STAR | SLASH | FLOORDIV | MOD
 unaryexpr: await_value
+         | "$" unaryexpr -> no_anchor
          | unaryprefixop unaryexpr
          | postfixexpr
 
-unaryprefixop: "-" | NOT | "!" | "$" | "~" | "++" | "--"
+unaryprefixop: "-" | NOT | "!" | "~" | "++" | "--"
 
 postfixexpr: primary (postfix)* (postfixincr)? -> explicit_chain
            | imphead (postfix)* (postfixincr)? -> implicit_chain

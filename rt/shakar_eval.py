@@ -1469,7 +1469,7 @@ def _retargets_anchor(node: Any) -> bool:
     if is_token_node(node):
         return _token_kind(node) not in {'SEMI', '_NL', 'INDENT', 'DEDENT'}
     if is_tree_node(node):
-        return tree_label(node) not in {'implicit_chain', 'subject', 'group'}
+        return tree_label(node) not in {'implicit_chain', 'subject', 'group', 'no_anchor'}
     return True
 
 # ---------------- Arithmetic ----------------
@@ -2316,6 +2316,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
     'dictcomp': _eval_dictcomp,
     'selectorliteral': lambda n, env: eval_selectorliteral(n, env, eval_node),
     'group': _eval_group,
+    'no_anchor': _eval_group,
     'ternary': _eval_ternary,
     'rebind_primary': _eval_rebind_primary,
     'amp_lambda': _eval_amp_lambda,
