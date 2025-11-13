@@ -991,16 +991,40 @@ def _strip_discard(node: Tree) -> Tree:
 def _desugar_call_holes(node: Any) -> Any:
     if is_token(node) or not is_tree(node):
         return node
-    transformed_children = [_desugar_call_holes(child) for child in tree_children(node)]
-    new_node = Tree(tree_label(node), transformed_children)
-    if tree_label(node) == 'explicit_chain':
-        replacement = _chain_to_lambda_if_holes(new_node)
+    children = getattr(node, "children", [])
+    changed = False
+    for idx, child in enumerate(list(children)):
+        lowered = _desugar_call_holes(child)
+        if lowered is not child:
+            children[idx] = lowered
+            changed = True
+    candidate = node
+    if tree_label(candidate) == 'explicit_chain':
+        replacement = _chain_to_lambda_if_holes(candidate)
         if replacement is not None:
             return replacement
-    return new_node
+    return candidate
 
 def _chain_to_lambda_if_holes(chain: Tree) -> Tree | None:
+    def _contains_hole(node: Any) -> bool:
+        if is_token(node) or not is_tree(node):
+            return False
+        if tree_label(node) == 'holeexpr':
+            return True
+        return any(_contains_hole(child) for child in tree_children(node))
+
     holes: List[str] = []
+    children = tree_children(chain)
+    if not children:
+        return None
+    ops = children[1:]
+    hole_call_index = None
+    for idx, op in enumerate(ops):
+        if tree_label(op) == 'call' and _contains_hole(op):
+            hole_call_index = idx
+            break
+    if hole_call_index is not None and hole_call_index + 1 < len(ops):
+        raise SyntaxError("Hole partials cannot be immediately invoked; assign or pass the partial before calling it")
 
     def clone(node: Any) -> Any:
         if is_token(node):

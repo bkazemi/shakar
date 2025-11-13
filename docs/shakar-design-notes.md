@@ -310,6 +310,7 @@ get(?, id)                ⇒   (x) => get(x, id)
 - A `?` appearing among the **immediate arguments** of a call expression creates a lambda with **one parameter per hole**, left-to-right.
 - Each hole is a distinct parameter; `blend(?, ?, 0.25)` receives two parameters `(a, b)`.
 - Works in both free and method calls; named args allowed (holes in named values participate in left-to-right order).
+- **No immediate invocation**: `blend(?, ?, 0.25)` yields a function; invoking it inline (e.g., `blend(?, ?, 0.25)(1, 2)`) is illegal—store or pass the partial first.
 - **No ternary conflict**: `?` is recognized **only inside a call’s argument list**; elsewhere, `?` is not a valid expression token.
 - **Style**: allowed with a single hole, but prefer `&` path-lambdas for one-arg cases: `xs.map&(.trim())`.
 
