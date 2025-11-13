@@ -1380,32 +1380,24 @@ def _eval_logical(kind: str, children: List[Any], env: Env) -> Any:
         if normalized == 'and':
             last_val: Any = ShkBool(True)
             for child in children:
-                saved_dot = env.dot
                 if is_token_node(child):
                     tok_kind = _token_kind(child)
                     if tok_kind in {'AND', 'OR'}:
                         continue
                 val = eval_node(child, env)
-                if _retargets_anchor(child):
-                    env.dot = val
-                else:
-                    env.dot = saved_dot
+                env.dot = val if _retargets_anchor(child) else env.dot
                 last_val = val
                 if not _is_truthy(val):
                     return val
             return last_val
         last_val: Any = ShkBool(False)
         for child in children:
-            saved_dot = env.dot
             if is_token_node(child):
                 tok_kind = _token_kind(child)
                 if tok_kind in {'AND', 'OR'}:
                     continue
             val = eval_node(child, env)
-            if _retargets_anchor(child):
-                env.dot = val
-            else:
-                env.dot = saved_dot
+            env.dot = val if _retargets_anchor(child) else env.dot
             last_val = val
             if _is_truthy(val):
                 return val
