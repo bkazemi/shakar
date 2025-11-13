@@ -1380,18 +1380,32 @@ def _eval_logical(kind: str, children: List[Any], env: Env) -> Any:
         if normalized == 'and':
             last_val: Any = ShkBool(True)
             for child in children:
+                saved_dot = env.dot
+                if is_token_node(child):
+                    tok_kind = _token_kind(child)
+                    if tok_kind in {'AND', 'OR'}:
+                        continue
                 val = eval_node(child, env)
                 if _retargets_anchor(child):
                     env.dot = val
+                else:
+                    env.dot = saved_dot
                 last_val = val
                 if not _is_truthy(val):
                     return val
             return last_val
         last_val: Any = ShkBool(False)
         for child in children:
+            saved_dot = env.dot
+            if is_token_node(child):
+                tok_kind = _token_kind(child)
+                if tok_kind in {'AND', 'OR'}:
+                    continue
             val = eval_node(child, env)
             if _retargets_anchor(child):
                 env.dot = val
+            else:
+                env.dot = saved_dot
             last_val = val
             if _is_truthy(val):
                 return val
@@ -1467,9 +1481,9 @@ def _is_truthy(val: Any) -> bool:
 
 def _retargets_anchor(node: Any) -> bool:
     if is_token_node(node):
-        return _token_kind(node) not in {'SEMI', '_NL', 'INDENT', 'DEDENT'}
+        return _token_kind(node) == 'IDENT'
     if is_tree_node(node):
-        return tree_label(node) not in {'implicit_chain', 'subject', 'group', 'no_anchor'}
+        return tree_label(node) not in {'implicit_chain', 'subject', 'group', 'no_anchor', 'literal', 'bind', 'bind_nc', 'expr', 'expr_nc'}
     return True
 
 # ---------------- Arithmetic ----------------
@@ -2043,7 +2057,8 @@ def _apply_index_operation(recv: Any, op: Tree, env: Env) -> Any:
         expr_node = _index_expr_from_children(op.children)
         idx_val = eval_node(expr_node, env)
         return index_value(recv, idx_val, env)
-    selectors = evaluate_selectorlist(selectorlist, env, eval_node)
+    with _temporary_subject(env, recv):
+        selectors = evaluate_selectorlist(selectorlist, env, eval_node)
     return apply_selectors_to_value(recv, selectors)
 
 def _eval_group(n: Tree, env: Env) -> Any:
