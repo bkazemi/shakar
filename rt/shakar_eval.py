@@ -424,25 +424,47 @@ def _eval_throw_stmt(children: List[Any], env: Env) -> Any:
     """implements `throw` with optional expression; bare throw rethrows current catch payload."""
     if children:
         value = eval_node(children[0], env)
-        if isinstance(value, ShakarRuntimeError):
-            raise value
-        message = _stringify(value)
-        raise ShakarRuntimeError(message)
+        raise _coerce_throw_value(value)
     current = getattr(env, '_active_error', None)
     if current is None:
         raise ShakarRuntimeError("throw outside of catch")
     raise current
 
+def _coerce_throw_value(value: Any) -> ShakarRuntimeError:
+    if isinstance(value, ShakarRuntimeError):
+        return value
+    if isinstance(value, ShkObject):
+        slots = getattr(value, 'slots', {})
+        marker = slots.get('__error__')
+        if isinstance(marker, ShkBool) and marker.value:
+            type_slot = slots.get('type')
+            msg_slot = slots.get('message')
+            if not isinstance(type_slot, ShkString) or not isinstance(msg_slot, ShkString):
+                raise ShakarTypeError("error() objects must have string type and message")
+            err = ShakarRuntimeError(msg_slot.value)
+            err.shk_type = type_slot.value
+            err.shk_data = slots.get('data', ShkNull())
+            err.shk_payload = value
+            return err
+    message = _stringify(value)
+    return ShakarRuntimeError(message)
+
 def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
     """Expose exception metadata to catch handlers as a lightweight object."""
+    payload = getattr(exc, 'shk_payload', None)
+    if isinstance(payload, ShkObject):
+        return payload
     slots = {
         "message": ShkString(str(exc)),
-        "type": ShkString(type(exc).__name__),
+        "type": ShkString(getattr(exc, 'shk_type', type(exc).__name__)),
     }
     if isinstance(exc, ShakarKeyError):
         slots["key"] = ShkString(str(exc.key))
     if isinstance(exc, ShakarMethodNotFound):
         slots["method"] = ShkString(exc.name)
+    data = getattr(exc, 'shk_data', None)
+    if data is not None:
+        slots["data"] = data
     return ShkObject(slots)
 
 def _parse_catch_components(children: List[Any]) -> tuple[Any, Any | None, List[str], Any]:

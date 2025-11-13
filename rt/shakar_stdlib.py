@@ -6,9 +6,9 @@ import asyncio
 from typing import List
 
 try:
-    from shakar_runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, ShakarTypeError
+    from shakar_runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, ShakarTypeError, ShkObject
 except ImportError:  # running as package
-    from .shakar_runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, ShakarTypeError
+    from .shakar_runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, ShakarTypeError, ShkObject
 
 def _render(value):
     if isinstance(value, ShkString):
@@ -40,3 +40,19 @@ def std_sleep(_env, args: List[object]):
         return ShkNull()
 
     return _sleep_coro()
+
+@register_stdlib("error")
+def std_error(_env, args: List[object]):
+    if len(args) < 2 or len(args) > 3:
+        raise ShakarTypeError("error(type, message[, data]) expects 2 or 3 arguments")
+    type_arg, message_arg, *rest = args
+    if not isinstance(type_arg, ShkString) or not isinstance(message_arg, ShkString):
+        raise ShakarTypeError("error expects string type and message")
+    data = rest[0] if rest else ShkNull()
+    slots = {
+        '__error__': ShkBool(True),
+        'type': type_arg,
+        'message': message_arg,
+        'data': data,
+    }
+    return ShkObject(slots)
