@@ -447,6 +447,14 @@ class Prune(Transformer):
             exprs.append(self._transform_tree(node) if is_tree(node) else node)
         return Tree('returnstmt', exprs)
 
+    def throwstmt(self, c):
+        exprs: List[Any] = []
+        for node in c:
+            if is_token(node):
+                continue
+            exprs.append(self._transform_tree(node) if is_tree(node) else node)
+        return Tree('throwstmt', exprs)
+
     def _parse_catch_head(self, nodes: List[Any]) -> tuple[Any, Any, List[Token], Any]:
         try_node = None
         binder = None
@@ -705,6 +713,7 @@ KEYWORDS = {
     "defer": "DEFER",
     "dbg": "DBG",
     "return": "RETURN",
+    "throw": "THROW",
     "assert": "ASSERT",
     "get": "GET",
     "set": "SET",

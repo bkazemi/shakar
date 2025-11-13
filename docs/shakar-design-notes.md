@@ -1155,6 +1155,7 @@ reduce&(acc + x)(xs, 0)            # error: implicit params disabled; write &[ac
   - The payload exposes `.type` (exception class name), `.message` (stringified message), `.key` for `ShakarKeyError`, and `.method` for `ShakarMethodNotFound`.
   - Optional `(TypeA, TypeB)` parentheses immediately after `catch` restrict the handler to those exception types; follow them with `bind name` if you need a payload alias. Non-matching errors bubble out automatically.
   - Bare `catch` (no binder, no parentheses) is a catch-all.
+  - `throw` inside the handler rethrows the current payload; `throw expr` raises a new error from `expr`.
 - **Catch statements**:
   ```shakar
   risky() catch err: { log(err.message) }
@@ -1165,6 +1166,7 @@ reduce&(acc + x)(xs, 0)            # error: implicit params disabled; write &[ac
   ```
   The statement form mirrors the expression semantics but discards the original value (always producing `nil`). The body may be an inline `:` block or an indented block, and it only executes if the left-hand expression fails.
 - **assert expr, "msg"** raises if falsey; build can strip or keep.
+- **throw [expr]** re-raises the current catch payload when the expression is omitted, or raises a new `ShakarRuntimeError` from the provided value (strings become messages, structured objects set `.type/.message`).
 - **dbg expr** logs and returns expr; can be stripped in release.
 - **Events**: `hook "name": .emit()` ⇒ `Event.on(name, &( .emit()))`
 

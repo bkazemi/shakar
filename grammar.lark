@@ -32,7 +32,7 @@ COMMENT: "#" /[^\n\r]*/
 %import common.ESCAPED_STRING -> STRING
 %import common.NUMBER -> NUMBER
 
-%declare AND OR IS IN NOT FOR IF ELIF ELSE AWAIT ANY USING OVER ALL HOOK RETURN DEFER ASSERT DBG GET SET FN BREAK CONTINUE
+%declare AND OR IS IN NOT FOR IF ELIF ELSE AWAIT ANY USING OVER ALL HOOK RETURN DEFER ASSERT DBG GET SET FN BREAK CONTINUE THROW
 
 %import common.CNAME -> IDENT
 
@@ -181,8 +181,8 @@ fieldfan: "." "{" fieldlist "}"
 breakstmt: BREAK
 continuestmt: CONTINUE
 
-?basesimplestmt: expr
-                  | returnstmt
+?basesimplestmt: returnstmt
+                  | throwstmt
                   | assignor
                   | compound_assign
                   | fnstmt
@@ -205,6 +205,7 @@ continuestmt: CONTINUE
                   | awaitallcall
                   | rebindstmt
                   | ifstmt
+                  | expr
 
 ?simplestmt: basesimplestmt
                   | postfixif
@@ -282,6 +283,8 @@ pattern: IDENT | "(" pattern_list ")"
 pattern_list: pattern "," pattern ("," pattern)*
 
 !assignstmt: lvalue "=" expr_nc
+
+throwstmt: THROW expr?
 
 destrhs: expr ("," expr)+ -> pack
 destructure: pattern_list "=" (destrhs | expr)

@@ -207,6 +207,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_walrus(n.children, env)
         case 'returnstmt':
             return _eval_return_stmt(n.children, env)
+        case 'throwstmt':
+            return _eval_throw_stmt(n.children, env)
         case 'breakstmt':
             return _eval_break_stmt(env)
         case 'continuestmt':
@@ -417,6 +419,19 @@ def _eval_return_stmt(children: List[Any], env: Env) -> Any:
         raise ShakarRuntimeError("return outside of a function")
     value = eval_node(children[0], env) if children else ShkNull()
     raise ShakarReturnSignal(value)
+
+def _eval_throw_stmt(children: List[Any], env: Env) -> Any:
+    """implements `throw` with optional expression; bare throw rethrows current catch payload."""
+    if children:
+        value = eval_node(children[0], env)
+        if isinstance(value, ShakarRuntimeError):
+            raise value
+        message = _stringify(value)
+        raise ShakarRuntimeError(message)
+    current = getattr(env, '_active_error', None)
+    if current is None:
+        raise ShakarRuntimeError("throw outside of catch")
+    raise current
 
 def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
     """Expose exception metadata to catch handlers as a lightweight object."""
