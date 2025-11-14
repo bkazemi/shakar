@@ -41,11 +41,11 @@ for[i] names:
 ## F. Guard head parens with named args
 ```shakar
 # ok (standalone call)
-send "bob", subject: "Hi"
+send("bob", subject: "Hi")
 
-# ok (guard head, parenthesized)
-(send "bob", subject: "Hi"): log("sent")
-# expect: parses as Guard(Head, Body); without parens this is a style and parse error
+# ok (guard head)
+send("bob", subject: "Hi"): log("sent")
+# expect: Calls already use parentheses, so guard heads remain unambiguous.
 ```
 
 ## G. Nil iteration
@@ -78,5 +78,5 @@ for[j, ^sum] arr:
 . = 1             # illegal: '.' is not an lvalue
 =.trim()          # illegal: prefix rebind requires an identifier
 ready(user): start()             # ok
-send "bob", subject: "Hi": log() # illegal: guard head with ':' must be parenthesized
+send "bob", subject: "Hi": log() # illegal: calls require parentheses
 ```

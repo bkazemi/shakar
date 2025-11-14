@@ -249,7 +249,7 @@ formap2: FOR "[" binderpattern "," binderpattern "]" expr ":" (inlinebody | inde
 indexing: postfixexpr "[" selectorlist "]"
 
 callee: postfixexpr
-call: callee "(" arglist? ")" | callee arglistnamedmixed
+call: callee "(" arglistnamedmixed? ")"
 arglist: arg ("," arg)*
 arg: expr | holeexpr
 arglistnamedmixed: argitem ("," argitem)*
@@ -338,7 +338,7 @@ deferbody: ":" inlinebody -> defer_block
          | ":" indentblock -> defer_block
 deferafter: "after" (IDENT | "(" (IDENT ("," IDENT)*)? ")")
 
-simplecall: callee "(" arglist? ")"
+simplecall: callee "(" arglistnamedmixed? ")"
 
 !usingstmt: USING ("[" IDENT "]")? expr ("bind" IDENT)? ":" indentblock
 

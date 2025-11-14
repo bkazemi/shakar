@@ -651,14 +651,13 @@ err: ?ret err |: log("ok")
 - **Head:** `Expr ":"` starts a guard group.
 - **Or‑branch (elif):** same indent, `| Expr ":"`.
 - **Else:** same indent, `|:` (no space). Else is optional.
-- **Disambiguation:** if the head ends with named‑arg colons or a dict literal, wrap head: `(send to: "Ali"): …`, `({k:v}): …`.
+- **Disambiguation:** guard heads that end with a dict literal should still be wrapped: `({k:v}): …`. Function calls already use parentheses (`send(to: "Ali"): …`), so named arguments stay unambiguous.
 - **Don’t mix** punctuation and keywords within **the same guard group**. Keywords remain available (`if/elif/else`).
 
 Desugars 1:1 to `if/elif/else`.
 
 ---
 
-- **Guard heads with named args:** If a guard head contains `:`, **parenthesize the head** to disambiguate `Head: Body`, e.g., `(send "bob", subject: "Hi"): log("sent").
 - **`await` one-liners are statements, not guards.** `await expr: body` and `await(expr): body` parse as `awaitstmt` so the trailing body binds to `await` (not to a guard). Parenthesized `(await f()): …` may parse as a guard head; allowed for now and style-lintable.
 
 ## 8) Control flow (loops & flow keywords)
@@ -931,13 +930,14 @@ In a comprehension head, free, unqualified identifiers are treated as temporary 
 [ f(k, v) over dict.items() ]
 { id over users if id > 0 }      # set comp
 ```
-## 11) Named‑arg calls (paren‑light)
+## 11) Named‑arg calls
+
+All invocations use parentheses, even when passing named arguments. This keeps the syntax unambiguous in guards and postfix contexts.
 
 ```shakar
 fn send(to, subject, body): …
-send "bob@x.com", subject: "Hi", body: "…"
+send("bob@x.com", subject: "Hi", body: "…")
 ```
-If a head expression with named args is used as a punctuation‑guard head, wrap it in `(...)` (§7).
 
 ## 12) Strings & performance (critical)
 
@@ -1217,7 +1217,6 @@ Type predicates/methods live in stdlib (`isInt(x)`, `typeOf(x)`), not as syntax.
   - Warn on tiny views over huge bases; suggest `.compact()`/`.own()`.
 - **Diagnostics with fix‑its**:
   - “`.` cannot stand alone; start from a subject or use `bind`.”
-  - “Guard head ends with named args; wrap with parentheses.”
 - **AI‑friendly**:
   - `shk --desugar` and `--resugar` for round‑trips.
   - Machine‑readable feature manifest (`shakar.features.json`) describing allowed sugars/style picks.
@@ -1286,7 +1285,6 @@ allow = ["?ret"]
 - **Map index with default**: prefer `m[key, default: expr]` with exactly one space after the comma and no spaces around `:`. Multiline default only if the entire index breaks across lines.
 - **Placeholder partials `?`**: for single-hole cases, prefer `&` path lambdas (e.g., `xs.map&(.trim())`). Use `?` when there are **2+ holes** (e.g., `blend(?, ?, 0.25)`). Avoid mixing `&` and `?` within the same call; when readability suffers, switch to a named-arg lambda.
 - **Style — head binders:** prefer **implicit head binders** when the head’s names are free and unqualified; use `over[...]` or `bind` when you need to shadow, disambiguate arity, or improve readability. Do **not** mix `over[...]` and `bind` in the same head.
-- **Style -- Guard heads with paren-light calls:** discouraged; the formatter may auto-paren such heads (see §7).
 - **Tokenization -- ``!in``:** write as a single token with no internal space: `a !in b` (not `a ! in b`). Parser treats `! in` as unary `!` then `in`.
 - **Tokenization -- selector interpolation braces:** Inside a backtick selector literal, `{` begins interpolation; the interpolation region is parsed as a normal expression with balanced-brace counting; braces contained in string or character literals or comments do not affect the balance. The selector literal ends at the next backtick after the selector grammar completes. Comments are not permitted inside selector bodies. There are no escape sequences in selector bodies.
 - **Style -- Comparison comma-chains with `or`:** When a comma-chain switches to `or`, prefer either repeating `, or` for each subsequent leg (e.g., `a > 10, or == 0, or == 1`) or grouping the `or` cluster in parentheses (e.g., `a > 10, or (== 0, == 1)`). This improves readability; semantics are unchanged (joiner is sticky; a comparator is required after `or` to remain in the chain).
