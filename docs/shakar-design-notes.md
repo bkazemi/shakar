@@ -1,18 +1,18 @@
-# Shakar Lang — Working Design Notes (Pre‑implementation, v0.1)
+# Shakar Lang — Working Design Notes (Pre-implementation, v0.1)
 
 > **Changelog (nits pass — v0.1 freeze clarifications):**
-> - Added: int overflow = throws (v0.1); set Int = i64, Float = f64; clarified leading‑zero floats (no `.5`).
-> - Added: assignment split — `:=` (introduce+yield, expr) vs `=` (update‑only, stmt), with errors and no `x := y := …`.
-> - Added: selector list write restrictions — multi‑selector and slice LHS assignment are disallowed in v0.1.
+> - Added: int overflow = throws (v0.1); set Int = i64, Float = f64; clarified leading-zero floats (no `.5`).
+> - Added: assignment split — `:=` (introduce+yield, expr) vs `=` (update-only, stmt), with errors and no `x := y := …`.
+> - Added: selector list write restrictions — multi-selector and slice LHS assignment are disallowed in v0.1.
 > - Added: `!x` listed alongside `not x` in Unary; binary `??` precedence note affirmed.
-> - Affirmed: single‑line comments `#...`; ternary `cond ? a : b`.
+> - Affirmed: single-line comments `#...`; ternary `cond ? a : b`.
 
 > **Status:** concept/spec notes for early compiler & toolchain.
 > **Audience:** language implementers and contributors.
 > **Mantra:** *Sweet syntax, obvious desugar, zero ceremony.*
-> **Philosophy:** keep the core tiny and predictable; push ergonomics into first‑class, deterministic sugars.
+> **Philosophy:** keep the core tiny and predictable; push ergonomics into first-class, deterministic sugars.
 
-This is a **living technical spec**. It front‑loads design choices to avoid “oops” reversals once implementation starts. Every surface sugar has a deterministic desugar to a small, boring core.
+This is a **living technical spec**. It front-loads design choices to avoid “oops” reversals once implementation starts. Every surface sugar has a deterministic desugar to a small, boring core.
 
 - ✅ **Committed**: part of v0.1 surface.
 - 🧪 **Experimental**: likely to ship; behind a flag.
@@ -23,10 +23,10 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 ## 1) Language goals & invariants
 
 - **Ergonomics > ceremony**; sugars for common patterns.
-- **Expression‑local magic only.** Implicit subject `.` never crosses statement boundaries; it follows the **anchor stack** rule (§4).
+- **Expression-local magic only.** Implicit subject `.` never crosses statement boundaries; it follows the **anchor stack** rule (§4).
 - **Truthiness:** `nil`, `false`, `0` **and** `0.0`, `""`, `[]`, `{}` are falsey; everything else truthy.
-- **Evaluation:** eager, short‑circuit `and`/`or`.
-- **Errors:** exceptions; one‑statement handlers via `catch` / `@@`.
+- **Evaluation:** eager, short-circuit `and`/`or`.
+- **Errors:** exceptions; one-statement handlers via `catch` / `@@`.
 - **Strings:**  **Raw strings:** `raw"…"` (no interpolation; escapes processed) and `raw#"…"#` (no interpolation; no escapes; exactly one `#` in v0.1).
   Examples: `raw"Line1\nLine2"`, `raw#"C:\\path\\to\\file"#`, `raw#"he said "hi""#`.
   immutable UTF-8 with zero-copy views/ropes + leak-avoidance heuristics (§12).
@@ -37,16 +37,16 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 
 ## 2) Lexical & literals (v0.1)
 
-- **Identifiers:** `[_A-Za-z][_A-Za-z0-9]*`. Case‑sensitive. Unicode ids ❓ (later).
-- **Comments:** `#` to end‑of‑line.
+- **Identifiers:** `[_A-Za-z][_A-Za-z0-9]*`. Case-sensitive. Unicode ids ❓ (later).
+- **Comments:** `#` to end-of-line.
 - **Whitespace & layout:** blocks introduced by `:` and indentation (spaces only).
 - **Semicolons (statements):** `;` is a hard statement delimiter at top level and inside braced inline suites `{ ... }`. Multiple statements may share a line using semicolons. Grammar shape: `stmtlist := stmt (SEMI stmt)* SEMI?`.
 - **Inline suites after `:`:** exactly **one** simple statement is allowed. To include multiple, wrap a braced inline suite on the right of the colon: `{ stmtlist }`.
 
 - **Literals:**
   - **Nil/bool:** `nil`, `true`, `false`
-  - **Integers:** 64‑bit signed (`Int`). Underscore separators allowed: `1_000_000`. Bases: `0b1010`, `0o755`, `0xFF_EC`. **Overflow throws** in v0.1.
-  - **Floats:** IEEE‑754 double (`Float`). `0.5`, `1.0`, `1e-9`, `1_234.5e6`. **Leading zero required** (no `.5`).
+  - **Integers:** 64-bit signed (`Int`). Underscore separators allowed: `1_000_000`. Bases: `0b1010`, `0o755`, `0xFF_EC`. **Overflow throws** in v0.1.
+  - **Floats:** IEEE-754 double (`Float`). `0.5`, `1.0`, `1e-9`, `1_234.5e6`. **Leading zero required** (no `.5`).
   - **Strings:** `"…"`, with escapes `\n \t \\ \" \u{…}`. Multiline strings ❓ (later).
   - **Arrays:** `[1, 2, 3]`
   - **Objects:** `{ key: value, other: 2 }` (plain values; getters/setters have contextual `get`/`set`, see §10).
@@ -57,20 +57,21 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 
 **Set and Object algebra precedence:** `*` for set/object intersection participates at the multiplicative tier. `+`, `-`, and set/obj `^` participate at the additive tier. Numeric bitwise `^` remains behind the `bitwise_symbols` gate and stays in the bitwise tier.
 
-**Associativity**: unless noted, binary operators are **left‑associative**.
+**Associativity**: unless noted, binary operators are **left-associative**.
 **Precedence table (high → low):**
 
 1. **Postfix**: member `.`, call `()`, index `[]`
 2. **Unary**: `-x` boolean `not x` / `!x`, `~x` (bitwise not; gated via `bitwise_symbols`, otherwise use `bit.not(x)`)
-3. **Power**: `x ** y` (right‑associative) ✅
+3. **Power**: `x ** y` (right-associative) ✅
 4. **Multiplicative**: `*`, `/` (float), `//` (floor int), `%`
 5. **Additive / concat**: `+`, `-`, `+>` (deep object merge)
-   - `+` adds numbers; concatenates **strings** (rope) and **arrays** (copy‑on‑append semantics).
+   - `+` adds numbers; concatenates **strings** (rope) and **arrays** (copy-on-append semantics).
 6. **Shifts** (gated via `bitwise_symbols`): `<<`, `>>` (arithmetic for ints)
 7. **Bitwise AND/XOR/OR** (gated via `bitwise_symbols`): `&`, `^`, `|`
    - Note: `&` is also used as the **lambda sigil on the callee** (`map&(...)`). Infix `&` is bitwise; parser disambiguates.
    - `|` at **start of line** is reserved for **punctuation guards** (§7); infix `|` is bitwise OR.
 8. **Comparison**: `<`, `<=`, `>`, `>=`, `==`, `!=`, `is`, `is not`, `!is`, `in`, `!in`, `not in`
+9. **Nil-safe chain**: `??(expr)` (prefix form; treated as a primary) ✅
 9. **Nil-safe chain**: `??(expr)` (prefix form; treated as a primary) ✅
 10. **Nil-coalescing**: `a ?? b` (returns `a` unless `a` is `nil`, otherwise `b`; right-associative; binds tighter than `or`).
 11. **Walrus & apply-assign**: `:=`, `.=` (both expression-valued; bind tighter than `and`/`or`, lower than postfix) ✅
@@ -97,16 +98,16 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
   - `A + B` union; `A - B` difference; `A * B` intersection; `A ^ B` symmetric difference.
   - **Precedence:** follows token families (`*` multiplicative; `+`/`-` additive; `^` XOR family). Use parentheses when mixing.
   - **Purity:** these binary operators return a **new** Set; operands are not mutated.
-- `/` yields float; `//` floor‑div for ints (works on floats too, returns int via floor).
+- `/` yields float; `//` floor-div for ints (works on floats too, returns int via floor).
 - `%` is remainder; sign follows dividend (like Python).
-- `**` exponentiation (right‑assoc).
+- `**` exponentiation (right-assoc).
 
 ### 3.3 Bitwise (via std/bit)
 - Symbolic bitwise operators are **not in the v0.1 core**. Use `std/bit` functions:
   - `bit.and(x,y)`, `bit.or(x,y)`, `bit.xor(x,y)`, `bit.not(x)`
   - `bit.shl(x,n)`, `bit.shr(x,n)`
 - Teams that need symbolic operators can enable the **`bitwise_symbols`** feature gate (see §19). When enabled, tokens `& | ^ << >> ~` are available with the usual precedence, and one-line guards still reserve `|`/`|:` only **after the first `:`** and only at **bracket-depth 0**.
-- Errors on non‑int operands (use explicit conversions).
+- Errors on non-int operands (use explicit conversions).
 
 ### 3.4 Comparison & identity
 - **Comparison comma-chains (CCC):**
@@ -144,8 +145,8 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
   # Selector-literal legs
   assert 4 < `5:10`, != `7, 8`             # ⇒ (4 < 5) and (4 != 7) and (4 != 8)
   ```
-- `==`, `!=` are value equality; type‑aware. Cross-type compares: numeric Int vs Float equality compares by value (for example, `3 == 3.0` is true); other cross-type comparisons error (except nil equality).
-- Ordering `< <= > >=` defined for **numbers** and **strings** (lexicographic by bytes of normalized UTF‑8). Arrays/objects ordering ❓ (not in v0.1).
+- `==`, `!=` are value equality; type-aware. Cross-type compares: numeric Int vs Float equality compares by value (for example, `3 == 3.0` is true); other cross-type comparisons error (except nil equality).
+- Ordering `< <= > >=` defined for **numbers** and **strings** (lexicographic by bytes of normalized UTF-8). Arrays/objects ordering ❓ (not in v0.1).
 - `is`, `is not`/`!is` check identity (same object/storage). For strings/views, identity means same `(base, off, len)`; value equality may still be true when identity is false.
 - **Identity negation:** `!is` is a single token, equivalent to `is not`. Write `a !is b` (not `a ! is b`).
 
@@ -157,7 +158,7 @@ This is a **living technical spec**. It front‑loads design choices to avoid �
 - `x not in y` / `x !in y` are the negation (synonyms).
 
 ### 3.6 Boolean (words only)
-- `and`, `or` (short‑circuit, yield last evaluated operand). **No `&&`/`||` in core.**
+- `and`, `or` (short-circuit, yield last evaluated operand). **No `&&`/`||` in core.**
 
 ### 3.7 Ternary
 ```shakar
@@ -172,7 +173,7 @@ x = cond ? a : b
   - `^=` is available for Sets even when numeric bitwise symbols are gated off; it’s type-directed like `^`.
 - Simple: `name = expr` (statement)
 - **Compound**: `+= -= *= /= //= %= **=` (core); `<<= >>= &= ^= |=` (gated via `bitwise_symbols`)
-- **Defaults**: `or=` and statement‑subject `=x or y` (see §6)
+- **Defaults**: `or=` and statement-subject `=x or y` (see §6)
 - **Walrus**: `name := expr` (expression, see §5)
  - **Apply-assign**: `LHS .= RHS` (**expression**).
    - Inside `RHS`, `.` = **old value of `LHS`**; then the result writes back to `LHS`.
@@ -482,7 +483,7 @@ u := makeUser() and .isValid()
 makeUser() bind u and .isValid()
 ```
 
-**Interaction with statement‑rebinding `=`:**
+**Interaction with statement-rebinding `=`:**
 ```shakar
 =a.lower() and .allLower()
 # ⇒ tmp0 = a.lower(); a = tmp0; tmp0 and a.allLower()
@@ -494,7 +495,7 @@ makeUser() bind u and .isValid()
 
 **Intent split**
 - `name := expr` — **introduce & yield**: creates a new binding in the **current lexical scope** and **returns** the assigned value. Error if `name` already exists **in the same scope** (use `=` to update).
-- `name = expr` — **update only**: assigns to an **existing** binding. Statement‑only: using `=` where a value is required is a compile‑time error. Error if `name` does **not** exist (use `:=` to introduce).
+- `name = expr` — **update only**: assigns to an **existing** binding. Statement-only: using `=` where a value is required is a compile-time error. Error if `name` does **not** exist (use `:=` to introduce).
 
 **Destructuring**
 - Arrays: `[head, ...rest] := xs`
@@ -506,12 +507,12 @@ Updates use `=` on existing lvalues: `user.name = "New"`.
 
 **LValues**
 - Member/index updates are normal updates: `obj.field = v`, `arr[i] = v`.
-- **Selector lists and slices may not appear on the LHS** in v0.1 (no multi‑write or slice assignment).
+- **Selector lists and slices may not appear on the LHS** in v0.1 (no multi-write or slice assignment).
 ## 6) Defaults, guards, safe access (committed)
-- **`or=`** and **statement‑subject** `=x or y` (statement head) desugar to `if not …: … = …`.
-- **`?ret expr`** early‑returns if expr is truthy.
+- **`or=`** and **statement-subject** `=x or y` (statement head) desugar to `if not …: … = …`.
+- **`?ret expr`** early-returns if expr is truthy.
 - **Postfix conditionals**: `stmt if cond`, `stmt unless cond`.
-- **Nil‑safe chain**: `??(expr)` turns a deep deref/call chain into a nil‑propagating expression.
+- **Nil-safe chain**: `??(expr)` turns a deep deref/call chain into a nil-propagating expression.
 
 ### Using
 
@@ -626,7 +627,7 @@ fn ordered():
 ## 7) Punctuation guards (drop `if/elif/else` noise)
 > **Terminology:** *Guard* is the construct. A `Expr ":" Body` is a *guard branch*. Multiple branches separated by `|` form a *guard group*. *Chain* refers only to **postfix chains** (field/call/index).
 
-**Multi‑line guard**
+**Multi-line guard**
 ```shakar
 ready():
   start()
@@ -638,18 +639,18 @@ ready():
   log("not ready")
 ```
 
-**One‑line guard**
+**One-line guard**
 ```shakar
 ready(): start() | retries < 3: retry() |: log("not ready")
 user and .active: process(user) |: log("inactive")
 err: ?ret err |: log("ok")
 ```
 
-**Binding of `|:` (nearest‑else rule):** After a head’s first `:`, any `|`/`|:` at the same bracket depth binds to the **innermost open guard** (nearest head). Wrap inner guards in `(...)` or `{...}` if you want the following `|:` to bind to an outer guard.
+**Binding of `|:` (nearest-else rule):** After a head’s first `:`, any `|`/`|:` at the same bracket depth binds to the **innermost open guard** (nearest head). Wrap inner guards in `(...)` or `{...}` if you want the following `|:` to bind to an outer guard.
 **Rules**
-**Alias:** `||` and `||:` are accepted as input in one‑line guards and are normalized by the formatter to `|` / `|:`. They are recognized only after the first `:` and only at bracket‑depth 0.
+**Alias:** `||` and `||:` are accepted as input in one-line guards and are normalized by the formatter to `|` / `|:`. They are recognized only after the first `:` and only at bracket-depth 0.
 - **Head:** `Expr ":"` starts a guard group.
-- **Or‑branch (elif):** same indent, `| Expr ":"`.
+- **Or-branch (elif):** same indent, `| Expr ":"`.
 - **Else:** same indent, `|:` (no space). Else is optional.
 - **Disambiguation:** guard heads that end with a dict literal should still be wrapped: `({k:v}): …`. Function calls already use parentheses (`send(to: "Ali"): …`), so named arguments stay unambiguous.
 - **Don’t mix** punctuation and keywords within **the same guard group**. Keywords remain available (`if/elif/else`).
@@ -694,7 +695,7 @@ await(fetchUser(id)): show(.)
 
 **`await[any]`** (two exclusive shapes)
 
-A) **Per‑arm bodies (no trailing body):**
+A) **Per-arm bodies (no trailing body):**
 ```shakar
 await[any](
   fetchUser(id): show(.),
@@ -705,7 +706,7 @@ await[any](
 - Heads start concurrently. The **first successful** arm runs its body with **`.` = that arm’s result**. Others are canceled.
 - Returns that body’s value.
 
-B) **Trailing body (no per‑arm bodies):**
+B) **Trailing body (no per-arm bodies):**
 ```shakar
 await[any](
   user:  fetchUser(id),
@@ -745,13 +746,13 @@ use(g.user, g.posts)
 
 **Notes**
 - `await[...]` uses **parentheses**, not `{}`; curly braces signify **data literals** in Shakar.
-- Do **not** mix per‑arm bodies and a trailing body in the same call (linted).
+- Do **not** mix per-arm bodies and a trailing body in the same call (linted).
 - `.` refers to the value defined by the construct as described above; it does **not** capture outer `.` from lambdas.
-- **for‑in**: `for x in iterable: block`
+- **for-in**: `for x in iterable: block`
 - Selector literals as values: ``for i in `0:<n`: …``  # iterate a numeric selector
 - Selector lists (indexed view): `for[i] xs[ sel1, sel2, … ]: …`  # iterate the concatenated view; i is view index
 - Note: the same `a:b` syntax is a **selector** inside `[]`, and a **Selector value** elsewhere.
-  - Iteration over `nil` is **no‑op** (safe): `for x in maybeNil: …` does nothing if `maybeNil` is nil.
+  - Iteration over `nil` is **no-op** (safe): `for x in maybeNil: …` does nothing if `maybeNil` is nil.
 - **break**, **continue**: loop controls.
 - **return**: function return.
 - **defer** / **using**: resource management (§11).
@@ -834,9 +835,9 @@ for[j, ^sum] arr:
 # sum visible after loop; j is loop-local
 ```
 
-- **for‑in**: `for x in iterable: block`
+- **for-in**: `for x in iterable: block`
   - Selector values: `` for i in `0:n`: … ``, `` for i in `0:<n`: … ``
-  - Iteration over `nil` is **no‑op** (safe): `for x in maybeNil: …` does nothing if `maybeNil` is nil.
+  - Iteration over `nil` is **no-op** (safe): `for x in maybeNil: …` does nothing if `maybeNil` is nil.
 - **break**, **continue**: loop controls.
 - **return**: function return.
 - **defer** / **using**: resource management (§11).
@@ -930,7 +931,7 @@ In a comprehension head, free, unqualified identifiers are treated as temporary 
 [ f(k, v) over dict.items() ]
 { id over users if id > 0 }      # set comp
 ```
-## 11) Named‑arg calls
+## 11) Named-arg calls
 
 All invocations use parentheses, even when passing named arguments. This keeps the syntax unambiguous in guards and postfix contexts.
 
@@ -954,23 +955,23 @@ send("bob@x.com", subject: "Hi", body: "…")
 
 **Slices (arrays & strings):**
 ```shakar
-a[i:j]         # half‑open: i ≤ k < j
+a[i:j]         # half-open: i ≤ k < j
 a[i:j:step]    # step ≠ 0; supports negative steps for reverse
 a[:j]          # from start
 a[i:]          # to end
 a[:]           # whole view
 ```
 - **Negative indices** allowed (`-1` is last).
-- **Reverse requires explicit negative step:** `a[i:j:-1]`. We **do not** auto‑reverse when `i > j`.
-- **Indexing** `a[i]` **throws** if out‑of‑bounds.
+- **Reverse requires explicit negative step:** `a[i:j:-1]`. We **do not** auto-reverse when `i > j`.
+- **Indexing** `a[i]` **throws** if out-of-bounds.
 - **Slices** **clamp** to `[0:len]` and never throw; an inverted range with positive step yields `[]`.
-- **Strict slicing**: `slice!(a, i, j, step?)` throws on any out‑of‑bounds (no clamping).
+- **Strict slicing**: `slice!(a, i, j, step?)` throws on any out-of-bounds (no clamping).
 
-**Selector lists** (multiple selectors inside `[]`, comma‑separated):
+**Selector lists** (multiple selectors inside `[]`, comma-separated):
 ```shakar
 xs[:5, 10:15:-2]      # concat first five with a reverse slice
 xs[0, 3, 5:]          # specific indices plus a tail
-xs[1 : .len-1]        # drop first and last (half‑open excludes last)
+xs[1 : .len-1]        # drop first and last (half-open excludes last)
 ```
 - The overall result is the **concatenation** of each selector’s result, in order.
 - **Selector values inside `[]`**: backtick selector literals are valid items and are **flattened** (spliced) into the selector list at that position.
@@ -979,14 +980,14 @@ xs[1 : .len-1]        # drop first and last (half‑open excludes last)
   - `xs[`1:10, 11:15:2`, 20]`  ≡  `xs[1:10, 11:15:2, 20]`
   - `customSelector := `1:10, someIdx`; xs[customSelector]`  # define & reuse a selector value
 - **Type checks**: each item must evaluate to either an integer index or a selector value; otherwise it is a type error.
-- **Per‑selector steps** are allowed.
+- **Per-selector steps** are allowed.
 - **Index selectors**: OOB → **throw**.  **Slice selectors**: **clamp**.
 - Inside each selector expression, **`.` = the base** (e.g., `xs`) for that selector only.
-**LHS restrictions (v0.1):** selector lists and slices are **expression‑only**; they cannot be used as assignment targets. Use single index/property updates instead.
-- Immutable UTF‑8 with **views** for slices/trim/drop and **ropes** for concat.
-- **Unique‑owner compaction** avoids substring leaks (thresholds: keep <¼ or >64KiB slack).
+**LHS restrictions (v0.1):** selector lists and slices are **expression-only**; they cannot be used as assignment targets. Use single index/property updates instead.
+- Immutable UTF-8 with **views** for slices/trim/drop and **ropes** for concat.
+- **Unique-owner compaction** avoids substring leaks (thresholds: keep <¼ or >64KiB slack).
 - Controls: `.own()`, `.compact()`, `.materialize()`.
-- Unicode indexing counts **characters**; `bytes` view for byte‑wise operations.
+- Unicode indexing counts **characters**; `bytes` view for byte-wise operations.
 - FFI always materializes exact bytes (+NUL) and caches pointer.
 
 What this buys:
@@ -1008,7 +1009,7 @@ For heavy edits, use `TextBuilder/Buf` and `freeze()` back to `Str`.
 - **Property write**: Plain → set; Descriptor.setter → call with `self, value`; strict mode can forbid setting Plain when a descriptor exists.
 - **Methods**: `obj.m(args)` sets `self=obj` for the call frame.
 - **Contextual `get/set`** inside object literals desugar to `Descriptor` slots.
-- **Decorator‑based getters/setters** set flags or return descriptor wrappers so assignment installs the right slot.
+- **Decorator-based getters/setters** set flags or return descriptor wrappers so assignment installs the right slot.
 - Getter must be **nullary**; setter **arity 1**.
 
 To pass a callable for a getter: `&(obj.prop())`.
@@ -1062,7 +1063,7 @@ user[1+2]       # computed
 ## 14) Decorators (no HOF boilerplate) & lambdas
 - Decorators & hooks are **core** in v0.1.
 - **Decorators**: inside `decorator` bodies, `f` and `args` are implicit; if the body does not `return`, implicitly `return f(args)`.
-- **Lambdas**: `map&(.trim())` (single arg implicit `.`), `zipWith&[a,b](a+b)` (multi‑arg). `&` is a **lambda‑on-callee** sigil.
+- **Lambdas**: `map&(.trim())` (single arg implicit `.`), `zipWith&[a,b](a+b)` (multi-arg). `&` is a **lambda-on-callee** sigil.
 
 ---
 
@@ -1186,16 +1187,16 @@ reduce&(acc + x)(xs, 0)            # error: implicit params disabled; write &[ac
 - `.=` apply-assign
 - `|` and `|:` at line start for guard chains
 - `?ret` (statement head)
-- `??(expr)` nil‑safe chain
+- `??(expr)` nil-safe chain
 - `:=` walrus
 
 ---
 
 ## 17) Type model (pragmatic dynamic)
 
-- **Numbers**: `Int` (64‑bit signed; **overflow throws** in v0.1) and `Float` (64‑bit IEEE). Arithmetic follows Python‑like precedence; `/` produces float, `//` floor‑div produces `Int`.
+- **Numbers**: `Int` (64-bit signed; **overflow throws** in v0.1) and `Float` (64-bit IEEE). Arithmetic follows Python-like precedence; `/` produces float, `//` floor-div produces `Int`.
 - **Bool**: `true/false`
-- **Str**: immutable UTF‑8
+- **Str**: immutable UTF-8
 - **Array**: ordered, dynamic
 - **Object**: key→value map (string keys); descriptors for getters/setters
 - **Func**: user/native functions
@@ -1209,18 +1210,18 @@ Type predicates/methods live in stdlib (`isInt(x)`, `typeOf(x)`), not as syntax.
 ## 18) Tooling & ecosystem
 
 - **Formatter** (`shk fmt`): canonical spacing; can normalize punctuation vs keywords per project style.
-- **REPL** (`shk repl`): auto‑print last value; `:desugar` to show lowerings.
+- **REPL** (`shk repl`): auto-print last value; `:desugar` to show lowerings.
 - **Linter** (initial rules):
   - Suggest `a or= b` / `=a or b` over `a = a or b`.
   - Warn on long implicit `.` chains; suggest `bind`.
   - Don’t mix punctuation and keyword guards in the same chain.
   - Warn on tiny views over huge bases; suggest `.compact()`/`.own()`.
-- **Diagnostics with fix‑its**:
+- **Diagnostics with fix-its**:
   - “`.` cannot stand alone; start from a subject or use `bind`.”
-- **AI‑friendly**:
-  - `shk --desugar` and `--resugar` for round‑trips.
-  - Machine‑readable feature manifest (`shakar.features.json`) describing allowed sugars/style picks.
-  - Lenient parse `--recover` to auto‑fix common near‑misses.
+- **AI-friendly**:
+  - `shk --desugar` and `--resugar` for round-trips.
+  - Machine-readable feature manifest (`shakar.features.json`) describing allowed sugars/style picks.
+  - Lenient parse `--recover` to auto-fix common near-misses.
 
 ---
 
@@ -1245,7 +1246,7 @@ trace "fetch" { user: id, cold: fromNetwork }:
 ```
 ## 19) Feature gating & style profiles
 
-Project config (e.g. `shakar.toml`) with **per‑module overrides**:
+Project config (e.g. `shakar.toml`) with **per-module overrides**:
 ```toml
 [shakar]
 version = "0.1"
@@ -1299,7 +1300,7 @@ allow = ["?ret"]
 - Numeric bitwise operators `& | ^ << >> ~` and their compound forms are behind the **`bitwise_symbols`** gate (default **denied**).
 - This gate applies **only to numeric operators**. Set/Map algebra (e.g., `A ^ B` symmetric diff) is **always enabled** (type-directed).
 
-## 20) Grammar sketch (EBNF‑ish; implementation may vary)
+## 20) Grammar sketch (EBNF-ish; implementation may vary)
 ```ebnf
 (* Shakar grammar — proper EBNF. Lexical tokens: IDENT, STRING, NUMBER, NEWLINE, INDENT, DEDENT. *)
 
@@ -1539,11 +1540,11 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
 ```
 ## 21) Considering / undecided
 - **Conditional apply-assign `.?=`**: compute RHS with old LHS as `.` and **assign only if non-nil**. Today use `=<LHS> ??(.transform()) ?? .` or `<LHS> .= ??(.transform()) ?? .`.
-- **Keyword aliases (macro‑lite)**: project remaps (disabled by default).
+- **Keyword aliases (macro-lite)**: project remaps (disabled by default).
 - **Autocall any nullary method**: off by default; explicit `getter` is core.
-- **Copy‑update `with`** sugar: syntax TBA; method `obj.with(...)` works now.
+- **Copy-update `with`** sugar: syntax TBA; method `obj.with(...)` works now.
 - **Pipes `|>`**: maybe later; redundant for v0.1.
-- **Nested/multi‑source comprehensions**: later via `bind (a,b) over zip(xs,ys)`.
+- **Nested/multi-source comprehensions**: later via `bind (a,b) over zip(xs,ys)`.
 - **Word range aliases `to`/`until`**: optional later.
 - **While/until loops**: consider only if demanded; `for` over `Selector value` covers most cases.
 - **Sticky subject (prefix `%`)**: `%expr` sets the **anchor** to `expr` and marks it **sticky** for the current expression: child groupings do not retarget unless another `%` or a new explicit subject appears. **Does not affect** selector bases or `.=`/`=LHS` tails (their `.` rules still win).
@@ -1569,10 +1570,10 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
 - `shk fmt`, `shk repl --desugar`, initial lints, feature manifest JSON.
 
 **Phase 5 — Feature gates**
-- Project + per‑module allow/deny with helpful diagnostics.
+- Project + per-module allow/deny with helpful diagnostics.
 
 **Exit criteria**
-- Guard‑heavy and data‑munging demos show 30–50% LOC reduction vs Python/JS.
+- Guard-heavy and data-munging demos show 30–50% LOC reduction vs Python/JS.
 - Desugar views are stable and readable.
 - No substring leaks in memory profiles; heuristics documented & tunable.
 
