@@ -72,7 +72,6 @@ This is a **living technical spec**. It front-loads design choices to avoid “o
    - `|` at **start of line** is reserved for **punctuation guards** (§7); infix `|` is bitwise OR.
 8. **Comparison**: `<`, `<=`, `>`, `>=`, `==`, `!=`, `is`, `is not`, `!is`, `in`, `!in`, `not in`
 9. **Nil-safe chain**: `??(expr)` (prefix form; treated as a primary) ✅
-9. **Nil-safe chain**: `??(expr)` (prefix form; treated as a primary) ✅
 10. **Nil-coalescing**: `a ?? b` (returns `a` unless `a` is `nil`, otherwise `b`; right-associative; binds tighter than `or`).
 11. **Walrus & apply-assign**: `:=`, `.=` (both expression-valued; bind tighter than `and`/`or`, lower than postfix) ✅
 12. **Boolean**: `and`, `or` (short-circuit, value-yielding) ✅
@@ -643,7 +642,7 @@ ready():
 ```shakar
 ready(): start() | retries < 3: retry() |: log("not ready")
 user and .active: process(user) |: log("inactive")
-err: ?ret err |: log("ok")
+??(conn.open): use(conn) |: log("connection closed")
 ```
 
 **Binding of `|:` (nearest-else rule):** After a head’s first `:`, any `|`/`|:` at the same bracket depth binds to the **innermost open guard** (nearest head). Wrap inner guards in `(...)` or `{...}` if you want the following `|:` to bind to an outer guard.

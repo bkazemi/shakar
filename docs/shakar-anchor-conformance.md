@@ -75,8 +75,9 @@ for[j, ^sum] arr:
 
 ## J. Illegals (must be rejected)
 ```shakar
-. = 1             # illegal: '.' is not an lvalue
-=.trim()          # illegal: prefix rebind requires an identifier
-ready(user): start()             # ok
-send "bob", subject: "Hi": log() # illegal: calls require parentheses
+. = 1                        # illegal: '.' is not an lvalue
+=.trim()                     # illegal: prefix rebind requires an identifier
+ready(user): start()         # ok
+send("bob", subject: "Hi"): log()  # ok
+send "bob", subject: "Hi": log()   # illegal: missing parentheses
 ```
