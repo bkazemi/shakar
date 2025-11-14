@@ -117,7 +117,6 @@ This is a **living technical spec**. It front-loads design choices to avoid “o
     - **After `or` the comparator is required** to remain in the chain (no carry-forward across `or`).
   - **Joiner is sticky**: defaults to `and` and persists until changed by `, or` / `, and`.
   - **Leaving chain mode:** any `and|or` **without a preceding comma** ends the chain and resumes normal boolean parsing.
-  - **Comparator cannot change inside a CCC.** Put the comparator on the first leg; comma legs carry it. If you need a different comparator, use `and` or parentheses (e.g., `a < b and c > d`).
   - **Desugaring:** expand left-to-right to `S op_i Expr_i` joined by the current sticky joiner; then apply normal precedence (`and` binds tighter than `or`) with short-circuit evaluation.
   - **Parentheses:** `( … )` may nest CCCs inside expressions without affecting the chain's subject/evaluation rules.
   - **Selectors in comparisons:** with backtick selector-literals `` `Sel` ``:
