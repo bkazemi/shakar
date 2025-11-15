@@ -422,7 +422,7 @@ def _eval_walrus(children: List[Any], env: Env) -> Any:
     name_node, value_node = children
     name = _expect_ident_token(name_node, "Walrus target")
     value = eval_node(value_node, env)
-    return _assign_ident(name, value, env, create=True)
+    return _define_new_ident(name, value, env)
 
 def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     """Handles simple `lhs = rhs` statements (no destructuring)."""
@@ -443,17 +443,18 @@ def _eval_postfix_unless(children: List[Any], env: Env) -> Any:
     return _eval_postfix_guard(stmt_node, cond_node, env, run_on_truthy=False)
 
 def _eval_postfix_guard(stmt_node: Any, cond_node: Any, env: Env, run_on_truthy: bool) -> Any:
+    walrus_name = None
     walrus_node = _find_tree_by_label(stmt_node, {'walrus', 'walrus_nc'})
     if walrus_node is not None:
-        target_name = _walrus_target_name(walrus_node)
-        _assign_ident(target_name, ShkNull(), env, create=True)
+        walrus_name = _walrus_target_name(walrus_node)
     cond_val = eval_node(cond_node, env)
-    should_run = _is_truthy(cond_val)
-    if not run_on_truthy:
-        should_run = not should_run
-    if not should_run:
-        return ShkNull()
-    return eval_node(stmt_node, env)
+    cond_truthy = _is_truthy(cond_val)
+    should_run = cond_truthy if run_on_truthy else not cond_truthy
+    if should_run:
+        return eval_node(stmt_node, env)
+    if walrus_name is not None:
+        _define_new_ident(walrus_name, ShkNull(), env)
+    return ShkNull()
 
 def _eval_return_stmt(children: List[Any], env: Env) -> Any:
     """implements `return` with optional expression, unwinding via control signal."""
@@ -950,6 +951,9 @@ def _assign_ident(name: str, value: Any, env: Env, create: bool) -> Any:
 
 def _assign_pattern_value(pattern: Tree, value: Any, env: Env, create: bool, allow_broadcast: bool) -> None:
     def _assign_ident_wrapper(name: str, val: Any, target_env: Env, create_flag: bool) -> None:
+        if create_flag and allow_broadcast:
+            _define_new_ident(name, val, target_env)
+            return
         _assign_ident(name, val, target_env, create=create_flag)
     destructure_assign_pattern(eval_node, _assign_ident_wrapper, pattern, value, env, create, allow_broadcast)
 
@@ -2474,6 +2478,13 @@ _TOKEN_DISPATCH: dict[str, Callable[[Token, Env], Any]] = {
     'TRUE': lambda _, __: ShkBool(True),
     'FALSE': lambda _, __: ShkBool(False),
 }
+
+def _define_new_ident(name: str, value: Any, env: Env) -> Any:
+    vars_dict = getattr(env, 'vars', None)
+    if vars_dict is not None and name in vars_dict:
+        raise ShakarRuntimeError(f"Name '{name}' already defined in this scope")
+    env.define(name, value)
+    return value
 
 def _walrus_target_name(node: Tree) -> str:
     children = tree_children(node)
