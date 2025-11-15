@@ -1059,8 +1059,10 @@ user["name"]     # bracket also ok
 user[1+2]       # computed
 ```
 ## 14) Decorators (no HOF boilerplate) & lambdas
-- Decorators & hooks are **core** in v0.1.
-- **Decorators**: inside `decorator` bodies, `f` and `args` are implicit; if the body does not `return`, implicitly `return f(args)`.
+- Decorators & hooks are **core** in v0.1. Decorators use a dedicated `decorator` form so that wrappers do not require manual higher-order plumbing.
+- **Decorator definitions**: `decorator name(params?): body`. Inside the body the **next callable** is exposed as `f` and the current **positional arguments** are available as a mutable `args` array. Mutate `args`, reassign it entirely, or short-circuit by `return`ing a value. When the body finishes without a `return`, the runtime implicitly executes `return f(args)` so you always get the original call unless you opt out.
+- **Decorator application**: prefix `fn` definitions with `@decorator` lines. Expressions are evaluated **top to bottom**, but the decorator closest to the `fn` wraps the function **first** (`@outer` runs after `@inner`). Parameterized decorators behave the same way (`@memoize(256)`), and bare `@decorator` is shorthand for calling a parameterless decorator. Decorator expressions evaluate to either a `decorator` value or a configured decorator instance; anything else is rejected.
+- **`args` semantics**: `args` is an ordinary `Array` of Shakar values. Use `args[0]` / `args[1]` to inspect or tweak inputs, or rebind `args := [new, args[1], …]` to completely replace them. The object lives in the decorator’s own function environment, so you may define helper locals or call other functions before deciding whether to call `f(args)`.
 - **Lambdas**: `map&(.trim())` (single arg implicit `.`), `zipWith&[a,b](a+b)` (multi-arg). `&` is a **lambda-on-callee** sigil.
 
 ---

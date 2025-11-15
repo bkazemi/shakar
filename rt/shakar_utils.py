@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any, List, Optional
 
 from shakar_runtime import (
+    DecoratorConfigured,
+    DecoratorContinuation,
     ShkNull,
     ShkNumber,
     ShkString,
@@ -10,6 +12,7 @@ from shakar_runtime import (
     ShkArray,
     ShkObject,
     ShkFn,
+    ShkDecorator,
     Descriptor,
     ShakarRuntimeError,
     ShakarTypeError,
@@ -44,6 +47,12 @@ def shk_equals(lhs: Any, rhs: Any) -> bool:
                 return False
             return all(shk_equals(slots[k], rhs_slots[k]) for k in slots)
         case ShkFn():
+            return lhs is rhs
+        case ShkDecorator():
+            return lhs is rhs
+        case DecoratorConfigured():
+            return lhs is rhs
+        case DecoratorContinuation():
             return lhs is rhs
         case Descriptor():
             return lhs is rhs

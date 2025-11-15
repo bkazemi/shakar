@@ -371,6 +371,51 @@ class Prune(Transformer):
         name = None
         params = None
         body = None
+        decorators = None
+        for node in c:
+            if is_tree(node) and tree_label(node) == 'decorator_list':
+                decorators = node
+                continue
+            if is_token(node) and getattr(node, "type", "") == "IDENT" and name is None:
+                name = node
+            elif is_tree(node) and tree_label(node) == 'paramlist':
+                params = node
+            elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+                body = node
+        children: list[Any] = []
+        if name is not None:
+            children.append(name)
+        if params is not None:
+            children.append(params)
+        if body is not None:
+            children.append(body)
+        if decorators is not None:
+            children.append(decorators)
+        return Tree('fndef', children)
+
+    def decorator_list(self, c):
+        # preserve every decorator expression in order; runtime evaluates them later.
+        entries = [node for node in c if node is not Discard]
+        return Tree('decorator_list', entries)
+
+    def decorator_entry(self, c):
+        expr = next(
+            (
+                node
+                for node in c
+                if not (is_token(node) and getattr(node, "type", "") in {"AT", "_NL"})
+            ),
+            None,
+        )
+        if expr is None:
+            return Discard
+        # store the raw expression cargo; this keeps @decorator and @decorator(...) uniform.
+        return Tree('decorator_spec', [expr])
+
+    def decoratorstmt(self, c):
+        name = None
+        params = None
+        body = None
         for node in c:
             if is_token(node) and getattr(node, "type", "") == "IDENT" and name is None:
                 name = node
@@ -385,7 +430,7 @@ class Prune(Transformer):
             children.append(params)
         if body is not None:
             children.append(body)
-        return Tree('fndef', children)
+        return Tree('decorator_def', children)
 
     def _build_anonfn_node(self, parts, allow_params: bool=True) -> Tree:
         params = None
@@ -719,6 +764,8 @@ KEYWORDS = {
     "set": "SET",
     "break": "BREAK",
     "continue": "CONTINUE",
+    "decorator": "DECORATOR",
+    "decorate": "DECORATE",
 }
 
 def _remap_ident(t: Token) -> Token:

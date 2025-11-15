@@ -9,17 +9,21 @@ from contextlib import contextmanager
 from shakar_runtime import (
     BoundMethod,
     BuiltinMethod,
+    DecoratorConfigured,
+    DecoratorContinuation,
     DeferEntry,
     Descriptor,
     Env,
     ShkArray,
     ShkBool,
+    ShkDecorator,
     ShkFn,
     ShkNull,
     ShkNumber,
     ShkObject,
     ShkSelector,
     ShkString,
+    SelectorIndex,
     ShakarArityError,
     ShakarAssertionError,
     ShakarIndexError,
@@ -219,6 +223,8 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_compound_assign(n.children, env)
         case 'fndef':
             return _eval_fn_def(n.children, env)
+        case 'decorator_def':
+            return _eval_decorator_def(n.children, env)
         case 'deferstmt':
             return _eval_defer_stmt(n.children, env)
         case 'assert':
@@ -613,6 +619,31 @@ def _eval_fn_def(children: List[Any], env: Env) -> Any:
     name = _expect_ident_token(children[0], "Function name")
     params_node = None
     body_node = None
+    decorators_node = None
+    for node in children[1:]:
+        if params_node is None and is_tree_node(node) and tree_label(node) == 'paramlist':
+            params_node = node
+        elif body_node is None and is_tree_node(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+            body_node = node
+        elif decorators_node is None and is_tree_node(node) and tree_label(node) == 'decorator_list':
+            decorators_node = node
+    if body_node is None:
+        body_node = Tree('inlinebody', [])
+    params = _extract_param_names(params_node, context="function definition")
+    fn_value = ShkFn(params=params, body=body_node, env=Env(parent=env, dot=None))
+    if decorators_node is not None:
+        instances = _evaluate_decorator_list(decorators_node, env)
+        if instances:
+            fn_value.decorators = tuple(reversed(instances))
+    _assign_ident(name, fn_value, env, create=True)
+    return ShkNull()
+
+def _eval_decorator_def(children: List[Any], env: Env) -> Any:
+    if not children:
+        raise ShakarRuntimeError("Malformed decorator definition")
+    name = _expect_ident_token(children[0], "Decorator name")
+    params_node = None
+    body_node = None
     for node in children[1:]:
         if params_node is None and is_tree_node(node) and tree_label(node) == 'paramlist':
             params_node = node
@@ -620,10 +651,33 @@ def _eval_fn_def(children: List[Any], env: Env) -> Any:
             body_node = node
     if body_node is None:
         body_node = Tree('inlinebody', [])
-    params = _extract_param_names(params_node, context="function definition")
-    fn_value = ShkFn(params=params, body=body_node, env=Env(parent=env, dot=None))
-    _assign_ident(name, fn_value, env, create=True)
+    params = _extract_param_names(params_node, context="decorator definition")
+    decorator = ShkDecorator(params=params, body=body_node, env=Env(parent=env, dot=None))
+    _assign_ident(name, decorator, env, create=True)
     return ShkNull()
+
+def _evaluate_decorator_list(node: Tree, env: Env) -> List[DecoratorConfigured]:
+    configured: List[DecoratorConfigured] = []
+    for entry in tree_children(node):
+        kids = tree_children(entry)
+        expr_node = kids[0] if kids else None
+        if expr_node is None:
+            continue
+        value = eval_node(expr_node, env)
+        configured.append(_coerce_decorator_instance(value))
+    return configured
+
+def _coerce_decorator_instance(value: Any) -> DecoratorConfigured:
+    match value:
+        case DecoratorConfigured():
+            return DecoratorConfigured(decorator=value.decorator, args=list(value.args))
+        case ShkDecorator(params=params):
+            arity = len(params) if params is not None else 0
+            if arity:
+                raise ShakarRuntimeError("Decorator requires arguments; call it with parentheses")
+            return DecoratorConfigured(decorator=value, args=[])
+        case _:
+            raise ShakarTypeError("Decorator expression must evaluate to a decorator")
 
 def _eval_anonymous_fn(children: List[Any], env: Env) -> ShkFn:
     params_node = None
@@ -2044,6 +2098,8 @@ def _apply_index_operation(recv: Any, op: Tree, env: Env) -> Any:
         return index_value(recv, idx_val, env)
     with _temporary_subject(env, recv):
         selectors = evaluate_selectorlist(selectorlist, env, eval_node)
+    if len(selectors) == 1 and isinstance(selectors[0], SelectorIndex):
+        return index_value(recv, selectors[0].value, env)
     return apply_selectors_to_value(recv, selectors)
 
 def _eval_group(n: Tree, env: Env) -> Any:
@@ -2096,6 +2152,15 @@ def _call_value(cal: Any, args: List[Any], env: Env) -> Any:
             if arity is not None and len(args) != arity:
                 raise ShakarArityError(f"Function expects {arity} args; got {len(args)}")
             return fn(env, args)
+        case DecoratorContinuation():
+            if len(args) != 1:
+                raise ShakarArityError("Decorator continuation expects exactly 1 argument (the args array)")
+            return cal.invoke(args[0])
+        case ShkDecorator():
+            params = cal.params or []
+            if len(args) != len(params):
+                raise ShakarArityError(f"Decorator expects {len(params)} args; got {len(args)}")
+            return DecoratorConfigured(decorator=cal, args=list(args))
         case ShkFn():
             return call_shkfn(cal, args, subject=None, caller_env=env)
         case _:

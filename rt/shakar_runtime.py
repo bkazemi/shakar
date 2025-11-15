@@ -79,10 +79,22 @@ class ShkSelector:
         return "selector{" + ", ".join(descr) + "}"
 
 @dataclass
+class ShkDecorator:
+    params: Optional[List[str]]
+    body: Any
+    env: 'Env'
+
+@dataclass
+class DecoratorConfigured:
+    decorator: ShkDecorator
+    args: List[Any]
+
+@dataclass
 class ShkFn:
     params: Optional[List[str]]  # None for subject-only amp-lambda
     body: Any                    # AST node
     env: 'Env'                   # Closure env
+    decorators: Optional[Tuple[DecoratorConfigured, ...]] = None
 
 @dataclass
 class BoundMethod:
@@ -98,6 +110,18 @@ class BuiltinMethod:
 class Descriptor:
     getter: Any = None  # ShkFn or None
     setter: Any = None  # ShkFn or None
+
+@dataclass
+class DecoratorContinuation:
+    fn: ShkFn
+    decorators: Tuple[DecoratorConfigured, ...]
+    index: int
+    subject: Any
+    caller_env: 'Env'
+
+    def invoke(self, args_value: Any) -> Any:
+        args = _coerce_decorator_args(args_value)
+        return _run_decorator_chain(self.fn, self.decorators, self.index, args, self.subject, self.caller_env)
 
 @dataclass
 class DeferEntry:
@@ -326,13 +350,18 @@ def call_builtin_method(recv: Any, name: str, args: List[Any], env: 'Env') -> An
     raise ShakarMethodNotFound(recv, name)
 
 def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env') -> Any:
-    _ = caller_env
     """
     Subjectful call semantics:
     - subject is available to callee as env.dot
     - If fn.params is None, treat as unary subject-lambda: ignore positional, evaluate body with dot bound.
     - Else: arity must match len(fn.params); bind params; dot=subject.
     """
+    if fn.decorators:
+        return _call_shkfn_with_decorators(fn, positional, subject, caller_env)
+    return _call_shkfn_raw(fn, positional, subject, caller_env)
+
+def _call_shkfn_raw(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env') -> Any:
+    _ = caller_env
     from shakar_eval import eval_node  # local import to avoid cycle
     if fn.params is None:
         if subject is None:
@@ -357,3 +386,55 @@ def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env'
         return eval_node(fn.body, callee_env)
     except ShakarReturnSignal as signal:
         return signal.value
+
+def _call_shkfn_with_decorators(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env') -> Any:
+    chain = fn.decorators or ()
+    args = ShkArray(list(positional))
+    return _run_decorator_chain(fn, chain, 0, args, subject, caller_env)
+
+def _run_decorator_chain(
+    fn: ShkFn,
+    chain: Tuple[DecoratorConfigured, ...],
+    index: int,
+    args_value: ShkArray,
+    subject: Any,
+    caller_env: 'Env',
+) -> Any:
+    if index >= len(chain):
+        return _call_shkfn_raw(fn, list(args_value.items), subject, caller_env)
+    continuation = DecoratorContinuation(
+        fn=fn,
+        decorators=chain,
+        index=index + 1,
+        subject=subject,
+        caller_env=caller_env,
+    )
+    inst = chain[index]
+    return _execute_decorator_instance(inst, continuation, args_value, subject, caller_env)
+
+def _execute_decorator_instance(
+    inst: DecoratorConfigured,
+    continuation: DecoratorContinuation,
+    args_value: ShkArray,
+    subject: Any,
+    caller_env: 'Env',
+) -> Any:
+    from shakar_eval import eval_node  # defer to avoid cycle
+    deco_env = Env(parent=inst.decorator.env, dot=subject)
+    deco_env.mark_function_env()
+    params = inst.decorator.params or []
+    for name, val in zip(params, inst.args):
+        deco_env.define(name, val)
+    deco_env.define('f', continuation)
+    deco_env.define('args', args_value)
+    try:
+        eval_node(inst.decorator.body, deco_env)
+    except ShakarReturnSignal as signal:
+        return signal.value
+    updated_args_value = deco_env.get('args')
+    return continuation.invoke(updated_args_value)
+
+def _coerce_decorator_args(value: Any) -> ShkArray:
+    if isinstance(value, ShkArray):
+        return value
+    raise ShakarTypeError("Decorator args must be an array value")
