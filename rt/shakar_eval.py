@@ -231,6 +231,10 @@ def eval_node(n: Any, env: Env) -> Any:
             return _eval_continue_stmt(env)
         case 'assignstmt':
             return _eval_assign_stmt(n.children, env)
+        case 'postfixif':
+            return _eval_postfix_if(n.children, env)
+        case 'postfixunless':
+            return _eval_postfix_unless(n.children, env)
         case 'compound_assign':
             return _eval_compound_assign(n.children, env)
         case 'fndef':
@@ -429,6 +433,27 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     value = eval_node(value_node, env)
     _assign_lvalue(lvalue_node, value, env, create=False)
     return ShkNull()
+
+def _eval_postfix_if(children: List[Any], env: Env) -> Any:
+    stmt_node, cond_node = _split_postfix_children(children, {'IF'})
+    return _eval_postfix_guard(stmt_node, cond_node, env, run_on_truthy=True)
+
+def _eval_postfix_unless(children: List[Any], env: Env) -> Any:
+    stmt_node, cond_node = _split_postfix_children(children, {'UNLESS'})
+    return _eval_postfix_guard(stmt_node, cond_node, env, run_on_truthy=False)
+
+def _eval_postfix_guard(stmt_node: Any, cond_node: Any, env: Env, run_on_truthy: bool) -> Any:
+    walrus_node = _find_tree_by_label(stmt_node, {'walrus', 'walrus_nc'})
+    if walrus_node is not None:
+        target_name = _walrus_target_name(walrus_node)
+        _assign_ident(target_name, ShkNull(), env, create=True)
+    cond_val = eval_node(cond_node, env)
+    should_run = _is_truthy(cond_val)
+    if not run_on_truthy:
+        should_run = not should_run
+    if not should_run:
+        return ShkNull()
+    return eval_node(stmt_node, env)
 
 def _eval_return_stmt(children: List[Any], env: Env) -> Any:
     """implements `return` with optional expression, unwinding via control signal."""
@@ -2163,6 +2188,18 @@ def _eval_optional_expr(node: Any, env: Env) -> Any:
         return None
     return eval_node(node, env)
 
+def _find_tree_by_label(node: Any, labels: set[str]) -> Any | None:
+    if not is_tree_node(node):
+        return None
+    label = tree_label(node)
+    if label in labels:
+        return node
+    for child in tree_children(node):
+        found = _find_tree_by_label(child, labels)
+        if found is not None:
+            return found
+    return None
+
 def _call_value(cal: Any, args: List[Any], env: Env) -> Any:
     match cal:
         case BoundMethod(fn=fn, subject=subject):
@@ -2437,3 +2474,24 @@ _TOKEN_DISPATCH: dict[str, Callable[[Token, Env], Any]] = {
     'TRUE': lambda _, __: ShkBool(True),
     'FALSE': lambda _, __: ShkBool(False),
 }
+
+def _walrus_target_name(node: Tree) -> str:
+    children = tree_children(node)
+    if not children:
+        raise ShakarRuntimeError("Malformed walrus expression")
+    target = children[0]
+    if is_token_node(target):
+        return target.value
+    if isinstance(target, str):
+        return target
+    raise ShakarRuntimeError("Unsupported walrus target")
+
+def _split_postfix_children(children: List[Any], keyword_tokens: set[str]) -> tuple[Any, Any]:
+    semantic: List[Any] = []
+    for ch in children:
+        if _token_kind(ch) in keyword_tokens:
+            continue
+        semantic.append(ch)
+    if len(semantic) != 2:
+        raise ShakarRuntimeError("Malformed postfix statement")
+    return semantic[0], semantic[1]

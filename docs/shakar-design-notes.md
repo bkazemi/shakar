@@ -527,7 +527,7 @@ Updates use `=` on existing lvalues: `user.name = "New"`.
 ## 6) Defaults, guards, safe access (committed)
 - **`or=`** and **statement-subject** `=x or y` (statement head) desugar to `if not …: … = …`.
 - **`?ret expr`** early-returns if expr is truthy.
-- **Postfix conditionals**: `stmt if cond`, `stmt unless cond`.
+- **Postfix conditionals**: `stmt if cond` (run when truthy) and `stmt unless cond` (run when falsey). When the statement is a walrus (`name := expr if cond`), the runtime assigns `name := nil` before evaluating the guard, so a failing condition leaves the binding at `nil` without running `expr`.
 - **Nil-safe chain**: `??(expr)` turns a deep deref/call chain into a nil-propagating expression.
 
 ### Using

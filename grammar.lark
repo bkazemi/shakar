@@ -184,37 +184,41 @@ fieldfan: "." "{" fieldlist "}"
 breakstmt: BREAK
 continuestmt: CONTINUE
 
-?basesimplestmt: returnstmt
-                  | throwstmt
-                  | assignor
-                  | compound_assign
-                  | fnstmt
-                  | decoratorstmt
-                  | assignstmt
-                  | destructure
-                  | destructure_walrus
-                  | onelineguard
-                  | returnif
-                  | breakstmt
-                  | continuestmt
-                  | dbg
-                  | assert
-                  | usingstmt
-                  | deferstmt
-                  | hook
-                  | catchstmt
-                  | awaitstmt
-                  | awaitanycall
-                  | awaitallcall
-                  | ifstmt
-                  | expr
+?basesimplestmt: base_stmt
+                  | postfixif
+                  | postfixunless
+
+?base_stmt: returnstmt
+          | throwstmt
+          | assignor
+          | compound_assign
+          | fnstmt
+          | decoratorstmt
+          | assignstmt
+          | destructure
+          | destructure_walrus
+          | onelineguard
+          | returnif
+          | breakstmt
+          | continuestmt
+          | dbg
+          | assert
+          | usingstmt
+          | deferstmt
+          | hook
+          | catchstmt
+          | awaitstmt
+          | awaitanycall
+          | awaitallcall
+          | ifstmt
+          | expr
 
 ?simplestmt: basesimplestmt
                   | postfixif
                   | postfixunless
 
-postfixif: basesimplestmt IF expr
-postfixunless: basesimplestmt "unless" expr
+postfixif: base_stmt IF expr
+postfixunless: base_stmt "unless" expr
 
 indentblock: _NL INDENT (stmtlist? _NL+)* stmtlist? _NL* DEDENT
 inlinestmt: simplestmt
