@@ -200,7 +200,16 @@ user.{phone, altPhone} .= .digits() ?? ""
 - When you must keep the old value on failure, use the explicit LHS name in the fallback, e.g. `a .= ??(.transform()) ?? a`.
 - If you only want a default when the slot is nil (no transform), prefer plain assignment with `??`: `a = a ?? default`.
 
-- **LValue shape**: assignment targets are identifiers with member (`.field`) and/or selector (`[index]`) chains; **calls are not allowed on the left-hand side**.
+- **LValue shape**: assignment targets are identifiers with member (`.field`) and/or selector (`[index]`) chains; **calls are not allowed on the left-hand side**. Grouped statement-subject `=(LHS)` picks that exact `LHS` as the destination; it still has to appear at the beginning of the statement and the grouped expression must be a legitimate lvalue.
+
+**Statement-subject rules**
+
+- `=name<tail>` desugars to `name = name<tail>`. `name` must already exist, and `<tail>` must perform work; `=name.field` (no call/fan-out/selector/`.=`) is rejected because it has no effect.
+- Ungrouped heads therefore require a “real” tail (call, fan-out, selector, `.=` …). If all you need is to point at a deeper slot and keep writing back to the outer identifier, wrap the identifier: `=(name).field`.
+- Grouped heads `=(lvalue)<tail>` pick that exact `lvalue` as the destination. The grouped `lvalue` must itself be assignable (identifier with selectors or fan-out, no calls). This is the only way to mutate a nested slot inline, e.g. `=(user.profile.email).trim()`.
+- The statement-subject must start the statement; you cannot drop `=…` in the middle of expressions.
+- Fan-outs behave the same regardless of grouping—`=(user.{name, email})` is redundant because grouping only changes which head counts as the destination.
+- Grouping with only the identifier (e.g. `=(user)` before `<tail>`) is purely for keeping that identifier as the thing being rewritten while `<tail>` walks somewhere else. Use it sparingly.
 
 ---
 
@@ -316,7 +325,7 @@ get(?, id)                ⇒   (x) => get(x, id)
 ## 4) Implicit subject `.` - anchor stack
 
 ### 4.1 Where `.` comes from (binders)
-- **Statement-subject assign** `=LHS tail` (at **statement start**): within the statement, `.` = **old value of `LHS`**; after evaluation, assign **`LHS = result`**.
+- **Statement-subject assign** `=LHS<tail>` (at **statement start**): within the statement, `.` = **old value of `LHS`**; after evaluation, assign **`LHS = result`**.
 
 `.` exists only inside constructs that **bind** it:
 
@@ -370,7 +379,7 @@ a and (b and .x()) and .y()   # `.x()` anchored to `b`; `.y()` anchored to `a`
    Example: `(xs[0] .= .trim()) and .hasPrefix("a")`.
 
 ### 4.5 Illegals & invariants
-- **Invalid statement-subject**: `=LHS` with no tail (no effect) — use `.=` or provide a tail. `=.trim()` is illegal (free `.`).
+- **Invalid statement-subject**: `=LHS` with no `<tail>` (no effect) — use `.=` or provide `<tail>`. `=.trim()` is illegal (free `.`).
 - `.` is **never an lvalue**: `. = …` is illegal.
 - **No free dot**: using `.` outside an active binder/anchor is illegal.
 
@@ -411,6 +420,14 @@ user = { name: "  Bob  " }
 =user.name.trim()
 assert user.name == "Bob"
 
+user = { profile: { contact: { name: "  Ada " } }, flags: [] }
+=(user).profile.contact.name.trim()  # rewrites the whole object, not just the nested name
+assert user == "Ada"
+
+=(user.profile.contact.name).trim()  # same as user.profile.contact.name = user.profile.contact.name.trim()
+
+```
+
 xs = [" A ", "b"]
 =xs[0].trim()
 assert xs[0] == "A"
@@ -418,6 +435,7 @@ assert xs[0] == "A"
 # Errors
 # ERROR: =user.name     # missing tail
 # ERROR: =.trim()       # free '.' cannot be the subject
+# ERROR: =(user + other).trim()   # grouped head must be a pure lvalue
 ```
 
 ```shakar

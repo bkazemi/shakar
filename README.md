@@ -10,7 +10,7 @@ The **source of truth** for the language is the [design notes](./shakar-design-n
 
 ### Subjectful statements and apply-assign
 
-Shakar has a first-class notion of a “statement subject”. A line that starts with `=LHS tail` evaluates `tail` with `.` bound to the current value of `LHS`, then writes the final result back to `LHS`:
+Shakar has a first-class notion of a “statement subject”. A line that starts with `=LHS<tail>` evaluates `<tail>` with `.` bound to the current value of `LHS`, then writes the final result back to `LHS`:
 
 ```shakar
 # boring, fully spelled
@@ -18,6 +18,13 @@ user.name = user.name.trim().title() ?? "guest"
 
 # statement-subject sugar
 =user.name.trim().title() ?? "guest"
+
+line := "name=  Ada "
+=line.split("=").last().trim().title()  # still assigns back to `line`
+
+=(user).profile.contact.name.trim()  # only when you absolutely mean to rewrite `user`
+
+Statement-subjects always begin the statement. The plain form (`=name<tail>`) already lets you walk fields or selectors—`=user.profile.email.trim()` writes back to `user.profile.email`. Grouping only exists so you can keep a different identifier as the destination while visiting another branch; `=(user)` says “no matter how deep this tail goes, the write still lands on `user`.” Use that escape hatch sparingly.
 ```
 
 Apply-assign `.=` does the same thing at expression level: inside the right-hand side, `.` is the old value of the left-hand side and the result is written back in place, while also yielding the updated value:
@@ -37,11 +44,11 @@ Both forms are built on the same implicit-subject rules, which makes “update t
 
 ### Implicit subject and anchor stack
 
-The implicit subject `.` only exists inside constructs that explicitly bind it (statement-subject `=LHS tail`, `.=` apply-assign, subjectful `for` loops, selectors, `await`, path-lambdas, and a few others). It never leaks across statements.
+The implicit subject `.` only exists inside constructs that explicitly bind it (statement-subject `=LHS<tail>`, `.=` apply-assign, subjectful `for` loops, selectors, `await`, path-lambdas, and a few others). It never leaks across statements.
 
 ```shakar
-=user.profile .ensureLoaded()
-.user.name .= .trim()
+=user.profile.settings.ensureDefaults()
+user.name .= .trim()
 
 for orders:
   .status == "open" and .total > 100:

@@ -189,8 +189,20 @@ def eval_node(n: Any, env: Env) -> Any:
                 old_val, _ = _apply_numeric_delta(context, delta)
                 return old_val
             val = eval_node(head, env)
+            head_label = tree_label(head) if is_tree_node(head) else None
+            head_is_rebind = head_label in {'rebind_primary', 'rebind_primary_grouped'}
+            head_is_grouped_rebind = head_label == 'rebind_primary_grouped'
+            tail_has_effect = False
             for op in ops:
+                label = tree_label(op)
+                if label not in {'field', 'fieldsel', 'index'}:
+                    tail_has_effect = True
                 val = _apply_op(val, op, env)
+            if head_is_rebind:
+                if not ops:
+                    raise ShakarRuntimeError("Prefix rebind requires a tail expression")
+                if not head_is_grouped_rebind and not tail_has_effect:
+                    raise ShakarRuntimeError("Prefix rebind requires a tail expression")
             if isinstance(val, _RebindContext):
                 final = val.value
                 val.setter(final)
@@ -2123,19 +2135,28 @@ def _eval_ternary(n: Tree, env: Env) -> Any:
 
 def _eval_rebind_primary(n: Tree, env: Env) -> Any:
     if not n.children:
-        raise ShakarRuntimeError("Missing identifier for rebind")
+        raise ShakarRuntimeError("Missing target for prefix rebind")
     target = n.children[0]
-    if not is_token_node(target) or _token_kind(target) != 'IDENT':
-        raise ShakarRuntimeError("Rebind target must be identifier")
-    name = target.value
-    value = env.get(name)
+    ctx = _resolve_rebind_lvalue(target, env)
+    env.dot = ctx.value
+    return ctx
 
-    def setter(new_value: Any) -> None:
-        _assign_ident(name, new_value, env, create=False)
-        env.dot = new_value
-
-    env.dot = value
-    return _RebindContext(value, setter)
+def _resolve_rebind_lvalue(node: Any, env: Env) -> _RebindContext:
+    if is_token_node(node):
+        if _token_kind(node) == 'IDENT':
+            return _make_ident_context(node.value, env)
+        raise ShakarRuntimeError("Malformed rebind target")
+    if not is_tree_node(node):
+        raise ShakarRuntimeError("Malformed rebind target")
+    label = tree_label(node)
+    if label not in {'rebind_lvalue', 'rebind_lvalue_grouped'}:
+        raise ShakarRuntimeError("Malformed rebind target")
+    children = tree_children(node)
+    if not children:
+        raise ShakarRuntimeError("Empty rebind target")
+    head = children[0]
+    ops = list(children[1:])
+    return _resolve_chain_assignment(head, ops, env)
 
 def _eval_optional_expr(node: Any, env: Env) -> Any:
     if node is None:
@@ -2384,6 +2405,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
     'no_anchor': _eval_group,
     'ternary': _eval_ternary,
     'rebind_primary': _eval_rebind_primary,
+    'rebind_primary_grouped': _eval_rebind_primary,
     'amp_lambda': _eval_amp_lambda,
     'anonfn': lambda n, env: _eval_anonymous_fn(n.children, env),
     'await_value': _eval_await_value,

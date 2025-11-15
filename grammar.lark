@@ -146,16 +146,16 @@ indexsel: expr
 slicesel: slicearm ":" slicearm ( ":" slicearm )?
 slicearm: expr -> slicearm_expr | -> slicearm_empty
 optstop: "<" expr | expr?
-primary: rebind_primary | IDENT
-                  | rebind_primary
-                  | literal
-                  | object
-                  | array
-                  | listcomp | setliteral | setcomp | dictcomp
-                  | "(" expr ")"            -> group_expr
-                  | selectorliteral
-                  | nullsafe
-                  | ampval1 | ampvaln
+primary: rebind_primary
+       | IDENT
+       | literal
+       | object
+       | array
+       | listcomp | setliteral | setcomp | dictcomp
+       | "(" expr ")"            -> group_expr
+       | selectorliteral
+       | nullsafe
+       | ampval1 | ampvaln
 
 literal: STRING | NUMBER | "nil" | "true" | "false"
 selectorliteral: "`" sellist "`"
@@ -171,9 +171,9 @@ interp: "{" expr "}"
 nullsafe: "??" "(" expr ")"
 comment: COMMENT
 rebind_primary: "=" IDENT -> rebind_primary
+              | "=" "(" rebind_lvalue ")" -> rebind_primary_grouped
 
-
-stmtsubjectassign: rebind_primary
+rebind_lvalue: IDENT (postfix_field | postfix_index)* (fieldfan)?
 deepmergeassign: lvalue "+>=" expr
 assignor: lvalue "or=" expr
 
@@ -190,7 +190,6 @@ continuestmt: CONTINUE
                   | compound_assign
                   | fnstmt
                   | decoratorstmt
-                  | stmtsubjectassign
                   | assignstmt
                   | destructure
                   | destructure_walrus
@@ -207,7 +206,6 @@ continuestmt: CONTINUE
                   | awaitstmt
                   | awaitanycall
                   | awaitallcall
-                  | rebindstmt
                   | ifstmt
                   | expr
 
@@ -293,8 +291,6 @@ throwstmt: THROW expr?
 destrhs: expr ("," expr)+ -> pack
 destructure: pattern_list "=" (destrhs | expr)
 destructure_walrus: pattern_list ":=" (destrhs | expr)
-
-rebindstmt: "=" expr_nc
 
 !awaitstmt: AWAIT ( "(" expr ")" | expr ) ":" (inlinebody | indentblock)
 await_value: AWAIT ( "(" expr ")" | expr ) -> await_value

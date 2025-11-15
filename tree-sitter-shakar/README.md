@@ -20,6 +20,8 @@ npx tree-sitter test
 
 Generated artifacts (`src/parser.c`, `src/grammar.json`, `src/node-types.json`, etc.) are created by the commands above. Regenerate them whenever the grammar changes and keep the files under version control so downstream editors can consume the parser without a local build step.
 
+Only the generated artifacts in `src/` belong in git. The build caches (`build/`), npm output (`node_modules/`), and language bindings should stay untracked so the diffs stay reviewable; the large `src/parser.c` blob is expected whenever the grammar changes.
+
 ## Alignment with the reference grammar
 
 This grammar trails the reference Lark parser intentionally. The top-level `README.md` (root of the repo) describes the latest runtime features (decorators, comma-chain comparisons, subjectful statements, etc.); when those features land in the runtime you should mirror them here if syntax support is required for highlighting or Tree-sitter-based tooling.
