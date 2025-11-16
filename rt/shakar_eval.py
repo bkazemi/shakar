@@ -84,6 +84,21 @@ from eval.postfix import (
     eval_postfix_unless as _postfix_eval_unless,
 )
 
+from eval.common import (
+    token_kind as _token_kind,
+    expect_ident_token as _expect_ident_token,
+    ident_token_value as _ident_token_value,
+    is_literal_node as _is_literal_node,
+    get_source_segment as _get_source_segment,
+    render_expr as _render_expr,
+    node_source_span as _node_source_span,
+    require_number as _require_number,
+    token_number as _token_number,
+    token_string as _token_string,
+    stringify as _stringify,
+    collect_free_identifiers as _collect_free_identifiers,
+)
+
 class _RebindContext:
     """Tracks an assignable slot (identifier or field) so tail ops can write back."""
     __slots__ = ("value", "setter")
@@ -120,35 +135,6 @@ def eval_expr(ast: Any, env: Optional[Env]=None, source: Optional[str]=None) -> 
     return eval_node(ast, env)
 
 # ---------------- Core evaluator ----------------
-
-def _token_kind(node: Any) -> Optional[str]:
-    return node.type if is_token_node(node) else None
-
-def _expect_ident_token(node: Any, context: str) -> str:
-    if is_token_node(node) and _token_kind(node) == 'IDENT':
-        return node.value
-    raise ShakarRuntimeError(f"{context} must be an identifier")
-
-def _ident_token_value(node: Any) -> Optional[str]:
-    if is_token_node(node) and _token_kind(node) == 'IDENT':
-        return node.value
-    return None
-
-def _is_literal_node(node: Any) -> bool:
-    return not isinstance(node, (Tree, Token))
-
-def _get_source_segment(node: Any, env: Env) -> Optional[str]:
-    source = getattr(env, 'source', None)
-    if source is None:
-        return None
-    meta = node_meta(node)
-    if meta is None:
-        return None
-    start = getattr(meta, "start_pos", None)
-    end = getattr(meta, "end_pos", None)
-    if start is None or end is None:
-        return None
-    return source[start:end]
 
 def eval_node(n: Any, env: Env) -> Any:
     if _is_literal_node(n):
@@ -1687,36 +1673,6 @@ def _apply_binary_operator(op: str, lhs: Any, rhs: Any) -> Any:
             _require_number(lhs); _require_number(rhs)
             return ShkNumber(lhs.value ** rhs.value)
     raise ShakarRuntimeError(f"Unknown operator {op}")
-
-def _render_expr(node: Any) -> str:
-    if is_token_node(node):
-        return node.value
-    if not is_tree_node(node):
-        return str(node)
-    parts: List[str] = []
-    for child in tree_children(node):
-        rendered = _render_expr(child)
-        if rendered:
-            parts.append(rendered)
-    return " ".join(parts)
-
-def _node_source_span(node: Any) -> tuple[int | None, int | None]:
-    meta = node_meta(node)
-    start = getattr(meta, 'start_pos', None)
-    end = getattr(meta, 'end_pos', None)
-    if start is not None and end is not None:
-        return start, end
-    if is_tree_node(node):
-        child_spans = [_node_source_span(child) for child in tree_children(node)]
-        child_starts = [s for s, _ in child_spans if s is not None]
-        child_ends = [e for _, e in child_spans if e is not None]
-        if child_starts and child_ends:
-            return min(child_starts), max(child_ends)
-    return None, None
-
-def _require_number(v: Any) -> None:
-    if not isinstance(v, ShkNumber):
-        raise ShakarTypeError("Expected number")
 
 def _make_ident_context(name: str, env: Env) -> _RebindContext:
     """Produce a `_RebindContext` for identifier assignments so tail ops can persist."""
