@@ -13,26 +13,21 @@ from shakar_tree import (
     tree_label,
 )
 
-
 def token_kind(node: Any) -> Optional[str]:
     return node.type if is_token_node(node) else None
-
 
 def expect_ident_token(node: Any, context: str) -> str:
     if is_token_node(node) and token_kind(node) == 'IDENT':
         return node.value
     raise ShakarRuntimeError(f"{context} must be an identifier")
 
-
 def ident_token_value(node: Any) -> Optional[str]:
     if is_token_node(node) and token_kind(node) == 'IDENT':
         return node.value
     return None
 
-
 def is_literal_node(node: Any) -> bool:
     return not isinstance(node, (Tree, Token))
-
 
 def get_source_segment(node: Any, env: Any) -> Optional[str]:
     source = getattr(env, 'source', None)
@@ -47,7 +42,6 @@ def get_source_segment(node: Any, env: Any) -> Optional[str]:
         return None
     return source[start:end]
 
-
 def render_expr(node: Any) -> str:
     if is_token_node(node):
         return node.value
@@ -59,7 +53,6 @@ def render_expr(node: Any) -> str:
         if rendered:
             parts.append(rendered)
     return " ".join(parts)
-
 
 def node_source_span(node: Any) -> tuple[int | None, int | None]:
     meta = node_meta(node)
@@ -75,22 +68,18 @@ def node_source_span(node: Any) -> tuple[int | None, int | None]:
             return min(child_starts), max(child_ends)
     return None, None
 
-
 def require_number(value: Any) -> None:
     if not isinstance(value, ShkNumber):
         raise ShakarTypeError("Expected number")
 
-
 def token_number(token: Token, _: Any) -> ShkNumber:
     return ShkNumber(float(token.value))
-
 
 def token_string(token: Token, _: Any) -> ShkString:
     v = token.value
     if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")):
         v = v[1:-1]
     return ShkString(v)
-
 
 def stringify(value: Any) -> str:
     if isinstance(value, ShkString):
@@ -102,7 +91,6 @@ def stringify(value: Any) -> str:
     if value is None:
         return "nil"
     return str(value)
-
 
 def collect_free_identifiers(node: Any, callback: Callable[[str], None]) -> None:
     skip_nodes = {'field', 'fieldsel', 'fieldfan', 'fieldlist', 'key_ident', 'key_string'}
