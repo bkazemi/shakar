@@ -43,6 +43,7 @@ from shakar_runtime import (
 from shakar_utils import fanout_values, normalize_object_key, shk_equals, value_in_list
 from shakar_tree import (
     child_by_label,
+    find_tree_by_label,
     is_token_node,
     is_tree_node,
     node_meta,
@@ -444,7 +445,7 @@ def _eval_postfix_unless(children: List[Any], env: Env) -> Any:
 
 def _eval_postfix_guard(stmt_node: Any, cond_node: Any, env: Env, run_on_truthy: bool) -> Any:
     walrus_name = None
-    walrus_node = _find_tree_by_label(stmt_node, {'walrus', 'walrus_nc'})
+    walrus_node = find_tree_by_label(stmt_node, {'walrus', 'walrus_nc'})
     if walrus_node is not None:
         walrus_name = _walrus_target_name(walrus_node)
     cond_val = eval_node(cond_node, env)
@@ -2191,18 +2192,6 @@ def _eval_optional_expr(node: Any, env: Env) -> Any:
     if node is None:
         return None
     return eval_node(node, env)
-
-def _find_tree_by_label(node: Any, labels: set[str]) -> Any | None:
-    if not is_tree_node(node):
-        return None
-    label = tree_label(node)
-    if label in labels:
-        return node
-    for child in tree_children(node):
-        found = _find_tree_by_label(child, labels)
-        if found is not None:
-            return found
-    return None
 
 def _call_value(cal: Any, args: List[Any], env: Env) -> Any:
     match cal:

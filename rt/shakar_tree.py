@@ -47,3 +47,13 @@ def first_child(node: Any, predicate: Callable[[Any], bool]) -> Optional[Any]:
         if predicate(ch):
             return ch
     return None
+
+def find_tree_by_label(node: Any, labels: Iterable[str]) -> Optional[Tree]:
+    lookup = set(labels)
+    if is_tree(node) and tree_label(node) in lookup:
+        return node
+    for child in tree_children(node):
+        found = find_tree_by_label(child, lookup)
+        if found is not None:
+            return found
+    return None
