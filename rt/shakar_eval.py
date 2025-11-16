@@ -99,27 +99,17 @@ from eval.common import (
     collect_free_identifiers as _collect_free_identifiers,
 )
 
-class _RebindContext:
-    """Tracks an assignable slot (identifier or field) so tail ops can write back."""
-    __slots__ = ("value", "setter")
-
-    def __init__(self, value: Any, setter: Callable[[Any], None]) -> None:
-        self.value = value
-        self.setter = setter
-
-class _FanContext:
-    """Represents `.={a,b}` fan assignments; stores every target's context."""
-    __slots__ = ("contexts", "values")
-
-    def __init__(self, contexts: List[_RebindContext]) -> None:
-        self.contexts = contexts
-        self.values = [ctx.value for ctx in contexts]
-
-    def update_from_contexts(self) -> None:
-        self.values = [ctx.value for ctx in self.contexts]
-
-    def snapshot(self) -> List[Any]:
-        return list(self.values)
+from eval.rebind import (
+    FanContext,
+    RebindContext,
+    apply_assign as rebind_apply_assign,
+    apply_fan_op as rebind_apply_fan_op,
+    apply_numeric_delta as rebind_apply_numeric_delta,
+    build_fieldfan_context as rebind_build_fieldfan_context,
+    resolve_assignable_node as rebind_resolve_assignable_node,
+    resolve_chain_assignment as rebind_resolve_chain_assignment,
+    resolve_rebind_lvalue as rebind_resolve_rebind_lvalue,
+)
 
 # ---------------- Public API ----------------
 
@@ -174,11 +164,19 @@ def eval_node(n: Any, env: Env) -> Any:
             if ops and tree_label(ops[-1]) in {'incr', 'decr'}:
                 tail = ops[-1]
                 # ++/-- mutate the final receiver; resolve assignable context first.
-                context = _resolve_chain_assignment(head, ops[:-1], env)
+                context = rebind_resolve_chain_assignment(
+                    head,
+                    ops[:-1],
+                    env,
+                    eval_func=eval_node,
+                    apply_op=_apply_op,
+                    assign_ident=_assign_ident,
+                    evaluate_index_operand=_evaluate_index_operand,
+                )
                 delta = 1 if tree_label(tail) == 'incr' else -1
-                if isinstance(context, _FanContext):
+                if isinstance(context, FanContext):
                     raise ShakarRuntimeError("++/-- not supported on field fan assignments")
-                old_val, _ = _apply_numeric_delta(context, delta)
+                old_val, _ = rebind_apply_numeric_delta(context, delta)
                 return old_val
             val = eval_node(head, env)
             head_label = tree_label(head) if is_tree_node(head) else None
@@ -195,11 +193,11 @@ def eval_node(n: Any, env: Env) -> Any:
                     raise ShakarRuntimeError("Prefix rebind requires a tail expression")
                 if not head_is_grouped_rebind and not tail_has_effect:
                     raise ShakarRuntimeError("Prefix rebind requires a tail expression")
-            if isinstance(val, _RebindContext):
+            if isinstance(val, RebindContext):
                 final = val.value
                 val.setter(final)
                 return final
-            if isinstance(val, _FanContext):
+            if isinstance(val, FanContext):
                 return ShkArray(val.snapshot())
             return val
         case 'implicit_chain':
@@ -775,7 +773,15 @@ def _eval_apply_assign(children: List[Any], env: Env) -> Any:
             rhs_node = child
     if lvalue_node is None or rhs_node is None:
         raise ShakarRuntimeError("Malformed apply-assign expression")
-    return _apply_assign(lvalue_node, rhs_node, env)
+    return rebind_apply_assign(
+        lvalue_node,
+        rhs_node,
+        env,
+        eval_func=eval_node,
+        apply_op=_apply_op,
+        assign_ident=_assign_ident,
+        evaluate_index_operand=_evaluate_index_operand,
+    )
 
 def _eval_for_in(n: Tree, env: Env) -> Any:
     pattern_node = None
@@ -994,56 +1000,6 @@ def _read_lvalue_value(node: Any, env: Env) -> Any:
             idx_val = _evaluate_index_operand(final_op, env)
             return index_value(target, idx_val, env)
     raise ShakarRuntimeError("Compound assignment not supported for this target")
-
-def _apply_assign(lvalue_node: Tree, rhs_node: Tree, env: Env) -> Any:
-    head, *ops = lvalue_node.children
-    if not ops and _token_kind(head) == 'IDENT':
-        target = env.get(head.value)
-        old_val = target
-        rhs_env = Env(parent=env, dot=old_val)
-        new_val = eval_node(rhs_node, rhs_env)
-        _assign_ident(head.value, new_val, env, create=False)
-        return new_val
-    target = eval_node(head, env)
-    if isinstance(target, _RebindContext):
-        target = target.value
-    if not ops:
-        raise ShakarRuntimeError("Malformed apply-assign target")
-    for op in ops[:-1]:
-        target = _apply_op(target, op, env)
-    final_op = ops[-1]
-    label = tree_label(final_op)
-    match label:
-        case 'field' | 'fieldsel':
-            field_name = _expect_ident_token(final_op.children[0], "Field assignment")
-            old_val = get_field_value(target, field_name, env)
-            rhs_env = Env(parent=env, dot=old_val)
-            new_val = eval_node(rhs_node, rhs_env)
-            set_field_value(target, field_name, new_val, env, create=False)
-            return new_val
-        case 'lv_index':
-            idx_val = _evaluate_index_operand(final_op, env)
-            old_val = index_value(target, idx_val, env)
-            rhs_env = Env(parent=env, dot=old_val)
-            new_val = eval_node(rhs_node, rhs_env)
-            set_index_value(target, idx_val, new_val, env)
-            return new_val
-        case 'fieldfan':
-            fieldlist_node = child_by_label(final_op, 'fieldlist')
-            if fieldlist_node is None:
-                raise ShakarRuntimeError("Malformed field fan-out list")
-            names = [tok.value for tok in fieldlist_node.children if _token_kind(tok) == 'IDENT']
-            if not names:
-                raise ShakarRuntimeError("Empty field fan-out list")
-            results: list[Any] = []
-            for name in names:
-                old_val = get_field_value(target, name, env)
-                rhs_env = Env(parent=env, dot=old_val)
-                new_val = eval_node(rhs_node, rhs_env)
-                set_field_value(target, name, new_val, env, create=False)
-                results.append(new_val)
-            return ShkArray(results)
-    raise ShakarRuntimeError("Unsupported apply-assign target")
 
 def _evaluate_index_operand(index_node: Tree, env: Env) -> Any:
     expr_node = _index_expr_from_children(index_node.children)
@@ -1502,7 +1458,7 @@ def _eval_chain_nullsafe(node: Any, env: Env) -> Any:
             if _nullsafe_recovers(err, current):
                 return ShkNull()
             raise
-        if isinstance(current, _RebindContext):
+        if isinstance(current, RebindContext):
             current = current.value
         if isinstance(current, ShkNull):
             return ShkNull()
@@ -1555,8 +1511,15 @@ def _eval_unary(op_node: Any, rhs_node: Any, env: Env) -> Any:
     op_value = op_norm.value if isinstance(op_norm, Token) else op_norm
 
     if op_value in ('++', '--'):
-        context = _resolve_assignable_node(rhs_node, env)
-        _, new_val = _apply_numeric_delta(context, 1 if op_value == '++' else -1)
+        context = rebind_resolve_assignable_node(
+            rhs_node,
+            env,
+            eval_func=eval_node,
+            apply_op=_apply_op,
+            assign_ident=_assign_ident,
+            evaluate_index_operand=_evaluate_index_operand,
+        )
+        _, new_val = rebind_apply_numeric_delta(context, 1 if op_value == '++' else -1)
         return new_val
 
     rhs = eval_node(rhs_node, env)
@@ -1674,14 +1637,6 @@ def _apply_binary_operator(op: str, lhs: Any, rhs: Any) -> Any:
             return ShkNumber(lhs.value ** rhs.value)
     raise ShakarRuntimeError(f"Unknown operator {op}")
 
-def _make_ident_context(name: str, env: Env) -> _RebindContext:
-    """Produce a `_RebindContext` for identifier assignments so tail ops can persist."""
-    value = env.get(name)
-    def setter(new_value: Any) -> None:
-        _assign_ident(name, new_value, env, create=False)
-        env.dot = new_value
-    return _RebindContext(value, setter)
-
 def _current_function_env(env: Env) -> Env | None:
     """Walk parents to find the nearest function-call environment marker."""
     cur = env
@@ -1699,127 +1654,6 @@ def _token_string(t: Token, _: Env) -> ShkString:
     if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")):
         v = v[1:-1]
     return ShkString(v)
-
-def _resolve_assignable_node(node: Any, env: Env) -> Any:
-    while is_tree_node(node) and tree_label(node) in {'primary', 'group', 'group_expr'} and len(node.children) == 1:
-        node = node.children[0]
-
-    if is_token_node(node) and _token_kind(node) == 'IDENT':
-        return _make_ident_context(node.value, env)
-
-    if is_tree_node(node):
-        label = tree_label(node)
-        if label == 'rebind_primary':
-            ctx = eval_node(node, env)
-            if isinstance(ctx, _RebindContext):
-                return ctx
-            raise ShakarRuntimeError("Rebind primary did not produce a context")
-        if label == 'explicit_chain':
-            if not node.children:
-                raise ShakarRuntimeError("Malformed explicit chain")
-            head = node.children[0]
-            ops = list(node.children[1:])
-            return _resolve_chain_assignment(head, ops, env)
-        if label in {'expr', 'expr_nc'} and node.children:
-            return _resolve_assignable_node(node.children[0], env)
-
-    raise ShakarRuntimeError("Increment target must be assignable")
-
-def _resolve_chain_assignment(head_node: Any, ops: List[Any], env: Env) -> Any:
-    """Walk `a.b[0]` and return the final assignable context (object slot, index, etc.)."""
-    if not ops:
-        return _resolve_assignable_node(head_node, env)
-
-    current = eval_node(head_node, env)
-    if isinstance(current, _RebindContext):
-        current = current.value
-
-    for idx, op in enumerate(ops):
-        is_last = idx == len(ops) - 1
-        label = tree_label(op)
-
-        if is_last and label in {'field', 'fieldsel'}:
-            field_name = _expect_ident_token(op.children[0], "Field access")
-            owner = current
-            value = get_field_value(owner, field_name, env)
-            def setter(new_value: Any, owner: Any=owner, field_name: str=field_name) -> None:
-                set_field_value(owner, field_name, new_value, env, create=False)
-                env.dot = new_value
-            return _RebindContext(value, setter)
-
-        if is_last and label == 'index':
-            owner = current
-            idx_value = _evaluate_index_operand(op, env)
-            value = index_value(owner, idx_value, env)
-            def setter(new_value: Any, owner: Any=owner, idx_value: Any=idx_value) -> None:
-                set_index_value(owner, idx_value, new_value, env)
-                env.dot = new_value
-            return _RebindContext(value, setter)
-
-        if is_last and label == 'fieldfan':
-            return _build_fieldfan_context(current, op, env)
-
-        current = _apply_op(current, op, env)
-        if isinstance(current, _RebindContext):
-            current = current.value
-
-    raise ShakarRuntimeError("Increment target must end with a field or index")
-
-def _apply_numeric_delta(ref: _RebindContext, delta: int) -> tuple[Any, Any]:
-    current = ref.value
-    _require_number(current)
-    new_val = ShkNumber(current.value + delta)
-    ref.setter(new_val)
-    ref.value = new_val
-    return current, new_val
-
-def _build_fieldfan_context(owner: Any, fan_node: Tree, env: Env) -> _FanContext:
-    fieldlist_node = child_by_label(fan_node, 'fieldlist')
-    if fieldlist_node is None:
-        raise ShakarRuntimeError("Malformed field fan")
-    names = [tok.value for tok in tree_children(fieldlist_node) if is_token_node(tok) and _token_kind(tok) == 'IDENT']
-    if not names:
-        raise ShakarRuntimeError("Field fan requires at least one identifier")
-    contexts: List[_RebindContext] = []
-    for name in names:
-        value = get_field_value(owner, name, env)
-        def setter(new_value: Any, owner: Any=owner, field_name: str=name) -> None:
-            set_field_value(owner, field_name, new_value, env, create=False)
-            env.dot = new_value
-        contexts.append(_RebindContext(value, setter))
-    return _FanContext(contexts)
-
-def _apply_fan_op(fan: _FanContext, op: Tree, env: Env) -> _FanContext:
-    new_contexts: List[_RebindContext] = []
-    new_values: List[Any] = []
-    has_contexts = False
-    has_values = False
-    for ctx in fan.contexts:
-        res = _apply_op(ctx, op, env)
-        if isinstance(res, _FanContext):
-            if res.contexts:
-                new_contexts.extend(res.contexts)
-                has_contexts = True
-            else:
-                new_values.extend(res.values)
-                has_values = True
-        elif isinstance(res, _RebindContext):
-            new_contexts.append(res)
-            has_contexts = True
-        else:
-            new_values.append(res)
-            has_values = True
-    if not fan.contexts and not new_contexts and not new_values:
-        return fan
-    if has_contexts and has_values:
-        raise ShakarRuntimeError("Mixed field fan results not supported")
-    if has_contexts:
-        fan.contexts = new_contexts
-        fan.update_from_contexts()
-    else:
-        fan.contexts = []
-        fan.values = new_values
-    return fan
 
 def _extract_param_names(params_node: Any, context: str="parameter list") -> List[str]:
     if params_node is None:
@@ -1839,11 +1673,11 @@ def _extract_param_names(params_node: Any, context: str="parameter list") -> Lis
 
 def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
     """Apply one explicit-chain operation (call/index/member) to `recv`."""
-    if isinstance(recv, _FanContext):
-        return _apply_fan_op(recv, op, env)
+    if isinstance(recv, FanContext):
+        return rebind_apply_fan_op(recv, op, env, apply_op=_apply_op)
 
     context = None
-    if isinstance(recv, _RebindContext):
+    if isinstance(recv, RebindContext):
         context = recv
         recv = context.value
 
@@ -1856,7 +1690,7 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
     elif d == 'slicesel':
         result = _apply_slice(recv, op.children, env)
     elif d == 'fieldfan':
-        return _build_fieldfan_context(recv, op, env)
+        return rebind_build_fieldfan_context(recv, op, env)
     elif d == 'call':
         args = _eval_args_node(op.children[0] if op.children else None, env)
         result = _call_value(recv, args, env)
@@ -2106,26 +1940,16 @@ def _eval_rebind_primary(n: Tree, env: Env) -> Any:
     if not n.children:
         raise ShakarRuntimeError("Missing target for prefix rebind")
     target = n.children[0]
-    ctx = _resolve_rebind_lvalue(target, env)
+    ctx = rebind_resolve_rebind_lvalue(
+        target,
+        env,
+        eval_func=eval_node,
+        apply_op=_apply_op,
+        assign_ident=_assign_ident,
+        evaluate_index_operand=_evaluate_index_operand,
+    )
     env.dot = ctx.value
     return ctx
-
-def _resolve_rebind_lvalue(node: Any, env: Env) -> _RebindContext:
-    if is_token_node(node):
-        if _token_kind(node) == 'IDENT':
-            return _make_ident_context(node.value, env)
-        raise ShakarRuntimeError("Malformed rebind target")
-    if not is_tree_node(node):
-        raise ShakarRuntimeError("Malformed rebind target")
-    label = tree_label(node)
-    if label not in {'rebind_lvalue', 'rebind_lvalue_grouped'}:
-        raise ShakarRuntimeError("Malformed rebind target")
-    children = tree_children(node)
-    if not children:
-        raise ShakarRuntimeError("Empty rebind target")
-    head = children[0]
-    ops = list(children[1:])
-    return _resolve_chain_assignment(head, ops, env)
 
 def _eval_optional_expr(node: Any, env: Env) -> Any:
     if node is None:
