@@ -8,15 +8,14 @@ from shakar_runtime import Env, ShkArray, ShkNumber, ShakarRuntimeError
 from shakar_tree import child_by_label, is_token_node, is_tree_node, tree_children, tree_label
 
 from eval.common import expect_ident_token, token_kind, require_number
+from eval.destructure import assign_pattern as destructure_assign_pattern
 from eval.mutation import get_field_value, set_field_value, index_value, set_index_value
+from eval.postfix import define_new_ident
 from shakar_utils import fanout_values
-
 
 EvalFunc = Callable[[Any, Env], Any]
 ApplyOpFunc = Callable[[Any, Tree, Env], Any]
-AssignIdentFunc = Callable[[str, Any, Env, bool], Any]
 IndexEvalFunc = Callable[[Tree, Env], Any]
-
 
 class RebindContext:
     """Tracks an assignable slot (identifier or field) so tail ops can write back."""
@@ -26,7 +25,6 @@ class RebindContext:
     def __init__(self, value: Any, setter: Callable[[Any], None]) -> None:
         self.value = value
         self.setter = setter
-
 
 class FanContext:
     """Represents `.={a,b}` fan assignments; stores every target's context."""
@@ -43,8 +41,18 @@ class FanContext:
     def snapshot(self) -> List[Any]:
         return list(self.values)
 
+def assign_ident(name: str, value: Any, env: Env, *, create: bool) -> Any:
+    """Assign or define an identifier in the given environment."""
+    try:
+        env.set(name, value)
+    except ShakarRuntimeError:
+        if create:
+            env.define(name, value)
+        else:
+            raise
+    return value
 
-def make_ident_context(name: str, env: Env, *, assign_ident: AssignIdentFunc) -> RebindContext:
+def make_ident_context(name: str, env: Env) -> RebindContext:
     """Produce a `RebindContext` for identifier assignments so tail ops can persist."""
     value = env.get(name)
 
@@ -54,14 +62,12 @@ def make_ident_context(name: str, env: Env, *, assign_ident: AssignIdentFunc) ->
 
     return RebindContext(value, setter)
 
-
 def resolve_assignable_node(
     node: Any,
     env: Env,
     *,
     eval_func: EvalFunc,
     apply_op: ApplyOpFunc,
-    assign_ident: AssignIdentFunc,
     evaluate_index_operand: IndexEvalFunc,
 ) -> RebindContext:
     """Resolve an expression into a rebindable context, unwrapping wrappers as needed."""
@@ -70,7 +76,7 @@ def resolve_assignable_node(
         current = current.children[0]
 
     if is_token_node(current) and token_kind(current) == "IDENT":
-        return make_ident_context(current.value, env, assign_ident=assign_ident)
+        return make_ident_context(current.value, env)
 
     if is_tree_node(current):
         label = tree_label(current)
@@ -90,7 +96,6 @@ def resolve_assignable_node(
                 env,
                 eval_func=eval_func,
                 apply_op=apply_op,
-                assign_ident=assign_ident,
                 evaluate_index_operand=evaluate_index_operand,
             )
         if label in {"expr", "expr_nc"} and current.children:
@@ -99,12 +104,10 @@ def resolve_assignable_node(
                 env,
                 eval_func=eval_func,
                 apply_op=apply_op,
-                assign_ident=assign_ident,
                 evaluate_index_operand=evaluate_index_operand,
             )
 
     raise ShakarRuntimeError("Increment target must be assignable")
-
 
 def resolve_chain_assignment(
     head_node: Any,
@@ -113,7 +116,6 @@ def resolve_chain_assignment(
     *,
     eval_func: EvalFunc,
     apply_op: ApplyOpFunc,
-    assign_ident: AssignIdentFunc,
     evaluate_index_operand: IndexEvalFunc,
 ) -> Any:
     """Walk `a.b[0]` and return the final assignable context (object slot, index, etc.)."""
@@ -123,7 +125,6 @@ def resolve_chain_assignment(
             env,
             eval_func=eval_func,
             apply_op=apply_op,
-            assign_ident=assign_ident,
             evaluate_index_operand=evaluate_index_operand,
         )
 
@@ -166,7 +167,6 @@ def resolve_chain_assignment(
 
     raise ShakarRuntimeError("Increment target must end with a field or index")
 
-
 def apply_numeric_delta(ref: RebindContext, delta: int) -> tuple[Any, Any]:
     """Increment/decrement the referenced numeric context and return (old, new)."""
     current = ref.value
@@ -175,7 +175,6 @@ def apply_numeric_delta(ref: RebindContext, delta: int) -> tuple[Any, Any]:
     ref.setter(new_val)
     ref.value = new_val
     return current, new_val
-
 
 def build_fieldfan_context(owner: Any, fan_node: Tree, env: Env) -> FanContext:
     """Construct a fan context for `.={a,b}` nodes so updates reach every slot."""
@@ -195,7 +194,6 @@ def build_fieldfan_context(owner: Any, fan_node: Tree, env: Env) -> FanContext:
 
         contexts.append(RebindContext(value, setter))
     return FanContext(contexts)
-
 
 def apply_fan_op(fan: FanContext, op: Tree, env: Env, *, apply_op: ApplyOpFunc) -> FanContext:
     """Apply an explicit-chain op to each fan target and keep contexts/values in sync."""
@@ -230,7 +228,6 @@ def apply_fan_op(fan: FanContext, op: Tree, env: Env, *, apply_op: ApplyOpFunc) 
         fan.values = new_values
     return fan
 
-
 def apply_assign(
     lvalue_node: Tree,
     rhs_node: Tree,
@@ -238,7 +235,6 @@ def apply_assign(
     *,
     eval_func: EvalFunc,
     apply_op: ApplyOpFunc,
-    assign_ident: AssignIdentFunc,
     evaluate_index_operand: IndexEvalFunc,
 ) -> Any:
     """Evaluate the `.= expr` apply-assign form (subject-aware updates)."""
@@ -290,7 +286,6 @@ def apply_assign(
             return ShkArray(results)
     raise ShakarRuntimeError("Unsupported apply-assign target")
 
-
 def assign_lvalue(
     node: Any,
     value: Any,
@@ -298,7 +293,6 @@ def assign_lvalue(
     *,
     eval_func: EvalFunc,
     apply_op: ApplyOpFunc,
-    assign_ident: AssignIdentFunc,
     evaluate_index_operand: IndexEvalFunc,
     create: bool,
 ) -> Any:
@@ -337,6 +331,24 @@ def assign_lvalue(
             return value
     raise ShakarRuntimeError("Unsupported assignment target")
 
+def assign_pattern_value(
+    pattern: Tree,
+    value: Any,
+    env: Env,
+    *,
+    create: bool,
+    allow_broadcast: bool,
+    eval_func: EvalFunc,
+) -> None:
+    """Bind a destructuring pattern to a value, including walrus broadcasts."""
+
+    def _assign_ident_wrapper(name: str, val: Any, target_env: Env, create_flag: bool) -> None:
+        if create_flag and allow_broadcast:
+            define_new_ident(name, val, target_env)
+            return
+        assign_ident(name, val, target_env, create=create_flag)
+
+    destructure_assign_pattern(eval_func, _assign_ident_wrapper, pattern, value, env, create, allow_broadcast)
 
 def read_lvalue(
     node: Any,
@@ -370,20 +382,18 @@ def read_lvalue(
             return index_value(target, idx_val, env)
     raise ShakarRuntimeError("Compound assignment not supported for this target")
 
-
 def resolve_rebind_lvalue(
     node: Any,
     env: Env,
     *,
     eval_func: EvalFunc,
     apply_op: ApplyOpFunc,
-    assign_ident: AssignIdentFunc,
     evaluate_index_operand: IndexEvalFunc,
 ) -> RebindContext:
     """Turn a `rebind_lvalue` node into a concrete context for prefix rebinds."""
     if is_token_node(node):
         if token_kind(node) == "IDENT":
-            return make_ident_context(node.value, env, assign_ident=assign_ident)
+            return make_ident_context(node.value, env)
         raise ShakarRuntimeError("Malformed rebind target")
     if not is_tree_node(node):
         raise ShakarRuntimeError("Malformed rebind target")
@@ -401,6 +411,5 @@ def resolve_rebind_lvalue(
         env,
         eval_func=eval_func,
         apply_op=apply_op,
-        assign_ident=assign_ident,
         evaluate_index_operand=evaluate_index_operand,
     )

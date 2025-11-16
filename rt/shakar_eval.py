@@ -59,7 +59,6 @@ from eval.selector import (
 
 from eval.destructure import (
     evaluate_destructure_rhs,
-    assign_pattern as destructure_assign_pattern,
     infer_implicit_binders as destructure_infer_implicit_binders,
     apply_comp_binders as destructure_apply_comp_binders,
 )
@@ -99,10 +98,12 @@ from eval.common import (
     collect_free_identifiers as _collect_free_identifiers,
 )
 
-from eval.rebind import (
+from eval.bind import (
     FanContext,
     RebindContext,
+    assign_ident,
     assign_lvalue,
+    assign_pattern_value,
     apply_assign,
     apply_fan_op,
     apply_numeric_delta,
@@ -172,7 +173,6 @@ def eval_node(n: Any, env: Env) -> Any:
                     env,
                     eval_func=eval_node,
                     apply_op=_apply_op,
-                    assign_ident=_assign_ident,
                     evaluate_index_operand=_evaluate_index_operand,
                 )
                 delta = 1 if tree_label(tail) == 'incr' else -1
@@ -429,7 +429,6 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
         env,
         eval_func=eval_node,
         apply_op=_apply_op,
-        assign_ident=_assign_ident,
         evaluate_index_operand=_evaluate_index_operand,
         create=False,
     )
@@ -652,7 +651,7 @@ def _eval_fn_def(children: List[Any], env: Env) -> Any:
         instances = _evaluate_decorator_list(decorators_node, env)
         if instances:
             fn_value.decorators = tuple(reversed(instances))
-    _assign_ident(name, fn_value, env, create=True)
+    assign_ident(name, fn_value, env, create=True)
     return ShkNull()
 
 def _eval_decorator_def(children: List[Any], env: Env) -> Any:
@@ -670,7 +669,7 @@ def _eval_decorator_def(children: List[Any], env: Env) -> Any:
         body_node = Tree('inlinebody', [])
     params = _extract_param_names(params_node, context="decorator definition")
     decorator = ShkDecorator(params=params, body=body_node, env=Env(parent=env, dot=None))
-    _assign_ident(name, decorator, env, create=True)
+    assign_ident(name, decorator, env, create=True)
     return ShkNull()
 
 def _evaluate_decorator_list(node: Tree, env: Env) -> List[DecoratorConfigured]:
@@ -782,7 +781,6 @@ def _eval_compound_assign(children: List[Any], env: Env) -> Any:
         env,
         eval_func=eval_node,
         apply_op=_apply_op,
-        assign_ident=_assign_ident,
         evaluate_index_operand=_evaluate_index_operand,
         create=False,
     )
@@ -805,7 +803,6 @@ def _eval_apply_assign(children: List[Any], env: Env) -> Any:
         env,
         eval_func=eval_node,
         apply_op=_apply_op,
-        assign_ident=_assign_ident,
         evaluate_index_operand=_evaluate_index_operand,
     )
 
@@ -854,7 +851,14 @@ def _eval_for_in(n: Tree, env: Env) -> Any:
             if object_pairs and _pattern_requires_object_pair(pattern_node):
                 key, val = object_pairs[idx]
                 assigned = ShkArray([ShkString(key), val])
-            _assign_pattern_value(pattern_node, assigned, loop_env, create=True, allow_broadcast=False)
+            assign_pattern_value(
+                pattern_node,
+                assigned,
+                loop_env,
+                create=True,
+                allow_broadcast=False,
+                eval_func=eval_node,
+            )
             try:
                 _execute_loop_body(body_node, loop_env)
             except ShakarContinueSignal:
@@ -914,7 +918,14 @@ def _eval_for_indexed(n: Tree, env: Env) -> Any:
             loop_env = Env(parent=env, dot=subject)
             for binder, binder_value in zip(binders, binder_values):
                 target_env = env if binder.get('hoist') else loop_env
-                _assign_pattern_value(binder['pattern'], binder_value, target_env, create=True, allow_broadcast=False)
+                assign_pattern_value(
+                    binder['pattern'],
+                    binder_value,
+                    target_env,
+                    create=True,
+                    allow_broadcast=False,
+                    eval_func=eval_node,
+                )
             try:
                 _execute_loop_body(body_node, loop_env)
             except ShakarContinueSignal:
@@ -938,30 +949,26 @@ def _eval_destructure(n: Tree, env: Env, create: bool, allow_broadcast: bool) ->
         raise ShakarRuntimeError("Empty destructure pattern")
     values, result = evaluate_destructure_rhs(eval_node, rhs_node, env, len(patterns), allow_broadcast)
     for pat, val in zip(patterns, values):
-        _assign_pattern_value(pat, val, env, create, allow_broadcast)
+        assign_pattern_value(
+            pat,
+            val,
+            env,
+            create=create,
+            allow_broadcast=allow_broadcast,
+            eval_func=eval_node,
+        )
     return result if allow_broadcast else ShkNull()
-
-def _assign_ident(name: str, value: Any, env: Env, create: bool) -> Any:
-    try:
-        env.set(name, value)
-    except ShakarRuntimeError:
-        if create:
-            env.define(name, value)
-        else:
-            raise
-    return value
-
-def _assign_pattern_value(pattern: Tree, value: Any, env: Env, create: bool, allow_broadcast: bool) -> None:
-    def _assign_ident_wrapper(name: str, val: Any, target_env: Env, create_flag: bool) -> None:
-        if create_flag and allow_broadcast:
-            define_new_ident(name, val, target_env)
-            return
-        _assign_ident(name, val, target_env, create=create_flag)
-    destructure_assign_pattern(eval_node, _assign_ident_wrapper, pattern, value, env, create, allow_broadcast)
 
 def _apply_comp_binders_wrapper(binders: list[dict[str, Any]], element: Any, iter_env: Env, outer_env: Env) -> None:
     destructure_apply_comp_binders(
-        lambda pattern, val, target_env, create, allow_broadcast: _assign_pattern_value(pattern, val, target_env, create, allow_broadcast),
+        lambda pattern, val, target_env, create, allow_broadcast: assign_pattern_value(
+            pattern,
+            val,
+            target_env,
+            create=create,
+            allow_broadcast=allow_broadcast,
+            eval_func=eval_node,
+        ),
         binders,
         element,
         iter_env,
@@ -1483,7 +1490,6 @@ def _eval_unary(op_node: Any, rhs_node: Any, env: Env) -> Any:
             env,
             eval_func=eval_node,
             apply_op=_apply_op,
-            assign_ident=_assign_ident,
             evaluate_index_operand=_evaluate_index_operand,
         )
         _, new_val = apply_numeric_delta(context, 1 if op_value == '++' else -1)
@@ -1912,7 +1918,6 @@ def _eval_rebind_primary(n: Tree, env: Env) -> Any:
         env,
         eval_func=eval_node,
         apply_op=_apply_op,
-        assign_ident=_assign_ident,
         evaluate_index_operand=_evaluate_index_operand,
     )
     env.dot = ctx.value
