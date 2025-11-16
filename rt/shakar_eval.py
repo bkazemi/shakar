@@ -43,7 +43,6 @@ from shakar_runtime import (
 from shakar_utils import fanout_values, normalize_object_key, shk_equals, value_in_list
 from shakar_tree import (
     child_by_label,
-    find_tree_by_label,
     is_token_node,
     is_tree_node,
     node_meta,
@@ -77,6 +76,12 @@ from eval._await import (
     await_any_entries,
     await_all_entries,
     resolve_await_result,
+)
+
+from eval.postfix import (
+    define_new_ident,
+    eval_postfix_if as _postfix_eval_if,
+    eval_postfix_unless as _postfix_eval_unless,
 )
 
 class _RebindContext:
@@ -233,9 +238,9 @@ def eval_node(n: Any, env: Env) -> Any:
         case 'assignstmt':
             return _eval_assign_stmt(n.children, env)
         case 'postfixif':
-            return _eval_postfix_if(n.children, env)
+            return _postfix_eval_if(n.children, env, eval_func=eval_node, truthy_fn=_is_truthy)
         case 'postfixunless':
-            return _eval_postfix_unless(n.children, env)
+            return _postfix_eval_unless(n.children, env, eval_func=eval_node, truthy_fn=_is_truthy)
         case 'compound_assign':
             return _eval_compound_assign(n.children, env)
         case 'fndef':
@@ -423,7 +428,7 @@ def _eval_walrus(children: List[Any], env: Env) -> Any:
     name_node, value_node = children
     name = _expect_ident_token(name_node, "Walrus target")
     value = eval_node(value_node, env)
-    return _define_new_ident(name, value, env)
+    return define_new_ident(name, value, env)
 
 def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     """Handles simple `lhs = rhs` statements (no destructuring)."""
@@ -433,28 +438,6 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     value_node = children[-1]
     value = eval_node(value_node, env)
     _assign_lvalue(lvalue_node, value, env, create=False)
-    return ShkNull()
-
-def _eval_postfix_if(children: List[Any], env: Env) -> Any:
-    stmt_node, cond_node = _split_postfix_children(children, {'IF'})
-    return _eval_postfix_guard(stmt_node, cond_node, env, run_on_truthy=True)
-
-def _eval_postfix_unless(children: List[Any], env: Env) -> Any:
-    stmt_node, cond_node = _split_postfix_children(children, {'UNLESS'})
-    return _eval_postfix_guard(stmt_node, cond_node, env, run_on_truthy=False)
-
-def _eval_postfix_guard(stmt_node: Any, cond_node: Any, env: Env, run_on_truthy: bool) -> Any:
-    walrus_name = None
-    walrus_node = find_tree_by_label(stmt_node, {'walrus', 'walrus_nc'})
-    if walrus_node is not None:
-        walrus_name = _walrus_target_name(walrus_node)
-    cond_val = eval_node(cond_node, env)
-    cond_truthy = _is_truthy(cond_val)
-    should_run = cond_truthy if run_on_truthy else not cond_truthy
-    if should_run:
-        return eval_node(stmt_node, env)
-    if walrus_name is not None:
-        _define_new_ident(walrus_name, ShkNull(), env)
     return ShkNull()
 
 def _eval_return_stmt(children: List[Any], env: Env) -> Any:
@@ -953,7 +936,7 @@ def _assign_ident(name: str, value: Any, env: Env, create: bool) -> Any:
 def _assign_pattern_value(pattern: Tree, value: Any, env: Env, create: bool, allow_broadcast: bool) -> None:
     def _assign_ident_wrapper(name: str, val: Any, target_env: Env, create_flag: bool) -> None:
         if create_flag and allow_broadcast:
-            _define_new_ident(name, val, target_env)
+            define_new_ident(name, val, target_env)
             return
         _assign_ident(name, val, target_env, create=create_flag)
     destructure_assign_pattern(eval_node, _assign_ident_wrapper, pattern, value, env, create, allow_broadcast)
@@ -2467,31 +2450,3 @@ _TOKEN_DISPATCH: dict[str, Callable[[Token, Env], Any]] = {
     'TRUE': lambda _, __: ShkBool(True),
     'FALSE': lambda _, __: ShkBool(False),
 }
-
-def _define_new_ident(name: str, value: Any, env: Env) -> Any:
-    vars_dict = getattr(env, 'vars', None)
-    if vars_dict is not None and name in vars_dict:
-        raise ShakarRuntimeError(f"Name '{name}' already defined in this scope")
-    env.define(name, value)
-    return value
-
-def _walrus_target_name(node: Tree) -> str:
-    children = tree_children(node)
-    if not children:
-        raise ShakarRuntimeError("Malformed walrus expression")
-    target = children[0]
-    if is_token_node(target):
-        return target.value
-    if isinstance(target, str):
-        return target
-    raise ShakarRuntimeError("Unsupported walrus target")
-
-def _split_postfix_children(children: List[Any], keyword_tokens: set[str]) -> tuple[Any, Any]:
-    semantic: List[Any] = []
-    for ch in children:
-        if _token_kind(ch) in keyword_tokens:
-            continue
-        semantic.append(ch)
-    if len(semantic) != 2:
-        raise ShakarRuntimeError("Malformed postfix statement")
-    return semantic[0], semantic[1]
