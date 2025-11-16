@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, List
+from typing import Any, Callable, List
 
 from lark import Tree
 
@@ -9,6 +9,7 @@ from shakar_tree import child_by_label, is_token_node, is_tree_node, tree_childr
 
 from eval.common import expect_ident_token, token_kind, require_number
 from eval.mutation import get_field_value, set_field_value, index_value, set_index_value
+from shakar_utils import fanout_values
 
 
 EvalFunc = Callable[[Any, Env], Any]
@@ -288,6 +289,86 @@ def apply_assign(
                 results.append(new_val)
             return ShkArray(results)
     raise ShakarRuntimeError("Unsupported apply-assign target")
+
+
+def assign_lvalue(
+    node: Any,
+    value: Any,
+    env: Env,
+    *,
+    eval_func: EvalFunc,
+    apply_op: ApplyOpFunc,
+    assign_ident: AssignIdentFunc,
+    evaluate_index_operand: IndexEvalFunc,
+    create: bool,
+) -> Any:
+    """Assign to an lvalue, supporting fields, indices, and field fans."""
+    if not is_tree_node(node) or tree_label(node) != "lvalue":
+        raise ShakarRuntimeError("Invalid assignment target")
+    if not node.children:
+        raise ShakarRuntimeError("Empty lvalue")
+    head, *ops = node.children
+    if not ops and is_token_node(head) and token_kind(head) == "IDENT":
+        return assign_ident(head.value, value, env, create=create)
+    target = eval_func(head, env)
+    if not ops:
+        raise ShakarRuntimeError("Malformed lvalue")
+    for op in ops[:-1]:
+        target = apply_op(target, op, env)
+    final_op = ops[-1]
+    label = tree_label(final_op)
+    match label:
+        case "field" | "fieldsel":
+            field_name = expect_ident_token(final_op.children[0], "Field assignment")
+            return set_field_value(target, field_name, value, env, create=create)
+        case "lv_index":
+            idx_val = evaluate_index_operand(final_op, env)
+            return set_index_value(target, idx_val, value, env)
+        case "fieldfan":
+            fieldlist_node = child_by_label(final_op, "fieldlist")
+            if fieldlist_node is None:
+                raise ShakarRuntimeError("Malformed field fan-out list")
+            names = [tok.value for tok in tree_children(fieldlist_node) if token_kind(tok) == "IDENT"]
+            if not names:
+                raise ShakarRuntimeError("Empty field fan-out list")
+            vals = fanout_values(value, len(names))
+            for name, val in zip(names, vals):
+                set_field_value(target, name, val, env, create=create)
+            return value
+    raise ShakarRuntimeError("Unsupported assignment target")
+
+
+def read_lvalue(
+    node: Any,
+    env: Env,
+    *,
+    eval_func: EvalFunc,
+    apply_op: ApplyOpFunc,
+    evaluate_index_operand: IndexEvalFunc,
+) -> Any:
+    """Fetch the value behind an assignment target (e.g. for compound ops)."""
+    if not is_tree_node(node) or tree_label(node) != "lvalue":
+        raise ShakarRuntimeError("Invalid lvalue")
+    if not node.children:
+        raise ShakarRuntimeError("Empty lvalue")
+    head, *ops = node.children
+    if not ops and is_token_node(head) and token_kind(head) == "IDENT":
+        return env.get(head.value)
+    target = eval_func(head, env)
+    if not ops:
+        raise ShakarRuntimeError("Malformed lvalue")
+    for op in ops[:-1]:
+        target = apply_op(target, op, env)
+    final_op = ops[-1]
+    label = tree_label(final_op)
+    match label:
+        case "field" | "fieldsel":
+            field_name = expect_ident_token(final_op.children[0], "Field value access")
+            return get_field_value(target, field_name, env)
+        case "lv_index":
+            idx_val = evaluate_index_operand(final_op, env)
+            return index_value(target, idx_val, env)
+    raise ShakarRuntimeError("Compound assignment not supported for this target")
 
 
 def resolve_rebind_lvalue(

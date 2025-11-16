@@ -102,13 +102,15 @@ from eval.common import (
 from eval.rebind import (
     FanContext,
     RebindContext,
-    apply_assign as rebind_apply_assign,
-    apply_fan_op as rebind_apply_fan_op,
-    apply_numeric_delta as rebind_apply_numeric_delta,
-    build_fieldfan_context as rebind_build_fieldfan_context,
-    resolve_assignable_node as rebind_resolve_assignable_node,
-    resolve_chain_assignment as rebind_resolve_chain_assignment,
-    resolve_rebind_lvalue as rebind_resolve_rebind_lvalue,
+    assign_lvalue,
+    apply_assign,
+    apply_fan_op,
+    apply_numeric_delta,
+    build_fieldfan_context,
+    read_lvalue,
+    resolve_assignable_node,
+    resolve_chain_assignment,
+    resolve_rebind_lvalue,
 )
 
 # ---------------- Public API ----------------
@@ -164,7 +166,7 @@ def eval_node(n: Any, env: Env) -> Any:
             if ops and tree_label(ops[-1]) in {'incr', 'decr'}:
                 tail = ops[-1]
                 # ++/-- mutate the final receiver; resolve assignable context first.
-                context = rebind_resolve_chain_assignment(
+                context = resolve_chain_assignment(
                     head,
                     ops[:-1],
                     env,
@@ -176,7 +178,7 @@ def eval_node(n: Any, env: Env) -> Any:
                 delta = 1 if tree_label(tail) == 'incr' else -1
                 if isinstance(context, FanContext):
                     raise ShakarRuntimeError("++/-- not supported on field fan assignments")
-                old_val, _ = rebind_apply_numeric_delta(context, delta)
+                old_val, _ = apply_numeric_delta(context, delta)
                 return old_val
             val = eval_node(head, env)
             head_label = tree_label(head) if is_tree_node(head) else None
@@ -421,7 +423,16 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     lvalue_node = children[0]
     value_node = children[-1]
     value = eval_node(value_node, env)
-    _assign_lvalue(lvalue_node, value, env, create=False)
+    assign_lvalue(
+        lvalue_node,
+        value,
+        env,
+        eval_func=eval_node,
+        apply_op=_apply_op,
+        assign_ident=_assign_ident,
+        evaluate_index_operand=_evaluate_index_operand,
+        create=False,
+    )
     return ShkNull()
 
 def _eval_return_stmt(children: List[Any], env: Env) -> Any:
@@ -756,10 +767,25 @@ def _eval_compound_assign(children: List[Any], env: Env) -> Any:
     op_symbol = _COMPOUND_ASSIGN_OPERATORS.get(op_value)
     if op_symbol is None:
         raise ShakarRuntimeError(f"Unsupported compound operator {op_value}")
-    current_value = _read_lvalue_value(lvalue_node, env)
+    current_value = read_lvalue(
+        lvalue_node,
+        env,
+        eval_func=eval_node,
+        apply_op=_apply_op,
+        evaluate_index_operand=_evaluate_index_operand,
+    )
     rhs_value = eval_node(rhs_node, env)
     new_value = _apply_binary_operator(op_symbol, current_value, rhs_value)
-    _assign_lvalue(lvalue_node, new_value, env, create=False)
+    assign_lvalue(
+        lvalue_node,
+        new_value,
+        env,
+        eval_func=eval_node,
+        apply_op=_apply_op,
+        assign_ident=_assign_ident,
+        evaluate_index_operand=_evaluate_index_operand,
+        create=False,
+    )
     return ShkNull()
 
 def _eval_apply_assign(children: List[Any], env: Env) -> Any:
@@ -773,7 +799,7 @@ def _eval_apply_assign(children: List[Any], env: Env) -> Any:
             rhs_node = child
     if lvalue_node is None or rhs_node is None:
         raise ShakarRuntimeError("Malformed apply-assign expression")
-    return rebind_apply_assign(
+    return apply_assign(
         lvalue_node,
         rhs_node,
         env,
@@ -941,65 +967,6 @@ def _apply_comp_binders_wrapper(binders: list[dict[str, Any]], element: Any, ite
         iter_env,
         outer_env,
     )
-
-def _assign_lvalue(node: Any, value: Any, env: Env, create: bool) -> Any:
-    if not is_tree_node(node) or tree_label(node) != 'lvalue':
-        raise ShakarRuntimeError("Invalid assignment target")
-    if not node.children:
-        raise ShakarRuntimeError("Empty lvalue")
-    head, *ops = node.children
-    if not ops and is_token_node(head) and _token_kind(head) == 'IDENT':
-        return _assign_ident(head.value, value, env, create=create)
-    target = eval_node(head, env)
-    if not ops:
-        raise ShakarRuntimeError("Malformed lvalue")
-    for op in ops[:-1]:
-        target = _apply_op(target, op, env)
-    final_op = ops[-1]
-    label = tree_label(final_op)
-    match label:
-        case 'field' | 'fieldsel':
-            field_name = _expect_ident_token(final_op.children[0], "Field assignment")
-            return set_field_value(target, field_name, value, env, create=create)
-        case 'lv_index':
-            idx_val = _evaluate_index_operand(final_op, env)
-            return set_index_value(target, idx_val, value, env)
-        case 'fieldfan':
-            fieldlist_node = child_by_label(final_op, 'fieldlist')
-            if fieldlist_node is None:
-                raise ShakarRuntimeError("Malformed field fan-out list")
-            names = [tok.value for tok in fieldlist_node.children if _token_kind(tok) == 'IDENT']
-            if not names:
-                raise ShakarRuntimeError("Empty field fan-out list")
-            vals = fanout_values(value, len(names))
-            for name, val in zip(names, vals):
-                set_field_value(target, name, val, env, create=create)
-            return value
-    raise ShakarRuntimeError("Unsupported assignment target")
-
-def _read_lvalue_value(node: Any, env: Env) -> Any:
-    if not is_tree_node(node) or tree_label(node) != 'lvalue':
-        raise ShakarRuntimeError("Invalid lvalue")
-    if not node.children:
-        raise ShakarRuntimeError("Empty lvalue")
-    head, *ops = node.children
-    if not ops and is_token_node(head) and _token_kind(head) == 'IDENT':
-        return env.get(head.value)
-    target = eval_node(head, env)
-    if not ops:
-        raise ShakarRuntimeError("Malformed lvalue")
-    for op in ops[:-1]:
-        target = _apply_op(target, op, env)
-    final_op = ops[-1]
-    label = tree_label(final_op)
-    match label:
-        case 'field' | 'fieldsel':
-            field_name = _expect_ident_token(final_op.children[0], "Field value access")
-            return get_field_value(target, field_name, env)
-        case 'lv_index':
-            idx_val = _evaluate_index_operand(final_op, env)
-            return index_value(target, idx_val, env)
-    raise ShakarRuntimeError("Compound assignment not supported for this target")
 
 def _evaluate_index_operand(index_node: Tree, env: Env) -> Any:
     expr_node = _index_expr_from_children(index_node.children)
@@ -1511,7 +1478,7 @@ def _eval_unary(op_node: Any, rhs_node: Any, env: Env) -> Any:
     op_value = op_norm.value if isinstance(op_norm, Token) else op_norm
 
     if op_value in ('++', '--'):
-        context = rebind_resolve_assignable_node(
+        context = resolve_assignable_node(
             rhs_node,
             env,
             eval_func=eval_node,
@@ -1519,7 +1486,7 @@ def _eval_unary(op_node: Any, rhs_node: Any, env: Env) -> Any:
             assign_ident=_assign_ident,
             evaluate_index_operand=_evaluate_index_operand,
         )
-        _, new_val = rebind_apply_numeric_delta(context, 1 if op_value == '++' else -1)
+        _, new_val = apply_numeric_delta(context, 1 if op_value == '++' else -1)
         return new_val
 
     rhs = eval_node(rhs_node, env)
@@ -1674,7 +1641,7 @@ def _extract_param_names(params_node: Any, context: str="parameter list") -> Lis
 def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
     """Apply one explicit-chain operation (call/index/member) to `recv`."""
     if isinstance(recv, FanContext):
-        return rebind_apply_fan_op(recv, op, env, apply_op=_apply_op)
+        return apply_fan_op(recv, op, env, apply_op=_apply_op)
 
     context = None
     if isinstance(recv, RebindContext):
@@ -1690,7 +1657,7 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
     elif d == 'slicesel':
         result = _apply_slice(recv, op.children, env)
     elif d == 'fieldfan':
-        return rebind_build_fieldfan_context(recv, op, env)
+        return build_fieldfan_context(recv, op, env)
     elif d == 'call':
         args = _eval_args_node(op.children[0] if op.children else None, env)
         result = _call_value(recv, args, env)
@@ -1940,7 +1907,7 @@ def _eval_rebind_primary(n: Tree, env: Env) -> Any:
     if not n.children:
         raise ShakarRuntimeError("Missing target for prefix rebind")
     target = n.children[0]
-    ctx = rebind_resolve_rebind_lvalue(
+    ctx = resolve_rebind_lvalue(
         target,
         env,
         eval_func=eval_node,
