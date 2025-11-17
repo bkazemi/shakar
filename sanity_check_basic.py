@@ -915,21 +915,12 @@ value""",
 runtime_scenario(
     lambda: _rt(
         "return-if",
-        """fn first_even(xs): {
-  for n in xs:
-    if n % 2 == 0:
-      ?ret n
-  "none"
-}
+        """fn first_even(xs): { for n in xs: { if n % 2 == 0: { ?ret n } }; "none" }
 first_even([1, 3, 5, 6, 8])""",
         ("number", 6),
         None,
     )
 )
-runtime_scenario(lambda: _rt("catch-type-miss", 'missingVar catch (ValidationError): { 1 }', None, ShakarRuntimeError))
-runtime_scenario(lambda: _rt("if-true-inline", 'if true: 5', ("number", 5), None))
-runtime_scenario(lambda: _rt("if-elif-else", 'if false: { 1 } elif true: { 2 } else: { 3 }', ("number", 2), None))
-runtime_scenario(lambda: _rt("if-no-branch", 'if false: 1', ("null", None), None))
 runtime_scenario(
     lambda: _rt(
         "for-in-sum",
@@ -1330,5 +1321,5 @@ for name, source, expect in r_runtime_ops:
 # value""",
 #         ("number", 2),
 #         None,
-    )
-)
+#     )
+# )

@@ -13,8 +13,10 @@ except ImportError:  # running as package
 def _render(value):
     if isinstance(value, ShkString):
         return value.value
+
     if isinstance(value, (ShkNumber, ShkBool)):
         return str(value.value)
+
     if isinstance(value, ShkNull):
         return "null"
     return str(value)
@@ -30,6 +32,7 @@ def std_sleep(_frame, args: List[object]):
     if len(args) != 1:
         raise ShakarTypeError("sleep expects exactly one argument")
     duration = args[0]
+
     if not isinstance(duration, ShkNumber):
         raise ShakarTypeError("sleep expects a numeric duration")
     milliseconds = max(0.0, float(duration.value))
@@ -46,6 +49,7 @@ def std_error(_frame, args: List[object]):
     if len(args) < 2 or len(args) > 3:
         raise ShakarTypeError("error(type, message[, data]) expects 2 or 3 arguments")
     type_arg, message_arg, *rest = args
+
     if not isinstance(type_arg, ShkString) or not isinstance(message_arg, ShkString):
         raise ShakarTypeError("error expects string type and message")
     data = rest[0] if rest else ShkNull()
@@ -55,4 +59,5 @@ def std_error(_frame, args: List[object]):
         'message': message_arg,
         'data': data,
     }
+
     return ShkObject(slots)

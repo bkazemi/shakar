@@ -22,11 +22,13 @@ def value_in_list(seq: List[Any], value: Any) -> bool:
     for existing in seq:
         if shk_equals(existing, value):
             return True
+
     return False
 
 def shk_equals(lhs: Any, rhs: Any) -> bool:
     if type(lhs) is not type(rhs):
         return False
+
     match lhs:
         case ShkNull():
             return True
@@ -38,13 +40,17 @@ def shk_equals(lhs: Any, rhs: Any) -> bool:
             return a == rhs.value
         case ShkArray(items=items):
             rhs_items = rhs.items
+
             if len(items) != len(rhs_items):
                 return False
+
             return all(shk_equals(a, b) for a, b in zip(items, rhs_items))
         case ShkObject(slots=slots):
             rhs_slots = rhs.slots
+
             if slots.keys() != rhs_slots.keys():
                 return False
+
             return all(shk_equals(slots[k], rhs_slots[k]) for k in slots)
         case ShkFn():
             return lhs is rhs
@@ -70,19 +76,24 @@ def sequence_items(value: Any) -> List[Any]:
 def coerce_sequence(value: Any, expected_len: Optional[int]) -> Optional[List[Any]]:
     if not is_sequence_value(value):
         return None
+
     items = sequence_items(value)
+
     if expected_len is not None and len(items) != expected_len:
         raise ShakarRuntimeError("Destructure arity mismatch")
+
     return items
 
 def fanout_values(value: Any, count: int) -> List[Any]:
     if isinstance(value, ShkArray) and len(value.items) == count:
         return list(value.items)
+
     return [value] * count
 
 def replicate_empty_sequence(value: Any, count: int) -> List[Any]:
     if isinstance(value, ShkArray) and len(value.items) == 0:
         return [ShkArray([]) for _ in range(count)]
+
     return [value] * count
 
 def normalize_object_key(value: Any) -> str:

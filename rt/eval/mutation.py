@@ -28,15 +28,19 @@ def set_field_value(recv: Any, name: str, value: Any, frame: Frame, *, create: b
     match recv:
         case ShkObject(slots=slots):
             slot = slots.get(name)
+
             if isinstance(slot, Descriptor):
                 # property slot: defer to its setter so user code can enforce invariants.
                 setter = slot.setter
                 if setter is None:
                     raise ShakarRuntimeError(f"Property '{name}' is read-only")
+
                 call_shkfn(setter, [value], subject=recv, caller_frame=frame)
                 return value
+
             if slot is None and not create:
                 raise ShakarRuntimeError(f"Field '{name}' is undefined; use ':=' to create it")
+
             slots[name] = value
             return value
         case _:
@@ -50,6 +54,7 @@ def set_index_value(recv: Any, index: Any, value: Any, _frame: Frame) -> Any:
                 idx = int(index.value)
             else:
                 raise ShakarTypeError("Array index must be an integer")
+
             items[idx] = value
             return value
         case ShkObject(slots=slots):
@@ -68,6 +73,7 @@ def index_value(recv: Any, idx: Any, frame: Frame) -> Any:
                 # cloning prevents later selectors from mutating the shared object.
                 cloned = clone_selector_parts(idx.parts, clamp=True)
                 return apply_selectors_to_value(recv, cloned)
+
             if isinstance(idx, ShkNumber):
                 try:
                     return items[int(idx.value)]
@@ -78,6 +84,7 @@ def index_value(recv: Any, idx: Any, frame: Frame) -> Any:
             if isinstance(idx, ShkSelector):
                 cloned = clone_selector_parts(idx.parts, clamp=True)
                 return apply_selectors_to_value(recv, cloned)
+
             if isinstance(idx, ShkNumber):
                 try:
                     return ShkString(s[int(idx.value)])
@@ -86,14 +93,18 @@ def index_value(recv: Any, idx: Any, frame: Frame) -> Any:
             raise ShakarTypeError("String index must be a number")
         case ShkObject(slots=slots):
             key = _normalize_index_key(idx)
+
             if key in slots:
                 val = slots[key]
+
                 if isinstance(val, Descriptor):
                     # getter-only descriptor behaves like a computed property.
                     getter = val.getter
                     if getter is None:
                         return ShkNull()
+
                     return call_shkfn(getter, [], subject=recv, caller_frame=frame)
+
                 return val
             raise ShakarKeyError(key)
         case _:
@@ -116,15 +127,19 @@ def get_field_value(recv: Any, name: str, frame: Frame) -> Any:
         case ShkObject(slots=slots):
             if name in slots:
                 slot = slots[name]
+
                 if isinstance(slot, Descriptor):
                     # defer to descriptor getter; absence returns nil to mirror go-style access.
                     getter = slot.getter
+
                     if getter is None:
                         return ShkNull()
                     return call_shkfn(getter, [], subject=recv, caller_frame=frame)
+
                 if isinstance(slot, ShkFn):
                     # methods capture the receiver via BoundMethod to keep dot semantics.
                     return BoundMethod(slot, recv)
+
                 return slot
             raise ShakarKeyError(name)
         case ShkArray(items=items):
@@ -134,6 +149,7 @@ def get_field_value(recv: Any, name: str, frame: Frame) -> Any:
         case ShkString(value=value):
             if name == "len":
                 return ShkNumber(float(len(value)))
+
             if name in Builtins.string_methods:
                 return BuiltinMethod(name=name, subject=recv)
             raise ShakarTypeError(f"String has no field '{name}'")
@@ -144,8 +160,11 @@ def get_field_value(recv: Any, name: str, frame: Frame) -> Any:
 
 def _normalize_index_key(idx: Any) -> str:
     """Map object index operands to canonical slot keys."""
+
     if isinstance(idx, ShkString):
         return idx.value
+
     if isinstance(idx, ShkNumber):
         return str(int(idx.value))
+
     raise ShakarTypeError("Object index must be a string or number value")
