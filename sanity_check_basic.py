@@ -845,6 +845,16 @@ value""",
         None,
     )
 )
+runtime_scenario(
+    lambda: _rt(
+        "catch-typed-bind",
+        """fn risky(tag): { throw error(tag, "bad") }
+value := (risky("ValidationError") catch (ValidationError, Missing) bind err: err.type)
+value""",
+        ("string", "ValidationError"),
+        None,
+    )
+)
 runtime_scenario(lambda: _rt("catch-type-miss", 'missingVar catch (ValidationError): { 1 }', None, ShakarRuntimeError))
 runtime_scenario(lambda: _rt("if-true-inline", 'if true: 5', ("number", 5), None))
 runtime_scenario(lambda: _rt("if-elif-else", 'if false: { 1 } elif true: { 2 } else: { 3 }', ("number", 2), None))
