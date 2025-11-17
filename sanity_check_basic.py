@@ -694,6 +694,27 @@ verdict""",
 )
 runtime_scenario(
     lambda: _rt(
+        "selector-literal-pick",
+        """sel := `0, 2`
+arr := [10, 20, 30]
+picked := arr[sel]
+picked[0] + picked[1]""",
+        ("number", 40),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-slice",
+        """arr := [10, 20, 30, 40]
+slice := arr[1:3]
+slice[0] + slice[1]""",
+        ("number", 50),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "postfix-if-walrus-true",
         """calls := 0
 fn bump(): { calls += 1; "run" }
@@ -749,6 +770,22 @@ runtime_scenario(
 true: result = "hit" | false: result = "miss" |: result = "else"
 result""",
         ("string", "hit"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "object-getter-setter",
+        """obj := {
+  get label(): "fixed"
+  greet(name): "hi " + name
+  ("dyn" + "Key"): 42
+}
+label := obj.label
+greet := obj.greet("Ada")
+dyn := obj["dynKey"]
+label + "|" + greet + "|" + ("" + dyn)""",
+        ("string", "fixed|hi Ada|42.0"),
         None,
     )
 )
