@@ -314,6 +314,31 @@ class Prune(Transformer):
     def _keep_or_flatten(self, name, children, alias=None):
         return children[0] if len(children) == 1 else Tree(alias or name, children)
 
+    def _flatten_chain_parts(self, items):
+        for item in items:
+            if is_tree(item):
+                label = tree_label(item)
+                if label in {'chain_suffix', 'chain_steps', 'chain_incr'}:
+                    yield from self._flatten_chain_parts(tree_children(item))
+                    continue
+            yield item
+
+    def _flatten_ccc_parts(self, items):
+        for item in items:
+            if is_tree(item):
+                label = tree_label(item)
+                if label in {
+                    'ccc_trailer',
+                    'ccc_chain',
+                    'ccc_leg',
+                    'ccc_or_leg',
+                    'ccc_and_leg',
+                    'ccc_and_payload',
+                }:
+                    yield from self._flatten_ccc_parts(tree_children(item))
+                    continue
+            yield item
+
     def stmt(self, c):
         c = [x for x in c if x is not Discard]
         if not c:
@@ -610,6 +635,7 @@ class Prune(Transformer):
     def walrusexpr(self, c):    return self._keep_or_flatten('walrusexpr', c, 'walrus')
     def nullishexpr(self, c):   return self._keep_or_flatten('nullishexpr', c, 'nullish')
     def compareexpr(self, c):
+        c = list(self._flatten_ccc_parts(c))
         return self._keep_or_flatten('compareexpr', c, 'compare')
     def addexpr(self, c):       return self._keep_or_flatten('addexpr', c, 'add')
     def mulexpr(self, c):       return self._keep_or_flatten('mulexpr', c, 'mul')
@@ -626,6 +652,7 @@ class Prune(Transformer):
     def walrusexpr_nc(self, c):    return self._keep_or_flatten('walrusexpr_nc', c, 'walrus_nc')
     def nullishexpr_nc(self, c):   return self._keep_or_flatten('nullishexpr_nc', c, 'nullish_nc')
     def compareexpr_nc(self, c):
+        c = list(self._flatten_ccc_parts(c))
         return self._keep_or_flatten('compareexpr_nc', c, 'compare_nc')
     def addexpr_nc(self, c):       return self._keep_or_flatten('addexpr_nc', c, 'add_nc')
     def mulexpr_nc(self, c):       return self._keep_or_flatten('mulexpr_nc', c, 'mul_nc')
@@ -634,12 +661,15 @@ class Prune(Transformer):
 
     # collapse explicit head when it's just a single, non-hop child
     def explicit_chain(self, c):
+        c = list(self._flatten_chain_parts(c))
         if len(c) == 1:
             child = c[0]
             if not (is_tree(child) and tree_label(child) in {'field', 'index', 'call', 'incr', 'decr', 'fieldfan'}):
                 return child
         return Tree('explicit_chain', c)
-    def implicit_chain(self, c): return Tree('implicit_chain', c)
+    def implicit_chain(self, c):
+        c = list(self._flatten_chain_parts(c))
+        return Tree('implicit_chain', c)
     def field(self, c):
         # Normalize field to hold only the IDENT token (drop DOT), so printers show the name
         ident_only = [tok for tok in c if getattr(tok, 'type', None) == 'IDENT']
