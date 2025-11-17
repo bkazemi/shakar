@@ -516,6 +516,8 @@ class Prune(Transformer):
                 continue
             exprs.append(self._transform_tree(node) if is_tree(node) else node)
         return Tree('returnstmt', exprs)
+    def returnif(self, c):
+        return Tree('returnif', c)
 
     def throwstmt(self, c):
         exprs: List[Any] = []

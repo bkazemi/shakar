@@ -215,6 +215,8 @@ def eval_node(n: Any, frame: Frame) -> Any:
             return _eval_walrus(n.children, frame)
         case 'returnstmt':
             return _eval_return_stmt(n.children, frame)
+        case 'returnif':
+            return _eval_return_if(n.children, frame)
         case 'throwstmt':
             return _eval_throw_stmt(n.children, frame)
         case 'breakstmt':
@@ -440,6 +442,17 @@ def _eval_return_stmt(children: List[Any], frame: Frame) -> Any:
         raise ShakarRuntimeError("return outside of a function")
     value = eval_node(children[0], frame) if children else ShkNull()
     raise ShakarReturnSignal(value)
+
+def _eval_return_if(children: List[Any], frame: Frame) -> Any:
+    """Implements `?ret expr`: evaluate expr and return when it is truthy."""
+    if _current_function_frame(frame) is None:
+        raise ShakarRuntimeError("?ret outside of a function")
+    if not children:
+        raise ShakarRuntimeError("?ret requires an expression")
+    value = eval_node(children[0], frame)
+    if _is_truthy(value):
+        raise ShakarReturnSignal(value)
+    return ShkNull()
 
 def _eval_throw_stmt(children: List[Any], frame: Frame) -> Any:
     """implements `throw` with optional expression; bare throw rethrows current catch payload."""

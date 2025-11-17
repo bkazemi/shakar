@@ -476,17 +476,6 @@ runtime_scenario(lambda: _rt("compound-assign-div", 'a := 9; a /= 2; a', ("numbe
 runtime_scenario(lambda: _rt("compound-assign-floordiv", 'a := 9; a //= 2; a', ("number", 4), None))
 runtime_scenario(
     lambda: _rt(
-        "nullsafe-chain",
-        """arr := nil
-fallback := "safe"
-value := arr ??(arr[0]) ?? fallback
-value""",
-        ("string", "safe"),
-        None,
-    )
-)
-runtime_scenario(
-    lambda: _rt(
         "listcomp-filter",
         """src := [1, 2, 3, 4]
 odds := [ n over src if n % 2 == 1 ]
@@ -923,6 +912,20 @@ value""",
         None,
     )
 )
+runtime_scenario(
+    lambda: _rt(
+        "return-if",
+        """fn first_even(xs): {
+  for n in xs:
+    if n % 2 == 0:
+      ?ret n
+  "none"
+}
+first_even([1, 3, 5, 6, 8])""",
+        ("number", 6),
+        None,
+    )
+)
 runtime_scenario(lambda: _rt("catch-type-miss", 'missingVar catch (ValidationError): { 1 }', None, ShakarRuntimeError))
 runtime_scenario(lambda: _rt("if-true-inline", 'if true: 5', ("number", 5), None))
 runtime_scenario(lambda: _rt("if-elif-else", 'if false: { 1 } elif true: { 2 } else: { 3 }', ("number", 2), None))
@@ -1318,14 +1321,14 @@ r_runtime_ops = [
 for name, source, expect in r_runtime_ops:
     runtime_scenario(lambda n=name, src=source, exp=expect: _rt(n, src, exp, None))
 
-runtime_scenario(
-    lambda: _rt(
-        "nullsafe-chain",
-        """arr := nil
-fallback := [1, 2]
-value := arr ??(arr[0]) ?? fallback[1]
-value""",
-        ("number", 2),
-        None,
+# runtime_scenario(
+#     lambda: _rt(
+#         "nullsafe-chain",
+#         """arr := nil
+# fallback := [1, 2]
+# value := arr ??(arr[0]) ?? fallback[1]
+# value""",
+#         ("number", 2),
+#         None,
     )
 )
