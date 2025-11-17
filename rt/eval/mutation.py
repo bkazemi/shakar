@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from shakar_runtime import (
-    Env,
+    Frame,
     BoundMethod,
     BuiltinMethod,
     Builtins,
@@ -23,7 +23,7 @@ from shakar_runtime import (
 )
 from eval.selector import clone_selector_parts, apply_selectors_to_value
 
-def set_field_value(recv: Any, name: str, value: Any, env: Env, *, create: bool) -> Any:
+def set_field_value(recv: Any, name: str, value: Any, frame: Frame, *, create: bool) -> Any:
     """Assign `recv.name = value`, honoring descriptors and creation semantics."""
     match recv:
         case ShkObject(slots=slots):
@@ -33,7 +33,7 @@ def set_field_value(recv: Any, name: str, value: Any, env: Env, *, create: bool)
                 setter = slot.setter
                 if setter is None:
                     raise ShakarRuntimeError(f"Property '{name}' is read-only")
-                call_shkfn(setter, [value], subject=recv, caller_env=env)
+                call_shkfn(setter, [value], subject=recv, caller_frame=frame)
                 return value
             if slot is None and not create:
                 raise ShakarRuntimeError(f"Field '{name}' is undefined; use ':=' to create it")
@@ -42,7 +42,7 @@ def set_field_value(recv: Any, name: str, value: Any, env: Env, *, create: bool)
         case _:
             raise ShakarTypeError(f"Cannot set field '{name}' on {type(recv).__name__}")
 
-def set_index_value(recv: Any, index: Any, value: Any, _env: Env) -> Any:
+def set_index_value(recv: Any, index: Any, value: Any, _frame: Frame) -> Any:
     """Assign `recv[index] = value` for arrays/objects with minimal coercions."""
     match recv:
         case ShkArray(items=items):
@@ -60,7 +60,7 @@ def set_index_value(recv: Any, index: Any, value: Any, _env: Env) -> Any:
         case _:
             raise ShakarTypeError("Unsupported index assignment target")
 
-def index_value(recv: Any, idx: Any, env: Env) -> Any:
+def index_value(recv: Any, idx: Any, frame: Frame) -> Any:
     """Read `recv[idx]`, supporting selectors, descriptors, and builtins."""
     match recv:
         case ShkArray(items=items):
@@ -93,7 +93,7 @@ def index_value(recv: Any, idx: Any, env: Env) -> Any:
                     getter = val.getter
                     if getter is None:
                         return ShkNull()
-                    return call_shkfn(getter, [], subject=recv, caller_env=env)
+                    return call_shkfn(getter, [], subject=recv, caller_frame=frame)
                 return val
             raise ShakarKeyError(key)
         case _:
@@ -110,7 +110,7 @@ def slice_value(recv: Any, start: int | None, stop: int | None, step: int | None
         case _:
             raise ShakarTypeError("Slice only supported on arrays/strings")
 
-def get_field_value(recv: Any, name: str, env: Env) -> Any:
+def get_field_value(recv: Any, name: str, frame: Frame) -> Any:
     """Fetch `recv.name`, resolving descriptors and builtin method sugar."""
     match recv:
         case ShkObject(slots=slots):
@@ -121,7 +121,7 @@ def get_field_value(recv: Any, name: str, env: Env) -> Any:
                     getter = slot.getter
                     if getter is None:
                         return ShkNull()
-                    return call_shkfn(getter, [], subject=recv, caller_env=env)
+                    return call_shkfn(getter, [], subject=recv, caller_frame=frame)
                 if isinstance(slot, ShkFn):
                     # methods capture the receiver via BoundMethod to keep dot semantics.
                     return BoundMethod(slot, recv)

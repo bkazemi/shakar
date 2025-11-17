@@ -29,8 +29,8 @@ def ident_token_value(node: Any) -> Optional[str]:
 def is_literal_node(node: Any) -> bool:
     return not isinstance(node, (Tree, Token))
 
-def get_source_segment(node: Any, env: Any) -> Optional[str]:
-    source = getattr(env, 'source', None)
+def get_source_segment(node: Any, frame: Any) -> Optional[str]:
+    source = getattr(frame, 'source', None)
     if source is None:
         return None
     meta = node_meta(node)

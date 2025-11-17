@@ -6,7 +6,7 @@ from typing import Any, Iterable, Optional, Callable
 
 from lark import Tree, Token
 
-from shakar_runtime import Env, ShkArray, ShakarRuntimeError
+from shakar_runtime import Frame, ShkArray, ShakarRuntimeError
 from shakar_utils import (
     is_sequence_value,
     sequence_items,
@@ -21,20 +21,20 @@ def _ident_token_value(node: Any) -> Optional[str]:
     return None
 
 def evaluate_destructure_rhs(
-    eval_fn: Callable[[Any, Env], Any],
+    eval_fn: Callable[[Any, Frame], Any],
     rhs_node: Any,
-    env: Env,
+    frame: Frame,
     target_count: int,
     allow_broadcast: bool
 ) -> tuple[list[Any], Any]:
     """Evaluate RHS once and expand/broadcast values to match the target count."""
     if tree_label(rhs_node) == "pack":
         # multiple RHS expressions separated by commas: evaluate each once.
-        vals = [eval_fn(child, env) for child in rhs_node.children]
+        vals = [eval_fn(child, frame) for child in rhs_node.children]
         result = ShkArray(vals)
     else:
         # single RHS expression; treat as candidate for broadcast below.
-        single = eval_fn(rhs_node, env)
+        single = eval_fn(rhs_node, frame)
         vals = [single]
         result = single
     if len(vals) == 1 and target_count > 1:
@@ -62,11 +62,11 @@ def evaluate_destructure_rhs(
     return vals, result
 
 def assign_pattern(
-    eval_fn: Callable[[Any, Env], Any],
-    assign_ident: Callable[[str, Any, Env, bool], Any],
+    eval_fn: Callable[[Any, Frame], Any],
+    assign_ident: Callable[[str, Any, Frame, bool], Any],
     pattern: Tree,
     value: Any,
-    env: Env,
+    frame: Frame,
     create: bool,
     allow_broadcast: bool
 ) -> None:
@@ -77,9 +77,9 @@ def assign_pattern(
     ident = _ident_token_value(target)
     if ident is not None:
         if create:
-            env.define(ident, value)
+            frame.define(ident, value)
         else:
-            assign_ident(ident, value, env, create=False)
+            assign_ident(ident, value, frame, create=False)
         return
     if tree_label(target) == "pattern_list":
         subpatterns = [c for c in tree_children(target) if tree_label(c) == "pattern"]
@@ -93,14 +93,14 @@ def assign_pattern(
             else:
                 raise ShakarRuntimeError("Destructure expects a sequence")
         for sub_pat, sub_val in zip(subpatterns, seq):
-            assign_pattern(eval_fn, assign_ident, sub_pat, sub_val, env, create, allow_broadcast)
+            assign_pattern(eval_fn, assign_ident, sub_pat, sub_val, frame, create, allow_broadcast)
         return
     raise ShakarRuntimeError("Unsupported pattern element")
 
 def infer_implicit_binders(
     exprs: Iterable[Any],
     ifclause: Optional[Tree],
-    env: Env,
+    frame: Frame,
     collect_fn: Callable[[Any, Callable[[str], None]], None]
 ) -> list[str]:
     """Collect implicit binder names used inside comprehensions, skipping clashes."""
@@ -110,7 +110,7 @@ def infer_implicit_binders(
     def consider(name: str) -> None:
         if name in seen:
             return
-        if _name_exists(env, name):
+        if _name_exists(frame, name):
             return
         seen.add(name)
         names.append(name)
@@ -123,11 +123,11 @@ def infer_implicit_binders(
     return names
 
 def apply_comp_binders(
-    assign_fn: Callable[[Tree, Any, Env, bool, bool], None],
+    assign_fn: Callable[[Tree, Any, Frame, bool, bool], None],
     binders: list[dict[str, Any]],
     element: Any,
-    iter_env: Env,
-    outer_env: Env
+    iter_frame: Frame,
+    outer_frame: Frame
 ) -> None:
     """Assign comprehension binder patterns for each element, honoring hoisting."""
     if not binders:
@@ -141,12 +141,12 @@ def apply_comp_binders(
         values = seq
     for binder, val in zip(binders, values):
         # hoisted binders write into the outer scope so closures can reuse them.
-        target_env = outer_env if binder.get("hoist") else iter_env
-        assign_fn(binder["pattern"], val, target_env, create=True, allow_broadcast=False)
+        target_frame = outer_frame if binder.get("hoist") else iter_frame
+        assign_fn(binder["pattern"], val, target_frame, create=True, allow_broadcast=False)
 
-def _name_exists(env: Env, name: str) -> bool:
+def _name_exists(frame: Frame, name: str) -> bool:
     try:
-        env.get(name)
+        frame.get(name)
         return True
     except ShakarRuntimeError:
         return False

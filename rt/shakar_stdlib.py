@@ -20,13 +20,13 @@ def _render(value):
     return str(value)
 
 @register_stdlib("print")
-def std_print(_env, args: List[object]) -> ShkNull:
+def std_print(_frame, args: List[object]) -> ShkNull:
     rendered = [_render(arg) for arg in args]
     print(*rendered)
     return ShkNull()
 
 @register_stdlib("sleep")
-def std_sleep(_env, args: List[object]):
+def std_sleep(_frame, args: List[object]):
     if len(args) != 1:
         raise ShakarTypeError("sleep expects exactly one argument")
     duration = args[0]
@@ -42,7 +42,7 @@ def std_sleep(_env, args: List[object]):
     return _sleep_coro()
 
 @register_stdlib("error")
-def std_error(_env, args: List[object]):
+def std_error(_frame, args: List[object]):
     if len(args) < 2 or len(args) > 3:
         raise ShakarTypeError("error(type, message[, data]) expects 2 or 3 arguments")
     type_arg, message_arg, *rest = args

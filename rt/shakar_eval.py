@@ -13,7 +13,7 @@ from shakar_runtime import (
     DecoratorContinuation,
     DeferEntry,
     Descriptor,
-    Env,
+    Frame,
     ShkArray,
     ShkBool,
     ShkDecorator,
@@ -116,52 +116,52 @@ from eval.bind import (
 
 # ---------------- Public API ----------------
 
-def eval_expr(ast: Any, env: Optional[Env]=None, source: Optional[str]=None) -> Any:
+def eval_expr(ast: Any, frame: Optional[Frame]=None, source: Optional[str]=None) -> Any:
     init_stdlib()
-    if env is None:
-        env = Env(source=source)
+    if frame is None:
+        frame = Frame(source=source)
     else:
         if source is not None:
-            env.source = source
-        elif not hasattr(env, 'source'):
-            env.source = None
-    return eval_node(ast, env)
+            frame.source = source
+        elif not hasattr(frame, 'source'):
+            frame.source = None
+    return eval_node(ast, frame)
 
 # ---------------- Core evaluator ----------------
 
-def eval_node(n: Any, env: Env) -> Any:
+def eval_node(n: Any, frame: Frame) -> Any:
     if _is_literal_node(n):
         return n
     if is_token_node(n):
-        return _eval_token(n, env)
+        return _eval_token(n, frame)
 
     d = n.data
     handler = _NODE_DISPATCH.get(d)
     if handler is not None:
-        return handler(n, env)
+        return handler(n, frame)
     match d:
         # common wrapper nodes (delegate to single child)
         case 'start_noindent' | 'start_indented' | 'stmtlist':
-            return _eval_program(n.children, env)
+            return _eval_program(n.children, frame)
         case 'stmt':
-            return _eval_program(n.children, env)
+            return _eval_program(n.children, frame)
         case 'literal' | 'primary' | 'expr' | 'expr_nc':
             if len(n.children) == 1:
-                return eval_node(n.children[0], env)
+                return eval_node(n.children[0], frame)
             if len(n.children) == 0 and d == 'literal':
                 return _eval_keyword_literal(n)
             raise ShakarRuntimeError(f"Unsupported wrapper shape {d} with {len(n.children)} children")
         case 'array':
-            return ShkArray([eval_node(c, env) for c in n.children])
+            return ShkArray([eval_node(c, frame) for c in n.children])
         case 'object':
-            return _eval_object(n, env)
+            return _eval_object(n, frame)
         case 'unary' | 'unary_nc':
             op, rhs_node = n.children
-            return _eval_unary(op, rhs_node, env)
+            return _eval_unary(op, rhs_node, frame)
         case 'pow' | 'pow_nc':
-            return _eval_infix(n.children, env, right_assoc_ops={'**', 'POW'})
+            return _eval_infix(n.children, frame, right_assoc_ops={'**', 'POW'})
         case 'mul' | 'mul_nc' | 'add' | 'add_nc':
-            return _eval_infix(n.children, env)
+            return _eval_infix(n.children, frame)
         case 'explicit_chain':
             head, *ops = n.children
             if ops and tree_label(ops[-1]) in {'incr', 'decr'}:
@@ -170,7 +170,7 @@ def eval_node(n: Any, env: Env) -> Any:
                 context = resolve_chain_assignment(
                     head,
                     ops[:-1],
-                    env,
+                    frame,
                     eval_func=eval_node,
                     apply_op=_apply_op,
                     evaluate_index_operand=_evaluate_index_operand,
@@ -180,7 +180,7 @@ def eval_node(n: Any, env: Env) -> Any:
                     raise ShakarRuntimeError("++/-- not supported on field fan assignments")
                 old_val, _ = apply_numeric_delta(context, delta)
                 return old_val
-            val = eval_node(head, env)
+            val = eval_node(head, frame)
             head_label = tree_label(head) if is_tree_node(head) else None
             head_is_rebind = head_label in {'rebind_primary', 'rebind_primary_grouped'}
             head_is_grouped_rebind = head_label == 'rebind_primary_grouped'
@@ -189,7 +189,7 @@ def eval_node(n: Any, env: Env) -> Any:
                 label = tree_label(op)
                 if label not in {'field', 'fieldsel', 'index'}:
                     tail_has_effect = True
-                val = _apply_op(val, op, env)
+                val = _apply_op(val, op, frame)
             if head_is_rebind:
                 if not ops:
                     raise ShakarRuntimeError("Prefix rebind requires a tail expression")
@@ -203,61 +203,61 @@ def eval_node(n: Any, env: Env) -> Any:
                 return ShkArray(val.snapshot())
             return val
         case 'implicit_chain':
-            return _eval_implicit_chain(n.children, env)
+            return _eval_implicit_chain(n.children, frame)
         case 'call':
             args_node = n.children[0] if n.children else None
-            args = _eval_args_node(args_node, env)
-            cal = env.get('')  # unreachable in practice
-            return _call_value(cal, args, env)
+            args = _eval_args_node(args_node, frame)
+            cal = frame.get('')  # unreachable in practice
+            return _call_value(cal, args, frame)
         case 'and' | 'or' | 'and_nc' | 'or_nc':
-            return _eval_logical(d, n.children, env)
+            return _eval_logical(d, n.children, frame)
         case 'walrus' | 'walrus_nc':
-            return _eval_walrus(n.children, env)
+            return _eval_walrus(n.children, frame)
         case 'returnstmt':
-            return _eval_return_stmt(n.children, env)
+            return _eval_return_stmt(n.children, frame)
         case 'throwstmt':
-            return _eval_throw_stmt(n.children, env)
+            return _eval_throw_stmt(n.children, frame)
         case 'breakstmt':
-            return _eval_break_stmt(env)
+            return _eval_break_stmt(frame)
         case 'continuestmt':
-            return _eval_continue_stmt(env)
+            return _eval_continue_stmt(frame)
         case 'assignstmt':
-            return _eval_assign_stmt(n.children, env)
+            return _eval_assign_stmt(n.children, frame)
         case 'postfixif':
-            return _postfix_eval_if(n.children, env, eval_func=eval_node, truthy_fn=_is_truthy)
+            return _postfix_eval_if(n.children, frame, eval_func=eval_node, truthy_fn=_is_truthy)
         case 'postfixunless':
-            return _postfix_eval_unless(n.children, env, eval_func=eval_node, truthy_fn=_is_truthy)
+            return _postfix_eval_unless(n.children, frame, eval_func=eval_node, truthy_fn=_is_truthy)
         case 'compound_assign':
-            return _eval_compound_assign(n.children, env)
+            return _eval_compound_assign(n.children, frame)
         case 'fndef':
-            return _eval_fn_def(n.children, env)
+            return _eval_fn_def(n.children, frame)
         case 'decorator_def':
-            return _eval_decorator_def(n.children, env)
+            return _eval_decorator_def(n.children, frame)
         case 'deferstmt':
-            return _eval_defer_stmt(n.children, env)
+            return _eval_defer_stmt(n.children, frame)
         case 'assert':
-            return _eval_assert(n.children, env)
+            return _eval_assert(n.children, frame)
         case 'bind' | 'bind_nc':
-            return _eval_apply_assign(n.children, env)
+            return _eval_apply_assign(n.children, frame)
         case 'subject':
-            return _get_subject(env)
+            return _get_subject(frame)
         case 'keyexpr' | 'keyexpr_nc':
-            return eval_node(n.children[0], env) if n.children else ShkNull()
+            return eval_node(n.children[0], frame) if n.children else ShkNull()
         case 'destructure':
-            return _eval_destructure(n, env, create=False, allow_broadcast=False)
+            return _eval_destructure(n, frame, create=False, allow_broadcast=False)
         case 'destructure_walrus':
-            return _eval_destructure(n, env, create=True, allow_broadcast=True)
+            return _eval_destructure(n, frame, create=True, allow_broadcast=True)
         case _:
             raise ShakarRuntimeError(f"Unknown node: {d}")
 
 # ---------------- Tokens ----------------
 
-def _eval_token(t: Token, env: Env) -> Any:
+def _eval_token(t: Token, frame: Frame) -> Any:
     handler = _TOKEN_DISPATCH.get(t.type)
     if handler:
-        return handler(t, env)
+        return handler(t, frame)
     if t.type == 'IDENT':
-        return env.get(t.value)
+        return frame.get(t.value)
     raise ShakarRuntimeError(f"Unhandled token {t.type}:{t.value}")
 
 def _eval_keyword_literal(node: Tree) -> Any:
@@ -278,17 +278,17 @@ def _eval_keyword_literal(node: Tree) -> Any:
             return ShkBool(False)
     raise ShakarRuntimeError("Unknown literal")
 
-def _eval_program(children: List[Any], env: Env, allow_loop_control: bool=False) -> Any:
+def _eval_program(children: List[Any], frame: Frame, allow_loop_control: bool=False) -> Any:
     """Run a stmt list under a fresh defer scope, returning last value."""
     result: Any = ShkNull()
     skip_tokens = {'SEMI', '_NL', 'INDENT', 'DEDENT'}
-    _push_defer_scope(env)
+    _push_defer_scope(frame)
     try:
         try:
             for child in children:
                 if _token_kind(child) in skip_tokens:
                     continue
-                result = eval_node(child, env)
+                result = eval_node(child, frame)
         except ShakarBreakSignal:
             if allow_loop_control:
                 raise
@@ -298,20 +298,20 @@ def _eval_program(children: List[Any], env: Env, allow_loop_control: bool=False)
                 raise
             raise ShakarRuntimeError("continue outside of a loop") from None
     finally:
-        _pop_defer_scope(env)
+        _pop_defer_scope(frame)
     return result
 
-def _get_subject(env: Env) -> Any:
-    if env.dot is None:
+def _get_subject(frame: Frame) -> Any:
+    if frame.dot is None:
         raise ShakarRuntimeError("No subject available for '.'")
-    return env.dot
+    return frame.dot
 
-def _push_defer_scope(env: Env) -> None:
+def _push_defer_scope(frame: Frame) -> None:
     # each scope owns its own LIFO queue of entries; nested scopes flush before parents.
-    env.push_defer_frame()
+    frame.push_defer_frame()
 
-def _pop_defer_scope(env: Env) -> None:
-    entries = env.pop_defer_frame()
+def _pop_defer_scope(frame: Frame) -> None:
+    entries = frame.pop_defer_frame()
     if entries:
         _run_defer_entries(entries)
 
@@ -348,10 +348,10 @@ def _run_defer_entries(entries: List[DeferEntry]) -> None:
     for idx in reversed(range(len(entries))):
         run_index(idx)
 
-def _schedule_defer(env: Env, thunk: Callable[[], None], label: str | None=None, deps: List[str] | None=None) -> None:
-    if not env.has_defer_frame():
+def _schedule_defer(frame: Frame, thunk: Callable[[], None], label: str | None=None, deps: List[str] | None=None) -> None:
+    if not frame.has_defer_frame():
         raise ShakarRuntimeError("Cannot use defer outside of a block")
-    frame = env.current_defer_frame()
+    frame = frame.current_defer_frame()
     entry = DeferEntry(thunk=thunk, label=label, deps=list(deps or []))
     if label:
         for existing in frame:
@@ -359,28 +359,28 @@ def _schedule_defer(env: Env, thunk: Callable[[], None], label: str | None=None,
                 raise ShakarRuntimeError(f"Duplicate defer handle '{label}'")
     frame.append(entry)  # defer runs when the owning scope unwinds
 
-def _eval_implicit_chain(ops: List[Any], env: Env) -> Any:
+def _eval_implicit_chain(ops: List[Any], frame: Frame) -> Any:
     """Evaluate `.foo().bar` style chains using the current subject anchor."""
-    val = _get_subject(env)
+    val = _get_subject(frame)
     for op in ops:
-        val = _apply_op(val, op, env)
+        val = _apply_op(val, op, frame)
     return val
 
-def _eval_inline_body(node: Any, env: Env, allow_loop_control: bool=False) -> Any:
+def _eval_inline_body(node: Any, frame: Frame, allow_loop_control: bool=False) -> Any:
     """Execute a single-statement body or `{}` block attached to colon headers."""
     if tree_label(node) == 'inlinebody':
         for child in tree_children(node):
             if tree_label(child) == 'stmtlist':
-                return _eval_program(child.children, env, allow_loop_control=allow_loop_control)
+                return _eval_program(child.children, frame, allow_loop_control=allow_loop_control)
         if not tree_children(node):
             return ShkNull()
-        return eval_node(node.children[0], env)
-    return eval_node(node, env)
+        return eval_node(node.children[0], frame)
+    return eval_node(node, frame)
 
-def _eval_indent_block(node: Tree, env: Env, allow_loop_control: bool=False) -> Any:
-    return _eval_program(node.children, env, allow_loop_control=allow_loop_control)
+def _eval_indent_block(node: Tree, frame: Frame, allow_loop_control: bool=False) -> Any:
+    return _eval_program(node.children, frame, allow_loop_control=allow_loop_control)
 
-def _eval_oneline_guard(children: List[Any], env: Env) -> Any:
+def _eval_oneline_guard(children: List[Any], frame: Frame) -> Any:
     branches: List[Tree] = []
     else_body: Tree | None = None
     for child in children:
@@ -389,44 +389,44 @@ def _eval_oneline_guard(children: List[Any], env: Env) -> Any:
             branches.append(child)
         elif data == 'inlinebody':
             else_body = child
-    outer_dot = env.dot
+    outer_dot = frame.dot
     for branch in branches:
         if not is_tree_node(branch) or len(branch.children) != 2:
             raise ShakarRuntimeError("Malformed guard branch")
         cond_node, body_node = branch.children
-        with _temporary_subject(env, outer_dot):
-            cond_val = eval_node(cond_node, env)
+        with _temporary_subject(frame, outer_dot):
+            cond_val = eval_node(cond_node, frame)
         if _is_truthy(cond_val):
-            with _temporary_subject(env, outer_dot):
-                return _eval_inline_body(body_node, env)
+            with _temporary_subject(frame, outer_dot):
+                return _eval_inline_body(body_node, frame)
     if else_body is not None:
-        with _temporary_subject(env, outer_dot):
-            return _eval_inline_body(else_body, env)
-    env.dot = outer_dot
+        with _temporary_subject(frame, outer_dot):
+            return _eval_inline_body(else_body, frame)
+    frame.dot = outer_dot
     return ShkNull()
 
 # ---------------- Assignment ----------------
 
-def _eval_walrus(children: List[Any], env: Env) -> Any:
+def _eval_walrus(children: List[Any], frame: Frame) -> Any:
     """Implements `name := expr` inline assignments."""
     if len(children) != 2:
         raise ShakarRuntimeError("Malformed walrus expression")
     name_node, value_node = children
     name = _expect_ident_token(name_node, "Walrus target")
-    value = eval_node(value_node, env)
-    return define_new_ident(name, value, env)
+    value = eval_node(value_node, frame)
+    return define_new_ident(name, value, frame)
 
-def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
+def _eval_assign_stmt(children: List[Any], frame: Frame) -> Any:
     """Handles simple `lhs = rhs` statements (no destructuring)."""
     if len(children) < 2:
         raise ShakarRuntimeError("Malformed assignment statement")
     lvalue_node = children[0]
     value_node = children[-1]
-    value = eval_node(value_node, env)
+    value = eval_node(value_node, frame)
     assign_lvalue(
         lvalue_node,
         value,
-        env,
+        frame,
         eval_func=eval_node,
         apply_op=_apply_op,
         evaluate_index_operand=_evaluate_index_operand,
@@ -434,19 +434,19 @@ def _eval_assign_stmt(children: List[Any], env: Env) -> Any:
     )
     return ShkNull()
 
-def _eval_return_stmt(children: List[Any], env: Env) -> Any:
+def _eval_return_stmt(children: List[Any], frame: Frame) -> Any:
     """implements `return` with optional expression, unwinding via control signal."""
-    if _current_function_env(env) is None:
+    if _current_function_frame(frame) is None:
         raise ShakarRuntimeError("return outside of a function")
-    value = eval_node(children[0], env) if children else ShkNull()
+    value = eval_node(children[0], frame) if children else ShkNull()
     raise ShakarReturnSignal(value)
 
-def _eval_throw_stmt(children: List[Any], env: Env) -> Any:
+def _eval_throw_stmt(children: List[Any], frame: Frame) -> Any:
     """implements `throw` with optional expression; bare throw rethrows current catch payload."""
     if children:
-        value = eval_node(children[0], env)
+        value = eval_node(children[0], frame)
         raise _coerce_throw_value(value)
-    current = getattr(env, '_active_error', None)
+    current = getattr(frame, '_active_error', None)
     if current is None:
         raise ShakarRuntimeError("throw outside of catch")
     raise current
@@ -514,7 +514,7 @@ def _parse_catch_components(children: List[Any]) -> tuple[Any, Any | None, List[
 
 def _run_catch_handler(
     handler: Any,
-    env: Env,
+    frame: Frame,
     binder: Any | None,
     payload: ShkObject,
     original_exc: ShakarRuntimeError,
@@ -539,48 +539,48 @@ def _run_catch_handler(
     def _exec_handler() -> Any:
         label = tree_label(handler)
         if label == 'inlinebody':
-            return _eval_inline_body(handler, env)
+            return _eval_inline_body(handler, frame)
         if label == 'indentblock':
-            return _eval_indent_block(handler, env)
-        return eval_node(handler, env)
+            return _eval_indent_block(handler, frame)
+        return eval_node(handler, frame)
 
     # track the currently handled exception so a bare `throw` can rethrow it later
-    prev_error = getattr(env, '_active_error', None)
-    env._active_error = original_exc
+    prev_error = getattr(frame, '_active_error', None)
+    frame._active_error = original_exc
     try:
-        with _temporary_subject(env, payload):
+        with _temporary_subject(frame, payload):
             if binder_name:
-                with _temporary_bindings(env, {binder_name: payload}):
+                with _temporary_bindings(frame, {binder_name: payload}):
                     return _exec_handler()
             return _exec_handler()
     finally:
-        env._active_error = prev_error
+        frame._active_error = prev_error
 
-def _eval_catch_expr(children: List[Any], env: Env) -> Any:
+def _eval_catch_expr(children: List[Any], frame: Frame) -> Any:
     try_node, binder, type_names, handler = _parse_catch_components(children)
     try:
-        return eval_node(try_node, env)
+        return eval_node(try_node, frame)
     except ShakarRuntimeError as exc:
         payload = _build_error_payload(exc)
-        return _run_catch_handler(handler, env, binder, payload, exc, type_names)
+        return _run_catch_handler(handler, frame, binder, payload, exc, type_names)
 
-def _eval_catch_stmt(children: List[Any], env: Env) -> Any:
+def _eval_catch_stmt(children: List[Any], frame: Frame) -> Any:
     try_node, binder, type_names, body = _parse_catch_components(children)
     try:
-        eval_node(try_node, env)
+        eval_node(try_node, frame)
         return ShkNull()
     except ShakarRuntimeError as exc:
         payload = _build_error_payload(exc)
-        _run_catch_handler(body, env, binder, payload, exc, type_names)
+        _run_catch_handler(body, frame, binder, payload, exc, type_names)
         return ShkNull()
 
-def _eval_break_stmt(env: Env) -> Any:
+def _eval_break_stmt(frame: Frame) -> Any:
     raise ShakarBreakSignal()
 
-def _eval_continue_stmt(env: Env) -> Any:
+def _eval_continue_stmt(frame: Frame) -> Any:
     raise ShakarContinueSignal()
 
-def _eval_defer_stmt(children: List[Any], env: Env) -> Any:
+def _eval_defer_stmt(children: List[Any], frame: Frame) -> Any:
     """Schedule a deferred thunk, unpacking optional label/dependency metadata."""
     if not children:
         raise ShakarRuntimeError("Malformed defer statement")
@@ -612,24 +612,24 @@ def _eval_defer_stmt(children: List[Any], env: Env) -> Any:
         payload = body_wrapper.children[0] if is_tree_node(body_wrapper) and body_wrapper.children else Tree('inlinebody', [])
     else:
         payload = body_wrapper
-    saved_dot = env.dot
-    source = getattr(env, 'source', None)
+    saved_dot = frame.dot
+    source = getattr(frame, 'source', None)
 
     def thunk() -> None:
-        child_env = Env(parent=env, dot=saved_dot, source=source)
-        _push_defer_scope(child_env)
+        child_frame = Frame(parent=frame, dot=saved_dot, source=source)
+        _push_defer_scope(child_frame)
         try:
             if body_kind == 'block':
-                _eval_inline_body(payload, child_env)
+                _eval_inline_body(payload, child_frame)
             else:
-                eval_node(payload, child_env)
+                eval_node(payload, child_frame)
         finally:
-            _pop_defer_scope(child_env)
+            _pop_defer_scope(child_frame)
 
-    _schedule_defer(env, thunk, label=label, deps=deps)
+    _schedule_defer(frame, thunk, label=label, deps=deps)
     return ShkNull()
 
-def _eval_fn_def(children: List[Any], env: Env) -> Any:
+def _eval_fn_def(children: List[Any], frame: Frame) -> Any:
     if not children:
         raise ShakarRuntimeError("Malformed function definition")
     name = _expect_ident_token(children[0], "Function name")
@@ -646,15 +646,15 @@ def _eval_fn_def(children: List[Any], env: Env) -> Any:
     if body_node is None:
         body_node = Tree('inlinebody', [])
     params = _extract_param_names(params_node, context="function definition")
-    fn_value = ShkFn(params=params, body=body_node, env=Env(parent=env, dot=None))
+    fn_value = ShkFn(params=params, body=body_node, frame=Frame(parent=frame, dot=None))
     if decorators_node is not None:
-        instances = _evaluate_decorator_list(decorators_node, env)
+        instances = _evaluate_decorator_list(decorators_node, frame)
         if instances:
             fn_value.decorators = tuple(reversed(instances))
-    assign_ident(name, fn_value, env, create=True)
+    assign_ident(name, fn_value, frame, create=True)
     return ShkNull()
 
-def _eval_decorator_def(children: List[Any], env: Env) -> Any:
+def _eval_decorator_def(children: List[Any], frame: Frame) -> Any:
     if not children:
         raise ShakarRuntimeError("Malformed decorator definition")
     name = _expect_ident_token(children[0], "Decorator name")
@@ -668,18 +668,18 @@ def _eval_decorator_def(children: List[Any], env: Env) -> Any:
     if body_node is None:
         body_node = Tree('inlinebody', [])
     params = _extract_param_names(params_node, context="decorator definition")
-    decorator = ShkDecorator(params=params, body=body_node, env=Env(parent=env, dot=None))
-    assign_ident(name, decorator, env, create=True)
+    decorator = ShkDecorator(params=params, body=body_node, frame=Frame(parent=frame, dot=None))
+    assign_ident(name, decorator, frame, create=True)
     return ShkNull()
 
-def _evaluate_decorator_list(node: Tree, env: Env) -> List[DecoratorConfigured]:
+def _evaluate_decorator_list(node: Tree, frame: Frame) -> List[DecoratorConfigured]:
     configured: List[DecoratorConfigured] = []
     for entry in tree_children(node):
         kids = tree_children(entry)
         expr_node = kids[0] if kids else None
         if expr_node is None:
             continue
-        value = eval_node(expr_node, env)
+        value = eval_node(expr_node, frame)
         configured.append(_coerce_decorator_instance(value))
     return configured
 
@@ -695,7 +695,7 @@ def _coerce_decorator_instance(value: Any) -> DecoratorConfigured:
         case _:
             raise ShakarTypeError("Decorator expression must evaluate to a decorator")
 
-def _eval_anonymous_fn(children: List[Any], env: Env) -> ShkFn:
+def _eval_anonymous_fn(children: List[Any], frame: Frame) -> ShkFn:
     params_node = None
     body_node = None
     for node in children:
@@ -706,22 +706,22 @@ def _eval_anonymous_fn(children: List[Any], env: Env) -> ShkFn:
     if body_node is None:
         body_node = Tree('inlinebody', [])
     params = _extract_param_names(params_node, context="anonymous function")
-    return ShkFn(params=params, body=body_node, env=Env(parent=env, dot=None))
+    return ShkFn(params=params, body=body_node, frame=Frame(parent=frame, dot=None))
 
-def _eval_assert(children: List[Any], env: Env) -> Any:
+def _eval_assert(children: List[Any], frame: Frame) -> Any:
     """Evaluate `assert expr [, message]`, raising ShakarAssertionError when falsy."""
     if not children:
         raise ShakarRuntimeError("Malformed assert statement")
-    cond_val = eval_node(children[0], env)
+    cond_val = eval_node(children[0], frame)
     if _is_truthy(cond_val):
         return ShkNull()
-    message = f"Assertion failed: {_assert_source_snippet(children[0], env)}"
+    message = f"Assertion failed: {_assert_source_snippet(children[0], frame)}"
     if len(children) > 1:
-        msg_val = eval_node(children[1], env)
+        msg_val = eval_node(children[1], frame)
         message = _stringify(msg_val)
     raise ShakarAssertionError(message)
 
-def _eval_if_stmt(n: Tree, env: Env) -> Any:
+def _eval_if_stmt(n: Tree, frame: Frame) -> Any:
     children = tree_children(n)
     cond_node = None
     body_node = None
@@ -744,16 +744,16 @@ def _eval_if_stmt(n: Tree, env: Env) -> Any:
             body_node = child
     if cond_node is None or body_node is None:
         raise ShakarRuntimeError("Malformed if statement")
-    if _is_truthy(eval_node(cond_node, env)):
-        return _execute_loop_body(body_node, env)
+    if _is_truthy(eval_node(cond_node, frame)):
+        return _execute_loop_body(body_node, frame)
     for clause_cond, clause_body in elif_clauses:
-        if _is_truthy(eval_node(clause_cond, env)):
-            return _execute_loop_body(clause_body, env)
+        if _is_truthy(eval_node(clause_cond, frame)):
+            return _execute_loop_body(clause_body, frame)
     if else_body is not None:
-        return _execute_loop_body(else_body, env)
+        return _execute_loop_body(else_body, frame)
     return ShkNull()
 
-def _eval_compound_assign(children: List[Any], env: Env) -> Any:
+def _eval_compound_assign(children: List[Any], frame: Frame) -> Any:
     """Handle `x += y` and friends."""
     if len(children) < 3:
         raise ShakarRuntimeError("Malformed compound assignment")
@@ -768,17 +768,17 @@ def _eval_compound_assign(children: List[Any], env: Env) -> Any:
         raise ShakarRuntimeError(f"Unsupported compound operator {op_value}")
     current_value = read_lvalue(
         lvalue_node,
-        env,
+        frame,
         eval_func=eval_node,
         apply_op=_apply_op,
         evaluate_index_operand=_evaluate_index_operand,
     )
-    rhs_value = eval_node(rhs_node, env)
+    rhs_value = eval_node(rhs_node, frame)
     new_value = _apply_binary_operator(op_symbol, current_value, rhs_value)
     assign_lvalue(
         lvalue_node,
         new_value,
-        env,
+        frame,
         eval_func=eval_node,
         apply_op=_apply_op,
         evaluate_index_operand=_evaluate_index_operand,
@@ -786,7 +786,7 @@ def _eval_compound_assign(children: List[Any], env: Env) -> Any:
     )
     return ShkNull()
 
-def _eval_apply_assign(children: List[Any], env: Env) -> Any:
+def _eval_apply_assign(children: List[Any], frame: Frame) -> Any:
     """Evaluate the `.= expr` apply-assign form (subject-aware updates)."""
     lvalue_node = None
     rhs_node = None
@@ -800,13 +800,13 @@ def _eval_apply_assign(children: List[Any], env: Env) -> Any:
     return apply_assign(
         lvalue_node,
         rhs_node,
-        env,
+        frame,
         eval_func=eval_node,
         apply_op=_apply_op,
         evaluate_index_operand=_evaluate_index_operand,
     )
 
-def _eval_for_in(n: Tree, env: Env) -> Any:
+def _eval_for_in(n: Tree, frame: Frame) -> Any:
     pattern_node = None
     iter_expr = None
     body_node = None
@@ -838,15 +838,15 @@ def _eval_for_in(n: Tree, env: Env) -> Any:
         raise ShakarRuntimeError("Malformed for-in loop")
     if pattern_node is None:
         raise ShakarRuntimeError("For-in loop missing pattern")
-    iter_source = eval_node(iter_expr, env)
+    iter_source = eval_node(iter_expr, frame)
     iterable = _iterable_values(iter_source)
-    outer_dot = env.dot
+    outer_dot = frame.dot
     object_pairs: list[tuple[str, Any]] | None = None
     if isinstance(iter_source, ShkObject):
         object_pairs = list(iter_source.slots.items())
     try:
         for idx, value in enumerate(iterable):
-            loop_env = Env(parent=env, dot=outer_dot)
+            loop_frame = Frame(parent=frame, dot=outer_dot)
             assigned = value
             if object_pairs and _pattern_requires_object_pair(pattern_node):
                 key, val = object_pairs[idx]
@@ -854,22 +854,22 @@ def _eval_for_in(n: Tree, env: Env) -> Any:
             assign_pattern_value(
                 pattern_node,
                 assigned,
-                loop_env,
+                loop_frame,
                 create=True,
                 allow_broadcast=False,
                 eval_func=eval_node,
             )
             try:
-                _execute_loop_body(body_node, loop_env)
+                _execute_loop_body(body_node, loop_frame)
             except ShakarContinueSignal:
                 continue
             except ShakarBreakSignal:
                 break
     finally:
-        env.dot = outer_dot
+        frame.dot = outer_dot
     return ShkNull()
 
-def _eval_for_subject(n: Tree, env: Env) -> Any:
+def _eval_for_subject(n: Tree, frame: Frame) -> Any:
     iter_expr = None
     body_node = None
     for child in tree_children(n):
@@ -881,22 +881,22 @@ def _eval_for_subject(n: Tree, env: Env) -> Any:
             body_node = child
     if iter_expr is None or body_node is None:
         raise ShakarRuntimeError("Malformed subjectful for loop")
-    iterable = _iterable_values(eval_node(iter_expr, env))
-    outer_dot = env.dot
+    iterable = _iterable_values(eval_node(iter_expr, frame))
+    outer_dot = frame.dot
     try:
         for value in iterable:
-            loop_env = Env(parent=env, dot=value)
+            loop_frame = Frame(parent=frame, dot=value)
             try:
-                _execute_loop_body(body_node, loop_env)
+                _execute_loop_body(body_node, loop_frame)
             except ShakarContinueSignal:
                 continue
             except ShakarBreakSignal:
                 break
     finally:
-        env.dot = outer_dot
+        frame.dot = outer_dot
     return ShkNull()
 
-def _eval_for_indexed(n: Tree, env: Env) -> Any:
+def _eval_for_indexed(n: Tree, frame: Frame) -> Any:
     if n is None:
         raise ShakarRuntimeError("Malformed indexed loop")
     children = tree_children(n)
@@ -910,36 +910,36 @@ def _eval_for_indexed(n: Tree, env: Env) -> Any:
     if iter_expr is None or body_node is None:
         raise ShakarRuntimeError("Malformed indexed loop")
     binders = [_coerce_loop_binder(node) for node in binder_nodes]
-    iterable = eval_node(iter_expr, env)
+    iterable = eval_node(iter_expr, frame)
     entries = _iter_indexed_entries(iterable, len(binders))
-    outer_dot = env.dot
+    outer_dot = frame.dot
     try:
         for subject, binder_values in entries:
-            loop_env = Env(parent=env, dot=subject)
+            loop_frame = Frame(parent=frame, dot=subject)
             for binder, binder_value in zip(binders, binder_values):
-                target_env = env if binder.get('hoist') else loop_env
+                target_frame = frame if binder.get('hoist') else loop_frame
                 assign_pattern_value(
                     binder['pattern'],
                     binder_value,
-                    target_env,
+                    target_frame,
                     create=True,
                     allow_broadcast=False,
                     eval_func=eval_node,
                 )
             try:
-                _execute_loop_body(body_node, loop_env)
+                _execute_loop_body(body_node, loop_frame)
             except ShakarContinueSignal:
                 continue
             except ShakarBreakSignal:
                 break
     finally:
-        env.dot = outer_dot
+        frame.dot = outer_dot
     return ShkNull()
 
-def _eval_for_map2(n: Tree, env: Env) -> Any:
-    return _eval_for_indexed(n, env)
+def _eval_for_map2(n: Tree, frame: Frame) -> Any:
+    return _eval_for_indexed(n, frame)
 
-def _eval_destructure(n: Tree, env: Env, create: bool, allow_broadcast: bool) -> Any:
+def _eval_destructure(n: Tree, frame: Frame, create: bool, allow_broadcast: bool) -> Any:
     """Evaluate `a, b := expr` destructures with optional broadcast semantics."""
     if len(n.children) != 2:
         raise ShakarRuntimeError("Malformed destructure")
@@ -947,37 +947,37 @@ def _eval_destructure(n: Tree, env: Env, create: bool, allow_broadcast: bool) ->
     patterns = [c for c in tree_children(pattern_list) if tree_label(c) == 'pattern']
     if not patterns:
         raise ShakarRuntimeError("Empty destructure pattern")
-    values, result = evaluate_destructure_rhs(eval_node, rhs_node, env, len(patterns), allow_broadcast)
+    values, result = evaluate_destructure_rhs(eval_node, rhs_node, frame, len(patterns), allow_broadcast)
     for pat, val in zip(patterns, values):
         assign_pattern_value(
             pat,
             val,
-            env,
+            frame,
             create=create,
             allow_broadcast=allow_broadcast,
             eval_func=eval_node,
         )
     return result if allow_broadcast else ShkNull()
 
-def _apply_comp_binders_wrapper(binders: list[dict[str, Any]], element: Any, iter_env: Env, outer_env: Env) -> None:
+def _apply_comp_binders_wrapper(binders: list[dict[str, Any]], element: Any, iter_frame: Frame, outer_frame: Frame) -> None:
     destructure_apply_comp_binders(
-        lambda pattern, val, target_env, create, allow_broadcast: assign_pattern_value(
+        lambda pattern, val, target_frame, create, allow_broadcast: assign_pattern_value(
             pattern,
             val,
-            target_env,
+            target_frame,
             create=create,
             allow_broadcast=allow_broadcast,
             eval_func=eval_node,
         ),
         binders,
         element,
-        iter_env,
-        outer_env,
+        iter_frame,
+        outer_frame,
     )
 
-def _evaluate_index_operand(index_node: Tree, env: Env) -> Any:
+def _evaluate_index_operand(index_node: Tree, frame: Frame) -> Any:
     expr_node = _index_expr_from_children(index_node.children)
-    return eval_node(expr_node, env)
+    return eval_node(expr_node, frame)
 
 def _collect_free_identifiers(node: Any, callback) -> None:
     skip_nodes = {'field', 'fieldsel', 'fieldfan', 'fieldlist', 'key_ident', 'key_string'}
@@ -997,7 +997,7 @@ def _collect_free_identifiers(node: Any, callback) -> None:
 
     walk(node)
 
-def _prepare_comprehension(n: Tree, env: Env, head_nodes: list[Any]) -> tuple[Any, list[dict[str, Any]], Tree | None]:
+def _prepare_comprehension(n: Tree, frame: Frame, head_nodes: list[Any]) -> tuple[Any, list[dict[str, Any]], Tree | None]:
     comphead = child_by_label(n, 'comphead')
     if comphead is None:
         raise ShakarRuntimeError("Malformed comprehension")
@@ -1007,70 +1007,70 @@ def _prepare_comprehension(n: Tree, env: Env, head_nodes: list[Any]) -> tuple[An
         implicit_names = destructure_infer_implicit_binders(
             head_nodes,
             ifclause,
-            env,
+            frame,
             lambda expr, callback: _collect_free_identifiers(expr, callback)
         )
         for name in implicit_names:
             pattern = Tree('pattern', [Token('IDENT', name)])
             binders.append({'pattern': pattern, 'hoist': False})
-    iter_val = eval_node(iter_expr_node, env)
+    iter_val = eval_node(iter_expr_node, frame)
     return iter_val, binders, ifclause
 
-def _iterate_comprehension(n: Tree, env: Env, head_nodes: list[Any]) -> Iterable[tuple[Any, Env]]:
-    iter_val, binders, ifclause = _prepare_comprehension(n, env, head_nodes)
-    outer_dot = env.dot
+def _iterate_comprehension(n: Tree, frame: Frame, head_nodes: list[Any]) -> Iterable[tuple[Any, Frame]]:
+    iter_val, binders, ifclause = _prepare_comprehension(n, frame, head_nodes)
+    outer_dot = frame.dot
     try:
         for element in _iterable_values(iter_val):
-            iter_env = Env(parent=env, dot=element)
-            _apply_comp_binders_wrapper(binders, element, iter_env, env)
+            iter_frame = Frame(parent=frame, dot=element)
+            _apply_comp_binders_wrapper(binders, element, iter_frame, frame)
             if ifclause is not None:
                 cond_node = ifclause.children[-1] if ifclause.children else None
                 if cond_node is None:
                     raise ShakarRuntimeError("Malformed comprehension guard")
-                cond_val = eval_node(cond_node, iter_env)
+                cond_val = eval_node(cond_node, iter_frame)
                 if not _is_truthy(cond_val):
                     continue
-            yield element, iter_env
+            yield element, iter_frame
     finally:
-        env.dot = outer_dot
+        frame.dot = outer_dot
 
-def _eval_listcomp(n: Tree, env: Env) -> ShkArray:
+def _eval_listcomp(n: Tree, frame: Frame) -> ShkArray:
     """Evaluate `[expr over xs if cond]` comprehensions using explicit binder envs."""
     body = n.children[0] if n.children else None
     if body is None:
         raise ShakarRuntimeError("Malformed list comprehension")
-    items = [eval_node(body, iter_env) for _, iter_env in _iterate_comprehension(n, env, [body])]
+    items = [eval_node(body, iter_frame) for _, iter_frame in _iterate_comprehension(n, frame, [body])]
     return ShkArray(items)
 
-def _eval_setcomp(n: Tree, env: Env) -> ShkArray:
+def _eval_setcomp(n: Tree, frame: Frame) -> ShkArray:
     body = n.children[0] if n.children else None
     if body is None:
         raise ShakarRuntimeError("Malformed set comprehension")
     items: list[Any] = []
-    for _, iter_env in _iterate_comprehension(n, env, [body]):
-        result = eval_node(body, iter_env)
+    for _, iter_frame in _iterate_comprehension(n, frame, [body]):
+        result = eval_node(body, iter_frame)
         if not value_in_list(items, result):
             items.append(result)
     return ShkArray(items)
 
-def _eval_setliteral(n: Tree, env: Env) -> ShkArray:
+def _eval_setliteral(n: Tree, frame: Frame) -> ShkArray:
     """Set literals desugar to arrays internally; maintain order while deduping."""
     items: list[Any] = []
     for child in tree_children(n):
-        val = eval_node(child, env)
+        val = eval_node(child, frame)
         if not value_in_list(items, val):
             items.append(val)
     return ShkArray(items)
 
-def _eval_dictcomp(n: Tree, env: Env) -> ShkObject:
+def _eval_dictcomp(n: Tree, frame: Frame) -> ShkObject:
     if len(n.children) < 3:
         raise ShakarRuntimeError("Malformed dict comprehension")
     key_node = n.children[0]
     value_node = n.children[1]
     slots: dict[str, Any] = {}
-    for _, iter_env in _iterate_comprehension(n, env, [key_node, value_node]):
-        key_val = eval_node(key_node, iter_env)
-        value_val = eval_node(value_node, iter_env)
+    for _, iter_frame in _iterate_comprehension(n, frame, [key_node, value_node]):
+        key_val = eval_node(key_node, iter_frame)
+        value_val = eval_node(value_node, iter_frame)
         key_str = normalize_object_key(key_val)
         slots[key_str] = value_val
     return ShkObject(slots)
@@ -1175,13 +1175,13 @@ def _pattern_requires_object_pair(pattern: Tree) -> bool:
         for child in tree_children(pattern)
     )
 
-def _execute_loop_body(body_node: Any, env: Env) -> Any:
+def _execute_loop_body(body_node: Any, frame: Frame) -> Any:
     label = tree_label(body_node) if is_tree_node(body_node) else None
     if label == 'inlinebody':
-        return _eval_inline_body(body_node, env, allow_loop_control=True)
+        return _eval_inline_body(body_node, frame, allow_loop_control=True)
     if label == 'indentblock':
-        return _eval_indent_block(body_node, env, allow_loop_control=True)
-    return eval_node(body_node, env)
+        return _eval_indent_block(body_node, frame, allow_loop_control=True)
+    return eval_node(body_node, frame)
 
 def _iter_indexed_entries(value: Any, binder_count: int) -> list[tuple[Any, list[Any]]]:
     if binder_count <= 0:
@@ -1236,14 +1236,14 @@ def _iterable_values(value: Any) -> list[Any]:
             raise ShakarTypeError(f"Cannot iterate over {type(value).__name__}")
 # ---------------- Comparison ----------------
 
-def _eval_compare(children: List[Any], env: Env) -> Any:
+def _eval_compare(children: List[Any], frame: Frame) -> Any:
     if not children:
         return ShkNull()
 
     if len(children) == 1:
-        return eval_node(children[0], env)
+        return eval_node(children[0], frame)
 
-    subject = eval_node(children[0], env)
+    subject = eval_node(children[0], frame)
     idx = 1
     joiner = 'and'
     last_comp: Optional[str] = None
@@ -1268,13 +1268,13 @@ def _eval_compare(children: List[Any], env: Env) -> Any:
             idx += 1
             if idx >= len(children):
                 raise ShakarRuntimeError("Missing right-hand side for comparison")
-            rhs = eval_node(children[idx], env)
+            rhs = eval_node(children[idx], frame)
             idx += 1
         else:
             if last_comp is None:
                 raise ShakarRuntimeError("Comparator required in comparison chain")
             comp = last_comp
-            rhs = eval_node(node, env)
+            rhs = eval_node(node, frame)
             idx += 1
 
         leg_val = _compare_values(comp, subject, rhs)
@@ -1364,19 +1364,19 @@ def _contains(container: Any, item: Any) -> bool:
         case _:
             raise ShakarTypeError(f"Unsupported container type for 'in': {type(container).__name__}")
 
-def _eval_logical(kind: str, children: List[Any], env: Env) -> Any:
+def _eval_logical(kind: str, children: List[Any], frame: Frame) -> Any:
     if not children:
         return ShkNull()
     normalized = 'and' if 'and' in kind else 'or'
-    prev_dot = env.dot
+    prev_dot = frame.dot
     try:
         if normalized == 'and':
             last_val: Any = ShkBool(True)
             for child in children:
                 if is_token_node(child) and _token_kind(child) in {'AND', 'OR'}:
                     continue
-                val = eval_node(child, env)
-                env.dot = val if _retargets_anchor(child) else env.dot
+                val = eval_node(child, frame)
+                frame.dot = val if _retargets_anchor(child) else frame.dot
                 last_val = val
                 if not _is_truthy(val):
                     return val
@@ -1385,49 +1385,49 @@ def _eval_logical(kind: str, children: List[Any], env: Env) -> Any:
         for child in children:
             if is_token_node(child) and _token_kind(child) in {'AND', 'OR'}:
                 continue
-            val = eval_node(child, env)
-            env.dot = val if _retargets_anchor(child) else env.dot
+            val = eval_node(child, frame)
+            frame.dot = val if _retargets_anchor(child) else frame.dot
             last_val = val
             if _is_truthy(val):
                 return val
         return last_val
     finally:
-        env.dot = prev_dot
+        frame.dot = prev_dot
 
-def _eval_nullish(children: List[Any], env: Env) -> Any:
+def _eval_nullish(children: List[Any], frame: Frame) -> Any:
     exprs = [child for child in children if not (is_token_node(child) and _token_kind(child) == 'NULLISH')]
     if not exprs:
         return ShkNull()
-    current = eval_node(exprs[0], env)
+    current = eval_node(exprs[0], frame)
     for expr in exprs[1:]:
         if not isinstance(current, ShkNull):
             return current
-        current = eval_node(expr, env)
+        current = eval_node(expr, frame)
     return current
 
-def _eval_nullsafe(children: List[Any], env: Env) -> Any:
+def _eval_nullsafe(children: List[Any], frame: Frame) -> Any:
     if not children:
         return ShkNull()
     expr = children[0]
-    saved_dot = env.dot
+    saved_dot = frame.dot
     try:
-        return _eval_chain_nullsafe(expr, env)
+        return _eval_chain_nullsafe(expr, frame)
     finally:
-        env.dot = saved_dot
+        frame.dot = saved_dot
 
-def _eval_chain_nullsafe(node: Any, env: Env) -> Any:
+def _eval_chain_nullsafe(node: Any, frame: Frame) -> Any:
     if not is_tree_node(node) or tree_label(node) != 'explicit_chain':
-        return eval_node(node, env)
+        return eval_node(node, frame)
     children = tree_children(node)
     if not children:
         return ShkNull()
     head = children[0]
-    current = eval_node(head, env)
+    current = eval_node(head, frame)
     if isinstance(current, ShkNull):
         return ShkNull()
     for op in children[1:]:
         try:
-            current = _apply_op(current, op, env)
+            current = _apply_op(current, op, frame)
         except (ShakarRuntimeError, ShakarTypeError) as err:
             if _nullsafe_recovers(err, current):
                 return ShkNull()
@@ -1469,25 +1469,25 @@ def _retargets_anchor(node: Any) -> bool:
 
 # ---------------- Arithmetic ----------------
 
-def _normalize_unary_op(op_node: Any, env: Env) -> Any:
+def _normalize_unary_op(op_node: Any, frame: Frame) -> Any:
     if tree_label(op_node) == 'unaryprefixop':
         if op_node.children:
-            return _normalize_unary_op(op_node.children[0], env)
-        src = getattr(env, 'source', None)
+            return _normalize_unary_op(op_node.children[0], frame)
+        src = getattr(frame, 'source', None)
         meta = node_meta(op_node)
         if src is not None and meta is not None:
             return src[meta.start_pos:meta.end_pos]
         return ''
     return op_node
 
-def _eval_unary(op_node: Any, rhs_node: Any, env: Env) -> Any:
-    op_norm = _normalize_unary_op(op_node, env)
+def _eval_unary(op_node: Any, rhs_node: Any, frame: Frame) -> Any:
+    op_norm = _normalize_unary_op(op_node, frame)
     op_value = op_norm.value if isinstance(op_norm, Token) else op_norm
 
     if op_value in ('++', '--'):
         context = resolve_assignable_node(
             rhs_node,
-            env,
+            frame,
             eval_func=eval_node,
             apply_op=_apply_op,
             evaluate_index_operand=_evaluate_index_operand,
@@ -1495,7 +1495,7 @@ def _eval_unary(op_node: Any, rhs_node: Any, env: Env) -> Any:
         _, new_val = apply_numeric_delta(context, 1 if op_value == '++' else -1)
         return new_val
 
-    rhs = eval_node(rhs_node, env)
+    rhs = eval_node(rhs_node, frame)
 
     match op_norm:
         case Token(type='PLUS') | '+':
@@ -1512,12 +1512,12 @@ def _eval_unary(op_node: Any, rhs_node: Any, env: Env) -> Any:
         case _:
             raise ShakarRuntimeError("Unsupported unary op")
 
-def _eval_infix(children: List[Any], env: Env, right_assoc_ops: set|None=None) -> Any:
+def _eval_infix(children: List[Any], frame: Frame, right_assoc_ops: set|None=None) -> Any:
     if not children:
         return ShkNull()
 
     if right_assoc_ops and _all_ops_in(children, right_assoc_ops):
-        vals = [eval_node(children[i], env) for i in range(0, len(children), 2)]
+        vals = [eval_node(children[i], frame) for i in range(0, len(children), 2)]
         acc = vals[-1]
         for i in range(len(vals)-2, -1, -1):
             lhs, rhs = vals[i], acc
@@ -1526,10 +1526,10 @@ def _eval_infix(children: List[Any], env: Env, right_assoc_ops: set|None=None) -
         return acc
 
     it = iter(children)
-    acc = eval_node(next(it), env)
+    acc = eval_node(next(it), frame)
     for x in it:
         op = _as_op(x)
-        rhs = eval_node(next(it), env)
+        rhs = eval_node(next(it), frame)
         acc = _apply_binary_operator(op, acc, rhs)
     return acc
 
@@ -1572,8 +1572,8 @@ def _stringify(value: Any) -> str:
     inner = getattr(value, 'value', value)
     return str(inner)
 
-def _assert_source_snippet(node: Any, env: Env) -> str:
-    src = getattr(env, 'source', None)
+def _assert_source_snippet(node: Any, frame: Frame) -> str:
+    src = getattr(frame, 'source', None)
     if src is not None:
         start, end = _node_source_span(node)
         if start is not None and end is not None and 0 <= start < end <= len(src):
@@ -1610,19 +1610,19 @@ def _apply_binary_operator(op: str, lhs: Any, rhs: Any) -> Any:
             return ShkNumber(lhs.value ** rhs.value)
     raise ShakarRuntimeError(f"Unknown operator {op}")
 
-def _current_function_env(env: Env) -> Env | None:
-    """Walk parents to find the nearest function-call environment marker."""
-    cur = env
+def _current_function_frame(frame: Frame) -> Frame | None:
+    """Walk parents to find the nearest function-call frame marker."""
+    cur = frame
     while cur is not None:
-        if cur.is_function_env():
+        if cur.is_function_frame():
             return cur
         cur = getattr(cur, "parent", None)
     return None
 
-def _token_number(t: Token, _: Env) -> ShkNumber:
+def _token_number(t: Token, _: Frame) -> ShkNumber:
     return ShkNumber(float(t.value))
 
-def _token_string(t: Token, _: Env) -> ShkString:
+def _token_string(t: Token, _: Frame) -> ShkString:
     v = t.value
     if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")):
         v = v[1:-1]
@@ -1644,10 +1644,10 @@ def _extract_param_names(params_node: Any, context: str="parameter list") -> Lis
 
 # ---------------- Chains ----------------
 
-def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
+def _apply_op(recv: Any, op: Tree, frame: Frame) -> Any:
     """Apply one explicit-chain operation (call/index/member) to `recv`."""
     if isinstance(recv, FanContext):
-        return apply_fan_op(recv, op, env, apply_op=_apply_op)
+        return apply_fan_op(recv, op, frame, apply_op=_apply_op)
 
     context = None
     if isinstance(recv, RebindContext):
@@ -1657,27 +1657,27 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
     d = op.data
     if d in {'field', 'fieldsel'}:
         field_name = _expect_ident_token(op.children[0], "Field access")
-        result = get_field_value(recv, field_name, env)
+        result = get_field_value(recv, field_name, frame)
     elif d == 'index':
-        result = _apply_index_operation(recv, op, env)
+        result = _apply_index_operation(recv, op, frame)
     elif d == 'slicesel':
-        result = _apply_slice(recv, op.children, env)
+        result = _apply_slice(recv, op.children, frame)
     elif d == 'fieldfan':
-        return build_fieldfan_context(recv, op, env)
+        return build_fieldfan_context(recv, op, frame)
     elif d == 'call':
-        args = _eval_args_node(op.children[0] if op.children else None, env)
-        result = _call_value(recv, args, env)
+        args = _eval_args_node(op.children[0] if op.children else None, frame)
+        result = _call_value(recv, args, frame)
     elif d == 'method':
         method_name = _expect_ident_token(op.children[0], "Method call")
-        args = _eval_args_node(op.children[1] if len(op.children)>1 else None, env)
+        args = _eval_args_node(op.children[1] if len(op.children)>1 else None, frame)
         try:
-            result = call_builtin_method(recv, method_name, args, env)
+            result = call_builtin_method(recv, method_name, args, frame)
         except ShakarMethodNotFound:
-            cal = get_field_value(recv, method_name, env)
+            cal = get_field_value(recv, method_name, frame)
             if isinstance(cal, BoundMethod):
-                result = call_shkfn(cal.fn, args, subject=cal.subject, caller_env=env)
+                result = call_shkfn(cal.fn, args, subject=cal.subject, caller_frame=frame)
             elif isinstance(cal, ShkFn):
-                result = call_shkfn(cal, args, subject=recv, caller_env=env)
+                result = call_shkfn(cal, args, subject=recv, caller_frame=frame)
             else:
                 raise
     else:
@@ -1691,7 +1691,7 @@ def _apply_op(recv: Any, op: Tree, env: Env) -> Any:
 
     return result
 
-def _eval_args_node(args_node: Any, env: Env) -> List[Any]:
+def _eval_args_node(args_node: Any, frame: Frame) -> List[Any]:
     def label(node: Tree) -> str | None:
         return tree_label(node)
 
@@ -1711,12 +1711,12 @@ def _eval_args_node(args_node: Any, env: Env) -> List[Any]:
         return [node]
 
     if is_tree_node(args_node):
-        return [eval_node(n, env) for n in flatten(args_node)]
+        return [eval_node(n, frame) for n in flatten(args_node)]
     if isinstance(args_node, list):  # deliberate: args_node can be pure python list from visitors
         res: List[Any] = []
         for n in args_node:
             res.extend(flatten(n))
-        return [eval_node(n, env) for n in res]
+        return [eval_node(n, frame) for n in res]
     return []
 
 def _index_expr_from_children(children: List[Any]) -> Any:
@@ -1734,11 +1734,11 @@ def _index_expr_from_children(children: List[Any]) -> Any:
         return node
     raise ShakarRuntimeError("Malformed index expression")
 
-def _apply_slice(recv: Any, arms: List[Any], env: Env) -> Any:
+def _apply_slice(recv: Any, arms: List[Any], frame: Frame) -> Any:
     def arm_to_py(node: Any) -> int | None:
         if tree_label(node) == 'emptyexpr':
             return None
-        value = eval_node(node, env)
+        value = eval_node(node, frame)
         if isinstance(value, ShkNumber):
             return int(value.value)
         return None
@@ -1784,32 +1784,32 @@ def _extract_trailing_body(children: List[Any]) -> Any | None:
             return child
     return None
 
-def _eval_body_node(body_node: Any, env: Env) -> Any:
+def _eval_body_node(body_node: Any, frame: Frame) -> Any:
     label = tree_label(body_node) if is_tree_node(body_node) else None
     if label == 'inlinebody':
-        return _eval_inline_body(body_node, env)
+        return _eval_inline_body(body_node, frame)
     if label == 'indentblock':
-        return _eval_indent_block(body_node, env)
-    return eval_node(body_node, env)
+        return _eval_indent_block(body_node, frame)
+    return eval_node(body_node, frame)
 
-def _run_body_with_subject(body_node: Any, env: Env, subject_value: Any, extra_bindings: dict[str, Any] | None=None) -> Any:
+def _run_body_with_subject(body_node: Any, frame: Frame, subject_value: Any, extra_bindings: dict[str, Any] | None=None) -> Any:
     if extra_bindings:
-        with _temporary_subject(env, subject_value), _temporary_bindings(env, extra_bindings):
-            return _eval_body_node(body_node, env)
-    with _temporary_subject(env, subject_value):
-        return _eval_body_node(body_node, env)
+        with _temporary_subject(frame, subject_value), _temporary_bindings(frame, extra_bindings):
+            return _eval_body_node(body_node, frame)
+    with _temporary_subject(frame, subject_value):
+        return _eval_body_node(body_node, frame)
 
 def _await_winner_object(label: str, value: Any) -> ShkObject:
     return ShkObject({'winner': ShkString(label), 'value': value})
 
-def _eval_await_value(n: Tree, env: Env) -> Any:
+def _eval_await_value(n: Tree, frame: Frame) -> Any:
     for child in tree_children(n):
         if not is_token_node(child):
-            value = eval_node(child, env)
+            value = eval_node(child, frame)
             return resolve_await_result(value)
     raise ShakarRuntimeError("Malformed await expression")
 
-def _eval_await_stmt(n: Tree, env: Env) -> Any:
+def _eval_await_stmt(n: Tree, frame: Frame) -> Any:
     expr_node = None
     body_node = None
     for child in tree_children(n):
@@ -1819,11 +1819,11 @@ def _eval_await_stmt(n: Tree, env: Env) -> Any:
             expr_node = child
     if expr_node is None or body_node is None:
         raise ShakarRuntimeError("Malformed await statement")
-    value = resolve_await_result(eval_node(expr_node, env))
-    _run_body_with_subject(body_node, env, value)
+    value = resolve_await_result(eval_node(expr_node, frame))
+    _run_body_with_subject(body_node, frame, value)
     return ShkNull()
 
-def _eval_await_any_call(n: Tree, env: Env) -> Any:
+def _eval_await_any_call(n: Tree, frame: Frame) -> Any:
     arms_node = child_by_label(n, 'anyarmlist')
     if arms_node is None:
         raise ShakarRuntimeError("await[any] missing arm list")
@@ -1838,7 +1838,7 @@ def _eval_await_any_call(n: Tree, env: Env) -> Any:
     errors: list[ShakarRuntimeError] = []
     for arm in arms:
         try:
-            value = eval_node(arm['expr'], env)
+            value = eval_node(arm['expr'], frame)
         except ShakarRuntimeError as err:
             errors.append(err)
             continue
@@ -1849,13 +1849,13 @@ def _eval_await_any_call(n: Tree, env: Env) -> Any:
         raise ShakarRuntimeError("await[any] arms did not produce a value")
     winner_arm, winner_value = await_any_entries(entries)
     if winner_arm['body'] is not None:
-        return _run_body_with_subject(winner_arm['body'], env, winner_value)
+        return _run_body_with_subject(winner_arm['body'], frame, winner_value)
     if trailing_body is not None:
         bindings = {'winner': ShkString(winner_arm['label'])}
-        return _run_body_with_subject(trailing_body, env, winner_value, bindings)
+        return _run_body_with_subject(trailing_body, frame, winner_value, bindings)
     return _await_winner_object(winner_arm['label'], winner_value)
 
-def _eval_await_all_call(n: Tree, env: Env) -> Any:
+def _eval_await_all_call(n: Tree, frame: Frame) -> Any:
     arms_node = child_by_label(n, 'allarmlist')
     if arms_node is None:
         raise ShakarRuntimeError("await[all] missing arm list")
@@ -1866,78 +1866,78 @@ def _eval_await_all_call(n: Tree, env: Env) -> Any:
         raise ShakarRuntimeError("await[all] does not support per-arm bodies")
     entries: list[tuple[dict[str, Any], Any]] = []
     for arm in arms:
-        value = eval_node(arm['expr'], env)
+        value = eval_node(arm['expr'], frame)
         entries.append((arm, value))
     resolved = await_all_entries(entries)
     results_object: dict[str, Any] = {arm['label']: value for arm, value in resolved}
     trailing_body = _extract_trailing_body(tree_children(n))
     if trailing_body is not None:
-        with _temporary_bindings(env, results_object):
-            return _eval_body_node(trailing_body, env)
+        with _temporary_bindings(frame, results_object):
+            return _eval_body_node(trailing_body, frame)
     return ShkObject(results_object)
 
 # ---------------- Selectors ----------------
 
-def _apply_index_operation(recv: Any, op: Tree, env: Env) -> Any:
+def _apply_index_operation(recv: Any, op: Tree, frame: Frame) -> Any:
     selectorlist = child_by_label(op, 'selectorlist')
     if selectorlist is None:
         expr_node = _index_expr_from_children(op.children)
-        idx_val = eval_node(expr_node, env)
-        return index_value(recv, idx_val, env)
-    with _temporary_subject(env, recv):
-        selectors = evaluate_selectorlist(selectorlist, env, eval_node)
+        idx_val = eval_node(expr_node, frame)
+        return index_value(recv, idx_val, frame)
+    with _temporary_subject(frame, recv):
+        selectors = evaluate_selectorlist(selectorlist, frame, eval_node)
     if len(selectors) == 1 and isinstance(selectors[0], SelectorIndex):
-        return index_value(recv, selectors[0].value, env)
+        return index_value(recv, selectors[0].value, frame)
     return apply_selectors_to_value(recv, selectors)
 
-def _eval_group(n: Tree, env: Env) -> Any:
+def _eval_group(n: Tree, frame: Frame) -> Any:
     child = n.children[0] if n.children else None
     if child is None:
         return ShkNull()
-    saved = env.dot
+    saved = frame.dot
     try:
-        return eval_node(child, env)
+        return eval_node(child, frame)
     finally:
-        env.dot = saved
+        frame.dot = saved
 
-def _eval_ternary(n: Tree, env: Env) -> Any:
+def _eval_ternary(n: Tree, frame: Frame) -> Any:
     if len(n.children) != 3:
         raise ShakarRuntimeError("Malformed ternary expression")
     cond_node, true_node, false_node = n.children
-    cond_val = eval_node(cond_node, env)
+    cond_val = eval_node(cond_node, frame)
     if _is_truthy(cond_val):
-        return eval_node(true_node, env)
-    return eval_node(false_node, env)
+        return eval_node(true_node, frame)
+    return eval_node(false_node, frame)
 
-def _eval_rebind_primary(n: Tree, env: Env) -> Any:
+def _eval_rebind_primary(n: Tree, frame: Frame) -> Any:
     if not n.children:
         raise ShakarRuntimeError("Missing target for prefix rebind")
     target = n.children[0]
     ctx = resolve_rebind_lvalue(
         target,
-        env,
+        frame,
         eval_func=eval_node,
         apply_op=_apply_op,
         evaluate_index_operand=_evaluate_index_operand,
     )
-    env.dot = ctx.value
+    frame.dot = ctx.value
     return ctx
 
-def _eval_optional_expr(node: Any, env: Env) -> Any:
+def _eval_optional_expr(node: Any, frame: Frame) -> Any:
     if node is None:
         return None
-    return eval_node(node, env)
+    return eval_node(node, frame)
 
-def _call_value(cal: Any, args: List[Any], env: Env) -> Any:
+def _call_value(cal: Any, args: List[Any], frame: Frame) -> Any:
     match cal:
         case BoundMethod(fn=fn, subject=subject):
-            return call_shkfn(fn, args, subject=subject, caller_env=env)
+            return call_shkfn(fn, args, subject=subject, caller_frame=frame)
         case BuiltinMethod(name=name, subject=subject):
-            return call_builtin_method(subject, name, args, env)
+            return call_builtin_method(subject, name, args, frame)
         case StdlibFunction(fn=fn, arity=arity):
             if arity is not None and len(args) != arity:
                 raise ShakarArityError(f"Function expects {arity} args; got {len(args)}")
-            return fn(env, args)
+            return fn(frame, args)
         case DecoratorContinuation():
             if len(args) != 1:
                 raise ShakarArityError("Decorator continuation expects exactly 1 argument (the args array)")
@@ -1948,13 +1948,13 @@ def _call_value(cal: Any, args: List[Any], env: Env) -> Any:
                 raise ShakarArityError(f"Decorator expects {len(params)} args; got {len(args)}")
             return DecoratorConfigured(decorator=cal, args=list(args))
         case ShkFn():
-            return call_shkfn(cal, args, subject=None, caller_env=env)
+            return call_shkfn(cal, args, subject=None, caller_frame=frame)
         case _:
             raise ShakarTypeError(f"Cannot call value of type {type(cal).__name__}")
 
 # ---------------- Objects ----------------
 
-def _eval_object(n: Tree, env: Env) -> ShkObject:
+def _eval_object(n: Tree, frame: Frame) -> ShkObject:
     """Build an object literal, installing descriptors/getters as needed."""
     slots: dict[str, Any] = {}
 
@@ -2049,32 +2049,32 @@ def _eval_object(n: Tree, env: Env) -> ShkObject:
                 method_sig = _maybe_method_signature(key_node)
                 if method_sig:
                     name, params = method_sig
-                    method_fn = ShkFn(params=params, body=val_node, env=Env(parent=env))
+                    method_fn = ShkFn(params=params, body=val_node, frame=Frame(parent=frame))
                     slots[name] = method_fn
                     return
-                key = _eval_key(key_node, env)
-                val = eval_node(val_node, env)
+                key = _eval_key(key_node, frame)
+                val = eval_node(val_node, frame)
                 slots[str(key)] = val
             case 'obj_get':
                 name_tok, body = item.children
                 if name_tok is None:
                     raise ShakarRuntimeError("Getter missing name")
                 key = name_tok.value
-                getter_fn = ShkFn(params=None, body=body, env=Env(parent=env))
+                getter_fn = ShkFn(params=None, body=body, frame=Frame(parent=frame))
                 _install_descriptor(key, getter=getter_fn)
             case 'obj_set':
                 name_tok, param_tok, body = item.children
                 if name_tok is None or param_tok is None:
                     raise ShakarRuntimeError("Setter missing name or parameter")
                 key = name_tok.value
-                setter_fn = ShkFn(params=[param_tok.value], body=body, env=Env(parent=env))
+                setter_fn = ShkFn(params=[param_tok.value], body=body, frame=Frame(parent=frame))
                 _install_descriptor(key, setter=setter_fn)
             case 'obj_method':
                 name_tok, params_node, body = item.children
                 if name_tok is None:
                     raise ShakarRuntimeError("Method missing name")
                 param_names = _extract_params(params_node)
-                method_fn = ShkFn(params=param_names, body=body, env=Env(parent=env))
+                method_fn = ShkFn(params=param_names, body=body, frame=Frame(parent=frame))
                 slots[name_tok.value] = method_fn
             case _:
                 raise ShakarRuntimeError(f"Unknown object item {item.data}")
@@ -2095,7 +2095,7 @@ def _eval_object(n: Tree, env: Env) -> ShkObject:
                 handle_item(child)
     return ShkObject(slots)
 
-def _eval_key(k: Any, env: Env) -> Any:
+def _eval_key(k: Any, frame: Frame) -> Any:
     label = tree_label(k)
     if label is not None:
         match label:
@@ -2107,46 +2107,46 @@ def _eval_key(k: Any, env: Env) -> Any:
                     s = s[1:-1]
                 return s
             case 'key_expr':
-                v = eval_node(k.children[0], env)
+                v = eval_node(k.children[0], frame)
                 return v.value if isinstance(v, ShkString) else v
 
     if is_token_node(k) and _token_kind(k) in ('IDENT','STRING'):
         return k.value.strip('"').strip("'")
 
-    return eval_node(k, env)
+    return eval_node(k, frame)
 
-def _eval_amp_lambda(n: Tree, env: Env) -> ShkFn:
+def _eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
     if len(n.children) == 1:
-        return ShkFn(params=None, body=n.children[0], env=Env(parent=env, dot=None))
+        return ShkFn(params=None, body=n.children[0], frame=Frame(parent=frame, dot=None))
 
     if len(n.children) == 2:
         params_node, body = n.children
         params = _extract_param_names(params_node, context="amp_lambda")
-        return ShkFn(params=params, body=body, env=Env(parent=env, dot=None))
+        return ShkFn(params=params, body=body, frame=Frame(parent=frame, dot=None))
 
     raise ShakarRuntimeError("amp_lambda malformed")
 
 @contextmanager
-def _temporary_subject(env: Env, dot: Any) -> Iterable[None]:
-    """Temporarily bind `env.dot` while evaluating nested subjectful constructs."""
-    prev = env.dot
-    env.dot = dot
+def _temporary_subject(frame: Frame, dot: Any) -> Iterable[None]:
+    """Temporarily bind `frame.dot` while evaluating nested subjectful constructs."""
+    prev = frame.dot
+    frame.dot = dot
     try:
         yield
     finally:
-        env.dot = prev
+        frame.dot = prev
 
 @contextmanager
-def _temporary_bindings(env: Env, bindings: dict[str, Any]) -> Iterable[None]:
-    """Temporarily bind a set of identifiers within the current environment chain."""
-    records: list[tuple[Env, str, Any | None, bool]] = []
+def _temporary_bindings(frame: Frame, bindings: dict[str, Any]) -> Iterable[None]:
+    """Temporarily bind a set of identifiers within the current frame chain."""
+    records: list[tuple[Frame, str, Any | None, bool]] = []
     for name, value in bindings.items():
-        target = env
+        target = frame
         while target is not None and name not in target.vars:
             target = getattr(target, "parent", None)
         if target is None:
-            env.define(name, value)
-            records.append((env, name, None, False))
+            frame.define(name, value)
+            records.append((frame, name, None, False))
         else:
             prev = target.vars[name]
             target.vars[name] = value
@@ -2160,43 +2160,43 @@ def _temporary_bindings(env: Env, bindings: dict[str, Any]) -> Iterable[None]:
             else:
                 target.vars.pop(name, None)
 
-_NODE_DISPATCH: dict[str, Callable[[Tree, Env], Any]] = {
+_NODE_DISPATCH: dict[str, Callable[[Tree, Frame], Any]] = {
     'listcomp': _eval_listcomp,
     'setcomp': _eval_setcomp,
     'setliteral': _eval_setliteral,
     'dictcomp': _eval_dictcomp,
-    'selectorliteral': lambda n, env: eval_selectorliteral(n, env, eval_node),
+    'selectorliteral': lambda n, frame: eval_selectorliteral(n, frame, eval_node),
     'group': _eval_group,
     'no_anchor': _eval_group,
     'ternary': _eval_ternary,
     'rebind_primary': _eval_rebind_primary,
     'rebind_primary_grouped': _eval_rebind_primary,
     'amp_lambda': _eval_amp_lambda,
-    'anonfn': lambda n, env: _eval_anonymous_fn(n.children, env),
+    'anonfn': lambda n, frame: _eval_anonymous_fn(n.children, frame),
     'await_value': _eval_await_value,
-    'compare': lambda n, env: _eval_compare(n.children, env),
-    'compare_nc': lambda n, env: _eval_compare(n.children, env),
-    'nullish': lambda n, env: _eval_nullish(n.children, env),
-    'nullsafe': lambda n, env: _eval_nullsafe(n.children, env),
-    'breakstmt': lambda _, env: _eval_break_stmt(env),
-    'continuestmt': lambda _, env: _eval_continue_stmt(env),
+    'compare': lambda n, frame: _eval_compare(n.children, frame),
+    'compare_nc': lambda n, frame: _eval_compare(n.children, frame),
+    'nullish': lambda n, frame: _eval_nullish(n.children, frame),
+    'nullsafe': lambda n, frame: _eval_nullsafe(n.children, frame),
+    'breakstmt': lambda _, frame: _eval_break_stmt(frame),
+    'continuestmt': lambda _, frame: _eval_continue_stmt(frame),
     'awaitstmt': _eval_await_stmt,
     'awaitanycall': _eval_await_any_call,
     'awaitallcall': _eval_await_all_call,
     'ifstmt': _eval_if_stmt,
-    'catchexpr': lambda n, env: _eval_catch_expr(n.children, env),
-    'catchstmt': lambda n, env: _eval_catch_stmt(n.children, env),
+    'catchexpr': lambda n, frame: _eval_catch_expr(n.children, frame),
+    'catchstmt': lambda n, frame: _eval_catch_stmt(n.children, frame),
     'forin': _eval_for_in,
     'forsubject': _eval_for_subject,
     'forindexed': _eval_for_indexed,
-    'formap1': lambda n, env: _eval_for_indexed(n.children[0] if n.children else None, env),
+    'formap1': lambda n, frame: _eval_for_indexed(n.children[0] if n.children else None, frame),
     'formap2': _eval_for_map2,
     'inlinebody': _eval_inline_body,
     'indentblock': _eval_indent_block,
-    'onelineguard': lambda n, env: _eval_oneline_guard(n.children, env),
+    'onelineguard': lambda n, frame: _eval_oneline_guard(n.children, frame),
 }
 
-_TOKEN_DISPATCH: dict[str, Callable[[Token, Env], Any]] = {
+_TOKEN_DISPATCH: dict[str, Callable[[Token, Frame], Any]] = {
     'NUMBER': _token_number,
     'STRING': _token_string,
     'TRUE': lambda _, __: ShkBool(True),

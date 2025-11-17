@@ -29,7 +29,7 @@ from shakar_tree import (
     is_token_node,
 )
 
-def eval_selectorliteral(node, env, eval_fn) -> ShkSelector:
+def eval_selectorliteral(node, frame, eval_fn) -> ShkSelector:
     """Build a Selector value from a literal `` `...` `` expression."""
     sellist = child_by_label(node, "sellist")
     if sellist is None:
@@ -38,15 +38,15 @@ def eval_selectorliteral(node, env, eval_fn) -> ShkSelector:
     for item in tree_children(sellist):
         label = tree_label(item)
         if label == "selitem":
-            parts.extend(_selector_parts_from_selitem(item, env, eval_fn))
+            parts.extend(_selector_parts_from_selitem(item, frame, eval_fn))
         else:
             # grammar may wrap selitem inside helper nodes; unwrap when present.
             wrapped = child_by_label(item, "selitem")
             target = wrapped if wrapped is not None else item
-            parts.extend(_selector_parts_from_selitem(target, env, eval_fn))
+            parts.extend(_selector_parts_from_selitem(target, frame, eval_fn))
     return ShkSelector(parts)
 
-def evaluate_selectorlist(node, env, eval_fn, clamp: bool = True) -> List[SelectorPart]:
+def evaluate_selectorlist(node, frame, eval_fn, clamp: bool = True) -> List[SelectorPart]:
     """Evaluate runtime selector expressions like `xs[sel1, sel2]` into parts."""
     selectors: List[SelectorPart] = []
     for raw_selector in tree_children(node):
@@ -55,7 +55,7 @@ def evaluate_selectorlist(node, env, eval_fn, clamp: bool = True) -> List[Select
         label = tree_label(target)
         if label == "slicesel":
             # slicesel already encodes explicit start/stop/step nodes.
-            selectors.append(_selector_slice_from_slicesel(target, env, eval_fn, clamp))
+            selectors.append(_selector_slice_from_slicesel(target, frame, eval_fn, clamp))
             continue
         if label == "indexsel":
             expr_node = first_child(target, lambda child: not is_token_node(child))
@@ -63,11 +63,11 @@ def evaluate_selectorlist(node, env, eval_fn, clamp: bool = True) -> List[Select
                 children = tree_children(target)
                 if children:
                     expr_node = children[0]
-            value = eval_fn(expr_node, env)
+            value = eval_fn(expr_node, frame)
             # indexsel can evaluate to either a single index or another selector literal.
             selectors.extend(_expand_selector_value(value, clamp))
             continue
-        value = eval_fn(target, env)
+        value = eval_fn(target, frame)
         selectors.extend(_expand_selector_value(value, clamp))
     return selectors
 
@@ -108,20 +108,20 @@ def selector_iter_values(selector: ShkSelector) -> List[Any]:
         values.extend(ShkNumber(float(i)) for i in _iterate_selector_slice(part))
     return values
 
-def _selector_parts_from_selitem(node, env, eval_fn) -> List[SelectorPart]:
+def _selector_parts_from_selitem(node, frame, eval_fn) -> List[SelectorPart]:
     """Turn a literal selitem node into concrete slice/index parts."""
     inner = child_by_labels(node, {"sliceitem", "indexitem"})
     target = inner if inner is not None else node
     label = tree_label(target)
     if label == "sliceitem":
-        return [_selector_slice_from_sliceitem(target, env, eval_fn)]
+        return [_selector_slice_from_sliceitem(target, frame, eval_fn)]
     if label == "indexitem":
         selatom = child_by_label(target, "selatom")
-        value = _eval_selector_atom(selatom, env, eval_fn)
+        value = _eval_selector_atom(selatom, frame, eval_fn)
         return [SelectorIndex(value)]
     return []
 
-def _selector_slice_from_sliceitem(node, env, eval_fn) -> SelectorSlice:
+def _selector_slice_from_sliceitem(node, frame, eval_fn) -> SelectorSlice:
     children = list(tree_children(node))
     index = 0
     start_node = None
@@ -136,38 +136,38 @@ def _selector_slice_from_sliceitem(node, env, eval_fn) -> SelectorSlice:
     if index < len(children) and tree_label(children[index]) == "selatom":
         step_node = children[index]
     # sliceitem uses selatom nodes for start/step and seloptstop for stop.
-    start_val = _coerce_selector_number(_eval_selector_atom(start_node, env, eval_fn), allow_none=True)
-    stop_value, exclusive = _eval_seloptstop(stop_node, env, eval_fn)
+    start_val = _coerce_selector_number(_eval_selector_atom(start_node, frame, eval_fn), allow_none=True)
+    stop_value, exclusive = _eval_seloptstop(stop_node, frame, eval_fn)
     stop_val = _coerce_selector_number(stop_value, allow_none=True)
-    step_val = _coerce_selector_number(_eval_selector_atom(step_node, env, eval_fn), allow_none=True)
+    step_val = _coerce_selector_number(_eval_selector_atom(step_node, frame, eval_fn), allow_none=True)
     return SelectorSlice(start=start_val, stop=stop_val, step=step_val, clamp=False, exclusive_stop=exclusive)
 
-def _selector_slice_from_slicesel(node, env, eval_fn, clamp: bool) -> SelectorSlice:
+def _selector_slice_from_slicesel(node, frame, eval_fn, clamp: bool) -> SelectorSlice:
     children = list(tree_children(node))
     start_node = children[0] if len(children) > 0 else None
     stop_node = children[1] if len(children) > 1 else None
     step_node = children[2] if len(children) > 2 else None
-    start_val = _coerce_selector_number(_eval_optional_expr(start_node, env, eval_fn), allow_none=True)
-    stop_val = _coerce_selector_number(_eval_optional_expr(stop_node, env, eval_fn), allow_none=True)
-    step_val = _coerce_selector_number(_eval_optional_expr(step_node, env, eval_fn), allow_none=True)
+    start_val = _coerce_selector_number(_eval_optional_expr(start_node, frame, eval_fn), allow_none=True)
+    stop_val = _coerce_selector_number(_eval_optional_expr(stop_node, frame, eval_fn), allow_none=True)
+    step_val = _coerce_selector_number(_eval_optional_expr(step_node, frame, eval_fn), allow_none=True)
     # slicesel originates from runtime selector expressions `xs[start:stop:step]`.
     return SelectorSlice(start=start_val, stop=stop_val, step=step_val, clamp=clamp, exclusive_stop=True)
 
-def _eval_optional_expr(node, env, eval_fn):
+def _eval_optional_expr(node, frame, eval_fn):
     if node is None:
         return None
     if tree_label(node) == "emptyexpr":
         return None
-    return eval_fn(node, env)
+    return eval_fn(node, frame)
 
-def _eval_selector_atom(node, env, eval_fn):
+def _eval_selector_atom(node, frame, eval_fn):
     if node is None:
         return None
     if not is_tree_node(node):
-        return eval_fn(node, env)
+        return eval_fn(node, frame)
     node_children = tree_children(node)
     if not node_children:
-        return eval_fn(node, env)
+        return eval_fn(node, frame)
     child = node_children[0]
     if tree_label(child) == "interp":
         expr = child_by_label(child, "expr")
@@ -178,17 +178,17 @@ def _eval_selector_atom(node, env, eval_fn):
         if expr is None:
             raise ShakarRuntimeError("Empty interpolation in selector literal")
         # `` `start:${expr}` `` — evaluate embedded expression on demand.
-        return eval_fn(expr, env)
+        return eval_fn(expr, frame)
     if is_tree_node(child):
-        return eval_fn(child, env)
-    return eval_fn(child, env)
+        return eval_fn(child, frame)
+    return eval_fn(child, frame)
 
-def _eval_seloptstop(node, env, eval_fn) -> tuple[Any, bool]:
+def _eval_seloptstop(node, frame, eval_fn) -> tuple[Any, bool]:
     if node is None:
         return None, False
     selatom = child_by_label(node, "selatom")
-    value = _eval_selector_atom(selatom, env, eval_fn)
-    segment = _get_source_segment(node, env)
+    value = _eval_selector_atom(selatom, frame, eval_fn)
+    segment = _get_source_segment(node, frame)
     exclusive = False
     if segment is not None:
         exclusive = segment.lstrip().startswith("<")
@@ -295,8 +295,8 @@ def _iterate_selector_slice(part: SelectorSlice) -> Iterable[int]:
     stop = part.stop if part.exclusive_stop else part.stop + (1 if step > 0 else -1)
     return range(part.start, stop, step)
 
-def _get_source_segment(node, env) -> Optional[str]:
-    source = getattr(env, "source", None)
+def _get_source_segment(node, frame) -> Optional[str]:
+    source = getattr(frame, "source", None)
     if source is None:
         return None
     meta = node_meta(node)

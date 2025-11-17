@@ -3,7 +3,7 @@
 This directory hosts the core Python runtime for Shakar:
 
 - `shakar_eval.py` – evaluator that walks the canonical AST and executes programs.
-- `shakar_runtime.py` – value model (`ShkNumber`, `ShkString`, etc.), environments, and stdlib registry.
+- `shakar_runtime.py` – value model (`ShkNumber`, `ShkString`, etc.), frames, and stdlib registry.
 - `shakar_parse_auto.py` – auto‑generated parser/pruner glue to turn Lark trees into canonical nodes.
 - `rt/eval/` – helper modules for selectors, mutation, and destructuring logic used by the evaluator.
 - `shakar_run.py` – convenience entry point (`python rt/shakar_run.py program.shk`) that wires parse → prune → eval.

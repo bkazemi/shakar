@@ -82,7 +82,7 @@ class ShkSelector:
 class ShkDecorator:
     params: Optional[List[str]]
     body: Any
-    env: 'Env'
+    frame: 'Frame'
 
 @dataclass
 class DecoratorConfigured:
@@ -93,7 +93,7 @@ class DecoratorConfigured:
 class ShkFn:
     params: Optional[List[str]]  # None for subject-only amp-lambda
     body: Any                    # AST node
-    env: 'Env'                   # Closure env
+    frame: 'Frame'                   # Closure frame
     decorators: Optional[Tuple[DecoratorConfigured, ...]] = None
 
 @dataclass
@@ -117,11 +117,11 @@ class DecoratorContinuation:
     decorators: Tuple[DecoratorConfigured, ...]
     index: int
     subject: Any
-    caller_env: 'Env'
+    caller_frame: 'Frame'
 
     def invoke(self, args_value: Any) -> Any:
         args = _coerce_decorator_args(args_value)
-        return _run_decorator_chain(self.fn, self.decorators, self.index, args, self.subject, self.caller_env)
+        return _run_decorator_chain(self.fn, self.decorators, self.index, args, self.subject, self.caller_frame)
 
 @dataclass
 class DeferEntry:
@@ -130,13 +130,13 @@ class DeferEntry:
     label: Optional[str] = None
     deps: List[str] = field(default_factory=list)
 
-class Env:
-    def __init__(self, parent: Optional['Env']=None, dot: Any=None, source: Optional[str]=None):
+class Frame:
+    def __init__(self, parent: Optional['Frame']=None, dot: Any=None, source: Optional[str]=None):
         self.parent = parent
         self.vars: Dict[str, Any] = {}
         self.dot = dot
         self._defer_stack: List[List[DeferEntry]] = []
-        self._is_function_env = False
+        self._is_function_frame = False
         self._active_error: Optional[ShakarRuntimeError] = None
         if parent is None and Builtins.stdlib_functions:
             for name, std in Builtins.stdlib_functions.items():
@@ -183,11 +183,11 @@ class Env:
     def has_defer_frame(self) -> bool:
         return bool(self._defer_stack)
 
-    def mark_function_env(self) -> None:
-        self._is_function_env = True
+    def mark_function_frame(self) -> None:
+        self._is_function_frame = True
 
-    def is_function_env(self) -> bool:
-        return self._is_function_env
+    def is_function_frame(self) -> bool:
+        return self._is_function_frame
 
 # ---------- Exceptions (keep Shakar* canonical) ----------
 
@@ -233,13 +233,13 @@ class ShakarContinueSignal(Exception):
 
 @dataclass(frozen=True)
 class StdlibFunction:
-    fn: Callable[['Env', List[Any]], Any]
+    fn: Callable[['Frame', List[Any]], Any]
     arity: Optional[int] = None
 
 class Builtins:
-    array_methods: Dict[str, Callable[['Env', 'ShkArray', List[Any]], Any]] = {}
-    string_methods: Dict[str, Callable[['Env', 'ShkString', List[Any]], Any]] = {}
-    object_methods: Dict[str, Callable[['Env', 'ShkObject', List[Any]], Any]] = {}
+    array_methods: Dict[str, Callable[['Frame', 'ShkArray', List[Any]], Any]] = {}
+    string_methods: Dict[str, Callable[['Frame', 'ShkString', List[Any]], Any]] = {}
+    object_methods: Dict[str, Callable[['Frame', 'ShkObject', List[Any]], Any]] = {}
     stdlib_functions: Dict[str, StdlibFunction] = {}
 
 _STDLIB_INITIALIZED = False
@@ -291,7 +291,7 @@ def register_object(name: str):
     return dec
 
 def register_stdlib(name: str, *, arity: int | None = None):
-    def dec(fn: Callable[['Env', List[Any]], Any]):
+    def dec(fn: Callable[['Frame', List[Any]], Any]):
         Builtins.stdlib_functions[name] = StdlibFunction(fn=fn, arity=arity)
         return fn
     return dec
@@ -306,62 +306,62 @@ def _string_arg(method: str, arg: Any) -> str:
     raise ShakarTypeError(f"string.{method} expects a string argument")
 
 @register_string("trim")
-def _string_trim(_env: Env, recv: ShkString, args: List[Any]) -> ShkString:
+def _string_trim(_frame: Frame, recv: ShkString, args: List[Any]) -> ShkString:
     _string_expect_arity("trim", args, 0)
     return ShkString(recv.value.strip())
 
 @register_string("lower")
-def _string_lower(_env: Env, recv: ShkString, args: List[Any]) -> ShkString:
+def _string_lower(_frame: Frame, recv: ShkString, args: List[Any]) -> ShkString:
     _string_expect_arity("lower", args, 0)
     return ShkString(recv.value.lower())
 
 @register_string("upper")
-def _string_upper(_env: Env, recv: ShkString, args: List[Any]) -> ShkString:
+def _string_upper(_frame: Frame, recv: ShkString, args: List[Any]) -> ShkString:
     _string_expect_arity("upper", args, 0)
     return ShkString(recv.value.upper())
 
 @register_string("hasPrefix")
-def _string_has_prefix(_env: Env, recv: ShkString, args: List[Any]) -> ShkBool:
+def _string_has_prefix(_frame: Frame, recv: ShkString, args: List[Any]) -> ShkBool:
     _string_expect_arity("hasPrefix", args, 1)
     prefix = _string_arg("hasPrefix", args[0])
     return ShkBool(recv.value.startswith(prefix))
 
 @register_string("hasSuffix")
-def _string_has_suffix(_env: Env, recv: ShkString, args: List[Any]) -> ShkBool:
+def _string_has_suffix(_frame: Frame, recv: ShkString, args: List[Any]) -> ShkBool:
     _string_expect_arity("hasSuffix", args, 1)
     suffix = _string_arg("hasSuffix", args[0])
     return ShkBool(recv.value.endswith(suffix))
 
 @register_string("isAscii")
-def _string_is_ascii(_env: Env, recv: ShkString, args: List[Any]) -> ShkBool:
+def _string_is_ascii(_frame: Frame, recv: ShkString, args: List[Any]) -> ShkBool:
     _string_expect_arity("isAscii", args, 0)
     return ShkBool(recv.value.isascii())
 
-def call_builtin_method(recv: Any, name: str, args: List[Any], env: 'Env') -> Any:
+def call_builtin_method(recv: Any, name: str, args: List[Any], frame: 'Frame') -> Any:
     if isinstance(recv, ShkArray):
         fn = Builtins.array_methods.get(name)
-        if fn: return fn(env, recv, args)
+        if fn: return fn(frame, recv, args)
     if isinstance(recv, ShkString):
         fn = Builtins.string_methods.get(name)
-        if fn: return fn(env, recv, args)
+        if fn: return fn(frame, recv, args)
     if isinstance(recv, ShkObject):
         fn = Builtins.object_methods.get(name)
-        if fn: return fn(env, recv, args)
+        if fn: return fn(frame, recv, args)
     raise ShakarMethodNotFound(recv, name)
 
-def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env') -> Any:
+def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_frame: 'Frame') -> Any:
     """
     Subjectful call semantics:
-    - subject is available to callee as env.dot
+    - subject is available to callee as frame.dot
     - If fn.params is None, treat as unary subject-lambda: ignore positional, evaluate body with dot bound.
     - Else: arity must match len(fn.params); bind params; dot=subject.
     """
     if fn.decorators:
-        return _call_shkfn_with_decorators(fn, positional, subject, caller_env)
-    return _call_shkfn_raw(fn, positional, subject, caller_env)
+        return _call_shkfn_with_decorators(fn, positional, subject, caller_frame)
+    return _call_shkfn_raw(fn, positional, subject, caller_frame)
 
-def _call_shkfn_raw(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env') -> Any:
-    _ = caller_env
+def _call_shkfn_raw(fn: ShkFn, positional: List[Any], subject: Any, caller_frame: 'Frame') -> Any:
+    _ = caller_frame
     from shakar_eval import eval_node  # local import to avoid cycle
     if fn.params is None:
         if subject is None:
@@ -370,27 +370,27 @@ def _call_shkfn_raw(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 
             subject, *positional = positional
         if positional:
             raise ShakarArityError(f"Subject-only amp_lambda does not take positional args; got {len(positional)} extra")
-        callee_env = Env(parent=fn.env, dot=subject)
-        callee_env.mark_function_env()
+        callee_frame = Frame(parent=fn.frame, dot=subject)
+        callee_frame.mark_function_frame()
         try:
-            return eval_node(fn.body, callee_env)
+            return eval_node(fn.body, callee_frame)
         except ShakarReturnSignal as signal:
             return signal.value
-    callee_env = Env(parent=fn.env, dot=subject)
+    callee_frame = Frame(parent=fn.frame, dot=subject)
     if len(positional) != len(fn.params):
         raise ShakarArityError(f"Function expects {len(fn.params)} args; got {len(positional)}")
     for name, val in zip(fn.params, positional):
-        callee_env.define(name, val)
-    callee_env.mark_function_env()
+        callee_frame.define(name, val)
+    callee_frame.mark_function_frame()
     try:
-        return eval_node(fn.body, callee_env)
+        return eval_node(fn.body, callee_frame)
     except ShakarReturnSignal as signal:
         return signal.value
 
-def _call_shkfn_with_decorators(fn: ShkFn, positional: List[Any], subject: Any, caller_env: 'Env') -> Any:
+def _call_shkfn_with_decorators(fn: ShkFn, positional: List[Any], subject: Any, caller_frame: 'Frame') -> Any:
     chain = fn.decorators or ()
     args = ShkArray(list(positional))
-    return _run_decorator_chain(fn, chain, 0, args, subject, caller_env)
+    return _run_decorator_chain(fn, chain, 0, args, subject, caller_frame)
 
 def _run_decorator_chain(
     fn: ShkFn,
@@ -398,40 +398,40 @@ def _run_decorator_chain(
     index: int,
     args_value: ShkArray,
     subject: Any,
-    caller_env: 'Env',
+    caller_frame: 'Frame',
 ) -> Any:
     if index >= len(chain):
-        return _call_shkfn_raw(fn, list(args_value.items), subject, caller_env)
+        return _call_shkfn_raw(fn, list(args_value.items), subject, caller_frame)
     continuation = DecoratorContinuation(
         fn=fn,
         decorators=chain,
         index=index + 1,
         subject=subject,
-        caller_env=caller_env,
+        caller_frame=caller_frame,
     )
     inst = chain[index]
-    return _execute_decorator_instance(inst, continuation, args_value, subject, caller_env)
+    return _execute_decorator_instance(inst, continuation, args_value, subject, caller_frame)
 
 def _execute_decorator_instance(
     inst: DecoratorConfigured,
     continuation: DecoratorContinuation,
     args_value: ShkArray,
     subject: Any,
-    caller_env: 'Env',
+    caller_frame: 'Frame',
 ) -> Any:
     from shakar_eval import eval_node  # defer to avoid cycle
-    deco_env = Env(parent=inst.decorator.env, dot=subject)
-    deco_env.mark_function_env()
+    deco_frame = Frame(parent=inst.decorator.frame, dot=subject)
+    deco_frame.mark_function_frame()
     params = inst.decorator.params or []
     for name, val in zip(params, inst.args):
-        deco_env.define(name, val)
-    deco_env.define('f', continuation)
-    deco_env.define('args', args_value)
+        deco_frame.define(name, val)
+    deco_frame.define('f', continuation)
+    deco_frame.define('args', args_value)
     try:
-        eval_node(inst.decorator.body, deco_env)
+        eval_node(inst.decorator.body, deco_frame)
     except ShakarReturnSignal as signal:
         return signal.value
-    updated_args_value = deco_env.get('args')
+    updated_args_value = deco_frame.get('args')
     return continuation.invoke(updated_args_value)
 
 def _coerce_decorator_args(value: Any) -> ShkArray:

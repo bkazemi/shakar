@@ -7,7 +7,7 @@ from shakar_parse_auto import build_parser  # use the project's builder (lexer r
 from shakar_parse_auto import Prune
 from shakar_lower import lower
 from shakar_eval import eval_expr
-from shakar_runtime import Env, init_stdlib
+from shakar_runtime import Frame, init_stdlib
 
 def _read_grammar(grammar_path: str|None) -> str:
     if grammar_path:
@@ -42,7 +42,7 @@ def run(src: str, grammar_path: str|None=None, use_indenter: bool=False) -> obje
         if children and len(children) == 1:
             ast2 = children[0]
 
-    return eval_expr(ast2, Env(source=src), source=src)
+    return eval_expr(ast2, Frame(source=src), source=src)
 
 def _load_source(arg: str | None) -> str:
     """
