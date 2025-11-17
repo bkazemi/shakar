@@ -9,28 +9,34 @@ from shakar_lower import lower
 from shakar_eval import eval_expr
 from shakar_runtime import Frame, init_stdlib
 
-def _read_grammar(grammar_path: str|None) -> str:
+def _read_grammar(grammar_path: str|None, variant: str="default") -> str:
     if grammar_path:
         p = Path(grammar_path)
         if p.exists():
             return p.read_text(encoding="utf-8")
-    # Fallback: sibling grammar.lark next to this file
+    # Fallback: sibling grammar files next to this file
     parent_dir = Path(__file__).resolve().parent.parent
+    if variant == "lalr":
+        cand = parent_dir / "grammar_lalr.lark"
+        if cand.exists():
+            return cand.read_text(encoding="utf-8")
     fallback = parent_dir / "grammar.lark"
     if fallback.exists():
         return fallback.read_text(encoding="utf-8")
     raise FileNotFoundError("grammar.lark not found. pass an explicit path")
 
-def make_parser(grammar_path: str|None=None, use_indenter: bool=False, start_sym: str|None=None) -> Lark:
-    g = _read_grammar(grammar_path)
+def make_parser(grammar_path: str|None=None, use_indenter: bool=False, start_sym: str|None=None, grammar_variant: str="default") -> Lark:
+    g = _read_grammar(grammar_path, variant=grammar_variant)
     if start_sym is None:
         start_sym = "start_indented" if use_indenter else "start_noindent"
-    # Earley + basic lexer when indenter is used; dynamic otherwise is inside build_parser already
-    return build_parser(g, parser_kind="earley", use_indenter=use_indenter, start_sym=start_sym)
+    parser_kind = "earley"
+    if grammar_variant == "lalr":
+        parser_kind = "lalr"
+    return build_parser(g, parser_kind=parser_kind, use_indenter=use_indenter, start_sym=start_sym)
 
-def run(src: str, grammar_path: str|None=None, use_indenter: bool=False) -> object:
+def run(src: str, grammar_path: str|None=None, use_indenter: bool=False, grammar_variant: str="default") -> object:
     init_stdlib()
-    parser = make_parser(grammar_path, use_indenter=use_indenter)
+    parser = make_parser(grammar_path, use_indenter=use_indenter, grammar_variant=grammar_variant)
     tree = parser.parse(src)
     ast = Prune().transform(tree)
     ast2 = lower(ast)
@@ -62,6 +68,27 @@ def _load_source(arg: str | None) -> str:
     return arg
 
 if __name__ == "__main__":
-    arg = sys.argv[1] if len(sys.argv) > 1 else "-"
+    grammar_variant = "default"
+    grammar_path = None
+    arg = None
+    it = iter(sys.argv[1:])
+    for token in it:
+        if token == "--lalr":
+            grammar_variant = "lalr"
+            continue
+        if token.startswith("--grammar="):
+            grammar_path = token.split("=", 1)[1]
+            continue
+        if token == "--grammar":
+            try:
+                grammar_path = next(it)
+            except StopIteration:
+                raise SystemExit("--grammar flag requires a path") from None
+            continue
+        if arg is None:
+            arg = token
+        else:
+            raise SystemExit(f"Unexpected argument: {token}")
+    arg = arg or "-"
     source = _load_source(arg)
-    print(run(source))
+    print(run(source, grammar_path=grammar_path, grammar_variant=grammar_variant))
