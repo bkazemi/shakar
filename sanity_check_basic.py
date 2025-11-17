@@ -469,6 +469,74 @@ runtime_scenario(lambda: _rt("floor-div-basic", '7 // 2', ("number", 3), None))
 runtime_scenario(lambda: _rt("floor-div-negative", '-7 // 2', ("number", -4), None))
 runtime_scenario(lambda: _rt("compound-assign-number", 'a := 1; a += 2; a', ("number", 3), None))
 runtime_scenario(lambda: _rt("compound-assign-string", 's := "a"; s += "b"; s', ("string", "ab"), None))
+runtime_scenario(lambda: _rt("compound-assign-mod", 'a := 10; a %= 3; a', ("number", 1), None))
+runtime_scenario(lambda: _rt("compound-assign-minus", 'a := 10; a -= 4; a', ("number", 6), None))
+runtime_scenario(lambda: _rt("compound-assign-mul", 'a := 3; a *= 4; a', ("number", 12), None))
+runtime_scenario(lambda: _rt("compound-assign-div", 'a := 9; a /= 2; a', ("number", 4.5), None))
+runtime_scenario(lambda: _rt("compound-assign-floordiv", 'a := 9; a //= 2; a', ("number", 4), None))
+runtime_scenario(
+    lambda: _rt(
+        "nullsafe-chain",
+        """arr := nil
+fallback := "safe"
+value := arr ??(arr[0]) ?? fallback
+value""",
+        ("string", "safe"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "listcomp-filter",
+        """src := [1, 2, 3, 4]
+odds := [ n over src if n % 2 == 1 ]
+odds[1]""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "listcomp-binder",
+        """pairs := [[i, v] over [i, v] [[0, "a"], [1, "b"]]]
+pairs[1][1]""",
+        ("string", "b"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "setliteral-sum",
+        """vals := set{1, 2, 1}
+total := 0
+for v in vals: total += v
+total""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "setcomp-overspec",
+        """src := [[0, 2], [1, 3]]
+sums := set{ i + v over [i, v] src }
+total := 0
+for v in sums: total += v
+total""",
+        ("number", 6),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "dictcomp-basic",
+        """items := ["a", "b"]
+obj := { k: k + "!" over items bind k }
+obj["b"]""",
+        ("string", "b!"),
+        None,
+    )
+)
 runtime_scenario(lambda: _rt("fn-definition", 'fn add(x, y): x + y; add(2, 3)', ("number", 5), None))
 runtime_scenario(lambda: _rt("fn-closure", 'y := 5; fn addY(x): x + y; addY(2)', ("number", 7), None))
 runtime_scenario(
@@ -1240,3 +1308,24 @@ if __name__ == "__main__":
     print(report)
     if failures:
         raise SystemExit(1)
+r_runtime_ops = [
+    ("compound-mod", 'a := 10; a %= 3; a', ("number", 1)),
+    ("compound-minus", 'a := 10; a -= 4; a', ("number", 6)),
+    ("compound-mul", 'a := 3; a *= 4; a', ("number", 12)),
+    ("compound-div", 'a := 9; a /= 2; a', ("number", 4.5)),
+    ("compound-floordiv", 'a := 9; a //= 2; a', ("number", 4)),
+]
+for name, source, expect in r_runtime_ops:
+    runtime_scenario(lambda n=name, src=source, exp=expect: _rt(n, src, exp, None))
+
+runtime_scenario(
+    lambda: _rt(
+        "nullsafe-chain",
+        """arr := nil
+fallback := [1, 2]
+value := arr ??(arr[0]) ?? fallback[1]
+value""",
+        ("number", 2),
+        None,
+    )
+)
