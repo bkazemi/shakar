@@ -426,8 +426,6 @@ assert user == "Ada"
 
 =(user.profile.contact.name).trim()  # same as user.profile.contact.name = user.profile.contact.name.trim()
 
-```
-
 xs = [" A ", "b"]
 =xs[0].trim()
 assert xs[0] == "A"
