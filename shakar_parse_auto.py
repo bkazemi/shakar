@@ -5,7 +5,7 @@ from typing import Any, List, Optional, Tuple
 
 from lark import Lark, Transformer, Tree, UnexpectedInput, Token
 from lark.visitors import Discard
-from lark.indenter import Indenter
+from lark.indenter import Indenter, DedentError
 
 try:  # prefer package import when available
     from rt.shakar_tree import (
@@ -845,6 +845,33 @@ class ShakarIndenter(Indenter):
     OPEN_PAREN_types = ["LPAR", "LSQB"]
     CLOSE_PAREN_types = ["RPAR", "RSQB"]
     tab_len = 8
+
+    def handle_NL(self, token: Token):
+        if self.paren_level > 0:
+            return
+
+        indent_str = token.rsplit('\n', 1)[1]
+        indent = indent_str.count(' ') + indent_str.count('\t') * self.tab_len
+
+        yield token
+
+        if indent > self.indent_level[-1]:
+            self.indent_level.append(indent)
+            yield Token.new_borrow_pos(self.INDENT_type, indent_str, token)
+            return
+
+        emitted_dedent = False
+
+        while indent < self.indent_level[-1]:
+            self.indent_level.pop()
+            emitted_dedent = True
+            yield Token.new_borrow_pos(self.DEDENT_type, indent_str, token)
+
+        if indent != self.indent_level[-1]:
+            raise DedentError('Unexpected dedent to column %s. Expected dedent to %s' % (indent, self.indent_level[-1]))
+
+        if emitted_dedent and indent == 0 and indent_str == "":
+            yield Token.new_borrow_pos(self.NL_type, "\n", token)
 
 KEYWORDS = {
     "and": "AND",
