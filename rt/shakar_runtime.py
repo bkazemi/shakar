@@ -101,6 +101,17 @@ class ShkFn:
     body: Any                    # AST node
     frame: 'Frame'                   # Closure frame
     decorators: Optional[Tuple[DecoratorConfigured, ...]] = None
+    kind: str = "fn"
+    def __repr__(self) -> str:
+        body_label = getattr(self.body, 'data', type(self.body).__name__)
+        label = "amp-fn" if self.kind == "amp" else self.kind
+
+        if self.params is None:
+            param_desc = "subject"
+        else:
+            param_desc = self.params if self.params else "nullary"
+
+        return f"<{label} params={param_desc} body={body_label}>"
 
 @dataclass
 class BoundMethod:

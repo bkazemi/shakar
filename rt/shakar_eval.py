@@ -2518,12 +2518,12 @@ def _eval_key(k: Any, frame: Frame) -> Any:
 
 def _eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
     if len(n.children) == 1:
-        return ShkFn(params=None, body=n.children[0], frame=Frame(parent=frame, dot=None))
+        return ShkFn(params=None, body=n.children[0], frame=Frame(parent=frame, dot=None), kind="amp")
 
     if len(n.children) == 2:
         params_node, body = n.children
         params = _extract_param_names(params_node, context="amp_lambda")
-        return ShkFn(params=params, body=body, frame=Frame(parent=frame, dot=None))
+        return ShkFn(params=params, body=body, frame=Frame(parent=frame, dot=None), kind="amp")
 
     raise ShakarRuntimeError("amp_lambda malformed")
 
