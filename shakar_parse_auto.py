@@ -909,27 +909,17 @@ def _remap_ident(t: Token) -> Token:
     return t
 
 def build_parser(grammar_text: str, parser_kind: str, use_indenter: bool, start_sym: str):
-    if use_indenter:
-        return Lark(
-            grammar_text,
-            parser=parser_kind,
-            lexer="basic",
-            postlex=ShakarIndenter(),
-            start=start_sym,
-            maybe_placeholders=False,
-            propagate_positions=True,
-            lexer_callbacks={"IDENT": _remap_ident},
-        )
-    else:
-        return Lark(
-            grammar_text,
-            parser=parser_kind,
-            lexer="basic",
-            start=start_sym,
-            maybe_placeholders=False,
-            propagate_positions=True,
-            lexer_callbacks={"IDENT": _remap_ident},
-        )
+    _ = use_indenter  # legacy flag; indentation handling now always on
+    return Lark(
+        grammar_text,
+        parser=parser_kind,
+        lexer="basic",
+        postlex=ShakarIndenter(),
+        start=start_sym,
+        maybe_placeholders=False,
+        propagate_positions=True,
+        lexer_callbacks={"IDENT": _remap_ident},
+    )
     '''else: # dynamic ver
         return Lark(
             grammar_text,
