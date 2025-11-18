@@ -842,8 +842,8 @@ class ShakarIndenter(Indenter):
     NL_type = "_NL"
     INDENT_type = "INDENT"
     DEDENT_type = "DEDENT"
-    OPEN_PAREN_types = ["LPAR", "LSQB", "LBRACE"]
-    CLOSE_PAREN_types = ["RPAR", "RSQB", "RBRACE"]
+    OPEN_PAREN_types = ["LPAR", "LSQB"]
+    CLOSE_PAREN_types = ["RPAR", "RSQB"]
     tab_len = 8
 
 KEYWORDS = {

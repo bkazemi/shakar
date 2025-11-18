@@ -46,7 +46,7 @@ def set_field_value(recv: Any, name: str, value: Any, frame: Frame, *, create: b
         case _:
             raise ShakarTypeError(f"Cannot set field '{name}' on {type(recv).__name__}")
 
-def set_index_value(recv: Any, index: Any, value: Any, _frame: Frame) -> Any:
+def set_index_value(recv: Any, index: Any, value: Any, frame: Frame) -> Any:
     """Assign `recv[index] = value` for arrays/objects with minimal coercions."""
     match recv:
         case ShkArray(items=items):
@@ -60,6 +60,17 @@ def set_index_value(recv: Any, index: Any, value: Any, _frame: Frame) -> Any:
         case ShkObject(slots=slots):
             # objects store arbitrary keys; normalize to string for consistency.
             key = _normalize_index_key(index)
+            slot = slots.get(key)
+
+            if isinstance(slot, Descriptor):
+                setter = slot.setter
+
+                if setter is None:
+                    raise ShakarRuntimeError(f"Property '{key}' is read-only")
+
+                call_shkfn(setter, [value], subject=recv, caller_frame=frame)
+                return value
+
             slots[key] = value
             return value
         case _:

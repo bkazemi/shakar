@@ -336,15 +336,17 @@ obj_sep: COMMA | SEMI | _NL | INDENT | DEDENT
 // Record literal as an expression
 object: LBRACE object_items? RBRACE
 
-object_items: obj_sep* object_item (obj_sep+ object_item)* obj_sep*
+object_items: obj_sep* object_item (obj_sep* object_item)* obj_sep*
 
 // Items: field / getter / setter; inline expr or indentblock body
-object_item: IDENT ":" (_NL* expr)                            -> obj_field_ident
-           | STRING ":" (_NL* expr)                           -> obj_field_string
-           | keyexpr ":" (_NL* expr)                          -> obj_field_expr
-          | GET IDENT ("(" ")")? ":" (indentblock | (_NL* expr))    -> obj_get
-          | SET IDENT "(" IDENT ")" ":" (indentblock | (_NL* expr)) -> obj_set
-          | IDENT "(" paramlist? ")" ":" (indentblock | (_NL* expr)) -> obj_method
+object_item: IDENT ":" (obj_block_body | (_NL* expr))            -> obj_field_ident
+           | STRING ":" (obj_block_body | (_NL* expr))           -> obj_field_string
+           | keyexpr ":" (obj_block_body | (_NL* expr))          -> obj_field_expr
+          | GET IDENT ("(" ")")? ":" (obj_block_body | (_NL* expr))    -> obj_get
+          | SET IDENT "(" IDENT ")" ":" (obj_block_body | (_NL* expr)) -> obj_set
+          | IDENT "(" paramlist? ")" ":" (obj_block_body | (_NL* expr)) -> obj_method
+
+obj_block_body: _NL INDENT (stmtlist? _NL+)* stmtlist? _NL* DEDENT -> indentblock
 
 keyexpr: compareexpr_nc
 

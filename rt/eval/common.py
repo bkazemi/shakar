@@ -37,6 +37,7 @@ def get_source_segment(node: Any, frame: Any) -> Optional[str]:
         return None
 
     meta = node_meta(node)
+    if meta is None:
         return None
 
     start = getattr(meta, "start_pos", None)

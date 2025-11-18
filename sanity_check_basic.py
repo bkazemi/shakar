@@ -834,15 +834,31 @@ runtime_scenario(
     lambda: _rt(
         "object-getter-setter",
         """obj := {
-  get label(): "fixed"
+  name: "Ada"
+  total: 12
+  get label(): .name
+  set label(next):
+    owner := .
+    owner.name = next.trim().upper()
+  get double(): .total * 2
+  set double(next):
+    owner := .
+    owner.total = next / 2
   greet(name): "hi " + name
   ("dyn" + "Key"): 42
 }
-label := obj.label
-greet := obj.greet("Ada")
+before := obj.double
+obj.double = 10
+after_dot := obj.double
+obj["double"] = 18
+after_index := obj.double
+label_before := obj.label
+obj.label = "  grace  "
+label_after := obj.label
+greet := obj.greet(label_after)
 dyn := obj["dynKey"]
-label + "|" + greet + "|" + ("" + dyn)""",
-        ("string", "fixed|hi Ada|42.0"),
+label_before + "|" + greet + "|" + ("" + dyn) + "|" + ("" + before) + "|" + ("" + after_dot) + "|" + ("" + after_index) + "|" + label_after""",
+        ("string", "Ada|hi GRACE|42.0|24.0|10.0|18.0|GRACE"),
         None,
     )
 )

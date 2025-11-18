@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from lark import Lark
+from lark import Lark, UnexpectedInput
 import sys
 from shakar_parse_auto import build_parser  # use the project's builder (lexer remap + indenter)
-from shakar_parse_auto import Prune
+from shakar_parse_auto import Prune, looks_like_offside
 from shakar_lower import lower
 from shakar_eval import eval_expr
 from shakar_runtime import Frame, init_stdlib
@@ -41,11 +41,31 @@ def make_parser(grammar_path: str|None=None, use_indenter: bool=False, start_sym
 
     return build_parser(g, parser_kind=parser_kind, use_indenter=use_indenter, start_sym=start_sym)
 
-def run(src: str, grammar_path: str|None=None, use_indenter: bool=False, grammar_variant: str="default") -> object:
+def run(src: str, grammar_path: str|None=None, use_indenter: bool|None=None, grammar_variant: str="default") -> object:
     init_stdlib()
 
-    parser = make_parser(grammar_path, use_indenter=use_indenter, grammar_variant=grammar_variant)
-    tree = parser.parse(src)
+    if use_indenter is None:
+        preferred = looks_like_offside(src)
+        attempts = [preferred, not preferred]
+    else:
+        attempts = [use_indenter]
+
+    last_error: UnexpectedInput | None = None
+    tree = None
+
+    for flag in attempts:
+        parser = make_parser(grammar_path, use_indenter=flag, grammar_variant=grammar_variant)
+        try:
+            tree = parser.parse(src)
+            break
+        except UnexpectedInput as exc:
+            last_error = exc
+
+    if tree is None:
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("Parser failed without producing a parse tree")
+
     ast = Prune().transform(tree)
     ast2 = lower(ast)
     # Unwrap start_* roots only when they contain a single child; otherwise keep
