@@ -70,6 +70,18 @@ from .eval.mutation import (
     slice_value,
     get_field_value,
 )
+from .eval.control import (
+    coerce_throw_value as _coerce_throw_value,
+    eval_assert as _eval_assert,
+    eval_return_if as _eval_return_if,
+    eval_return_stmt as _eval_return_stmt,
+    eval_throw_stmt as _eval_throw_stmt,
+)
+from .eval.helpers import (
+    current_function_frame as _current_function_frame,
+    is_truthy as _is_truthy,
+    retargets_anchor as _retargets_anchor,
+)
 
 from .eval._await import (
     await_any_entries,
@@ -229,11 +241,11 @@ def eval_node(n: Any, frame: Frame) -> Any:
         case 'walrus' | 'walrus_nc':
             return _eval_walrus(n.children, frame)
         case 'returnstmt':
-            return _eval_return_stmt(n.children, frame)
+            return _eval_return_stmt(n.children, frame, eval_func=eval_node)
         case 'returnif':
-            return _eval_return_if(n.children, frame)
+            return _eval_return_if(n.children, frame, eval_func=eval_node)
         case 'throwstmt':
-            return _eval_throw_stmt(n.children, frame)
+            return _eval_throw_stmt(n.children, frame, eval_func=eval_node)
         case 'breakstmt':
             return _eval_break_stmt(frame)
         case 'continuestmt':
@@ -253,7 +265,7 @@ def eval_node(n: Any, frame: Frame) -> Any:
         case 'deferstmt':
             return _eval_defer_stmt(n.children, frame)
         case 'assert':
-            return _eval_assert(n.children, frame)
+            return _eval_assert(n.children, frame, eval_func=eval_node)
         case 'bind' | 'bind_nc':
             return _eval_apply_assign(n.children, frame)
         case 'subject':
@@ -488,67 +500,6 @@ def _eval_assign_stmt(children: List[Any], frame: Frame) -> Any:
     )
 
     return ShkNull()
-
-def _eval_return_stmt(children: List[Any], frame: Frame) -> Any:
-    """implements `return` with optional expression, unwinding via control signal."""
-
-    if _current_function_frame(frame) is None:
-        raise ShakarRuntimeError("return outside of a function")
-
-    value = eval_node(children[0], frame) if children else ShkNull()
-
-    raise ShakarReturnSignal(value)
-
-def _eval_return_if(children: List[Any], frame: Frame) -> Any:
-    """Implements `?ret expr`: evaluate expr and return when it is truthy."""
-
-    if _current_function_frame(frame) is None:
-        raise ShakarRuntimeError("?ret outside of a function")
-
-    if not children:
-        raise ShakarRuntimeError("?ret requires an expression")
-
-    value = eval_node(children[0], frame)
-    if _is_truthy(value):
-        raise ShakarReturnSignal(value)
-
-    return ShkNull()
-
-def _eval_throw_stmt(children: List[Any], frame: Frame) -> Any:
-    """implements `throw` with optional expression; bare throw rethrows current catch payload."""
-    if children:
-        value = eval_node(children[0], frame)
-        raise _coerce_throw_value(value)
-    current = getattr(frame, '_active_error', None)
-
-    if current is None:
-        raise ShakarRuntimeError("throw outside of catch")
-    raise current
-
-def _coerce_throw_value(value: Any) -> ShakarRuntimeError:
-    if isinstance(value, ShakarRuntimeError):
-        return value
-
-    if isinstance(value, ShkObject):
-        slots = getattr(value, 'slots', {})
-        marker = slots.get('__error__')
-
-        if isinstance(marker, ShkBool) and marker.value:
-            type_slot = slots.get('type')
-            msg_slot = slots.get('message')
-
-            if not isinstance(type_slot, ShkString) or not isinstance(msg_slot, ShkString):
-                raise ShakarTypeError("error() objects must have string type and message")
-
-            err = ShakarRuntimeError(msg_slot.value)
-            err.shk_type = type_slot.value
-            err.shk_data = slots.get('data', ShkNull())
-            err.shk_payload = value
-            return err
-
-    message = _stringify(value)
-
-    return ShakarRuntimeError(message)
 
 def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
     """Expose exception metadata to catch handlers as a lightweight object."""
@@ -842,24 +793,6 @@ def _eval_anonymous_fn(children: List[Any], frame: Frame) -> ShkFn:
     params = _extract_param_names(params_node, context="anonymous function")
 
     return ShkFn(params=params, body=body_node, frame=Frame(parent=frame, dot=None))
-
-def _eval_assert(children: List[Any], frame: Frame) -> Any:
-    """Evaluate `assert expr [, message]`, raising ShakarAssertionError when falsy."""
-    if not children:
-        raise ShakarRuntimeError("Malformed assert statement")
-
-    cond_val = eval_node(children[0], frame)
-
-    if _is_truthy(cond_val):
-        return ShkNull()
-
-    message = f"Assertion failed: {_assert_source_snippet(children[0], frame)}"
-
-    if len(children) > 1:
-        msg_val = eval_node(children[1], frame)
-        message = _stringify(msg_val)
-
-    raise ShakarAssertionError(message)
 
 def _eval_if_stmt(n: Tree, frame: Frame) -> Any:
     children = tree_children(n)
@@ -1734,31 +1667,6 @@ def _nullsafe_recovers(err: Exception, recv: Any) -> bool:
         return True
     return isinstance(err, (ShakarKeyError, ShakarIndexError))
 
-def _is_truthy(val: Any) -> bool:
-    match val:
-        case ShkBool(value=b):
-            return b
-        case ShkNull():
-            return False
-        case ShkNumber(value=num):
-            return num != 0
-        case ShkString(value=s):
-            return bool(s)
-        case ShkArray(items=items):
-            return bool(items)
-        case ShkObject(slots=slots):
-            return bool(slots)
-        case _:
-            return True
-
-def _retargets_anchor(node: Any) -> bool:
-    if is_token_node(node):
-        return _token_kind(node) == 'IDENT'
-
-    if is_tree_node(node):
-        return tree_label(node) not in {'implicit_chain', 'subject', 'group', 'no_anchor', 'literal', 'bind', 'bind_nc', 'expr', 'expr_nc'}
-    return True
-
 # ---------------- Arithmetic ----------------
 
 def _normalize_unary_op(op_node: Any, frame: Frame) -> Any:
@@ -1866,28 +1774,6 @@ _COMPOUND_ASSIGN_OPERATORS: dict[str, str] = {
     '**=': '**',
 }
 
-def _stringify(value: Any) -> str:
-    if isinstance(value, ShkString):
-        return value.value
-    inner = getattr(value, 'value', value)
-    return str(inner)
-
-def _assert_source_snippet(node: Any, frame: Frame) -> str:
-    src = getattr(frame, 'source', None)
-
-    if src is not None:
-        start, end = _node_source_span(node)
-
-        if start is not None and end is not None and 0 <= start < end <= len(src):
-            snippet = src[start:end].strip()
-
-            if snippet:
-                return snippet
-
-    rendered = _render_expr(node)
-
-    return rendered if rendered else "<expr>"
-
 def _apply_binary_operator(op: str, lhs: Any, rhs: Any) -> Any:
     match op:
         case '+':
@@ -1914,16 +1800,6 @@ def _apply_binary_operator(op: str, lhs: Any, rhs: Any) -> Any:
             _require_number(lhs); _require_number(rhs)
             return ShkNumber(lhs.value ** rhs.value)
     raise ShakarRuntimeError(f"Unknown operator {op}")
-
-def _current_function_frame(frame: Frame) -> Frame | None:
-    """Walk parents to find the nearest function-call frame marker."""
-    cur = frame
-    while cur is not None:
-        if cur.is_function_frame():
-            return cur
-        cur = getattr(cur, "parent", None)
-
-    return None
 
 def _token_number(t: Token, _: Frame) -> ShkNumber:
     return ShkNumber(float(t.value))
