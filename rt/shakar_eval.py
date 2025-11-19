@@ -1926,6 +1926,27 @@ def _token_string(t: Token, _: Frame) -> ShkString:
 
     return ShkString(v)
 
+def _eval_string_interp(node: Tree, frame: Frame) -> ShkString:
+    parts: list[str] = []
+
+    for part in tree_children(node):
+        if is_token_node(part):
+            parts.append(part.value)
+            continue
+
+        if tree_label(part) == 'string_interp_expr':
+            expr_node = part.children[0] if tree_children(part) else None
+            if expr_node is None:
+                raise ShakarRuntimeError("Empty interpolation expression")
+
+            value = eval_node(expr_node, frame)
+            parts.append(_stringify(value))
+            continue
+
+        raise ShakarRuntimeError("Unexpected node in string interpolation literal")
+
+    return ShkString("".join(parts))
+
 def _extract_param_names(params_node: Any, context: str="parameter list") -> List[str]:
     if params_node is None:
         return []
@@ -2572,6 +2593,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], Any]] = {
     'setliteral': _eval_setliteral,
     'dictcomp': _eval_dictcomp,
     'selectorliteral': lambda n, frame: eval_selectorliteral(n, frame, eval_node),
+    'string_interp': _eval_string_interp,
     'group': _eval_group,
     'no_anchor': _eval_group,
     'ternary': _eval_ternary,

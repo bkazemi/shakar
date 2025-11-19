@@ -16,6 +16,8 @@ from shakar_tree import (
 def token_kind(node: Any) -> Optional[str]:
     return node.type if is_token_node(node) else None
 
+def is_token_type(node: Any, kind: str) -> bool:
+    return is_token_node(node) and token_kind(node) == kind
 def expect_ident_token(node: Any, context: str) -> str:
     if is_token_node(node) and token_kind(node) == 'IDENT':
         return node.value

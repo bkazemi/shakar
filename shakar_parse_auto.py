@@ -136,6 +136,24 @@ class ChainNormalize(Transformer):
         return Tree('explicit_chain', self._fuse(c))
 
 class Prune(Transformer):
+    _fragment_parser: Optional[Lark] = None
+    _fragment_signature: Optional[Tuple[str, str]] = None
+
+    @classmethod
+    def configure_fragment_parser(cls, grammar_text: str, parser_kind: str) -> None:
+        signature = (grammar_text, parser_kind)
+
+        if cls._fragment_signature == signature and cls._fragment_parser is not None:
+            return
+
+        cls._fragment_parser = build_parser(
+            grammar_text,
+            parser_kind=parser_kind,
+            use_indenter=False,
+            start_sym="expr",
+        )
+        cls._fragment_signature = signature
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._compare_depth = 0
@@ -154,6 +172,16 @@ class Prune(Transformer):
     def object(self, c):
         return Tree('object', c)
 
+    def literal(self, c):
+        if not c:
+            return None
+
+        node = c[0]
+
+        if is_token(node) and getattr(node, "type", "") == "STRING":
+            return self._transform_string_token(node)
+        return node
+
     # Canonicalize fields to a single node shape: obj_field(key, value)
     def obj_field_ident(self, c):
         # c = [IDENT, expr]
@@ -169,6 +197,140 @@ class Prune(Transformer):
 
     def obj_sep(self, _c):
         return Discard
+
+    def _transform_string_token(self, token: Token):
+        raw = token.value
+        if len(raw) < 2:
+            return token
+
+        body = raw[1:-1]
+        if "{" not in body:
+            return token
+
+        segments = self._split_interpolation_segments(body, token)
+        if not segments:
+            return token
+
+        nodes: List[Any] = []
+
+        for kind, payload in segments:
+            if kind == "text":
+                if payload:
+                    nodes.append(Token("STRING_TEXT", payload))
+                continue
+
+            nodes.append(Tree("string_interp_expr", [payload]))
+
+        result = Tree("string_interp", nodes)
+
+        meta = getattr(token, "meta", None)
+        if meta is not None:
+            result.meta = meta
+        return result
+
+    def _split_interpolation_segments(self, text: str, token: Token) -> List[Tuple[str, Any]]:
+        parts: List[Tuple[str, Any]] = []
+        literal: List[str] = []
+        index = 0
+        length = len(text)
+        saw_expr = False
+
+        while index < length:
+            ch = text[index]
+
+            if ch == "{":
+                if index + 1 < length and text[index + 1] == "{":
+                    literal.append("{")
+                    index += 2
+                    continue
+
+                expr_text, next_index = self._extract_interpolation_expr(text, index + 1, token)
+
+                if literal:
+                    parts.append(("text", "".join(literal)))
+                    literal.clear()
+
+                expr_node = self._parse_interpolation_expr(expr_text)
+                parts.append(("expr", expr_node))
+                saw_expr = True
+                index = next_index
+                continue
+            elif ch == "}" and index + 1 < length and text[index + 1] == "}":
+                literal.append("}")
+                index += 2
+                continue
+            elif ch == "}":
+                raise SyntaxError("Unescaped '}' in string interpolation literal")
+            else:
+                literal.append(ch)
+                index += 1
+
+        if not saw_expr:
+            return []
+
+        if literal:
+            parts.append(("text", "".join(literal)))
+        return parts
+
+    def _extract_interpolation_expr(self, text: str, start: int, token: Token) -> Tuple[str, int]:
+        depth = 1
+        index = start
+        length = len(text)
+        in_quote: Optional[str] = None
+        escape = False
+
+        while index < length:
+            ch = text[index]
+
+            if in_quote is not None:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == in_quote:
+                    in_quote = None
+                index += 1
+                continue
+
+            if ch in ("'", '"'):
+                in_quote = ch
+                index += 1
+                continue
+
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+
+                if depth == 0:
+                    expr = text[start:index]
+
+                    if not expr.strip():
+                        raise SyntaxError("Empty interpolation expression in string literal")
+                    return expr, index + 1
+            index += 1
+
+        raise SyntaxError(f"Unterminated interpolation expression in string literal: {token.value!r}")
+
+    def _parse_interpolation_expr(self, expr_src: str):
+        parser = self._fragment_parser
+        if parser is None:
+            raise SyntaxError("String interpolation requires parser configuration")
+
+        tree = parser.parse(expr_src)
+        pruned = self.__class__().transform(tree)
+        return self._unwrap_fragment_expr(pruned)
+
+    def _unwrap_fragment_expr(self, node: Any) -> Any:
+        current = node
+
+        while is_tree(current) and tree_label(current) == 'expr':
+            children = tree_children(current)
+
+            if not children:
+                break
+            current = children[0]
+        return current
 
     # Keep getters/setters explicit; prune keeps only key + body shape later if you want
     def obj_get(self, c):
@@ -910,7 +1072,7 @@ def _remap_ident(t: Token) -> Token:
 
 def build_parser(grammar_text: str, parser_kind: str, use_indenter: bool, start_sym: str):
     _ = use_indenter  # legacy flag; indentation handling now always on
-    return Lark(
+    parser = Lark(
         grammar_text,
         parser=parser_kind,
         lexer="basic",
@@ -920,6 +1082,9 @@ def build_parser(grammar_text: str, parser_kind: str, use_indenter: bool, start_
         propagate_positions=True,
         lexer_callbacks={"IDENT": _remap_ident},
     )
+    if start_sym in {"start_noindent", "start_indented"}:
+        Prune.configure_fragment_parser(grammar_text, parser_kind)
+    return parser
     '''else: # dynamic ver
         return Lark(
             grammar_text,

@@ -740,6 +740,36 @@ flag ? "yes" : "no" """,
 )
 runtime_scenario(
     lambda: _rt(
+        "string-interp",
+        """user := { name: "Ada", score: 5 }
+msg := "Name: {user.name}, score: {user.score}"
+msg""",
+        ("string", "Name: Ada, score: 5.0"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "string-interp-braces",
+        """value := 10
+text := "set {{value}} = {value}"
+text""",
+        ("string", "set {value} = 10.0"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "string-interp-single-quote",
+        """user := { name: "Ada" }
+text := 'hi {user.name}!'
+text""",
+        ("string", "hi Ada!"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "ccc-runtime",
         """temp := 50
 verdict := "fail"
@@ -767,6 +797,19 @@ runtime_scenario(
 slice := arr[1:3]
 slice[0] + slice[1]""",
         ("number", 50),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-literal-interp",
+        """start := 1
+stop := 3
+sel := `{start}:{stop}
+arr := [4, 5, 6, 7]
+sum := arr[sel]
+sum[0] + sum[1]""",
+        ("number", 11),
         None,
     )
 )

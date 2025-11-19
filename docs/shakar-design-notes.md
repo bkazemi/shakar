@@ -956,6 +956,13 @@ send("bob@x.com", subject: "Hi", body: "…")
 
 ## 12) Strings & performance (critical)
 
+- **Interpolation syntax**
+  - Use `{expr}` inside a single- or double-quoted string to splice the value of any expression into the final string. Examples: `"Hello {user.name}! score={user.score}"` and `'user: {user.name}'`.
+  - Braces used literally must be doubled: write `{{` for `{` and `}}` for `}`. Single `}` outside of an interpolation is an error.
+  - Expressions are parsed with the normal grammar (so nested selectors, ternaries, etc., all work) and inherit the surrounding scope/subject. Empty braces (`{}`) are illegal.
+  - Evaluation order is left-to-right; each expression is evaluated and stringified immediately (`ShkString` contributes its `.value`, numbers render numerically, everything else goes through the standard `stringify` helper).
+  - Strings with no `{` remain simple literals; interpolation is only enabled once a single brace-insertion appears.
+
 ## 12.5) Slicing & selector lists
 - **Selector literals as values** use backticks with the body (e.g., `` `lo:<hi` `` or `` `1:<5, 11:15:2, 20` ``). Indexing continues to use brackets: `xs[lo:<hi]`.
 - **Selector literals as values vs slices:** selector literals as values do not clamp; slices inside `[]` still clamp; index selectors throw on out-of-bounds.
