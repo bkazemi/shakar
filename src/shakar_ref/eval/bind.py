@@ -4,14 +4,14 @@ from typing import Any, Callable, List
 
 from lark import Tree
 
-from shakar_runtime import Frame, ShkArray, ShkNumber, ShakarRuntimeError
-from shakar_tree import child_by_label, is_token_node, is_tree_node, tree_children, tree_label
+from ..runtime import Frame, ShkArray, ShkNumber, ShakarRuntimeError
+from ..tree import child_by_label, is_token_node, is_tree_node, tree_children, tree_label
 
-from eval.common import expect_ident_token, token_kind, require_number
-from eval.destructure import assign_pattern as destructure_assign_pattern
-from eval.mutation import get_field_value, set_field_value, index_value, set_index_value
-from eval.postfix import define_new_ident
-from shakar_utils import fanout_values
+from .common import expect_ident_token, token_kind, require_number
+from .destructure import assign_pattern as destructure_assign_pattern
+from .mutation import get_field_value, set_field_value, index_value, set_index_value
+from .postfix import define_new_ident
+from ..utils import fanout_values
 
 EvalFunc = Callable[[Any, Frame], Any]
 ApplyOpFunc = Callable[[Any, Tree, Frame], Any]

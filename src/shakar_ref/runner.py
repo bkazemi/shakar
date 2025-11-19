@@ -3,11 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from lark import Lark, UnexpectedInput
 import sys
-from shakar_parse_auto import build_parser  # use the project's builder (lexer remap + indenter)
-from shakar_parse_auto import Prune, looks_like_offside
-from shakar_lower import lower
-from shakar_eval import eval_expr
-from shakar_runtime import Frame, init_stdlib
+from .parse_auto import build_parser  # use the project's builder (lexer remap + indenter)
+from .parse_auto import Prune, looks_like_offside
+from .lower import lower
+from .evaluator import eval_expr
+from .runtime import Frame, init_stdlib
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def _read_grammar(grammar_path: str|None, variant: str="default") -> str:
     if grammar_path:
@@ -15,8 +17,8 @@ def _read_grammar(grammar_path: str|None, variant: str="default") -> str:
         if p.exists():
             return p.read_text(encoding="utf-8")
 
-    # fallback: sibling grammar files next to this file
-    parent_dir = Path(__file__).resolve().parent.parent
+    # fallback: sibling grammar files at the repository root
+    parent_dir = REPO_ROOT
 
     if variant == "lalr":
         cand = parent_dir / "grammar_lalr.lark"
@@ -100,7 +102,7 @@ def _load_source(arg: str | None) -> str:
 
     return arg
 
-if __name__ == "__main__":
+def main() -> None:
     grammar_variant = "default"
     grammar_path = None
     arg = None
@@ -130,3 +132,6 @@ if __name__ == "__main__":
     arg = arg or "-"
     source = _load_source(arg)
     print(run(source, grammar_path=grammar_path, grammar_variant=grammar_variant))
+
+if __name__ == "__main__":
+    main()

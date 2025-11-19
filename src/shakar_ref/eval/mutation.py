@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from shakar_runtime import (
+from ..runtime import (
     Frame,
     BoundMethod,
     BuiltinMethod,
@@ -21,7 +21,7 @@ from shakar_runtime import (
     ShakarIndexError,
     call_shkfn,
 )
-from eval.selector import clone_selector_parts, apply_selectors_to_value
+from .selector import clone_selector_parts, apply_selectors_to_value
 
 def set_field_value(recv: Any, name: str, value: Any, frame: Frame, *, create: bool) -> Any:
     """Assign `recv.name = value`, honoring descriptors and creation semantics."""

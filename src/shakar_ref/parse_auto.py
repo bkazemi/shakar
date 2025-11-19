@@ -7,16 +7,20 @@ from lark import Lark, Transformer, Tree, UnexpectedInput, Token
 from lark.visitors import Discard
 from lark.indenter import Indenter, DedentError
 
-try:  # prefer package import when available
-    from rt.shakar_tree import (
+if __package__:
+    from .tree import (
         is_tree,
         is_token,
         tree_label,
         tree_children,
         node_meta,
     )
-except ImportError:  # fallback for direct execution
-    from shakar_tree import (
+else:  # script execution (e.g. tools invoking parser directly)
+    REPO_ROOT = Path(__file__).resolve().parents[2]
+    SRC_DIR = REPO_ROOT / "src"
+    if SRC_DIR.exists():
+        sys.path.append(str(SRC_DIR))
+    from shakar_ref.tree import (
         is_tree,
         is_token,
         tree_label,

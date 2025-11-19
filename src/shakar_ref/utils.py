@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from shakar_runtime import (
+from .runtime import (
     DecoratorConfigured,
     DecoratorContinuation,
     ShkNull,

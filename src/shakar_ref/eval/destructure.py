@@ -6,14 +6,14 @@ from typing import Any, Iterable, Optional, Callable
 
 from lark import Tree, Token
 
-from shakar_runtime import Frame, ShkArray, ShakarRuntimeError
-from shakar_utils import (
+from ..runtime import Frame, ShkArray, ShakarRuntimeError
+from ..utils import (
     is_sequence_value,
     sequence_items,
     coerce_sequence,
     replicate_empty_sequence,
 )
-from shakar_tree import tree_label, tree_children
+from ..tree import tree_label, tree_children
 
 def _ident_token_value(node: Any) -> Optional[str]:
     if isinstance(node, Token) and node.type == "IDENT":

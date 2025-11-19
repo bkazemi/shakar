@@ -5,10 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import List
 
-try:
-    from shakar_runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, ShakarTypeError, ShkObject
-except ImportError:  # running as package
-    from .shakar_runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, ShakarTypeError, ShkObject
+from .runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, ShakarTypeError, ShkObject
 
 def _render(value):
     if isinstance(value, ShkString):

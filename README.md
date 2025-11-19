@@ -185,4 +185,14 @@ There is no hidden control flow beyond what is written in the spec, which keeps 
 - **Tree-sitter grammar**: maintained in `tree-sitter-shakar/`.
 - **Tests**: run `python sanity_check_basic.py` after semantic changes; it exercises the grammar/runtime end-to-end.
 
+### Running the reference interpreter
+
+The Python runtime now lives under `src/shakar_ref/`. Run programs via:
+
+```bash
+PYTHONPATH=src python -m shakar_ref.runner path/to/program.shk
+```
+
+Use `-` instead of a path to read from stdin.
+
 This is early research. Expect breaking changes while the surface syntax settles. Always treat the [design notes](./docs/shakar-design-notes.md) as the source of truth. Contributions that improve the spec, runtime, or tests are welcome :-)

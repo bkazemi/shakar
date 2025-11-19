@@ -276,7 +276,7 @@ def init_stdlib() -> None:
     if _STDLIB_INITIALIZED:
         return
 
-    for module_name in ("rt.shakar_stdlib", "shakar_stdlib"):
+    for module_name in ("shakar_ref.stdlib",):
         try:
             importlib.import_module(module_name)
             _STDLIB_INITIALIZED = True
@@ -406,7 +406,7 @@ def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_frame: 'Fr
 
 def _call_shkfn_raw(fn: ShkFn, positional: List[Any], subject: Any, caller_frame: 'Frame') -> Any:
     _ = caller_frame
-    from shakar_eval import eval_node  # local import to avoid cycle
+    from .evaluator import eval_node  # local import to avoid cycle
 
     if fn.params is None:
         if subject is None:
@@ -474,7 +474,7 @@ def _execute_decorator_instance(
     subject: Any,
     caller_frame: 'Frame',
 ) -> Any:
-    from shakar_eval import eval_node  # defer to avoid cycle
+    from .evaluator import eval_node  # defer to avoid cycle
     deco_frame = Frame(parent=inst.decorator.frame, dot=subject)
     deco_frame.mark_function_frame()
     params = inst.decorator.params or []

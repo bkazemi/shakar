@@ -1,1 +1,0 @@
-../shakar_parse_auto.py

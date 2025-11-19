@@ -1,14 +1,14 @@
 from __future__ import annotations
 from typing import Any, List
 
-from shakar_tree import (
+from .tree import (
     Tree,
     Token,
     is_tree,
     tree_children,
     tree_label,
 )
-from shakar_tree import is_token as is_token_node
+from .tree import is_token as is_token_node
 
 def lower(ast: Any) -> Any:
     """Runtime lowering pass (currently: hole desugaring)."""

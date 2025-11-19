@@ -4,7 +4,7 @@ import asyncio
 import inspect
 from typing import Any, Awaitable, Iterable
 
-from shakar_runtime import ShakarRuntimeError
+from ..runtime import ShakarRuntimeError
 
 def _wrap_awaitable(value: Any) -> Awaitable[Any]:
     if inspect.isawaitable(value):

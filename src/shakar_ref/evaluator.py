@@ -6,7 +6,7 @@ from lark import Tree, Token
 
 from contextlib import contextmanager
 
-from shakar_runtime import (
+from .runtime import (
     BoundMethod,
     BuiltinMethod,
     DecoratorConfigured,
@@ -40,8 +40,8 @@ from shakar_runtime import (
     init_stdlib,
 )
 
-from shakar_utils import fanout_values, normalize_object_key, shk_equals, value_in_list
-from shakar_tree import (
+from .utils import fanout_values, normalize_object_key, shk_equals, value_in_list
+from .tree import (
     child_by_label,
     is_token_node,
     is_tree_node,
@@ -50,20 +50,20 @@ from shakar_tree import (
     tree_label,
 )
 
-from eval.selector import (
+from .eval.selector import (
     eval_selectorliteral,
     evaluate_selectorlist,
     apply_selectors_to_value,
     selector_iter_values,
 )
 
-from eval.destructure import (
+from .eval.destructure import (
     evaluate_destructure_rhs,
     infer_implicit_binders as destructure_infer_implicit_binders,
     apply_comp_binders as destructure_apply_comp_binders,
 )
 
-from eval.mutation import (
+from .eval.mutation import (
     set_field_value,
     set_index_value,
     index_value,
@@ -71,19 +71,19 @@ from eval.mutation import (
     get_field_value,
 )
 
-from eval._await import (
+from .eval._await import (
     await_any_entries,
     await_all_entries,
     resolve_await_result,
 )
 
-from eval.postfix import (
+from .eval.postfix import (
     define_new_ident,
     eval_postfix_if as _postfix_eval_if,
     eval_postfix_unless as _postfix_eval_unless,
 )
 
-from eval.common import (
+from .eval.common import (
     token_kind as _token_kind,
     expect_ident_token as _expect_ident_token,
     ident_token_value as _ident_token_value,
@@ -98,7 +98,7 @@ from eval.common import (
     collect_free_identifiers as _collect_free_identifiers,
 )
 
-from eval.bind import (
+from .eval.bind import (
     FanContext,
     RebindContext,
     assign_ident,

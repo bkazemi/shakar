@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Iterable, List, Optional
 
 
-from shakar_runtime import (
+from ..runtime import (
     ShkArray,
     ShkString,
     ShkNumber,
@@ -17,8 +17,8 @@ from shakar_runtime import (
     ShakarIndexError,
 )
 
-from shakar_utils import sequence_items
-from shakar_tree import (
+from ..utils import sequence_items
+from ..tree import (
     tree_children,
     tree_label,
     child_by_label,

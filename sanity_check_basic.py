@@ -11,7 +11,6 @@ The script prints a textual report and exits non-zero on failure.
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import sys
 import traceback
@@ -22,12 +21,12 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.append(str(BASE_DIR))
-RT_DIR = (BASE_DIR / "rt").resolve()
-if str(RT_DIR) not in sys.path:
-    sys.path.append(str(RT_DIR))
+SRC_DIR = (BASE_DIR / "src").resolve()
+if str(SRC_DIR) not in sys.path:
+    sys.path.append(str(SRC_DIR))
 
-from shakar_run import run as run_program
-from shakar_runtime import (
+from shakar_ref.runner import run as run_program
+from shakar_ref.runtime import (
     ShkNull,
     ShkNumber,
     ShkString,
@@ -35,12 +34,9 @@ from shakar_runtime import (
     ShakarAssertionError,
     ShakarRuntimeError,
 )
+from shakar_ref import parse_auto as runner
 
-RUNNER_PATH = Path("shakar_parse_auto.py")
 GRAMMAR_PATH = Path("grammar.lark")
-spec = importlib.util.spec_from_file_location("shakar_runner", RUNNER_PATH)
-runner = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(runner)  # type: ignore[misc]
 GRAMMAR_TEXT = GRAMMAR_PATH.read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------------------

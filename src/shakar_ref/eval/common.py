@@ -4,8 +4,8 @@ from typing import Any, Callable, Iterable, List, Optional
 
 from lark import Tree, Token
 
-from shakar_runtime import ShkBool, ShkNumber, ShkString, ShakarRuntimeError, ShakarTypeError
-from shakar_tree import (
+from ..runtime import ShkBool, ShkNumber, ShkString, ShakarRuntimeError, ShakarTypeError
+from ..tree import (
     is_token_node,
     is_tree_node,
     node_meta,
@@ -18,6 +18,7 @@ def token_kind(node: Any) -> Optional[str]:
 
 def is_token_type(node: Any, kind: str) -> bool:
     return is_token_node(node) and token_kind(node) == kind
+
 def expect_ident_token(node: Any, context: str) -> str:
     if is_token_node(node) and token_kind(node) == 'IDENT':
         return node.value
