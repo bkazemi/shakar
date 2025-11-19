@@ -27,11 +27,11 @@ _NL: /(\r?\n[ \t]*)+/  // Auto-generated from docs/shakar-design-notes.md
 
 COMMENT: "#" /[^\n\r]*/
 
+STRING: /"(?:\\.|[^"\\])*"/ | /'(?:\\.|[^'\\])*'/
 %import common.INT   -> INT
 %import common.WS_INLINE
 %ignore WS_INLINE
 
-%import common.ESCAPED_STRING -> STRING
 %import common.NUMBER -> NUMBER
 
 %declare AND OR IS IN NOT FOR IF ELIF ELSE AWAIT ANY USING OVER ALL HOOK RETURN DEFER ASSERT DBG GET SET FN BREAK CONTINUE THROW DECORATOR DECORATE
@@ -166,7 +166,11 @@ primary: rebind_primary
        | nullsafe
        | ampval1 | ampvaln
 
-literal: STRING | NUMBER | "nil" | "true" | "false"
+NIL: "nil"
+TRUE: "true"
+FALSE: "false"
+
+literal: STRING | NUMBER | NIL | TRUE | FALSE
 selectorliteral: "`" sellist "`"
 sellist: selitem ("," selitem)*
 selitem: sliceitem | indexitem
@@ -235,7 +239,7 @@ stmtlist: stmt (SEMI stmt)* SEMI?
 stmt: simplestmt
           | comment | forin | forsubject | formap1 | formap2
 
-ifstmt: IF expr ":" (inlinebody | indentblock) (elifclause)* (elseclause)?
+ifstmt: IF expr ":" (inlinebody | indentblock) (_NL* elifclause)* (_NL* elseclause)?
 elifclause: ELIF expr ":" (inlinebody | indentblock)
 elseclause: ELSE ":" (inlinebody | indentblock)
 

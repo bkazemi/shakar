@@ -801,7 +801,7 @@ runtime_scenario(
         "selector-literal-interp",
         """start := 1
 stop := 3
-sel := `{start}:{stop}
+sel := `{start}:{stop}`
 arr := [4, 5, 6, 7]
 sum := arr[sel]
 sum[0] + sum[1]""",

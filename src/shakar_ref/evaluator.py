@@ -1166,6 +1166,16 @@ def _apply_comp_binders_wrapper(binders: list[dict[str, Any]], element: Any, ite
     )
 
 def _evaluate_index_operand(index_node: Tree, frame: Frame) -> Any:
+    selectorlist = child_by_label(index_node, 'selectorlist')
+
+    if selectorlist is not None:
+        selectors = evaluate_selectorlist(selectorlist, frame, eval_node)
+
+        if len(selectors) == 1 and isinstance(selectors[0], SelectorIndex):
+            return selectors[0].value
+
+        return ShkSelector(selectors)
+
     expr_node = _index_expr_from_children(index_node.children)
     return eval_node(expr_node, frame)
 
@@ -2629,4 +2639,5 @@ _TOKEN_DISPATCH: dict[str, Callable[[Token, Frame], Any]] = {
     'STRING': _token_string,
     'TRUE': lambda _, __: ShkBool(True),
     'FALSE': lambda _, __: ShkBool(False),
+    'NIL': lambda _, __: ShkNull(),
 }

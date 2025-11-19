@@ -47,7 +47,7 @@ This is a **living technical spec**. It front-loads design choices to avoid “o
   - **Nil/bool:** `nil`, `true`, `false`
   - **Integers:** 64-bit signed (`Int`). Underscore separators allowed: `1_000_000`. Bases: `0b1010`, `0o755`, `0xFF_EC`. **Overflow throws** in v0.1.
   - **Floats:** IEEE-754 double (`Float`). `0.5`, `1.0`, `1e-9`, `1_234.5e6`. **Leading zero required** (no `.5`).
-  - **Strings:** `"…"`, with escapes `\n \t \\ \" \u{…}`. Multiline strings ❓ (later).
+  - **Strings:** `"…"` or `'…'`, with escapes `\n \t \\ \" \u{…}`. Multiline strings ❓ (later).
   - **Arrays:** `[1, 2, 3]`
   - **Objects:** `{ key: value, other: 2 }` (plain values; getters/setters have contextual `get`/`set`, see §10).
   - **Selector literals (as values):** backtick selectors like `` `1:10` `` produce **Selector** values (views/iterables). Default stop is **inclusive**; use `<stop` for exclusive (e.g., `` `[1:<10]` ``).

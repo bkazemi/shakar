@@ -3,7 +3,7 @@ import argparse
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
-from lark import Lark, Transformer, Tree, UnexpectedInput, Token
+from lark import Lark, Transformer, Tree, UnexpectedInput, Token, v_args
 from lark.visitors import Discard
 from lark.indenter import Indenter, DedentError
 
@@ -176,9 +176,13 @@ class Prune(Transformer):
     def object(self, c):
         return Tree('object', c)
 
-    def literal(self, c):
+    @v_args(meta=True)
+    def literal(self, meta, c):
         if not c:
-            return None
+            node = Tree('literal', [])
+            node.meta = meta
+
+            return node
 
         node = c[0]
 
@@ -359,6 +363,12 @@ class Prune(Transformer):
                 elif param is None:
                     param = part
         return Tree('obj_set', [name, param, body])
+
+    def obj_body(self, c):
+        if c:
+            return c[0]
+
+        return Tree('indentblock', [])
 
     def obj_method(self, c):
         name = None
@@ -732,9 +742,9 @@ class Prune(Transformer):
         exprs: List[Any] = []
 
         for node in c:
-            if is_token(node):
+            if is_token(node) and getattr(node, "type", "") == "RETURN":
                 continue
-            exprs.append(self._transform_tree(node) if is_tree(node) else node)
+            exprs.append(node)
         return Tree('returnstmt', exprs)
     def returnif(self, c):
         return Tree('returnif', c)
@@ -743,9 +753,9 @@ class Prune(Transformer):
         exprs: List[Any] = []
 
         for node in c:
-            if is_token(node):
+            if is_token(node) and getattr(node, "type", "") == "THROW":
                 continue
-            exprs.append(self._transform_tree(node) if is_tree(node) else node)
+            exprs.append(node)
         return Tree('throwstmt', exprs)
 
     def _parse_catch_head(self, nodes: List[Any]) -> tuple[Any, Any, List[Token], Any]:
@@ -1067,6 +1077,9 @@ KEYWORDS = {
     "continue": "CONTINUE",
     "decorator": "DECORATOR",
     "decorate": "DECORATE",
+    "nil": "NIL",
+    "true": "TRUE",
+    "false": "FALSE",
 }
 
 def _remap_ident(t: Token) -> Token:
