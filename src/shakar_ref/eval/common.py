@@ -92,12 +92,19 @@ def token_number(token: Token, _: Any) -> ShkNumber:
     return ShkNumber(float(token.value))
 
 def token_string(token: Token, _: Any) -> ShkString:
-    v = token.value
+    raw = token.value
+    token_type = getattr(token, "type", "")
 
-    if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")):
-        v = v[1:-1]
+    if token_type == "RAW_HASH_STRING":
+        return ShkString(raw[5:-2])
 
-    return ShkString(v)
+    if token_type == "RAW_STRING":
+        return ShkString(raw[4:-1])
+
+    if len(raw) >= 2 and ((raw[0] == '"' and raw[-1] == '"') or (raw[0] == "'" and raw[-1] == "'")):
+        raw = raw[1:-1]
+
+    return ShkString(raw)
 
 def stringify(value: Any) -> str:
     if isinstance(value, ShkString):

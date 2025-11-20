@@ -27,6 +27,8 @@ _NL: /(\r?\n[ \t]*)+/  // Auto-generated from docs/shakar-design-notes.md
 
 COMMENT: "#" /[^\n\r]*/
 
+RAW_HASH_STRING.2: /raw#"(?:[^"]|"(?!#))*"#/
+RAW_STRING.2: /raw"(?:\\.|[^"\\])*"/ | /raw'(?:\\.|[^'\\])*'/
 STRING: /"(?:\\.|[^"\\])*"/ | /'(?:\\.|[^'\\])*'/
 %import common.INT   -> INT
 %import common.WS_INLINE
@@ -170,7 +172,7 @@ NIL: "nil"
 TRUE: "true"
 FALSE: "false"
 
-literal: STRING | NUMBER | NIL | TRUE | FALSE
+literal: STRING | RAW_STRING | RAW_HASH_STRING | NUMBER | NIL | TRUE | FALSE
 selectorliteral: "`" sellist "`"
 sellist: selitem ("," selitem)*
 selitem: sliceitem | indexitem
@@ -320,7 +322,7 @@ anyarm: (IDENT ":")? expr (":" (inlinebody | indentblock))? | "timeout" expr (":
 optcomma: ","?
 !catchstmt: expr "catch" catchtail? ":" (inlinebody | indentblock)
 
-hook: HOOK STRING ":" (inlinebody | indentblock)
+hook: HOOK (STRING | RAW_STRING | RAW_HASH_STRING) ":" (inlinebody | indentblock)
 
 decoratorstmt: DECORATOR IDENT "(" paramlist? ")" ":" (inlinebody | indentblock)
              | DECORATOR IDENT ":" (inlinebody | indentblock)
@@ -343,12 +345,12 @@ object: LBRACE object_items? RBRACE
 object_items: obj_sep* object_item (obj_sep* object_item)* obj_sep*
 
 // Items: field / getter / setter; inline expr or indentblock body
-object_item: IDENT ":" (obj_body | (_NL* expr))            -> obj_field_ident
-           | STRING ":" (obj_body | (_NL* expr))           -> obj_field_string
-           | keyexpr ":" (obj_body | (_NL* expr))          -> obj_field_expr
-          | GET IDENT ("(" ")")? ":" (obj_body | (_NL* expr))    -> obj_get
-          | SET IDENT "(" IDENT ")" ":" (obj_body | (_NL* expr)) -> obj_set
-          | IDENT "(" paramlist? ")" ":" (obj_body | (_NL* expr)) -> obj_method
+object_item: IDENT ":" (obj_body | (_NL* expr))                                   -> obj_field_ident
+           | (STRING | RAW_STRING | RAW_HASH_STRING) ":" (obj_body | (_NL* expr)) -> obj_field_string
+           | keyexpr ":" (obj_body | (_NL* expr))                                 -> obj_field_expr
+           | GET IDENT ("(" ")")? ":" (obj_body | (_NL* expr))                    -> obj_get
+           | SET IDENT "(" IDENT ")" ":" (obj_body | (_NL* expr))                 -> obj_set
+           | IDENT "(" paramlist? ")" ":" (obj_body | (_NL* expr))                -> obj_method
 
 obj_body: obj_block_body
         | inlinebody -> indentblock

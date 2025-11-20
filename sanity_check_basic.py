@@ -470,6 +470,8 @@ runtime_scenario(lambda: _rt("compound-assign-minus", 'a := 10; a -= 4; a', ("nu
 runtime_scenario(lambda: _rt("compound-assign-mul", 'a := 3; a *= 4; a', ("number", 12), None))
 runtime_scenario(lambda: _rt("compound-assign-div", 'a := 9; a /= 2; a', ("number", 4.5), None))
 runtime_scenario(lambda: _rt("compound-assign-floordiv", 'a := 9; a //= 2; a', ("number", 4), None))
+runtime_scenario(lambda: _rt("raw-string-basic", 'raw"hi {name}\\n"', ("string", "hi {name}\\n"), None))
+runtime_scenario(lambda: _rt("raw-hash-string", 'raw#"path "C:\\\\tmp"\\file"#', ("string", 'path "C:\\\\tmp"\\file'), None))
 runtime_scenario(
     lambda: _rt(
         "listcomp-filter",

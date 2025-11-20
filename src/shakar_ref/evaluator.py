@@ -334,6 +334,8 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], Any]] = {
 _TOKEN_DISPATCH: dict[str, Callable[[Token, Frame], Any]] = {
     'NUMBER': token_number,
     'STRING': token_string,
+    'RAW_STRING': token_string,
+    'RAW_HASH_STRING': token_string,
     'TRUE': lambda _, __: ShkBool(True),
     'FALSE': lambda _, __: ShkBool(False),
     'NIL': lambda _, __: ShkNull(),
