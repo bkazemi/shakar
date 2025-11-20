@@ -6,6 +6,8 @@
 > - Added: selector list write restrictions — multi-selector and slice LHS assignment are disallowed in v0.1.
 > - Added: `!x` listed alongside `not x` in Unary; binary `??` precedence note affirmed.
 > - Affirmed: single-line comments `#...`; ternary `cond ? a : b`.
+> - Added: Structural Match `~` (v0.1); Shell Strings `sh"..."` (v0.1) with auto-quoting.
+> - Deferred: `match` statement and `case` pattern guards moved to v0.2 roadmap.
 
 > **Status:** concept/spec notes for early compiler & toolchain.
 > **Audience:** language implementers and contributors.
@@ -147,6 +149,21 @@ This is a **living technical spec**. It front-loads design choices to avoid “o
 - Ordering `< <= > >=` defined for **numbers** and **strings** (lexicographic by bytes of normalized UTF-8). Arrays/objects ordering ❓ (not in v0.1).
 - `is`, `is not`/`!is` check identity (same object/storage). For strings/views, identity means same `(base, off, len)`; value equality may still be true when identity is false.
 - **Identity negation:** `!is` is a single token, equivalent to `is not`. Write `a !is b` (not `a ! is b`).
+- **Structural Match Operator `~` (v0.1)**
+  - **Syntax:** `Value ~ Schema`
+  - **Precedence:** Comparison tier (same as `==`, `is`, `in`).
+  - **Semantics:** Returns `true` if `Value` structurally matches `Schema`. The check is recursive based on the type of the `Schema` (RHS) at each node:
+    - **Type:** If RHS is a type (e.g., `Str`, `Int`), check `type(LHS) == RHS`.
+    - **Selector:** If RHS is a Selector (e.g., `` `1:10` ``), check `LHS in RHS`.
+    - **Object:** If RHS is a Map/Object, check that:
+        1.  LHS is an Object.
+        2.  For every key `K` in RHS, LHS must have key `K` and `LHS[K] ~ RHS[K]`.
+    - **Literal:** Otherwise, check `LHS == RHS` (value equality).
+  - **Goal:** Allows validating JSON-like structures using standard literals as schemas.
+    ```shakar
+    UserSchema := { name: Str, age: `18:120`, role: "admin" }
+    if payload ~ UserSchema: process(payload)
+    ```
 
 ### 3.5 Membership
 - `x in y`:
@@ -1020,6 +1037,24 @@ What this buys:
 
 For heavy edits, use `TextBuilder/Buf` and `freeze()` back to `Str`.
 
+## 12.7) Shell Strings (`sh"..."`) (v0.1)
+- **Literal:** `sh"..."` or `sh'...'`.
+- **Result:** Evaluates to a `Command` object (lazy). It does **not** execute immediately.
+- **Execution:** Use `cmd.run()` or `!cmd` (if `!` is overloaded for execution in future). Standard library methods (`.run()`, `.output()`) control I/O capture.
+- **Interpolation & Safety (Auto-Quoting):**
+  - Interpolations `{expr}` inside the string are **mandatory quoted** by the compiler.
+  - **Scalar:** `{filename}` → escapes the value (e.g. wraps in `'...'`) to prevent injection.
+  - **Array:** `{files}` where `files` is `["a", "b"]` → expands to multiple quoted arguments (`'a' 'b'`).
+  - **Raw Splice:** To inject flags or raw shell syntax, use double-braces `{{expr}}` (Unsafe/Raw).
+- **Pass-through:** Pipes `|`, redirects `>`, `>>`, `&&` are preserved literally and passed to the system shell (`/bin/sh` or equivalent).
+- **Example:**
+  ```shakar
+  files := ["a.txt", "b 1.txt"]
+  # Compiles to: sh -c "ls -l 'a.txt' 'b 1.txt' | grep 'x' > 'out'"
+  cmd := sh"ls -l {files} | grep 'x' > {outfile}"
+  res := cmd.run()
+  ```
+
 ---
 
 ## 13) Object model (objects and descriptors)
@@ -1562,6 +1597,24 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
 # Inside Selector expressions, '.' denotes the base (the MemberExpr before '[').
 ```
 ## 21) Considering / undecided
+- **Match Constructs (v0.2+):** The "Rust Model" is planned for v0.2.
+  1. **Match Statement (Branching):** Exhaustive block-based matching.
+     ```shakar
+     match subject:
+     | { type: "A" }: ...
+     | { type: "B" }: ...
+     ```
+  2. **Match Guard (Filtering):** Inline pattern matching inside guard chains. Uses the `match` keyword to disambiguate patterns from expressions.
+     ```shakar
+     for events:
+       # standard guard head
+       .type == "system": handle_sys(.)
+       # match guard (in branch)
+       | match { x, y }: handle_geo(x, y)
+       | match { age } and age > 18: handle_adult(age)
+       |: log("ignored")
+     ```
+- **Structural Match JIT (v0.2):** Optimization for the `~` operator. While v0.1 performs a recursive runtime walk, v0.2 will JIT-compile schema literals into flat bytecode validators (cached on first use, similar to `re.compile`) to ensure high performance for repeated structural checks.
 - **Conditional apply-assign `.?=`**: compute RHS with old LHS as `.` and **assign only if non-nil**. Today use `=<LHS> ??(.transform()) ?? .` or `<LHS> .= ??(.transform()) ?? .`.
 - **Keyword aliases (macro-lite)**: project remaps (disabled by default).
 - **Autocall any nullary method**: off by default; explicit `getter` is core.
