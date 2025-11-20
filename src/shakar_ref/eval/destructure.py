@@ -6,7 +6,7 @@ from typing import Any, Iterable, Optional, Callable
 
 from lark import Tree, Token
 
-from ..runtime import Frame, ShkArray, ShakarRuntimeError
+from ..runtime import Frame, ShkArray, ShkNull, ShakarRuntimeError
 from ..utils import (
     is_sequence_value,
     sequence_items,
@@ -166,3 +166,37 @@ def _name_exists(frame: Frame, name: str) -> bool:
         return True
     except ShakarRuntimeError:
         return False
+
+def eval_destructure(
+    node: Tree,
+    frame: Frame,
+    eval_func: Callable[[Any, Frame], Any],
+    create: bool,
+    allow_broadcast: bool
+) -> Any:
+    """Evaluate destructuring assignment/expression."""
+    if len(node.children) != 2:
+        raise ShakarRuntimeError("Malformed destructure")
+
+    pattern_list, rhs_node = node.children
+    patterns = [c for c in tree_children(pattern_list) if tree_label(c) == "pattern"]
+
+    if not patterns:
+        raise ShakarRuntimeError("Empty destructure pattern")
+
+    values, result = evaluate_destructure_rhs(eval_func, rhs_node, frame, len(patterns), allow_broadcast)
+
+    # local import avoids circular reference with bind module.
+    from .bind import assign_pattern_value
+
+    for pat, val in zip(patterns, values):
+        assign_pattern_value(
+            pat,
+            val,
+            frame,
+            create=create,
+            allow_broadcast=allow_broadcast,
+            eval_func=eval_func,
+        )
+
+    return result if allow_broadcast else ShkNull()

@@ -7,4 +7,7 @@ __all__ = [
     "mutation",
     "postfix",
     "common",
+    "blocks",
+    "loops",
+    "_await",
 ]
