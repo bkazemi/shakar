@@ -14,7 +14,6 @@ from ..runtime import (
 from ..tree import is_token_node, is_tree_node, tree_label
 from .common import token_kind as _token_kind
 
-
 def is_truthy(val: Any) -> bool:
     match val:
         case ShkBool(value=b):
@@ -31,7 +30,6 @@ def is_truthy(val: Any) -> bool:
             return bool(slots)
         case _:
             return True
-
 
 def retargets_anchor(node: Any) -> bool:
     if is_token_node(node):
@@ -50,7 +48,6 @@ def retargets_anchor(node: Any) -> bool:
             'expr_nc',
         }
     return True
-
 
 def current_function_frame(frame: Frame) -> Optional[Frame]:
     """Walk parents to find the nearest function-call frame marker."""

@@ -9,5 +9,10 @@ __all__ = [
     "common",
     "blocks",
     "loops",
+    "chains",
+    "expr",
+    "literals",
+    "objects",
+    "fn",
     "_await",
 ]

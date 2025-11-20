@@ -5,7 +5,6 @@ from typing import Any, Callable, Iterable, List, Sequence
 from ..runtime import Frame, ShkNull, ShakarRuntimeError
 from ..tree import find_tree_by_label, is_token_node, tree_children
 
-
 def define_new_ident(name: str, value: Any, frame: Frame) -> Any:
     """Introduce a new binding in the current scope; error if it already exists."""
     vars_dict = getattr(frame, "vars", None)
