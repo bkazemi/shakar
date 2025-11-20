@@ -94,16 +94,24 @@ def apply_slice(recv: Any, arms: List[Any], frame: Frame, eval_func: EvalFunc) -
 
 def apply_index_operation(recv: Any, op: Tree, frame: Frame, eval_func: EvalFunc) -> Any:
     selectorlist = child_by_label(op, 'selectorlist')
+    default_node = _default_arg(op)
+    default_thunk = (lambda: eval_func(default_node, frame)) if default_node is not None else None
 
     if selectorlist is None:
         expr_node = _index_expr_from_children(op.children)
         idx_val = eval_func(expr_node, frame)
-        return index_value(recv, idx_val, frame)
+        return index_value(recv, idx_val, frame, default_thunk=default_thunk)
 
     selectors = evaluate_selectorlist(selectorlist, frame, eval_func)
 
+    if default_thunk is not None and not _is_single_index_selector(selectors):
+        raise ShakarTypeError("Default index requires a single key selector")
+
     if len(selectors) == 1 and isinstance(selectors[0], SelectorIndex):
-        return index_value(recv, selectors[0].value, frame)
+        return index_value(recv, selectors[0].value, frame, default_thunk=default_thunk)
+
+    if default_thunk is not None:
+        raise ShakarTypeError("Default index expects an object receiver")
 
     return apply_selectors_to_value(recv, selectors)
 
@@ -203,3 +211,28 @@ def _index_expr_from_children(children: List[Any]) -> Any:
         return node
 
     raise ShakarRuntimeError("Malformed index expression")
+
+def _default_arg(node: Tree) -> Any | None:
+    children = tree_children(node)
+    selector_index = None
+
+    for idx, child in enumerate(children):
+        if tree_label(child) == 'selectorlist':
+            selector_index = idx
+            break
+
+    if selector_index is None:
+        return None
+
+    skip_tokens = {"RSQB", "COMMA", "DEFAULT", "COLON"}
+
+    for child in children[selector_index + 1:]:
+        if is_token_node(child) and getattr(child, "type", "") in skip_tokens:
+            continue
+
+        return child
+
+    return None
+
+def _is_single_index_selector(selectors: List[Any]) -> bool:
+    return len(selectors) == 1 and isinstance(selectors[0], SelectorIndex)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from ..runtime import (
     Frame,
@@ -76,10 +76,12 @@ def set_index_value(recv: Any, index: Any, value: Any, frame: Frame) -> Any:
         case _:
             raise ShakarTypeError("Unsupported index assignment target")
 
-def index_value(recv: Any, idx: Any, frame: Frame) -> Any:
+def index_value(recv: Any, idx: Any, frame: Frame, default_thunk: Callable[[], Any] | None=None) -> Any:
     """Read `recv[idx]`, supporting selectors, descriptors, and builtins."""
     match recv:
         case ShkArray(items=items):
+            if default_thunk is not None:
+                raise ShakarTypeError("Array index does not accept default")
             if isinstance(idx, ShkSelector):
                 # cloning prevents later selectors from mutating the shared object.
                 cloned = clone_selector_parts(idx.parts, clamp=True)
@@ -92,6 +94,8 @@ def index_value(recv: Any, idx: Any, frame: Frame) -> Any:
                     raise ShakarIndexError("Array index out of bounds")
             raise ShakarTypeError("Array index must be a number")
         case ShkString(value=s):
+            if default_thunk is not None:
+                raise ShakarTypeError("String index does not accept default")
             if isinstance(idx, ShkSelector):
                 cloned = clone_selector_parts(idx.parts, clamp=True)
                 return apply_selectors_to_value(recv, cloned)
@@ -117,8 +121,12 @@ def index_value(recv: Any, idx: Any, frame: Frame) -> Any:
                     return call_shkfn(getter, [], subject=recv, caller_frame=frame)
 
                 return val
+            if default_thunk is not None:
+                return default_thunk()
             raise ShakarKeyError(key)
         case _:
+            if default_thunk is not None:
+                raise ShakarTypeError("Default index expects an object receiver")
             raise ShakarTypeError("Unsupported index operation")
 
 def slice_value(recv: Any, start: int | None, stop: int | None, step: int | None) -> Any:

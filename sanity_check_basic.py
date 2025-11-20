@@ -33,6 +33,7 @@ from shakar_ref.runtime import (
     ShakarArityError,
     ShakarAssertionError,
     ShakarRuntimeError,
+    ShakarTypeError,
 )
 from shakar_ref import parse_auto as runner
 
@@ -809,6 +810,32 @@ sum := arr[sel]
 sum[0] + sum[1]""",
         ("number", 11),
         None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "object-index-default",
+        """cfg := { db: { host: "db" } }
+calls := 0
+fn fallback():
+  calls += 1
+  return "localhost"
+found := cfg["db", default: {}]["host", default: fallback()]
+missing := cfg["port", default: fallback()]
+assert calls == 1
+"{found}-{missing}"
+""",
+        ("string", "db-localhost"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "array-index-default-error",
+        """arr := [1, 2, 3]
+arr[0, default: 9]""",
+        None,
+        ShakarTypeError,
     )
 )
 runtime_scenario(
