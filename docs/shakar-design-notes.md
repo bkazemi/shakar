@@ -1615,6 +1615,21 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
        |: log("ignored")
      ```
 - **Structural Match JIT (v0.2):** Optimization for the `~` operator. While v0.1 performs a recursive runtime walk, v0.2 will JIT-compile schema literals into flat bytecode validators (cached on first use, similar to `re.compile`) to ensure high performance for repeated structural checks.
+- **Type Contracts (v0.2+):**
+  - **Concept:** Leveraging the Structural Match operator (`~`) inside function signatures and binder lists to enforce contracts without adding a separate type grammar.
+  - **Syntax:** `fn name(arg ~ Schema, ...)` or `for [item ~ Schema] in iter`.
+  - **Desugar:**
+    ```shakar
+    fn process(id ~ Int, user ~ UserSchema):
+      # body
+
+    # becomes:
+    fn process(id, user):
+      assert id ~ Int
+      assert user ~ UserSchema
+      # body
+    ```
+  - **Goal:** Provides documentation, tooling hints (LSP), and JIT optimization hints while keeping types as first-class values.
 - **Conditional apply-assign `.?=`**: compute RHS with old LHS as `.` and **assign only if non-nil**. Today use `=<LHS> ??(.transform()) ?? .` or `<LHS> .= ??(.transform()) ?? .`.
 - **Keyword aliases (macro-lite)**: project remaps (disabled by default).
 - **Autocall any nullary method**: off by default; explicit `getter` is core.
