@@ -8,6 +8,8 @@ from ..runtime import (
     ShkNull,
     ShkObject,
     ShkString,
+    ShakarBreakSignal,
+    ShakarContinueSignal,
     ShakarAssertionError,
     ShakarKeyError,
     ShakarMethodNotFound,
@@ -53,10 +55,10 @@ def eval_throw_stmt(children: list[Any], frame: Frame, eval_func: EvalFunc) -> A
     raise current
 
 def eval_break_stmt(frame: Frame) -> Any:
-    raise ShakarReturnSignal  # pragma: no cover - placeholder to satisfy type checkers
+    raise ShakarBreakSignal()
 
 def eval_continue_stmt(frame: Frame) -> Any:
-    raise ShakarReturnSignal  # pragma: no cover - placeholder to satisfy type checkers
+    raise ShakarContinueSignal()
 
 def coerce_throw_value(value: Any) -> ShakarRuntimeError:
     if isinstance(value, ShakarRuntimeError):
@@ -229,7 +231,7 @@ def eval_catch_stmt(children: list[Any], frame: Frame, eval_func: EvalFunc) -> A
         return ShkNull()
 
 def _assert_source_snippet(node: Any, frame: Frame) -> str:
-    src = getattr(frame, 'source', None)
+    src: str | None = getattr(frame, 'source', None)
 
     if src is not None:
         start, end = _node_source_span(node)
@@ -240,6 +242,6 @@ def _assert_source_snippet(node: Any, frame: Frame) -> str:
             if snippet:
                 return snippet
 
-    rendered = _render_expr(node)
+    rendered: str = _render_expr(node)
 
     return rendered if rendered else "<expr>"

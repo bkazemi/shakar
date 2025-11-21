@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any, Iterable, List, Optional, Set
 
-from lark import Token, Tree
+from lark import Token
 
 from ..runtime import (
     Frame,
@@ -19,9 +19,9 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-from ..tree import is_tree_node, node_meta, tree_children, tree_label
+from ..tree import TreeNode, is_tree_node, node_meta, tree_children, tree_label
 from ..utils import shk_equals
-from .bind import RebindContext
+from .bind import FanContext, RebindContext
 from .chains import apply_op as chain_apply_op, evaluate_index_operand
 from .common import require_number, stringify, token_kind
 from .helpers import is_truthy, retargets_anchor
@@ -53,6 +53,8 @@ def eval_unary(op_node: Any, rhs_node: Any, frame: Frame, eval_func, apply_op_fu
             apply_op=apply_op_func,
             evaluate_index_operand=evaluate_index_operand,
         )
+        if isinstance(context, FanContext):
+            raise ShakarRuntimeError("Increment target must end with a field or index")
         _, new_val = apply_numeric_delta(context, 1 if op_value == '++' else -1)
         return new_val
 
@@ -62,8 +64,8 @@ def eval_unary(op_node: Any, rhs_node: Any, frame: Frame, eval_func, apply_op_fu
         case Token(type='PLUS') | '+':
             raise ShakarRuntimeError("unary + not supported")
         case Token(type='MINUS') | '-':
-            require_number(rhs)
-            return ShkNumber(-rhs.value)
+            rhs_num = _coerce_number(rhs)
+            return ShkNumber(-rhs_num)
         case Token(type='TILDE') | '~':
             raise ShakarRuntimeError("bitwise ~ not supported yet")
         case Token(type='NOT') | 'not':
@@ -158,8 +160,9 @@ def eval_logical(kind: str, children: List[Any], frame: Frame, eval_func) -> Any
     prev_dot = frame.dot
 
     try:
+        last_val: Any
         if normalized == 'and':
-            last_val: Any = ShkBool(True)
+            last_val = ShkBool(True)
 
             for child in children:
                 if token_kind(child) in {'AND', 'OR'}:
@@ -173,7 +176,7 @@ def eval_logical(kind: str, children: List[Any], frame: Frame, eval_func) -> Any
                     return val
             return last_val
 
-        last_val: Any = ShkBool(False)
+        last_val = ShkBool(False)
 
         for child in children:
             if token_kind(child) in {'AND', 'OR'}:
@@ -233,7 +236,7 @@ def eval_nullsafe(node: Any, frame: Frame, eval_func) -> Any:
             return ShkNull()
     return current
 
-def eval_ternary(n: Tree, frame: Frame, eval_func) -> Any:
+def eval_ternary(n: TreeNode, frame: Frame, eval_func) -> Any:
     if len(n.children) != 3:
         raise ShakarRuntimeError("Malformed ternary expression")
 
@@ -250,15 +253,15 @@ def _all_ops_in(children: List[Any], allowed: Set[str]) -> bool:
 
 def as_op(x: Any) -> str:
     if isinstance(x, Token):
-        return x.value
+        return str(x.value)
 
     label = tree_label(x) if is_tree_node(x) else None
     if label is not None:
         if label in ('addop', 'mulop', 'powop') and len(x.children) == 1 and isinstance(x.children[0], Token):
-            return x.children[0].value
+            return str(x.children[0].value)
 
         if label == 'cmpop':
-            tokens = [tok.value for tok in x.children if isinstance(tok, Token)]
+            tokens: list[str] = [str(tok.value) for tok in x.children if isinstance(tok, Token)]
             if not tokens:
                 raise ShakarRuntimeError("Empty comparison operator")
 
@@ -308,17 +311,13 @@ def _compare_values(op: str, lhs: Any, rhs: Any) -> bool:
         case '!=':
             return not shk_equals(lhs, rhs)
         case '<':
-            require_number(lhs); require_number(rhs)
-            return lhs.value < rhs.value
+            return _coerce_number(lhs) < _coerce_number(rhs)
         case '<=':
-            require_number(lhs); require_number(rhs)
-            return lhs.value <= rhs.value
+            return _coerce_number(lhs) <= _coerce_number(rhs)
         case '>':
-            require_number(lhs); require_number(rhs)
-            return lhs.value > rhs.value
+            return _coerce_number(lhs) > _coerce_number(rhs)
         case '>=':
-            require_number(lhs); require_number(rhs)
-            return lhs.value >= rhs.value
+            return _coerce_number(lhs) >= _coerce_number(rhs)
         case 'is':
             return shk_equals(lhs, rhs)
         case '!is' | 'is not':

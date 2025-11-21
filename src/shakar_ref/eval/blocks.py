@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Callable, Iterable, List
+from typing import Any, Callable, Iterator, List
 
 from lark import Tree
 
 from ..runtime import DeferEntry, Frame, ShkNull, ShakarBreakSignal, ShakarContinueSignal, ShakarRuntimeError
-from ..tree import is_token_node, is_tree_node, tree_children, tree_label
+from ..tree import TreeNode, is_token_node, is_tree_node, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token, token_kind as _token_kind
 from .helpers import is_truthy as _is_truthy
 
@@ -115,12 +115,12 @@ def eval_inline_body(node: Any, frame: Frame, eval_func: EvalFunc, allow_loop_co
 
     return eval_func(node, frame)
 
-def eval_indent_block(node: Tree, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> Any:
+def eval_indent_block(node: TreeNode, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> Any:
     return eval_program(node.children, frame, eval_func, allow_loop_control=allow_loop_control)
 
 def eval_oneline_guard(children: List[Any], frame: Frame, eval_func: EvalFunc) -> Any:
-    branches: List[Tree] = []
-    else_body: Tree | None = None
+    branches: List[TreeNode] = []
+    else_body: TreeNode | None = None
 
     for child in children:
         data = tree_label(child)
@@ -172,7 +172,7 @@ def run_body_with_subject(body_node: Any, frame: Frame, subject_value: Any, eval
         return eval_body_node(body_node, frame, eval_func)
 
 @contextmanager
-def temporary_subject(frame: Frame, dot: Any) -> Iterable[None]:
+def temporary_subject(frame: Frame, dot: Any) -> Iterator[None]:
     prev = frame.dot
     frame.dot = dot
 
@@ -182,11 +182,11 @@ def temporary_subject(frame: Frame, dot: Any) -> Iterable[None]:
         frame.dot = prev
 
 @contextmanager
-def temporary_bindings(frame: Frame, bindings: dict[str, Any]) -> Iterable[None]:
+def temporary_bindings(frame: Frame, bindings: dict[str, Any]) -> Iterator[None]:
     records: list[tuple[Frame, str, Any | None, bool]] = []
 
     for name, value in bindings.items():
-        target = frame
+        target: Frame | None = frame
 
         while target is not None and name not in target.vars:
             target = getattr(target, "parent", None)

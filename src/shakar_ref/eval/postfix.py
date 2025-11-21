@@ -24,7 +24,7 @@ def _walrus_target_name(node: Any) -> str:
     target = children[0]
 
     if is_token_node(target):
-        return target.value
+        return str(target.value)
 
     if isinstance(target, str):
         return target

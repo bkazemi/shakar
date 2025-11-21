@@ -41,7 +41,8 @@ def make_parser(grammar_path: str|None=None, use_indenter: bool=False, start_sym
     if grammar_variant == "lalr":
         parser_kind = "lalr"
 
-    return build_parser(g, parser_kind=parser_kind, use_indenter=use_indenter, start_sym=start_sym)
+    parser: Lark = build_parser(g, parser_kind=parser_kind, use_indenter=use_indenter, start_sym=start_sym)
+    return parser
 
 def run(src: str, grammar_path: str|None=None, use_indenter: bool|None=None, grammar_variant: str="default") -> object:
     init_stdlib()
@@ -90,7 +91,7 @@ def _load_source(arg: str | None) -> str:
     - Otherwise treat the argument as literal source.
     """
 
-    if arg in (None, "-"):
+    if arg is None or arg == "-":
         data = sys.stdin.read()
         if not data:
             raise SystemExit("No input provided on stdin")

@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any, Callable, Iterable, List, Optional, Tuple
 
-from lark import Tree, Token
+from lark import Token
 
 from ..runtime import Descriptor, Frame, ShkFn, ShkObject, ShkString, ShakarRuntimeError
-from ..tree import child_by_label, is_token_node, is_tree_node, tree_children, tree_label
+from ..tree import TreeNode, child_by_label, is_token_node, is_tree_node, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token
 
-EvalFunc = callable
+EvalFunc = Callable[[Any, Frame], Any]
 
-def eval_object(n: Tree, frame: Frame, eval_func) -> ShkObject:
+def eval_object(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> ShkObject:
     """Build an object literal, installing descriptors/getters as needed."""
     slots: dict[str, Any] = {}
 
@@ -26,7 +26,7 @@ def eval_object(n: Tree, frame: Frame, eval_func) -> ShkObject:
         else:
             slots[name] = Descriptor(getter=getter, setter=setter)
 
-    def _extract_params(params_node: Tree | None) -> List[str]:
+    def _extract_params(params_node: TreeNode | None) -> List[str]:
         if params_node is None:
             return []
 
@@ -56,9 +56,12 @@ def eval_object(n: Tree, frame: Frame, eval_func) -> ShkObject:
             cur = cur.children[0]
         return cur.value if isinstance(cur, Token) and cur.type == 'IDENT' else None
 
-    def _maybe_method_signature(key_node: Any) -> tuple[str, List[str]] | None:
-        if tree_label(key_node) != 'key_expr':
+    def _maybe_method_signature(key_node: Any) -> Tuple[str, List[str]] | None:
+        if key_node is None or tree_label(key_node) != 'key_expr':
             return None
+        if not is_tree_node(key_node):
+            return None
+
         target = key_node.children[0] if key_node.children else None
         chain = None
 
@@ -114,7 +117,7 @@ def eval_object(n: Tree, frame: Frame, eval_func) -> ShkObject:
             params.append(ident)
         return (name, params)
 
-    def handle_item(item: Tree) -> None:
+    def handle_item(item: TreeNode) -> None:
         match item.data:
             case 'obj_field':
                 key_node, val_node = item.children
@@ -134,7 +137,7 @@ def eval_object(n: Tree, frame: Frame, eval_func) -> ShkObject:
                 if name_tok is None:
                     raise ShakarRuntimeError("Getter missing name")
 
-                key = name_tok.value
+                key = _expect_ident_token(name_tok, "Getter name")
                 getter_fn = ShkFn(params=None, body=body, frame=Frame(parent=frame))
                 _install_descriptor(key, getter=getter_fn)
             case 'obj_set':
@@ -143,17 +146,19 @@ def eval_object(n: Tree, frame: Frame, eval_func) -> ShkObject:
                 if name_tok is None or param_tok is None:
                     raise ShakarRuntimeError("Setter missing name or parameter")
 
-                key = name_tok.value
-                setter_fn = ShkFn(params=[param_tok.value], body=body, frame=Frame(parent=frame))
+                key = _expect_ident_token(name_tok, "Setter name")
+                param_name = _expect_ident_token(param_tok, "Setter parameter")
+                setter_fn = ShkFn(params=[param_name], body=body, frame=Frame(parent=frame))
                 _install_descriptor(key, setter=setter_fn)
             case 'obj_method':
                 name_tok, params_node, body = item.children
 
                 if name_tok is None:
                     raise ShakarRuntimeError("Method missing name")
+                method_name = _expect_ident_token(name_tok, "Method name")
                 param_names = _extract_params(params_node)
                 method_fn = ShkFn(params=param_names, body=body, frame=Frame(parent=frame))
-                slots[name_tok.value] = method_fn
+                slots[method_name] = method_fn
             case _:
                 raise ShakarRuntimeError(f"Unknown object item {item.data}")
 

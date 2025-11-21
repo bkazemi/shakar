@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
-from lark import Tree, Token
+from lark import Token
 
 from .runtime import (
     Frame,
@@ -16,6 +16,7 @@ from .runtime import (
 )
 
 from .tree import (
+    TreeNode,
     child_by_label,
     is_token_node,
     is_tree_node,
@@ -280,9 +281,17 @@ def _eval_break_stmt(frame: Frame) -> Any:
 def _eval_continue_stmt(frame: Frame) -> Any:
     raise ShakarContinueSignal()
 
+def _eval_formap1(n: TreeNode, frame: Frame) -> Any:
+    child = n.children[0] if n.children else None
+
+    if not is_tree_node(child):
+        raise ShakarRuntimeError("Malformed indexed loop")
+
+    return eval_for_indexed(child, frame, eval_node)
+
 # ---------------- Grouping / dispatch ----------------
 
-def _eval_group(n: Tree, frame: Frame) -> Any:
+def _eval_group(n: TreeNode, frame: Frame) -> Any:
     child = n.children[0] if n.children else None
     if child is None:
         return ShkNull()
@@ -294,7 +303,7 @@ def _eval_group(n: Tree, frame: Frame) -> Any:
     finally:
         frame.dot = saved
 
-_NODE_DISPATCH: dict[str, Callable[[Tree, Frame], Any]] = {
+_NODE_DISPATCH: dict[str, Callable[[TreeNode, Frame], Any]] = {
     'listcomp': lambda n, frame: eval_listcomp(n, frame, eval_node),
     'setcomp': lambda n, frame: eval_setcomp(n, frame, eval_node),
     'setliteral': lambda n, frame: eval_setliteral(n, frame, eval_node),
@@ -325,7 +334,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], Any]] = {
     'forin': lambda n, frame: eval_for_in(n, frame, eval_node),
     'forsubject': lambda n, frame: eval_for_subject(n, frame, eval_node),
     'forindexed': lambda n, frame: eval_for_indexed(n, frame, eval_node),
-    'formap1': lambda n, frame: eval_for_indexed(n.children[0] if n.children else None, frame, eval_node),
+    'formap1': _eval_formap1,
     'formap2': lambda n, frame: eval_for_map2(n, frame, eval_node),
     'inlinebody': lambda n, frame: eval_inline_body(n, frame, eval_node),
     'indentblock': lambda n, frame: eval_indent_block(n, frame, eval_node),

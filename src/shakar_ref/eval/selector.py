@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Iterable, List, Optional
 
 from ..runtime import (
+    Frame,
     ShkArray,
     ShkString,
     ShkNumber,
@@ -368,7 +369,7 @@ def _iterate_selector_slice(part: SelectorSlice) -> Iterable[int]:
 
     return range(part.start, stop, step)
 
-def _get_source_segment(node, frame) -> Optional[str]:
+def _get_source_segment(node: Any, frame: Frame) -> Optional[str]:
     source = getattr(frame, "source", None)
     if source is None:
         return None
@@ -382,4 +383,4 @@ def _get_source_segment(node, frame) -> Optional[str]:
     if start is None or end is None:
         return None
 
-    return source[start:end]
+    return str(source[start:end])

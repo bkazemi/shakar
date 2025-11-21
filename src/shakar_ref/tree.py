@@ -1,18 +1,21 @@
 """Shared helpers for working with Lark Tree/Token nodes used across the project."""
 from __future__ import annotations
-from typing import Any, Callable, Iterable, List, Optional
+from typing import Any, Callable, Iterable, List, Optional, Set, TypeGuard, cast
 from lark import Tree, Token
+from typing_extensions import TypeAlias
 
-def is_tree(node: Any) -> bool:
+TreeNode: TypeAlias = Tree[Any]
+
+def is_tree(node: Any) -> TypeGuard[TreeNode]:
     return isinstance(node, Tree)
 
-def is_tree_node(node: Any) -> bool:
+def is_tree_node(node: Any) -> TypeGuard[TreeNode]:
     return is_tree(node)
 
-def is_token(node: Any) -> bool:
+def is_token(node: Any) -> TypeGuard[Token]:
     return isinstance(node, Token)
 
-def is_token_node(node: Any) -> bool:
+def is_token_node(node: Any) -> TypeGuard[Token]:
     return is_token(node)
 
 def tree_label(node: Any) -> Optional[str]:
@@ -39,7 +42,7 @@ def child_by_label(node: Any, label: str) -> Optional[Any]:
     return None
 
 def child_by_labels(node: Any, labels: Iterable[str]) -> Optional[Any]:
-    lookup = set(labels)
+    lookup: Set[str] = set(labels)
 
     for ch in tree_children(node):
         if tree_label(ch) in lookup:
@@ -54,11 +57,11 @@ def first_child(node: Any, predicate: Callable[[Any], bool]) -> Optional[Any]:
 
     return None
 
-def find_tree_by_label(node: Any, labels: Iterable[str]) -> Optional[Tree]:
-    lookup = set(labels)
+def find_tree_by_label(node: Any, labels: Iterable[str]) -> Optional[TreeNode]:
+    lookup: Set[str] = set(labels)
 
     if is_tree(node) and tree_label(node) in lookup:
-        return node
+        return cast(TreeNode, node)
 
     for child in tree_children(node):
         found = find_tree_by_label(child, lookup)

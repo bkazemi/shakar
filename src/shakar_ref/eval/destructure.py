@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Optional, Callable
 
-from lark import Tree, Token
+from lark import Token
 
 from ..runtime import Frame, ShkArray, ShkNull, ShakarRuntimeError
 from ..utils import (
@@ -13,17 +13,17 @@ from ..utils import (
     coerce_sequence,
     replicate_empty_sequence,
 )
-from ..tree import tree_label, tree_children
+from ..tree import TreeNode, tree_label, tree_children
 
 def _ident_token_value(node: Any) -> Optional[str]:
     if isinstance(node, Token) and node.type == "IDENT":
-        return node.value
+        return str(node.value)
 
     return None
 
 def evaluate_destructure_rhs(
     eval_fn: Callable[[Any, Frame], Any],
-    rhs_node: Any,
+    rhs_node: TreeNode,
     frame: Frame,
     target_count: int,
     allow_broadcast: bool
@@ -69,7 +69,7 @@ def evaluate_destructure_rhs(
 def assign_pattern(
     eval_fn: Callable[[Any, Frame], Any],
     assign_ident: Callable[[str, Any, Frame, bool], Any],
-    pattern: Tree,
+    pattern: TreeNode,
     value: Any,
     frame: Frame,
     create: bool,
@@ -86,7 +86,7 @@ def assign_pattern(
         if create:
             frame.define(ident, value)
         else:
-            assign_ident(ident, value, frame, create=False)
+            assign_ident(ident, value, frame, False)
         return
 
     if tree_label(target) == "pattern_list":
@@ -110,7 +110,7 @@ def assign_pattern(
 
 def infer_implicit_binders(
     exprs: Iterable[Any],
-    ifclause: Optional[Tree],
+    ifclause: Optional[TreeNode],
     frame: Frame,
     collect_fn: Callable[[Any, Callable[[str], None]], None]
 ) -> list[str]:
@@ -135,7 +135,7 @@ def infer_implicit_binders(
     return names
 
 def apply_comp_binders(
-    assign_fn: Callable[[Tree, Any, Frame, bool, bool], None],
+    assign_fn: Callable[[TreeNode, Any, Frame], None],
     binders: list[dict[str, Any]],
     element: Any,
     iter_frame: Frame,
@@ -158,7 +158,7 @@ def apply_comp_binders(
     for binder, val in zip(binders, values):
         # hoisted binders write into the outer scope so closures can reuse them.
         target_frame = outer_frame if binder.get("hoist") else iter_frame
-        assign_fn(binder["pattern"], val, target_frame, create=True, allow_broadcast=False)
+        assign_fn(binder["pattern"], val, target_frame)
 
 def _name_exists(frame: Frame, name: str) -> bool:
     try:
@@ -168,7 +168,7 @@ def _name_exists(frame: Frame, name: str) -> bool:
         return False
 
 def eval_destructure(
-    node: Tree,
+    node: TreeNode,
     frame: Frame,
     eval_func: Callable[[Any, Frame], Any],
     create: bool,

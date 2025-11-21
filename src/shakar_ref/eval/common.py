@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable, Iterable, List, Optional
 
 from lark import Tree, Token
+from typing import cast
 
 from ..runtime import ShkBool, ShkNumber, ShkString, ShakarRuntimeError, ShakarTypeError
 from ..tree import (
@@ -14,20 +15,23 @@ from ..tree import (
 )
 
 def token_kind(node: Any) -> Optional[str]:
-    return node.type if is_token_node(node) else None
+    if not is_token_node(node):
+        return None
+    tok = cast(Token, node)
+    return str(tok.type)
 
 def is_token_type(node: Any, kind: str) -> bool:
     return is_token_node(node) and token_kind(node) == kind
 
 def expect_ident_token(node: Any, context: str) -> str:
     if is_token_node(node) and token_kind(node) == 'IDENT':
-        return node.value
+        return str(cast(Token, node).value)
 
     raise ShakarRuntimeError(f"{context} must be an identifier")
 
 def ident_token_value(node: Any) -> Optional[str]:
     if is_token_node(node) and token_kind(node) == 'IDENT':
-        return node.value
+        return str(cast(Token, node).value)
 
     return None
 
@@ -35,7 +39,7 @@ def is_literal_node(node: Any) -> bool:
     return not isinstance(node, (Tree, Token))
 
 def get_source_segment(node: Any, frame: Any) -> Optional[str]:
-    source = getattr(frame, 'source', None)
+    source = cast(Optional[str], getattr(frame, 'source', None))
     if source is None:
         return None
 
@@ -43,16 +47,16 @@ def get_source_segment(node: Any, frame: Any) -> Optional[str]:
     if meta is None:
         return None
 
-    start = getattr(meta, "start_pos", None)
-    end = getattr(meta, "end_pos", None)
+    start = cast(Optional[int], getattr(meta, "start_pos", None))
+    end = cast(Optional[int], getattr(meta, "end_pos", None))
     if start is None or end is None:
         return None
 
-    return source[start:end]
+    return str(source[start:end])
 
 def render_expr(node: Any) -> str:
     if is_token_node(node):
-        return node.value
+        return str(cast(Token, node).value)
 
     if not is_tree_node(node):
         return str(node)

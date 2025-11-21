@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, List
 
-from lark import Tree
-
 from ..runtime import Frame, ShkArray, ShkNumber, ShakarRuntimeError
-from ..tree import child_by_label, is_token_node, is_tree_node, tree_children, tree_label
+from ..tree import TreeNode, child_by_label, is_token_node, is_tree_node, tree_children, tree_label
 
 from .common import expect_ident_token, token_kind, require_number
 from .destructure import assign_pattern as destructure_assign_pattern
@@ -14,8 +12,8 @@ from .postfix import define_new_ident
 from ..utils import fanout_values
 
 EvalFunc = Callable[[Any, Frame], Any]
-ApplyOpFunc = Callable[[Any, Tree, Frame, EvalFunc], Any]
-IndexEvalFunc = Callable[[Tree, Frame, EvalFunc], Any]
+ApplyOpFunc = Callable[[Any, TreeNode, Frame, EvalFunc], Any]
+IndexEvalFunc = Callable[[TreeNode, Frame, EvalFunc], Any]
 
 __all__ = [
     "FanContext",
@@ -171,7 +169,7 @@ def eval_apply_assign(children: list[Any], frame: Frame, eval_func: EvalFunc, ap
         evaluate_index_operand=evaluate_index_operand,
     )
 
-def eval_rebind_primary(node: Tree, frame: Frame, eval_func: EvalFunc, apply_op: ApplyOpFunc, evaluate_index_operand: IndexEvalFunc) -> RebindContext:
+def eval_rebind_primary(node: TreeNode, frame: Frame, eval_func: EvalFunc, apply_op: ApplyOpFunc, evaluate_index_operand: IndexEvalFunc) -> RebindContext:
     if not node.children:
         raise ShakarRuntimeError("Missing target for prefix rebind")
 
@@ -183,6 +181,8 @@ def eval_rebind_primary(node: Tree, frame: Frame, eval_func: EvalFunc, apply_op:
         apply_op=apply_op,
         evaluate_index_operand=evaluate_index_operand,
     )
+    if isinstance(ctx, FanContext):
+        raise ShakarRuntimeError("Rebind target cannot be a field fan")
     frame.dot = ctx.value
 
     return ctx
@@ -204,7 +204,7 @@ def resolve_assignable_node(
     eval_func: EvalFunc,
     apply_op: ApplyOpFunc,
     evaluate_index_operand: IndexEvalFunc,
-) -> RebindContext:
+) -> RebindContext | FanContext:
     """Resolve an expression into a rebindable context, unwrapping wrappers as needed."""
     current = node
 
@@ -259,7 +259,7 @@ def resolve_chain_assignment(
     eval_func: EvalFunc,
     apply_op: ApplyOpFunc,
     evaluate_index_operand: IndexEvalFunc,
-) -> Any:
+) -> RebindContext | FanContext:
     """Walk `a.b[0]` and return the final assignable context (object slot, index, etc.)."""
     if not ops:
         return resolve_assignable_node(
@@ -284,22 +284,22 @@ def resolve_chain_assignment(
             owner = current
             value = get_field_value(owner, field_name, frame)
 
-            def setter(new_value: Any, owner: Any = owner, field_name: str = field_name) -> None:
+            def field_setter(new_value: Any, owner: Any = owner, field_name: str = field_name) -> None:
                 set_field_value(owner, field_name, new_value, frame, create=False)
                 frame.dot = new_value
 
-            return RebindContext(value, setter)
+            return RebindContext(value, field_setter)
 
         if is_last and label == "index":
             owner = current
             idx_value = evaluate_index_operand(op, frame, eval_func)
             value = index_value(owner, idx_value, frame)
 
-            def setter(new_value: Any, owner: Any = owner, idx_value: Any = idx_value) -> None:
+            def index_setter(new_value: Any, owner: Any = owner, idx_value: Any = idx_value) -> None:
                 set_index_value(owner, idx_value, new_value, frame)
                 frame.dot = new_value
 
-            return RebindContext(value, setter)
+            return RebindContext(value, index_setter)
 
         if is_last and label == "fieldfan":
             return build_fieldfan_context(current, op, frame)
@@ -323,7 +323,7 @@ def apply_numeric_delta(ref: RebindContext, delta: int) -> tuple[Any, Any]:
 
     return current, new_val
 
-def build_fieldfan_context(owner: Any, fan_node: Tree, frame: Frame) -> FanContext:
+def build_fieldfan_context(owner: Any, fan_node: TreeNode, frame: Frame) -> FanContext:
     """Construct a fan context for `.={a,b}` nodes so updates reach every slot."""
     fieldlist_node = child_by_label(fan_node, "fieldlist")
     if fieldlist_node is None:
@@ -346,7 +346,7 @@ def build_fieldfan_context(owner: Any, fan_node: Tree, frame: Frame) -> FanConte
 
     return FanContext(contexts)
 
-def apply_fan_op(fan: FanContext, op: Tree, frame: Frame, *, apply_op: ApplyOpFunc, eval_func: EvalFunc) -> FanContext:
+def apply_fan_op(fan: FanContext, op: TreeNode, frame: Frame, *, apply_op: ApplyOpFunc, eval_func: EvalFunc) -> FanContext:
     """Apply an explicit-chain op to each fan target and keep contexts/values in sync."""
     new_contexts: List[RebindContext] = []
     new_values: List[Any] = []
@@ -386,8 +386,8 @@ def apply_fan_op(fan: FanContext, op: Tree, frame: Frame, *, apply_op: ApplyOpFu
     return fan
 
 def apply_assign(
-    lvalue_node: Tree,
-    rhs_node: Tree,
+    lvalue_node: TreeNode,
+    rhs_node: TreeNode,
     frame: Frame,
     *,
     eval_func: EvalFunc,
@@ -397,7 +397,7 @@ def apply_assign(
     """Evaluate the `.= expr` apply-assign form (subject-aware updates)."""
     head, *ops = lvalue_node.children
 
-    if not ops and token_kind(head) == "IDENT":
+    if not ops and is_token_node(head) and token_kind(head) == "IDENT":
         target = frame.get(head.value)
         rhs_frame = Frame(parent=frame, dot=target)
         new_val = eval_func(rhs_node, rhs_frame)
@@ -439,7 +439,7 @@ def apply_assign(
             if fieldlist_node is None:
                 raise ShakarRuntimeError("Malformed field fan-out list")
 
-            names = [tok.value for tok in fieldlist_node.children if token_kind(tok) == "IDENT"]
+            names = [tok.value for tok in fieldlist_node.children if is_token_node(tok) and token_kind(tok) == "IDENT"]
             if not names:
                 raise ShakarRuntimeError("Empty field fan-out list")
 
@@ -500,7 +500,7 @@ def assign_lvalue(
             if fieldlist_node is None:
                 raise ShakarRuntimeError("Malformed field fan-out list")
 
-            names = [tok.value for tok in tree_children(fieldlist_node) if token_kind(tok) == "IDENT"]
+            names = [tok.value for tok in tree_children(fieldlist_node) if is_token_node(tok) and token_kind(tok) == "IDENT"]
             if not names:
                 raise ShakarRuntimeError("Empty field fan-out list")
 
@@ -513,7 +513,7 @@ def assign_lvalue(
     raise ShakarRuntimeError("Unsupported assignment target")
 
 def assign_pattern_value(
-    pattern: Tree,
+    pattern: TreeNode,
     value: Any,
     frame: Frame,
     *,
@@ -576,7 +576,7 @@ def resolve_rebind_lvalue(
     eval_func: EvalFunc,
     apply_op: ApplyOpFunc,
     evaluate_index_operand: IndexEvalFunc,
-) -> RebindContext:
+) -> RebindContext | FanContext:
     """Turn a `rebind_lvalue` node into a concrete context for prefix rebinds."""
     if is_token_node(node):
         if token_kind(node) == "IDENT":

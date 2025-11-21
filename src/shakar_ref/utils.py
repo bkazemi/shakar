@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, List, Optional
+from typing_extensions import TypeAlias
 
 from .runtime import (
     DecoratorConfigured,
@@ -18,6 +19,8 @@ from .runtime import (
     ShakarTypeError,
 )
 
+ShkValue: TypeAlias = ShkNull | ShkNumber | ShkString | ShkBool | ShkArray | ShkObject | ShkFn | ShkDecorator | DecoratorConfigured | DecoratorContinuation | Descriptor
+
 def value_in_list(seq: List[Any], value: Any) -> bool:
     for existing in seq:
         if shk_equals(existing, value):
@@ -25,45 +28,24 @@ def value_in_list(seq: List[Any], value: Any) -> bool:
 
     return False
 
-def shk_equals(lhs: Any, rhs: Any) -> bool:
-    if type(lhs) is not type(rhs):
-        return False
-
-    match lhs:
-        case ShkNull():
+def shk_equals(lhs: ShkValue | Any, rhs: ShkValue | Any) -> bool:
+    match (lhs, rhs):
+        case (ShkNull(), ShkNull()):
             return True
-        case ShkNumber(value=a):
-            return a == rhs.value
-        case ShkString(value=a):
-            return a == rhs.value
-        case ShkBool(value=a):
-            return a == rhs.value
-        case ShkArray(items=items):
-            rhs_items = rhs.items
-
-            if len(items) != len(rhs_items):
-                return False
-
-            return all(shk_equals(a, b) for a, b in zip(items, rhs_items))
-        case ShkObject(slots=slots):
-            rhs_slots = rhs.slots
-
-            if slots.keys() != rhs_slots.keys():
-                return False
-
-            return all(shk_equals(slots[k], rhs_slots[k]) for k in slots)
-        case ShkFn():
-            return lhs is rhs
-        case ShkDecorator():
-            return lhs is rhs
-        case DecoratorConfigured():
-            return lhs is rhs
-        case DecoratorContinuation():
-            return lhs is rhs
-        case Descriptor():
+        case (ShkNumber(value=a), ShkNumber(value=b)):
+            return a == b
+        case (ShkString(value=a), ShkString(value=b)):
+            return a == b
+        case (ShkBool(value=a), ShkBool(value=b)):
+            return a == b
+        case (ShkArray(items=items_a), ShkArray(items=items_b)):
+            return len(items_a) == len(items_b) and all(shk_equals(a, b) for a, b in zip(items_a, items_b))
+        case (ShkObject(slots=slots_a), ShkObject(slots=slots_b)):
+            return slots_a.keys() == slots_b.keys() and all(shk_equals(slots_a[k], slots_b[k]) for k in slots_a)
+        case (ShkFn(), ShkFn()) | (ShkDecorator(), ShkDecorator()) | (DecoratorConfigured(), DecoratorConfigured()) | (DecoratorContinuation(), DecoratorContinuation()) | (Descriptor(), Descriptor()):
             return lhs is rhs
         case _:
-            return lhs is rhs
+            return False
 
 def is_sequence_value(value: Any) -> bool:
     return isinstance(value, ShkArray)

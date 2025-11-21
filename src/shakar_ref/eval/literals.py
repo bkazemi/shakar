@@ -3,13 +3,13 @@ from __future__ import annotations
 import shlex
 from typing import Any
 
-from lark import Tree
+from ..tree import TreeNode
 
 from ..runtime import ShkArray, ShkBool, ShkCommand, ShkNull, ShkString, ShakarRuntimeError
 from ..tree import node_meta, tree_children, tree_label, is_token_node
 from .common import stringify
 
-def eval_keyword_literal(node: Tree) -> Any:
+def eval_keyword_literal(node: TreeNode) -> Any:
     meta = node_meta(node)
     if meta is None:
         raise ShakarRuntimeError("Missing metadata for literal")
@@ -30,7 +30,7 @@ def eval_keyword_literal(node: Tree) -> Any:
 
     raise ShakarRuntimeError("Unknown literal")
 
-def eval_string_interp(node: Tree, frame, eval_func) -> ShkString:
+def eval_string_interp(node: TreeNode, frame, eval_func) -> ShkString:
     parts: list[str] = []
 
     for part in tree_children(node):
@@ -51,7 +51,7 @@ def eval_string_interp(node: Tree, frame, eval_func) -> ShkString:
 
     return ShkString("".join(parts))
 
-def eval_shell_string(node: Tree, frame, eval_func) -> ShkCommand:
+def eval_shell_string(node: TreeNode, frame, eval_func) -> ShkCommand:
     parts: list[str] = []
 
     for part in tree_children(node):

@@ -1,13 +1,9 @@
 from __future__ import annotations
 from typing import Any, List
 
-from .tree import (
-    Tree,
-    Token,
-    is_tree,
-    tree_children,
-    tree_label,
-)
+from lark import Tree, Token
+
+from .tree import is_tree, tree_children, tree_label
 from .tree import is_token as is_token_node
 
 def lower(ast: Any) -> Any:
@@ -67,12 +63,14 @@ def _chain_to_lambda_if_holes(chain: Any) -> Any | None:
             return node
 
         label = tree_label(node)
+        if label is None:
+            return node
         if label == 'holeexpr':
             name = f"_hole{len(holes)}"
             holes.append(name)
             return Token('IDENT', name)
 
-        cloned_children = [clone(child) for child in tree_children(node)]
+        cloned_children: list[Any] = [clone(child) for child in tree_children(node)]
         return Tree(label, cloned_children)
 
     cloned_chain = clone(chain)
@@ -81,6 +79,8 @@ def _chain_to_lambda_if_holes(chain: Any) -> Any | None:
         return None
 
     params = [Token('IDENT', name) for name in holes]
-    paramlist = Tree('paramlist', params)
+    param_children: list[Any] = list(params)
+    paramlist = Tree('paramlist', param_children)
 
-    return Tree('amp_lambda', [paramlist, cloned_chain])
+    lambda_children: list[Any] = [paramlist, cloned_chain]
+    return Tree('amp_lambda', lambda_children)

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Callable, List
 
-from lark import Tree
-
 from ..runtime import (
     BoundMethod,
     BuiltinMethod,
@@ -22,7 +20,7 @@ from ..runtime import (
     call_builtin_method,
     call_shkfn,
 )
-from ..tree import child_by_label, is_token_node, is_tree_node, tree_children, tree_label
+from ..tree import TreeNode, child_by_label, is_token_node, is_tree_node, tree_children, tree_label
 from .bind import FanContext, RebindContext, apply_fan_op
 from .common import expect_ident_token as _expect_ident_token
 from .mutation import get_field_value, index_value, slice_value
@@ -31,7 +29,7 @@ from .selector import evaluate_selectorlist, apply_selectors_to_value
 EvalFunc = Callable[[Any, Frame], Any]
 
 def eval_args_node(args_node: Any, frame: Frame, eval_func: EvalFunc) -> List[Any]:
-    def label(node: Tree) -> str | None:
+    def label(node: TreeNode) -> str | None:
         return tree_label(node)
 
     def flatten(node: Any) -> List[Any]:
@@ -64,7 +62,7 @@ def eval_args_node(args_node: Any, frame: Frame, eval_func: EvalFunc) -> List[An
 
     return []
 
-def evaluate_index_operand(index_node: Tree, frame: Frame, eval_func: EvalFunc) -> Any:
+def evaluate_index_operand(index_node: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     selectorlist = child_by_label(index_node, 'selectorlist')
 
     if selectorlist is not None:
@@ -92,7 +90,7 @@ def apply_slice(recv: Any, arms: List[Any], frame: Frame, eval_func: EvalFunc) -
 
     return slice_value(recv, start, stop, step)
 
-def apply_index_operation(recv: Any, op: Tree, frame: Frame, eval_func: EvalFunc) -> Any:
+def apply_index_operation(recv: Any, op: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     selectorlist = child_by_label(op, 'selectorlist')
     default_node = _default_arg(op)
     default_thunk = (lambda: eval_func(default_node, frame)) if default_node is not None else None
@@ -115,7 +113,7 @@ def apply_index_operation(recv: Any, op: Tree, frame: Frame, eval_func: EvalFunc
 
     return apply_selectors_to_value(recv, selectors)
 
-def apply_op(recv: Any, op: Tree, frame: Frame, eval_func: EvalFunc) -> Any:
+def apply_op(recv: Any, op: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     if isinstance(recv, FanContext):
         return apply_fan_op(recv, op, frame, apply_op=apply_op, eval_func=eval_func)
 
@@ -212,7 +210,7 @@ def _index_expr_from_children(children: List[Any]) -> Any:
 
     raise ShakarRuntimeError("Malformed index expression")
 
-def _default_arg(node: Tree) -> Any | None:
+def _default_arg(node: TreeNode) -> Any | None:
     children = tree_children(node)
     selector_index = None
 

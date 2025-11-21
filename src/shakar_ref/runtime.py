@@ -118,7 +118,7 @@ class ShkFn:
         if self.params is None:
             param_desc = "subject"
         else:
-            param_desc = self.params if self.params else "nullary"
+            param_desc = ", ".join(self.params) if self.params else "nullary"
 
         return f"<{label} params={param_desc} body={body_label}>"
 
@@ -164,6 +164,7 @@ class Frame:
         self._defer_stack: List[List[DeferEntry]] = []
         self._is_function_frame = False
         self._active_error: Optional[ShakarRuntimeError] = None
+        self.source: Optional[str]
 
         if parent is None and Builtins.stdlib_functions:
             for name, std in Builtins.stdlib_functions.items():
@@ -226,7 +227,15 @@ class Frame:
 # ---------- Exceptions (keep Shakar* canonical) ----------
 
 class ShakarRuntimeError(Exception):
-    pass
+    shk_type: str | None
+    shk_data: Any
+    shk_payload: Any
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.shk_type = None
+        self.shk_data = None
+        self.shk_payload = None
 
 class ShakarTypeError(ShakarRuntimeError):
     pass
@@ -426,20 +435,24 @@ def _command_run(_frame: Frame, recv: ShkCommand, args: List[Any]) -> Any:
 
 def call_builtin_method(recv: Any, name: str, args: List[Any], frame: 'Frame') -> Any:
     if isinstance(recv, ShkArray):
-        fn = Builtins.array_methods.get(name)
-        if fn: return fn(frame, recv, args)
+        arr_fn = Builtins.array_methods.get(name)
+        if arr_fn:
+            return arr_fn(frame, recv, args)
 
     if isinstance(recv, ShkString):
-        fn = Builtins.string_methods.get(name)
-        if fn: return fn(frame, recv, args)
+        str_fn = Builtins.string_methods.get(name)
+        if str_fn:
+            return str_fn(frame, recv, args)
 
     if isinstance(recv, ShkObject):
-        fn = Builtins.object_methods.get(name)
-        if fn: return fn(frame, recv, args)
+        obj_fn = Builtins.object_methods.get(name)
+        if obj_fn:
+            return obj_fn(frame, recv, args)
 
     if isinstance(recv, ShkCommand):
-        fn = Builtins.command_methods.get(name)
-        if fn: return fn(frame, recv, args)
+        cmd_fn = Builtins.command_methods.get(name)
+        if cmd_fn:
+            return cmd_fn(frame, recv, args)
 
     raise ShakarMethodNotFound(recv, name)
 

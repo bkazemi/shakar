@@ -2,27 +2,28 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from typing import Any, Awaitable, Callable, Iterable, List
-
-from lark import Tree
+from typing import Any, Awaitable, Callable, Coroutine, Iterable, List, TypeVar
 
 from ..runtime import Frame, ShkNull, ShkObject, ShkString, ShakarRuntimeError
-from ..tree import child_by_label, is_token_node, is_tree_node, tree_children, tree_label
+from ..tree import TreeNode, child_by_label, is_token_node, is_tree_node, tree_children, tree_label
 from .blocks import eval_body_node, run_body_with_subject, temporary_bindings
 from .common import token_kind as _token_kind
 
 EvalFunc = Callable[[Any, Frame], Any]
+_T = TypeVar("_T")
 
-def _wrap_awaitable(value: Any) -> Awaitable[Any]:
+def _wrap_awaitable(value: Any) -> Coroutine[Any, Any, Any]:
     if inspect.isawaitable(value):
-        return value
+        async def _forward() -> Any:
+            return await value
+        return _forward()
 
     async def _immediate() -> Any:
         return value
 
     return _immediate()
 
-def _run_asyncio(coro: Awaitable[Any]) -> Any:
+def _run_asyncio(coro: Coroutine[Any, Any, _T]) -> _T:
     try:
         asyncio.get_running_loop()
     except RuntimeError: # no active event loop, ok to run
@@ -34,7 +35,7 @@ async def _await_any_async(entries: list[tuple[dict[str, Any], Any]]) -> tuple[d
     tasks: dict[asyncio.Task[Any], dict[str, Any]] = {}
 
     for arm, value in entries:
-        task = asyncio.create_task(_wrap_awaitable(value))
+        task: asyncio.Task[Any] = asyncio.create_task(_wrap_awaitable(value))
         tasks[task] = arm
 
     errors: list[Exception] = []
@@ -44,7 +45,7 @@ async def _await_any_async(entries: list[tuple[dict[str, Any], Any]]) -> tuple[d
         done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
 
         for task in done:
-            arm = tasks.pop(task, None)
+            arm = tasks.pop(task)
 
             try:
                 result = task.result()
@@ -81,7 +82,7 @@ def resolve_await_result(value: Any) -> Any:
 
     return value
 
-def _collect_await_arms(list_node: Tree, prefix: str) -> list[dict[str, Any]]:
+def _collect_await_arms(list_node: TreeNode, prefix: str) -> list[dict[str, Any]]:
     arms: list[dict[str, Any]] = []
 
     for idx, arm_node in enumerate(tree_children(list_node)):
@@ -132,7 +133,7 @@ def _extract_trailing_body(children: List[Any]) -> Any | None:
 def _await_winner_object(label: str, value: Any) -> ShkObject:
     return ShkObject({'winner': ShkString(label), 'value': value})
 
-def eval_await_value(n: Tree, frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_await_value(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     for child in tree_children(n):
         if not is_token_node(child):
             value = eval_func(child, frame)
@@ -140,7 +141,7 @@ def eval_await_value(n: Tree, frame: Frame, eval_func: EvalFunc) -> Any:
 
     raise ShakarRuntimeError("Malformed await expression")
 
-def eval_await_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_await_stmt(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     expr_node = None
     body_node = None
 
@@ -158,7 +159,7 @@ def eval_await_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> Any:
 
     return ShkNull()
 
-def eval_await_any_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_await_any_call(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     arms_node = child_by_label(n, 'anyarmlist')
     if arms_node is None:
         raise ShakarRuntimeError("await[any] missing arm list")
@@ -200,7 +201,7 @@ def eval_await_any_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> Any:
 
     return _await_winner_object(winner_arm['label'], winner_value)
 
-def eval_await_all_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_await_all_call(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     arms_node = child_by_label(n, 'allarmlist')
     if arms_node is None:
         raise ShakarRuntimeError("await[all] missing arm list")
