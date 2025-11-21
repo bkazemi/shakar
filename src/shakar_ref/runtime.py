@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -35,6 +36,14 @@ class ShkArray:
     items: List[Any]
     def __repr__(self) -> str:
         return "[" + ", ".join(repr(x) for x in self.items) + "]"
+
+@dataclass
+class ShkCommand:
+    segments: List[str]
+    def render(self) -> str:
+        return "".join(self.segments)
+    def __repr__(self) -> str:
+        return f"sh<{self.render()}>"
 
 @dataclass
 class ShkObject:
@@ -240,6 +249,21 @@ class ShakarMethodNotFound(ShakarRuntimeError):
         self.receiver = recv
         self.name = name
 
+class CommandError(ShakarRuntimeError):
+    def __init__(self, cmd: str, code: int, stdout: str, stderr: str):
+        super().__init__(f"Command failed with exit code {code}: {cmd}")
+        self.cmd = cmd
+        self.code = code
+        self.stdout = stdout
+        self.stderr = stderr
+        self.shk_payload = ShkObject({
+            "cmd": ShkString(cmd),
+            "code": ShkNumber(float(code)),
+            "stdout": ShkString(stdout),
+            "stderr": ShkString(stderr),
+        })
+        self.shk_type = "CommandError"
+
 class ShakarAssertionError(ShakarRuntimeError):
     pass
 
@@ -265,6 +289,7 @@ class Builtins:
     array_methods: Dict[str, Callable[['Frame', 'ShkArray', List[Any]], Any]] = {}
     string_methods: Dict[str, Callable[['Frame', 'ShkString', List[Any]], Any]] = {}
     object_methods: Dict[str, Callable[['Frame', 'ShkObject', List[Any]], Any]] = {}
+    command_methods: Dict[str, Callable[['Frame', 'ShkCommand', List[Any]], Any]] = {}
     stdlib_functions: Dict[str, StdlibFunction] = {}
 
 _STDLIB_INITIALIZED = False
@@ -328,6 +353,13 @@ def register_stdlib(name: str, *, arity: int | None = None):
 
     return dec
 
+def register_command(name: str):
+    def dec(fn):
+        Builtins.command_methods[name] = fn
+        return fn
+
+    return dec
+
 def _string_expect_arity(method: str, args: List[Any], expected: int) -> None:
     if len(args) != expected:
         raise ShakarArityError(f"string.{method} expects {expected} argument(s); got {len(args)}")
@@ -376,6 +408,22 @@ def _string_is_ascii(_frame: Frame, recv: ShkString, args: List[Any]) -> ShkBool
 
     return ShkBool(recv.value.isascii())
 
+@register_command("run")
+def _command_run(_frame: Frame, recv: ShkCommand, args: List[Any]) -> Any:
+    if args:
+        raise ShakarArityError(f"command.run expects 0 args; got {len(args)}")
+    cmd = recv.render()
+
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    except OSError as exc:
+        raise ShakarRuntimeError(f"Command execution failed: {exc}") from exc
+
+    if result.returncode != 0:
+        raise CommandError(cmd, result.returncode, result.stdout, result.stderr)
+
+    return ShkString(result.stdout)
+
 def call_builtin_method(recv: Any, name: str, args: List[Any], frame: 'Frame') -> Any:
     if isinstance(recv, ShkArray):
         fn = Builtins.array_methods.get(name)
@@ -387,6 +435,10 @@ def call_builtin_method(recv: Any, name: str, args: List[Any], frame: 'Frame') -
 
     if isinstance(recv, ShkObject):
         fn = Builtins.object_methods.get(name)
+        if fn: return fn(frame, recv, args)
+
+    if isinstance(recv, ShkCommand):
+        fn = Builtins.command_methods.get(name)
         if fn: return fn(frame, recv, args)
 
     raise ShakarMethodNotFound(recv, name)

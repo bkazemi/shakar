@@ -186,8 +186,14 @@ class Prune(Transformer):
 
         node = c[0]
 
-        if is_token(node) and getattr(node, "type", "") == "STRING":
-            return self._transform_string_token(node)
+        if is_token(node):
+            token_type = getattr(node, "type", "")
+
+            if token_type == "STRING":
+                return self._transform_string_token(node)
+
+            if token_type == "SHELL_STRING":
+                return self._transform_shell_string_token(node)
         return node
 
     # Canonicalize fields to a single node shape: obj_field(key, value)
@@ -230,6 +236,44 @@ class Prune(Transformer):
             nodes.append(Tree("string_interp_expr", [payload]))
 
         result = Tree("string_interp", nodes)
+
+        meta = getattr(token, "meta", None)
+        if meta is not None:
+            result.meta = meta
+        return result
+
+    def _transform_shell_string_token(self, token: Token):
+        raw = token.value
+        if len(raw) < 4:
+            return Tree("shell_string", [Token("STRING_TEXT", raw)])
+
+        if raw.startswith('sh"') and raw.endswith('"'):
+            body = raw[3:-1]
+        elif raw.startswith("sh'") and raw.endswith("'"):
+            body = raw[3:-1]
+        else:
+            return Tree("shell_string", [Token("STRING_TEXT", raw[2:])])
+
+        segments = self._split_shell_interpolation_segments(body, token)
+        nodes: List[Any] = []
+
+        for kind, payload in segments:
+            if kind == "text":
+                if payload:
+                    nodes.append(Token("STRING_TEXT", payload))
+                continue
+
+            if kind == "expr":
+                nodes.append(Tree("shell_interp_expr", [payload]))
+                continue
+
+            if kind == "raw_expr":
+                nodes.append(Tree("shell_raw_expr", [payload]))
+                continue
+
+            raise SyntaxError("Unknown shell string segment")
+
+        result = Tree("shell_string", nodes)
 
         meta = getattr(token, "meta", None)
         if meta is not None:
@@ -280,7 +324,52 @@ class Prune(Transformer):
             parts.append(("text", "".join(literal)))
         return parts
 
-    def _extract_interpolation_expr(self, text: str, start: int, token: Token) -> Tuple[str, int]:
+    def _split_shell_interpolation_segments(self, text: str, token: Token) -> List[Tuple[str, Any]]:
+        parts: List[Tuple[str, Any]] = []
+        literal: List[str] = []
+        index = 0
+        length = len(text)
+
+        while index < length:
+            ch = text[index]
+
+            if ch == "{":
+                if index + 1 < length and text[index + 1] == "{":
+                    expr_text, next_index = self._extract_interpolation_expr(text, index + 2, token, raw_close=True)
+
+                    if literal:
+                        parts.append(("text", "".join(literal)))
+                        literal.clear()
+
+                    expr_node = self._parse_interpolation_expr(expr_text)
+                    parts.append(("raw_expr", expr_node))
+                    index = next_index
+                    continue
+
+                expr_text, next_index = self._extract_interpolation_expr(text, index + 1, token)
+
+                if literal:
+                    parts.append(("text", "".join(literal)))
+                    literal.clear()
+
+                expr_node = self._parse_interpolation_expr(expr_text)
+                parts.append(("expr", expr_node))
+                index = next_index
+                continue
+            elif ch == "}" and index + 1 < length and text[index + 1] == "}":
+                literal.append("}")
+                index += 2
+                continue
+            elif ch == "}":
+                raise SyntaxError("Unescaped '}' in shell string literal")
+            literal.append(ch)
+            index += 1
+
+        if literal or not parts:
+            parts.append(("text", "".join(literal)))
+        return parts
+
+    def _extract_interpolation_expr(self, text: str, start: int, token: Token, raw_close: bool=False) -> Tuple[str, int]:
         depth = 1
         index = start
         length = len(text)
@@ -315,6 +404,12 @@ class Prune(Transformer):
 
                     if not expr.strip():
                         raise SyntaxError("Empty interpolation expression in string literal")
+
+                    if raw_close:
+                        if index + 1 >= length or text[index + 1] != "}":
+                            raise SyntaxError(f"Unterminated interpolation expression in string literal: {token.value!r}")
+                        return expr, index + 2
+
                     return expr, index + 1
             index += 1
 
@@ -828,8 +923,32 @@ class Prune(Transformer):
 
         return Tree('catchexpr', children)
 
+    def walrus_rhs(self, c):
+        return c[0] if len(c) == 1 else Tree('walrus_rhs', c)
+
     def catchstmt(self, c):
         try_node, binder, types, body_node = self._parse_catch_head(c)
+
+        # If the handler is a simple inline expression, lower to the expression-form catch.
+        body_expr = None
+        if is_tree(body_node) and tree_label(body_node) == 'inlinebody':
+            body_children = list(tree_children(body_node))
+
+            if len(body_children) == 1:
+                body_expr = body_children[0]
+
+        if body_expr is not None:
+            children: List[Any] = []
+
+            if try_node is not None:
+                children.append(try_node)
+            if binder is not None:
+                children.append(binder)
+            if types:
+                children.append(Tree('catchtypes', types))
+            children.append(body_expr)
+            return Tree('catchexpr', children)
+
         children: List[Any] = []
 
         if try_node is not None:

@@ -168,7 +168,7 @@ assert ix == [0,1] and vals == [11,12]
 ### Shell strings (`sh"..."`)
 
 - Literal: `sh"..."` or `sh'...'`; evaluates to a lazy `Command` (no auto-exec).  
-- Execution: `cmd.run()` or future `!cmd`; stdlib controls capture.  
+- Execution: `cmd.run()` returns stdout (`Str`) on success; non-zero exit raises `CommandError` with payload `{ cmd, code, stdout, stderr }`. Future `!cmd` may execute inline; stdlib will grow capture/streaming helpers.  
 - Interpolation & safety: `{expr}` is auto-quoted; arrays expand to multiple quoted args. `{{expr}}` splices raw/unsafe tokens.  
 - Pass-through: pipes, redirects, `&&` forwarded to the system shell.  
 - Example:  

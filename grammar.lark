@@ -29,6 +29,7 @@ COMMENT: "#" /[^\n\r]*/
 
 RAW_HASH_STRING.2: /raw#"(?:[^"]|"(?!#))*"#/
 RAW_STRING.2: /raw"(?:\\.|[^"\\])*"/ | /raw'(?:\\.|[^'\\])*'/
+SHELL_STRING.2: /sh"(?:\\.|[^"\\])*"/ | /sh'(?:\\.|[^'\\])*'/
 STRING: /"(?:\\.|[^"\\])*"/ | /'(?:\\.|[^'\\])*'/
 %import common.INT   -> INT
 %import common.WS_INLINE
@@ -73,7 +74,8 @@ GT: ">"
 GTE: ">="
 
 expr: catchbase
-    | catchbase catchhead expr -> catchexpr
+    | catchexpr
+catchexpr: catchbase catchhead expr
 
 ?catchbase: anonymous_fn
           | anonymous_fn_auto
@@ -89,7 +91,8 @@ ternaryexpr: orexpr ( "?" expr ":" ternaryexpr )?
 orexpr: andexpr ( OR andexpr )*
 andexpr: bindexpr ( AND bindexpr )*
 bindexpr: walrusexpr | lvalue APPLYASSIGN bindexpr
-walrusexpr: nullishexpr | IDENT ":=" expr_nc
+walrus_rhs: expr_nc | catchexpr
+walrusexpr: nullishexpr | IDENT ":=" walrus_rhs
 
 nullishexpr: compareexpr ( NULLISH compareexpr )*
 compareexpr: addexpr ccc_trailer?
@@ -172,7 +175,7 @@ NIL: "nil"
 TRUE: "true"
 FALSE: "false"
 
-literal: STRING | RAW_STRING | RAW_HASH_STRING | NUMBER | NIL | TRUE | FALSE
+literal: STRING | RAW_STRING | RAW_HASH_STRING | SHELL_STRING | NUMBER | NIL | TRUE | FALSE
 selectorliteral: "`" sellist "`"
 sellist: selitem ("," selitem)*
 selitem: sliceitem | indexitem

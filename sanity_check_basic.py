@@ -27,6 +27,8 @@ if str(SRC_DIR) not in sys.path:
 
 from shakar_ref.runner import run as run_program
 from shakar_ref.runtime import (
+    CommandError,
+    ShkCommand,
     ShkNull,
     ShkNumber,
     ShkString,
@@ -473,6 +475,12 @@ runtime_scenario(lambda: _rt("compound-assign-div", 'a := 9; a /= 2; a', ("numbe
 runtime_scenario(lambda: _rt("compound-assign-floordiv", 'a := 9; a //= 2; a', ("number", 4), None))
 runtime_scenario(lambda: _rt("raw-string-basic", 'raw"hi {name}\\n"', ("string", "hi {name}\\n"), None))
 runtime_scenario(lambda: _rt("raw-hash-string", 'raw#"path "C:\\\\tmp"\\file"#', ("string", 'path "C:\\\\tmp"\\file'), None))
+runtime_scenario(lambda: _rt("shell-string-quote", 'path := "file name.txt"; sh"cat {path}"', ("command", "cat 'file name.txt'"), None))
+runtime_scenario(lambda: _rt("shell-string-array", 'files := ["a.txt", "b 1.txt"]; sh"ls {files}"', ("command", "ls a.txt 'b 1.txt'"), None))
+runtime_scenario(lambda: _rt("shell-string-raw-splice", 'flag := "-n 2"; file := "log 1.txt"; sh"head {{flag}} {file}"', ("command", "head -n 2 'log 1.txt'"), None))
+runtime_scenario(lambda: _rt("shell-run-stdout", 'msg := "hi"; res := (sh"printf {msg}").run(); res', ("string", "hi"), None))
+runtime_scenario(lambda: _rt("shell-run-code", '(sh"false").run()', None, CommandError))
+runtime_scenario(lambda: _rt("shell-run-catch-code", 'val := (sh"false").run() catch err: err.code', ("number", 1), None))
 runtime_scenario(
     lambda: _rt(
         "listcomp-filter",
@@ -1357,6 +1365,13 @@ class SanitySuite:
             if not isinstance(value, ShkNull):
                 return f"expected ShkNull, got {type(value).__name__}"
             return None
+        if kind == "command":
+            if not isinstance(value, ShkCommand):
+                return f"expected ShkCommand, got {type(value).__name__}"
+            rendered = value.render()
+            if rendered != expected:
+                return f"expected {expected!r}, got {rendered!r}"
+            return None
         return f"unknown expectation kind {kind}"
 
     def _pass_line(self, name: str, value: object) -> str:
@@ -1366,6 +1381,8 @@ class SanitySuite:
             desc = f"produced {int(value.value) if value.value.is_integer() else value.value}"
         elif isinstance(value, ShkNull):
             desc = "produced null"
+        elif isinstance(value, ShkCommand):
+            desc = f"produced sh<{value.render()}>"
         else:
             desc = f"produced {value}"
         return f"[PASS] {name}: {desc}"

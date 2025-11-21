@@ -9,6 +9,7 @@ from ..runtime import (
     Builtins,
     Descriptor,
     ShkArray,
+    ShkCommand,
     ShkFn,
     ShkNull,
     ShkNumber,
@@ -172,6 +173,10 @@ def get_field_value(recv: Any, name: str, frame: Frame) -> Any:
             if name in Builtins.string_methods:
                 return BuiltinMethod(name=name, subject=recv)
             raise ShakarTypeError(f"String has no field '{name}'")
+        case ShkCommand():
+            if name in Builtins.command_methods:
+                return BuiltinMethod(name=name, subject=recv)
+            raise ShakarTypeError(f"Command has no field '{name}'")
         case ShkFn():
             raise ShakarTypeError("Function has no fields")
         case _:

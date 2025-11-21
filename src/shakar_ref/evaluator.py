@@ -73,7 +73,7 @@ from .eval.expr import (
     eval_nullsafe,
     eval_ternary,
 )
-from .eval.literals import eval_keyword_literal, eval_string_interp
+from .eval.literals import eval_keyword_literal, eval_shell_string, eval_string_interp
 from .eval.objects import eval_object, eval_key
 from .eval.fn import eval_fn_def, eval_decorator_def, eval_anonymous_fn, eval_amp_lambda, evaluate_decorator_list
 
@@ -301,6 +301,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], Any]] = {
     'dictcomp': lambda n, frame: eval_dictcomp(n, frame, eval_node),
     'selectorliteral': lambda n, frame: eval_selectorliteral(n, frame, eval_node),
     'string_interp': lambda n, frame: eval_string_interp(n, frame, eval_node),
+    'shell_string': lambda n, frame: eval_shell_string(n, frame, eval_node),
     'group': _eval_group,
     'no_anchor': _eval_group,
     'ternary': lambda n, frame: eval_ternary(n, frame, eval_node),
