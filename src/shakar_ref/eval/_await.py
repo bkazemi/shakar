@@ -5,7 +5,7 @@ import inspect
 from typing import Any, Awaitable, Callable, Coroutine, Iterable, List, TypeVar
 
 from ..runtime import Frame, ShkNull, ShkObject, ShkString, ShakarRuntimeError
-from ..tree import TreeNode, child_by_label, is_token_node, is_tree_node, tree_children, tree_label
+from ..tree import TreeNode, child_by_label, is_token, is_tree, tree_children, tree_label
 from .blocks import eval_body_node, run_body_with_subject, temporary_bindings
 from .common import token_kind as _token_kind
 
@@ -92,7 +92,7 @@ def _collect_await_arms(list_node: TreeNode, prefix: str) -> list[dict[str, Any]
         body_node = None
         pos = 0
 
-        if children and is_token_node(children[0]) and _token_kind(children[0]) == 'IDENT':
+        if children and is_token(children[0]) and _token_kind(children[0]) == 'IDENT':
             label = children[0].value
             pos = 1
 
@@ -105,7 +105,7 @@ def _collect_await_arms(list_node: TreeNode, prefix: str) -> list[dict[str, Any]
         if pos < len(children):
             candidate = children[pos]
 
-            if is_tree_node(candidate) and tree_label(candidate) in {'inlinebody', 'indentblock'}:
+            if is_tree(candidate) and tree_label(candidate) in {'inlinebody', 'indentblock'}:
                 body_node = candidate
 
         arms.append({
@@ -120,7 +120,7 @@ def _extract_trailing_body(children: List[Any]) -> Any | None:
     seen_rpar = False
 
     for child in children:
-        if is_token_node(child):
+        if is_token(child):
             if _token_kind(child) == 'RPAR':
                 seen_rpar = True
             continue
@@ -135,7 +135,7 @@ def _await_winner_object(label: str, value: Any) -> ShkObject:
 
 def eval_await_value(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     for child in tree_children(n):
-        if not is_token_node(child):
+        if not is_token(child):
             value = eval_func(child, frame)
             return resolve_await_result(value)
 
@@ -146,9 +146,9 @@ def eval_await_stmt(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     body_node = None
 
     for child in tree_children(n):
-        if is_tree_node(child) and tree_label(child) in {'inlinebody', 'indentblock'}:
+        if is_tree(child) and tree_label(child) in {'inlinebody', 'indentblock'}:
             body_node = child
-        elif not is_token_node(child) and expr_node is None:
+        elif not is_token(child) and expr_node is None:
             expr_node = child
 
     if expr_node is None or body_node is None:

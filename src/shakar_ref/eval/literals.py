@@ -6,7 +6,7 @@ from typing import Any
 from ..tree import TreeNode
 
 from ..runtime import ShkArray, ShkBool, ShkCommand, ShkNull, ShkString, ShakarRuntimeError
-from ..tree import node_meta, tree_children, tree_label, is_token_node
+from ..tree import node_meta, tree_children, tree_label, is_token
 from .common import stringify
 
 def eval_keyword_literal(node: TreeNode) -> Any:
@@ -34,7 +34,7 @@ def eval_string_interp(node: TreeNode, frame, eval_func) -> ShkString:
     parts: list[str] = []
 
     for part in tree_children(node):
-        if is_token_node(part):
+        if is_token(part):
             parts.append(part.value)
             continue
 
@@ -55,7 +55,7 @@ def eval_shell_string(node: TreeNode, frame, eval_func) -> ShkCommand:
     parts: list[str] = []
 
     for part in tree_children(node):
-        if is_token_node(part):
+        if is_token(part):
             parts.append(part.value)
             continue
 

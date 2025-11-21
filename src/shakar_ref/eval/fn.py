@@ -7,7 +7,7 @@ from typing import Callable
 from ..tree import TreeNode
 
 from ..runtime import DecoratorConfigured, Frame, ShkDecorator, ShkFn, ShkNull, ShakarRuntimeError, ShakarTypeError
-from ..tree import is_tree_node, tree_children, tree_label
+from ..tree import is_tree, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token, ident_token_value as _ident_token_value
 
 def extract_param_names(params_node: Any, context: str="parameter list") -> List[str]:
@@ -39,11 +39,11 @@ def eval_fn_def(children: List[Any], frame: Frame, eval_func: Callable[[Any, Fra
     decorators_node = None
 
     for node in children[1:]:
-        if params_node is None and is_tree_node(node) and tree_label(node) == 'paramlist':
+        if params_node is None and is_tree(node) and tree_label(node) == 'paramlist':
             params_node = node
-        elif body_node is None and is_tree_node(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+        elif body_node is None and is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
             body_node = node
-        elif decorators_node is None and is_tree_node(node) and tree_label(node) == 'decorator_list':
+        elif decorators_node is None and is_tree(node) and tree_label(node) == 'decorator_list':
             decorators_node = node
 
     if body_node is None:
@@ -70,9 +70,9 @@ def eval_decorator_def(children: List[Any], frame: Frame) -> Any:
     body_node = None
 
     for node in children[1:]:
-        if params_node is None and is_tree_node(node) and tree_label(node) == 'paramlist':
+        if params_node is None and is_tree(node) and tree_label(node) == 'paramlist':
             params_node = node
-        elif body_node is None and is_tree_node(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+        elif body_node is None and is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
             body_node = node
 
     if body_node is None:
@@ -89,9 +89,9 @@ def eval_anonymous_fn(children: List[Any], frame: Frame) -> ShkFn:
     body_node = None
 
     for node in children:
-        if is_tree_node(node) and tree_label(node) == 'paramlist':
+        if is_tree(node) and tree_label(node) == 'paramlist':
             params_node = node
-        elif is_tree_node(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+        elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
             body_node = node
 
     if body_node is None:

@@ -6,30 +6,30 @@ from lark import Tree, Token
 
 from ..runtime import ShkBool, ShkNumber, ShkString, ShakarRuntimeError, ShakarTypeError
 from ..tree import (
-    is_token_node,
-    is_tree_node,
+    is_token,
+    is_tree,
     node_meta,
     tree_children,
     tree_label,
 )
 
 def token_kind(node: Any) -> Optional[str]:
-    if not is_token_node(node):
+    if not is_token(node):
         return None
     tok: Token = node
     return str(tok.type)
 
 def is_token_type(node: Any, kind: str) -> bool:
-    return is_token_node(node) and token_kind(node) == kind
+    return is_token(node) and token_kind(node) == kind
 
 def expect_ident_token(node: Any, context: str) -> str:
-    if is_token_node(node) and token_kind(node) == 'IDENT':
+    if is_token(node) and token_kind(node) == 'IDENT':
         return str(node.value)
 
     raise ShakarRuntimeError(f"{context} must be an identifier")
 
 def ident_token_value(node: Any) -> Optional[str]:
-    if is_token_node(node) and token_kind(node) == 'IDENT':
+    if is_token(node) and token_kind(node) == 'IDENT':
         return str(node.value)
 
     return None
@@ -54,10 +54,10 @@ def get_source_segment(node: Any, frame: Any) -> Optional[str]:
     return str(source[start:end])
 
 def render_expr(node: Any) -> str:
-    if is_token_node(node):
+    if is_token(node):
         return str(node.value)
 
-    if not is_tree_node(node):
+    if not is_tree(node):
         return str(node)
 
     parts: List[str] = []
@@ -77,7 +77,7 @@ def node_source_span(node: Any) -> tuple[int | None, int | None]:
     if start is not None and end is not None:
         return start, end
 
-    if is_tree_node(node):
+    if is_tree(node):
         child_spans = [node_source_span(child) for child in tree_children(node)]
         child_starts = [s for s, _ in child_spans if s is not None]
         child_ends = [e for _, e in child_spans if e is not None]
@@ -128,12 +128,12 @@ def collect_free_identifiers(node: Any, callback: Callable[[str], None]) -> None
     skip_nodes = {'field', 'fieldsel', 'fieldfan', 'fieldlist', 'key_ident', 'key_string'}
 
     def walk(n: Any) -> None:
-        if is_token_node(n):
+        if is_token(n):
             if token_kind(n) == 'IDENT':
                 callback(n.value)
             return
 
-        if is_tree_node(n):
+        if is_tree(n):
             if tree_label(n) == 'amp_lambda':
                 return
 

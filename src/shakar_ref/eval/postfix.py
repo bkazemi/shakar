@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable, Iterable, List, Sequence
 
 from ..runtime import Frame, ShkNull, ShakarRuntimeError
-from ..tree import find_tree_by_label, is_token_node, tree_children
+from ..tree import find_tree_by_label, is_token, tree_children
 
 def define_new_ident(name: str, value: Any, frame: Frame) -> Any:
     """Introduce a new binding in the current scope; error if it already exists."""
@@ -23,7 +23,7 @@ def _walrus_target_name(node: Any) -> str:
 
     target = children[0]
 
-    if is_token_node(target):
+    if is_token(target):
         return str(target.value)
 
     if isinstance(target, str):
@@ -36,7 +36,7 @@ def _split_postfix_children(children: Sequence[Any], keyword_tokens: Iterable[st
     semantic: List[Any] = []
 
     for ch in children:
-        if is_token_node(ch) and ch.type in keywords:
+        if is_token(ch) and ch.type in keywords:
             continue
 
         semantic.append(ch)

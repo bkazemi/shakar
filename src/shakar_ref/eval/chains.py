@@ -20,7 +20,7 @@ from ..runtime import (
     call_builtin_method,
     call_shkfn,
 )
-from ..tree import TreeNode, child_by_label, is_token_node, is_tree_node, tree_children, tree_label
+from ..tree import TreeNode, child_by_label, is_token, is_tree, tree_children, tree_label
 from .bind import FanContext, RebindContext, apply_fan_op
 from .common import expect_ident_token as _expect_ident_token
 from .mutation import get_field_value, index_value, slice_value
@@ -33,7 +33,7 @@ def eval_args_node(args_node: Any, frame: Frame, eval_func: EvalFunc) -> List[An
         return tree_label(node)
 
     def flatten(node: Any) -> List[Any]:
-        if is_tree_node(node):
+        if is_tree(node):
             tag = label(node)
 
             if tag in {'args', 'arglist', 'arglistnamedmixed'}:
@@ -51,7 +51,7 @@ def eval_args_node(args_node: Any, frame: Frame, eval_func: EvalFunc) -> List[An
 
         return [node]
 
-    if is_tree_node(args_node):
+    if is_tree(args_node):
         return [eval_func(n, frame) for n in flatten(args_node)]
 
     if isinstance(args_node, list):
@@ -195,10 +195,10 @@ def _index_expr_from_children(children: List[Any]) -> Any:
     while queue:
         node = queue.pop(0)
 
-        if is_token_node(node):
+        if is_token(node):
             continue
 
-        if not is_tree_node(node):
+        if not is_tree(node):
             return node
 
         tag = tree_label(node)
@@ -225,7 +225,7 @@ def _default_arg(node: TreeNode) -> Any | None:
     skip_tokens = {"RSQB", "COMMA", "DEFAULT", "COLON"}
 
     for child in children[selector_index + 1:]:
-        if is_token_node(child) and getattr(child, "type", "") in skip_tokens:
+        if is_token(child) and getattr(child, "type", "") in skip_tokens:
             continue
 
         return child

@@ -6,7 +6,7 @@ from typing import Any, Callable, Iterator, List
 from lark import Tree
 
 from ..runtime import DeferEntry, Frame, ShkNull, ShkValue, ShakarBreakSignal, ShakarContinueSignal, ShakarRuntimeError
-from ..tree import TreeNode, is_token_node, is_tree_node, tree_children, tree_label
+from ..tree import TreeNode, is_token, is_tree, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token, token_kind as _token_kind
 from .helpers import is_truthy as _is_truthy
 
@@ -132,7 +132,7 @@ def eval_oneline_guard(children: List[Any], frame: Frame, eval_func: EvalFunc) -
     outer_dot = frame.dot
 
     for branch in branches:
-        if not is_tree_node(branch) or len(branch.children) != 2:
+        if not is_tree(branch) or len(branch.children) != 2:
             raise ShakarRuntimeError("Malformed guard branch")
 
         cond_node, body_node = branch.children
@@ -153,7 +153,7 @@ def eval_oneline_guard(children: List[Any], frame: Frame, eval_func: EvalFunc) -
     return ShkNull()
 
 def eval_body_node(body_node: Any, frame: Frame, eval_func: EvalFunc) -> Any:
-    label = tree_label(body_node) if is_tree_node(body_node) else None
+    label = tree_label(body_node) if is_tree(body_node) else None
 
     if label == 'inlinebody':
         return eval_inline_body(body_node, frame, eval_func)
@@ -215,7 +215,7 @@ def eval_defer_stmt(children: List[Any], frame: Frame, eval_func: EvalFunc) -> A
     idx = 0
     label = None
 
-    if is_tree_node(children[0]) and tree_label(children[0]) == 'deferlabel':
+    if is_tree(children[0]) and tree_label(children[0]) == 'deferlabel':
         label = _expect_ident_token(children[0].children[0], "Defer label")
         idx += 1
 
@@ -229,22 +229,22 @@ def eval_defer_stmt(children: List[Any], frame: Frame, eval_func: EvalFunc) -> A
     if idx < len(children):
         deps_node = children[idx]
 
-        if is_tree_node(deps_node) and tree_label(deps_node) == 'deferdeps':
+        if is_tree(deps_node) and tree_label(deps_node) == 'deferdeps':
             deps = [
                 _expect_ident_token(tok, "Defer dependency")
                 for tok in tree_children(deps_node)
-                if is_token_node(tok)
+                if is_token(tok)
             ]
             idx += 1
 
     if idx != len(children):
         raise ShakarRuntimeError("Unexpected defer statement shape")
 
-    body_kind = 'block' if is_tree_node(body_wrapper) and tree_label(body_wrapper) == 'deferblock' else 'call'
+    body_kind = 'block' if is_tree(body_wrapper) and tree_label(body_wrapper) == 'deferblock' else 'call'
     payload = body_wrapper
 
     if body_kind == 'block':
-        payload = body_wrapper.children[0] if is_tree_node(body_wrapper) and body_wrapper.children else Tree('inlinebody', [])
+        payload = body_wrapper.children[0] if is_tree(body_wrapper) and body_wrapper.children else Tree('inlinebody', [])
 
     saved_dot = frame.dot
     source = getattr(frame, 'source', None)

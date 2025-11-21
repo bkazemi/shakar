@@ -5,7 +5,7 @@ from typing import Any, Callable, Iterable, List, Optional, Tuple
 from lark import Token
 
 from ..runtime import Descriptor, Frame, ShkFn, ShkObject, ShkString, ShakarRuntimeError
-from ..tree import TreeNode, child_by_label, is_token_node, is_tree_node, tree_children, tree_label
+from ..tree import TreeNode, child_by_label, is_token, is_tree, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token
 
 EvalFunc = Callable[[Any, Frame], Any]
@@ -40,7 +40,7 @@ def eval_object(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 names.append(ident)
                 continue
 
-            if is_tree_node(node):
+            if is_tree(node):
                 queue.extend(tree_children(node))
         return names
 
@@ -48,7 +48,7 @@ def eval_object(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> ShkObject:
         cur = node
         seen = set()
 
-        while is_tree_node(cur) and cur.children and id(cur) not in seen:
+        while is_tree(cur) and cur.children and id(cur) not in seen:
             seen.add(id(cur))
 
             if len(cur.children) != 1:
@@ -59,13 +59,13 @@ def eval_object(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> ShkObject:
     def _maybe_method_signature(key_node: Any) -> Tuple[str, List[str]] | None:
         if key_node is None or tree_label(key_node) != 'key_expr':
             return None
-        if not is_tree_node(key_node):
+        if not is_tree(key_node):
             return None
 
         target = key_node.children[0] if key_node.children else None
         chain = None
 
-        if is_tree_node(target):
+        if is_tree(target):
             if tree_label(target) == 'explicit_chain':
                 chain = target
             else:
@@ -86,7 +86,7 @@ def eval_object(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> ShkObject:
         args_node = call_node.children[0] if call_node.children else None
         params: List[str] = []
 
-        if is_tree_node(args_node):
+        if is_tree(args_node):
             queue = list(args_node.children)
 
             while queue:
@@ -96,14 +96,14 @@ def eval_object(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 if raw_label in {'namedarg', 'kwarg'}:
                     return None
 
-                raw_children = tree_children(raw) if is_tree_node(raw) else None
+                raw_children = tree_children(raw) if is_tree(raw) else None
                 if raw_children and raw_label not in {'args', 'arglist', 'arglistnamedmixed', 'argitem', 'arg'}:
                     queue.extend(raw_children)
                     continue
 
                 ident = _unwrap_ident(raw)
                 if ident is None:
-                    if is_tree_node(raw):
+                    if is_tree(raw):
                         queue.extend(tree_children(raw))
                     else:
                         return None
@@ -163,20 +163,20 @@ def eval_object(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 raise ShakarRuntimeError(f"Unknown object item {item.data}")
 
     for child in tree_children(n):
-        if is_token_node(child):
+        if is_token(child):
             continue
 
         child_label = tree_label(child)
         if child_label == 'object_items':
             for item in tree_children(child):
-                if not is_tree_node(item) or tree_label(item) == 'obj_sep':
+                if not is_tree(item) or tree_label(item) == 'obj_sep':
                     continue
                 handle_item(item)
         else:
             if child_label == 'obj_sep':
                 continue
 
-            if is_tree_node(child):
+            if is_tree(child):
                 handle_item(child)
     return ShkObject(slots)
 
@@ -197,7 +197,7 @@ def eval_key(k: Any, frame: Frame, eval_func) -> Any:
                 v = eval_func(k.children[0], frame)
                 return v.value if isinstance(v, ShkString) else v
 
-    if is_token_node(k) and k.type in ('IDENT', 'STRING'):
+    if is_token(k) and k.type in ('IDENT', 'STRING'):
         return k.value.strip('"').strip("'")
 
     return eval_func(k, frame)

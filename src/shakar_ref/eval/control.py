@@ -18,7 +18,7 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-from ..tree import is_token_node, is_tree_node, tree_children, tree_label
+from ..tree import is_token, is_tree, tree_children, tree_label
 from .blocks import eval_inline_body, eval_indent_block, temporary_bindings, temporary_subject
 from .common import expect_ident_token, node_source_span as _node_source_span, render_expr as _render_expr, stringify as _stringify
 from .helpers import current_function_frame as _current_function_frame, is_truthy as _is_truthy
@@ -143,14 +143,14 @@ def _parse_catch_components(children: list[Any]) -> tuple[Any, Any | None, list[
     binder = None
     type_names: list[str] = []
 
-    if idx < len(children) and is_token_node(children[idx]):
+    if idx < len(children) and is_token(children[idx]):
         binder = children[idx]
         idx += 1
 
-    if idx < len(children) and is_tree_node(children[idx]) and tree_label(children[idx]) == 'catchtypes':
+    if idx < len(children) and is_tree(children[idx]) and tree_label(children[idx]) == 'catchtypes':
         type_names = [
             expect_ident_token(tok, "Catch type")
-            for tok in tree_children(children[idx]) if is_token_node(tok)
+            for tok in tree_children(children[idx]) if is_token(tok)
         ]
         idx += 1
 

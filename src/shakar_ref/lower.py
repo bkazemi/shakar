@@ -4,14 +4,14 @@ from typing import Any, List
 from lark import Tree, Token
 
 from .tree import is_tree, tree_children, tree_label
-from .tree import is_token as is_token_node
+from .tree import is_token as is_token
 
 def lower(ast: Any) -> Any:
     """Runtime lowering pass (currently: hole desugaring)."""
     return _desugar_call_holes(ast)
 
 def _desugar_call_holes(node: Any) -> Any:
-    if is_token_node(node) or not is_tree(node):
+    if is_token(node) or not is_tree(node):
         return node
 
     children = getattr(node, "children", [])
@@ -34,7 +34,7 @@ def _desugar_call_holes(node: Any) -> Any:
 
 def _chain_to_lambda_if_holes(chain: Any) -> Any | None:
     def _contains_hole(node: Any) -> bool:
-        if is_token_node(node) or not is_tree(node):
+        if is_token(node) or not is_tree(node):
             return False
 
         if tree_label(node) == 'holeexpr':
@@ -59,7 +59,7 @@ def _chain_to_lambda_if_holes(chain: Any) -> Any | None:
         raise SyntaxError("Hole partials cannot be immediately invoked; assign or pass the partial before calling it")
 
     def clone(node: Any) -> Any:
-        if is_token_node(node) or not is_tree(node):
+        if is_token(node) or not is_tree(node):
             return node
 
         label = tree_label(node)

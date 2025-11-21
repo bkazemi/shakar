@@ -19,7 +19,7 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-from ..tree import TreeNode, is_tree_node, node_meta, tree_children, tree_label
+from ..tree import TreeNode, is_tree, node_meta, tree_children, tree_label
 from ..utils import shk_equals
 from .bind import FanContext, RebindContext
 from .chains import apply_op as chain_apply_op, evaluate_index_operand
@@ -208,7 +208,7 @@ def eval_nullish(children: List[Any], frame: Frame, eval_func) -> Any:
     return current
 
 def eval_nullsafe(node: Any, frame: Frame, eval_func) -> Any:
-    if not is_tree_node(node) or tree_label(node) != 'explicit_chain':
+    if not is_tree(node) or tree_label(node) != 'explicit_chain':
         return eval_func(node, frame)
 
     children = tree_children(node)
@@ -255,7 +255,7 @@ def as_op(x: Any) -> str:
     if isinstance(x, Token):
         return str(x.value)
 
-    label = tree_label(x) if is_tree_node(x) else None
+    label = tree_label(x) if is_tree(x) else None
     if label is not None:
         if label in ('addop', 'mulop', 'powop') and len(x.children) == 1 and isinstance(x.children[0], Token):
             return str(x.children[0].value)

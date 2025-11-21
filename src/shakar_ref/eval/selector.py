@@ -25,8 +25,8 @@ from ..tree import (
     child_by_labels,
     first_child,
     node_meta,
-    is_tree_node,
-    is_token_node,
+    is_tree,
+    is_token,
 )
 
 def eval_selectorliteral(node, frame, eval_fn) -> ShkSelector:
@@ -65,7 +65,7 @@ def evaluate_selectorlist(node, frame, eval_fn, clamp: bool = True) -> List[Sele
             continue
 
         if label == "indexsel":
-            expr_node = first_child(target, lambda child: not is_token_node(child))
+            expr_node = first_child(target, lambda child: not is_token(child))
 
             if expr_node is None:
                 children = tree_children(target)
@@ -195,7 +195,7 @@ def _eval_selector_atom(node, frame, eval_fn):
     if node is None:
         return None
 
-    if not is_tree_node(node):
+    if not is_tree(node):
         return eval_fn(node, frame)
 
     node_children = tree_children(node)
@@ -218,7 +218,7 @@ def _eval_selector_atom(node, frame, eval_fn):
         # `` `start:${expr}` `` — evaluate embedded expression on demand.
         return eval_fn(expr, frame)
 
-    if is_tree_node(child):
+    if is_tree(child):
         return eval_fn(child, frame)
 
     return eval_fn(child, frame)

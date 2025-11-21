@@ -18,8 +18,8 @@ from .runtime import (
 from .tree import (
     TreeNode,
     child_by_label,
-    is_token_node,
-    is_tree_node,
+    is_token,
+    is_tree,
     tree_children,
     tree_label,
 )
@@ -122,7 +122,7 @@ def eval_node(n: Any, frame: Frame) -> Any:
     if is_literal_node(n):
         return n
 
-    if is_token_node(n):
+    if is_token(n):
         return _eval_token(n, frame)
 
     d = n.data
@@ -177,7 +177,7 @@ def eval_node(n: Any, frame: Frame) -> Any:
                 return old_val
 
             val = eval_node(head, frame)
-            head_label = tree_label(head) if is_tree_node(head) else None
+            head_label = tree_label(head) if is_tree(head) else None
             head_is_rebind = head_label in {'rebind_primary', 'rebind_primary_grouped'}
             head_is_grouped_rebind = head_label == 'rebind_primary_grouped'
             tail_has_effect = False
@@ -284,7 +284,7 @@ def _eval_continue_stmt(frame: Frame) -> Any:
 def _eval_formap1(n: TreeNode, frame: Frame) -> Any:
     child = n.children[0] if n.children else None
 
-    if not is_tree_node(child):
+    if not is_tree(child):
         raise ShakarRuntimeError("Malformed indexed loop")
 
     return eval_for_indexed(child, frame, eval_node)

@@ -5,7 +5,7 @@ from typing import Any, Callable, Iterable, List
 from lark import Token, Tree
 
 from ..runtime import Frame, ShkArray, ShkNull, ShkNumber, ShkObject, ShkSelector, ShkString, ShakarBreakSignal, ShakarContinueSignal, ShakarRuntimeError, ShakarTypeError
-from ..tree import TreeNode, child_by_label, is_token_node, is_tree_node, tree_children, tree_label
+from ..tree import TreeNode, child_by_label, is_token, is_tree, tree_children, tree_label
 from ..utils import normalize_object_key, value_in_list
 from .bind import assign_pattern_value
 from .blocks import eval_indent_block, eval_inline_body
@@ -69,7 +69,7 @@ def _extract_loop_iter_and_body(children: List[Any]) -> tuple[Any | None, Any | 
     body_node = None
 
     for child in children:
-        if is_tree_node(child):
+        if is_tree(child):
             label = tree_label(child)
             if label in {"binderpattern", "hoist", "pattern"}:
                 continue
@@ -92,7 +92,7 @@ def _extract_loop_iter_and_body(children: List[Any]) -> tuple[Any | None, Any | 
     return iter_expr, body_node
 
 def _extract_clause(node: TreeNode, label: str) -> tuple[Any | None, Any]:
-    nodes = [child for child in tree_children(node) if not is_token_node(child)]
+    nodes = [child for child in tree_children(node) if not is_token(child)]
 
     if label == "else":
         if not nodes:
@@ -118,7 +118,7 @@ def _coerce_loop_binder(node: TreeNode) -> dict[str, Any]:
 
     if tree_label(target) == "hoist":
         tok = target.children[0] if target.children else None
-        if tok is None or not is_token_node(tok):
+        if tok is None or not is_token(tok):
             raise ShakarRuntimeError("Malformed hoisted binder")
 
         pattern = Tree("pattern", [tok])
@@ -127,13 +127,13 @@ def _coerce_loop_binder(node: TreeNode) -> dict[str, Any]:
     if tree_label(target) == "pattern":
         return {"pattern": target, "hoist": False}
 
-    if is_token_node(target) and _token_kind(target) == "IDENT":
+    if is_token(target) and _token_kind(target) == "IDENT":
         pattern = Tree("pattern", [target])
         return {"pattern": pattern, "hoist": False}
     raise ShakarRuntimeError("Malformed binder pattern")
 
 def _pattern_requires_object_pair(pattern: TreeNode) -> bool:
-    if not is_tree_node(pattern):
+    if not is_tree(pattern):
         return False
 
     return any(
@@ -204,7 +204,7 @@ def _iterable_values(value: Any) -> list[Any]:
             raise ShakarTypeError(f"Cannot iterate over {type(value).__name__}")
 
 def _execute_loop_body(body_node: Any, frame: Frame, eval_func: EvalFunc) -> Any:
-    label = tree_label(body_node) if is_tree_node(body_node) else None
+    label = tree_label(body_node) if is_tree(body_node) else None
 
     if label == "inlinebody":
         return eval_inline_body(body_node, frame, eval_func, allow_loop_control=True)
@@ -285,7 +285,7 @@ def eval_if_stmt(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     else_body = None
 
     for child in children:
-        if is_token_node(child):
+        if is_token(child):
             continue
 
         label = tree_label(child)
@@ -323,11 +323,11 @@ def eval_for_in(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     after_in = False
 
     for child in tree_children(n):
-        if is_tree_node(child) and tree_label(child) == "pattern":
+        if is_tree(child) and tree_label(child) == "pattern":
             pattern_node = child
             continue
 
-        if is_token_node(child):
+        if is_token(child):
             tok = _token_kind(child)
 
             if tok == "FOR":
@@ -397,7 +397,7 @@ def eval_for_subject(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     body_node = None
 
     for child in tree_children(n):
-        if is_token_node(child):
+        if is_token(child):
             continue
 
         if iter_expr is None:
@@ -433,7 +433,7 @@ def eval_for_indexed(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     binder_nodes: list[TreeNode] = []
 
     for child in children:
-        if is_tree_node(child) and tree_label(child) in {"binderpattern", "hoist", "pattern"}:
+        if is_tree(child) and tree_label(child) in {"binderpattern", "hoist", "pattern"}:
             binder_nodes.append(child)
 
     if not binder_nodes:

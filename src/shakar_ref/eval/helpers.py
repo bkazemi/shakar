@@ -11,7 +11,7 @@ from ..runtime import (
     ShkObject,
     ShkString,
 )
-from ..tree import is_token_node, is_tree_node, tree_label
+from ..tree import is_token, is_tree, tree_label
 from .common import token_kind as _token_kind
 
 def is_truthy(val: Any) -> bool:
@@ -32,10 +32,10 @@ def is_truthy(val: Any) -> bool:
             return True
 
 def retargets_anchor(node: Any) -> bool:
-    if is_token_node(node):
+    if is_token(node):
         return _token_kind(node) == 'IDENT'
 
-    if is_tree_node(node):
+    if is_tree(node):
         return tree_label(node) not in {
             'implicit_chain',
             'subject',

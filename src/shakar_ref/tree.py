@@ -9,14 +9,8 @@ TreeNode: TypeAlias = Tree[Any]
 def is_tree(node: Any) -> TypeGuard[TreeNode]:
     return isinstance(node, Tree)
 
-def is_tree_node(node: Any) -> TypeGuard[TreeNode]:
-    return is_tree(node)
-
 def is_token(node: Any) -> TypeGuard[Token]:
     return isinstance(node, Token)
-
-def is_token_node(node: Any) -> TypeGuard[Token]:
-    return is_token(node)
 
 def tree_label(node: Any) -> Optional[str]:
     return node.data if is_tree(node) else None
