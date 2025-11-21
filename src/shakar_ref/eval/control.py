@@ -112,9 +112,11 @@ def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
     if isinstance(payload, ShkObject):
         return payload
 
+    type_hint = getattr(exc, 'shk_type', None) or type(exc).__name__
+
     slots = {
         "message": ShkString(str(exc)),
-        "type": ShkString(getattr(exc, 'shk_type', type(exc).__name__)),
+        "type": ShkString(str(type_hint)),
     }
 
     if isinstance(exc, ShakarKeyError):
