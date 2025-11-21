@@ -341,11 +341,13 @@ def _ensure_shk_value(value: Any) -> ShkValue:
         return value
     raise ShakarTypeError(f"Unexpected value type {type(value).__name__}")
 
+MethodRegistry = Dict[str, Callable[..., ShkValue]]
+
 class Builtins:
-    array_methods: Dict[str, Callable[['Frame', 'ShkArray', List[ShkValue]], ShkValue]] = {}
-    string_methods: Dict[str, Callable[['Frame', 'ShkString', List[ShkValue]], ShkValue]] = {}
-    object_methods: Dict[str, Callable[['Frame', 'ShkObject', List[ShkValue]], ShkValue]] = {}
-    command_methods: Dict[str, Callable[['Frame', 'ShkCommand', List[ShkValue]], ShkValue]] = {}
+    array_methods: MethodRegistry = {}
+    string_methods: MethodRegistry = {}
+    object_methods: MethodRegistry = {}
+    command_methods: MethodRegistry = {}
     stdlib_functions: Dict[str, StdlibFunction] = {}
 
 _STDLIB_INITIALIZED = False
@@ -481,25 +483,18 @@ def _command_run(_frame: Frame, recv: ShkCommand, args: List[ShkValue]) -> ShkVa
     return ShkString(result.stdout)
 
 def call_builtin_method(recv: ShkValue, name: str, args: List[ShkValue], frame: 'Frame') -> ShkValue:
-    if isinstance(recv, ShkArray):
-        arr_fn = Builtins.array_methods.get(name)
-        if arr_fn:
-            return arr_fn(frame, recv, args)
+    registry_by_type: Dict[type, MethodRegistry] = {
+        ShkArray: Builtins.array_methods,
+        ShkString: Builtins.string_methods,
+        ShkObject: Builtins.object_methods,
+        ShkCommand: Builtins.command_methods,
+    }
 
-    if isinstance(recv, ShkString):
-        str_fn = Builtins.string_methods.get(name)
-        if str_fn:
-            return str_fn(frame, recv, args)
-
-    if isinstance(recv, ShkObject):
-        obj_fn = Builtins.object_methods.get(name)
-        if obj_fn:
-            return obj_fn(frame, recv, args)
-
-    if isinstance(recv, ShkCommand):
-        cmd_fn = Builtins.command_methods.get(name)
-        if cmd_fn:
-            return cmd_fn(frame, recv, args)
+    registry = registry_by_type.get(type(recv))
+    if registry:
+        handler = registry.get(name)
+        if handler is not None:
+            return handler(frame, recv, args)
 
     raise ShakarMethodNotFound(recv, name)
 
