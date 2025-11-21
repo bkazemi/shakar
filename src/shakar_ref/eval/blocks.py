@@ -5,7 +5,7 @@ from typing import Any, Callable, Iterator, List
 
 from lark import Tree
 
-from ..runtime import DeferEntry, Frame, ShkNull, ShakarBreakSignal, ShakarContinueSignal, ShakarRuntimeError
+from ..runtime import DeferEntry, Frame, ShkNull, ShkValue, ShakarBreakSignal, ShakarContinueSignal, ShakarRuntimeError
 from ..tree import TreeNode, is_token_node, is_tree_node, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token, token_kind as _token_kind
 from .helpers import is_truthy as _is_truthy
@@ -182,8 +182,8 @@ def temporary_subject(frame: Frame, dot: Any) -> Iterator[None]:
         frame.dot = prev
 
 @contextmanager
-def temporary_bindings(frame: Frame, bindings: dict[str, Any]) -> Iterator[None]:
-    records: list[tuple[Frame, str, Any | None, bool]] = []
+def temporary_bindings(frame: Frame, bindings: dict[str, ShkValue]) -> Iterator[None]:
+    records: list[tuple[Frame, str, ShkValue, bool]] = []
 
     for name, value in bindings.items():
         target: Frame | None = frame
@@ -193,7 +193,7 @@ def temporary_bindings(frame: Frame, bindings: dict[str, Any]) -> Iterator[None]
 
         if target is None:
             frame.define(name, value)
-            records.append((frame, name, None, False))
+            records.append((frame, name, ShkNull(), False))
         else:
             prev = target.vars[name]
             target.vars[name] = value

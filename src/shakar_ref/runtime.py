@@ -4,6 +4,7 @@ import importlib
 import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing_extensions import TypeAlias, TypeGuard
 
 # ---------- Value Model (only Sh* -> Shk*) ----------
 
@@ -33,7 +34,7 @@ class ShkBool:
 
 @dataclass
 class ShkArray:
-    items: List[Any]
+    items: List['ShkValue']
     def __repr__(self) -> str:
         return "[" + ", ".join(repr(x) for x in self.items) + "]"
 
@@ -47,7 +48,7 @@ class ShkCommand:
 
 @dataclass
 class ShkObject:
-    slots: Dict[str, Any]
+    slots: Dict[str, 'ShkValue']
     def __repr__(self) -> str:
         pairs = []
 
@@ -58,7 +59,7 @@ class ShkObject:
 
 @dataclass
 class SelectorIndex:
-    value: Any
+    value: 'ShkValue'
 
 @dataclass
 class SelectorSlice:
@@ -102,7 +103,7 @@ class ShkDecorator:
 @dataclass
 class DecoratorConfigured:
     decorator: ShkDecorator
-    args: List[Any]
+    args: List['ShkValue']
 
 @dataclass
 class ShkFn:
@@ -125,27 +126,27 @@ class ShkFn:
 @dataclass
 class BoundMethod:
     fn: ShkFn
-    subject: Any
+    subject: 'ShkValue'
 
 @dataclass
 class BuiltinMethod:
     name: str
-    subject: Any
+    subject: 'ShkValue'
 
 @dataclass
 class Descriptor:
-    getter: Any = None  # ShkFn or None
-    setter: Any = None  # ShkFn or None
+    getter: ShkFn | None = None
+    setter: ShkFn | None = None
 
 @dataclass
 class DecoratorContinuation:
     fn: ShkFn
     decorators: Tuple[DecoratorConfigured, ...]
     index: int
-    subject: Any
+    subject: 'ShkValue | None'
     caller_frame: 'Frame'
 
-    def invoke(self, args_value: Any) -> Any:
+    def invoke(self, args_value: ShkValue) -> 'ShkValue':
         args = _coerce_decorator_args(args_value)
         return _run_decorator_chain(self.fn, self.decorators, self.index, args, self.subject, self.caller_frame)
 
@@ -156,10 +157,34 @@ class DeferEntry:
     label: Optional[str] = None
     deps: List[str] = field(default_factory=list)
 
+@dataclass(frozen=True)
+class StdlibFunction:
+    fn: Callable[['Frame', List['ShkValue']], 'ShkValue']
+    arity: Optional[int] = None
+
+ShkValue: TypeAlias = (
+    ShkNull
+    | ShkNumber
+    | ShkString
+    | ShkBool
+    | ShkArray
+    | ShkObject
+    | ShkFn
+    | ShkDecorator
+    | DecoratorConfigured
+    | DecoratorContinuation
+    | Descriptor
+    | ShkSelector
+    | ShkCommand
+    | BoundMethod
+    | BuiltinMethod
+    | StdlibFunction
+)
+
 class Frame:
-    def __init__(self, parent: Optional['Frame']=None, dot: Any=None, source: Optional[str]=None):
+    def __init__(self, parent: Optional['Frame']=None, dot: ShkValue | None=None, source: Optional[str]=None):
         self.parent = parent
-        self.vars: Dict[str, Any] = {}
+        self.vars: Dict[str, ShkValue] = {}
         self.dot = dot
         self._defer_stack: List[List[DeferEntry]] = []
         self._is_function_frame = False
@@ -177,10 +202,10 @@ class Frame:
         else:
             self.source = None
 
-    def define(self, name: str, val: Any) -> None:
+    def define(self, name: str, val: ShkValue) -> None:
         self.vars[name] = val
 
-    def get(self, name: str) -> Any:
+    def get(self, name: str) -> ShkValue:
         if name in self.vars:
             return self.vars[name]
 
@@ -189,7 +214,7 @@ class Frame:
 
         raise ShakarRuntimeError(f"Name '{name}' not found")
 
-    def set(self, name: str, val: Any) -> None:
+    def set(self, name: str, val: ShkValue) -> None:
         if name in self.vars:
             self.vars[name] = val
             return
@@ -253,7 +278,7 @@ class ShakarIndexError(ShakarRuntimeError):
         super().__init__(message)
 
 class ShakarMethodNotFound(ShakarRuntimeError):
-    def __init__(self, recv: Any, name: str):
+    def __init__(self, recv: ShkValue, name: str):
         super().__init__(f"{type(recv).__name__} has no builtin method '{name}'")
         self.receiver = recv
         self.name = name
@@ -278,7 +303,7 @@ class ShakarAssertionError(ShakarRuntimeError):
 
 class ShakarReturnSignal(Exception):
     """Internal control-flow exception used to implement `return`."""
-    def __init__(self, value: Any):
+    def __init__(self, value: ShkValue):
         self.value = value
 
 class ShakarBreakSignal(Exception):
@@ -287,18 +312,40 @@ class ShakarBreakSignal(Exception):
 class ShakarContinueSignal(Exception):
     """Internal control flow for `continue`."""
 
-# ---------- Built-in method registry ----------
+_SHK_VALUE_TYPES: Tuple[type[Any], ...] = (
+    ShkNull,
+    ShkNumber,
+    ShkString,
+    ShkBool,
+    ShkArray,
+    ShkObject,
+    ShkFn,
+    ShkDecorator,
+    DecoratorConfigured,
+    DecoratorContinuation,
+    Descriptor,
+    ShkSelector,
+    ShkCommand,
+    BoundMethod,
+    BuiltinMethod,
+    StdlibFunction,
+)
 
-@dataclass(frozen=True)
-class StdlibFunction:
-    fn: Callable[['Frame', List[Any]], Any]
-    arity: Optional[int] = None
+def is_shk_value(value: Any) -> TypeGuard[ShkValue]:
+    return isinstance(value, _SHK_VALUE_TYPES)
+
+def _ensure_shk_value(value: Any) -> ShkValue:
+    if value is None:
+        return ShkNull()
+    if is_shk_value(value):
+        return value
+    raise ShakarTypeError(f"Unexpected value type {type(value).__name__}")
 
 class Builtins:
-    array_methods: Dict[str, Callable[['Frame', 'ShkArray', List[Any]], Any]] = {}
-    string_methods: Dict[str, Callable[['Frame', 'ShkString', List[Any]], Any]] = {}
-    object_methods: Dict[str, Callable[['Frame', 'ShkObject', List[Any]], Any]] = {}
-    command_methods: Dict[str, Callable[['Frame', 'ShkCommand', List[Any]], Any]] = {}
+    array_methods: Dict[str, Callable[['Frame', 'ShkArray', List[ShkValue]], ShkValue]] = {}
+    string_methods: Dict[str, Callable[['Frame', 'ShkString', List[ShkValue]], ShkValue]] = {}
+    object_methods: Dict[str, Callable[['Frame', 'ShkObject', List[ShkValue]], ShkValue]] = {}
+    command_methods: Dict[str, Callable[['Frame', 'ShkCommand', List[ShkValue]], ShkValue]] = {}
     stdlib_functions: Dict[str, StdlibFunction] = {}
 
 _STDLIB_INITIALIZED = False
@@ -335,90 +382,90 @@ def init_stdlib() -> None:
     }
 
 def register_array(name: str):
-    def dec(fn):
+    def dec(fn: Callable[['Frame', ShkArray, List[ShkValue]], ShkValue]):
         Builtins.array_methods[name] = fn
         return fn
 
     return dec
 
 def register_string(name: str):
-    def dec(fn):
+    def dec(fn: Callable[['Frame', ShkString, List[ShkValue]], ShkValue]):
         Builtins.string_methods[name] = fn
         return fn
 
     return dec
 
 def register_object(name: str):
-    def dec(fn):
+    def dec(fn: Callable[['Frame', ShkObject, List[ShkValue]], ShkValue]):
         Builtins.object_methods[name] = fn
         return fn
 
     return dec
 
 def register_stdlib(name: str, *, arity: int | None = None):
-    def dec(fn: Callable[['Frame', List[Any]], Any]):
+    def dec(fn: Callable[['Frame', List[ShkValue]], ShkValue]):
         Builtins.stdlib_functions[name] = StdlibFunction(fn=fn, arity=arity)
         return fn
 
     return dec
 
 def register_command(name: str):
-    def dec(fn):
+    def dec(fn: Callable[['Frame', ShkCommand, List[ShkValue]], ShkValue]):
         Builtins.command_methods[name] = fn
         return fn
 
     return dec
 
-def _string_expect_arity(method: str, args: List[Any], expected: int) -> None:
+def _string_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
     if len(args) != expected:
         raise ShakarArityError(f"string.{method} expects {expected} argument(s); got {len(args)}")
 
-def _string_arg(method: str, arg: Any) -> str:
+def _string_arg(method: str, arg: ShkValue) -> str:
     if isinstance(arg, ShkString):
         return arg.value
 
     raise ShakarTypeError(f"string.{method} expects a string argument")
 
 @register_string("trim")
-def _string_trim(_frame: Frame, recv: ShkString, args: List[Any]) -> ShkString:
+def _string_trim(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkString:
     _string_expect_arity("trim", args, 0)
 
     return ShkString(recv.value.strip())
 
 @register_string("lower")
-def _string_lower(_frame: Frame, recv: ShkString, args: List[Any]) -> ShkString:
+def _string_lower(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkString:
     _string_expect_arity("lower", args, 0)
 
     return ShkString(recv.value.lower())
 
 @register_string("upper")
-def _string_upper(_frame: Frame, recv: ShkString, args: List[Any]) -> ShkString:
+def _string_upper(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkString:
     _string_expect_arity("upper", args, 0)
 
     return ShkString(recv.value.upper())
 
 @register_string("hasPrefix")
-def _string_has_prefix(_frame: Frame, recv: ShkString, args: List[Any]) -> ShkBool:
+def _string_has_prefix(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkBool:
     _string_expect_arity("hasPrefix", args, 1)
     prefix = _string_arg("hasPrefix", args[0])
 
     return ShkBool(recv.value.startswith(prefix))
 
 @register_string("hasSuffix")
-def _string_has_suffix(_frame: Frame, recv: ShkString, args: List[Any]) -> ShkBool:
+def _string_has_suffix(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkBool:
     _string_expect_arity("hasSuffix", args, 1)
     suffix = _string_arg("hasSuffix", args[0])
 
     return ShkBool(recv.value.endswith(suffix))
 
 @register_string("isAscii")
-def _string_is_ascii(_frame: Frame, recv: ShkString, args: List[Any]) -> ShkBool:
+def _string_is_ascii(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkBool:
     _string_expect_arity("isAscii", args, 0)
 
     return ShkBool(recv.value.isascii())
 
 @register_command("run")
-def _command_run(_frame: Frame, recv: ShkCommand, args: List[Any]) -> Any:
+def _command_run(_frame: Frame, recv: ShkCommand, args: List[ShkValue]) -> ShkValue:
     if args:
         raise ShakarArityError(f"command.run expects 0 args; got {len(args)}")
     cmd = recv.render()
@@ -433,7 +480,7 @@ def _command_run(_frame: Frame, recv: ShkCommand, args: List[Any]) -> Any:
 
     return ShkString(result.stdout)
 
-def call_builtin_method(recv: Any, name: str, args: List[Any], frame: 'Frame') -> Any:
+def call_builtin_method(recv: ShkValue, name: str, args: List[ShkValue], frame: 'Frame') -> ShkValue:
     if isinstance(recv, ShkArray):
         arr_fn = Builtins.array_methods.get(name)
         if arr_fn:
@@ -456,7 +503,7 @@ def call_builtin_method(recv: Any, name: str, args: List[Any], frame: 'Frame') -
 
     raise ShakarMethodNotFound(recv, name)
 
-def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_frame: 'Frame') -> Any:
+def call_shkfn(fn: ShkFn, positional: List[ShkValue], subject: ShkValue | None, caller_frame: 'Frame') -> ShkValue:
     """
     Subjectful call semantics:
     - subject is available to callee as frame.dot
@@ -469,7 +516,7 @@ def call_shkfn(fn: ShkFn, positional: List[Any], subject: Any, caller_frame: 'Fr
 
     return _call_shkfn_raw(fn, positional, subject, caller_frame)
 
-def _call_shkfn_raw(fn: ShkFn, positional: List[Any], subject: Any, caller_frame: 'Frame') -> Any:
+def _call_shkfn_raw(fn: ShkFn, positional: List[ShkValue], subject: ShkValue | None, caller_frame: 'Frame') -> ShkValue:
     _ = caller_frame
     from .evaluator import eval_node  # local import to avoid cycle
 
@@ -486,7 +533,7 @@ def _call_shkfn_raw(fn: ShkFn, positional: List[Any], subject: Any, caller_frame
         callee_frame.mark_function_frame()
 
         try:
-            return eval_node(fn.body, callee_frame)
+            return _ensure_shk_value(eval_node(fn.body, callee_frame))
         except ShakarReturnSignal as signal:
             return signal.value
 
@@ -501,11 +548,11 @@ def _call_shkfn_raw(fn: ShkFn, positional: List[Any], subject: Any, caller_frame
     callee_frame.mark_function_frame()
 
     try:
-        return eval_node(fn.body, callee_frame)
+        return _ensure_shk_value(eval_node(fn.body, callee_frame))
     except ShakarReturnSignal as signal:
         return signal.value
 
-def _call_shkfn_with_decorators(fn: ShkFn, positional: List[Any], subject: Any, caller_frame: 'Frame') -> Any:
+def _call_shkfn_with_decorators(fn: ShkFn, positional: List[ShkValue], subject: ShkValue | None, caller_frame: 'Frame') -> ShkValue:
     chain = fn.decorators or ()
     args = ShkArray(list(positional))
 
@@ -516,9 +563,9 @@ def _run_decorator_chain(
     chain: Tuple[DecoratorConfigured, ...],
     index: int,
     args_value: ShkArray,
-    subject: Any,
+    subject: ShkValue | None,
     caller_frame: 'Frame',
-) -> Any:
+) -> ShkValue:
     if index >= len(chain):
         return _call_shkfn_raw(fn, list(args_value.items), subject, caller_frame)
     continuation = DecoratorContinuation(
@@ -536,9 +583,9 @@ def _execute_decorator_instance(
     inst: DecoratorConfigured,
     continuation: DecoratorContinuation,
     args_value: ShkArray,
-    subject: Any,
+    subject: ShkValue | None,
     caller_frame: 'Frame',
-) -> Any:
+) -> ShkValue:
     from .evaluator import eval_node  # defer to avoid cycle
     deco_frame = Frame(parent=inst.decorator.frame, dot=subject)
     deco_frame.mark_function_frame()
@@ -558,7 +605,7 @@ def _execute_decorator_instance(
 
     return continuation.invoke(updated_args_value)
 
-def _coerce_decorator_args(value: Any) -> ShkArray:
+def _coerce_decorator_args(value: ShkValue) -> ShkArray:
     if isinstance(value, ShkArray):
         return value
 

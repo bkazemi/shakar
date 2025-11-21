@@ -8,6 +8,7 @@ from ..runtime import (
     ShkNull,
     ShkObject,
     ShkString,
+    ShkValue,
     ShakarBreakSignal,
     ShakarContinueSignal,
     ShakarAssertionError,
@@ -114,7 +115,7 @@ def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
 
     type_hint = getattr(exc, 'shk_type', None) or type(exc).__name__
 
-    slots = {
+    slots: dict[str, ShkValue] = {
         "message": ShkString(str(exc)),
         "type": ShkString(str(type_hint)),
     }
@@ -177,8 +178,6 @@ def _run_catch_handler(
 
         if isinstance(slot, ShkString):
             payload_type = slot.value
-        elif isinstance(slot, str):
-            payload_type = slot
 
     if allowed_types:
         if not isinstance(payload_type, str) or payload_type not in allowed_types:

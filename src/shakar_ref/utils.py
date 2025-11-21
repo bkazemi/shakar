@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from typing import Any, List, Optional
-from typing_extensions import TypeAlias
 
 from .runtime import (
+    ShkValue,
     DecoratorConfigured,
     DecoratorContinuation,
     ShkNull,
@@ -18,8 +18,6 @@ from .runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-
-ShkValue: TypeAlias = ShkNull | ShkNumber | ShkString | ShkBool | ShkArray | ShkObject | ShkFn | ShkDecorator | DecoratorConfigured | DecoratorContinuation | Descriptor
 
 def value_in_list(seq: List[Any], value: Any) -> bool:
     for existing in seq:
