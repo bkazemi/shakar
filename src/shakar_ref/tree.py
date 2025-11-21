@@ -61,7 +61,7 @@ def find_tree_by_label(node: Any, labels: Iterable[str]) -> Optional[TreeNode]:
     lookup: Set[str] = set(labels)
 
     if is_tree(node) and tree_label(node) in lookup:
-        return cast(TreeNode, node)
+        return node
 
     for child in tree_children(node):
         found = find_tree_by_label(child, lookup)
