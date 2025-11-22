@@ -12,6 +12,7 @@ from ..runtime import (
     SelectorIndex,
     SelectorSlice,
     SelectorPart,
+    ShkValue,
     ShakarRuntimeError,
     ShakarTypeError,
     ShakarIndexError,
@@ -72,13 +73,13 @@ def evaluate_selectorlist(node, frame, eval_fn, clamp: bool = True) -> List[Sele
 
                 if children:
                     expr_node = children[0]
-            value = eval_fn(expr_node, frame)
+            idx_value: ShkValue = eval_fn(expr_node, frame)
             # indexsel can evaluate to either a single index or another selector literal.
-            selectors.extend(_expand_selector_value(value, clamp))
+            selectors.extend(_expand_selector_value(idx_value, clamp))
             continue
 
-        value = eval_fn(target, frame)
-        selectors.extend(_expand_selector_value(value, clamp))
+        tail_value: ShkValue = eval_fn(target, frame)
+        selectors.extend(_expand_selector_value(tail_value, clamp))
 
     return selectors
 
@@ -102,7 +103,7 @@ def clone_selector_parts(parts: Iterable[SelectorPart], clamp: bool) -> List[Sel
 
     return cloned
 
-def apply_selectors_to_value(recv: Any, selectors: List[SelectorPart]) -> Any:
+def apply_selectors_to_value(recv: ShkValue, selectors: List[SelectorPart]) -> ShkValue:
     """Apply a list of selector parts to an array/string receiver."""
     if isinstance(recv, ShkArray):
         return _apply_selectors_to_array(recv, selectors)
@@ -112,9 +113,9 @@ def apply_selectors_to_value(recv: Any, selectors: List[SelectorPart]) -> Any:
 
     raise ShakarTypeError("Complex selectors only supported on arrays or strings")
 
-def selector_iter_values(selector: ShkSelector) -> List[Any]:
+def selector_iter_values(selector: ShkSelector) -> List[ShkValue]:
     """Expand a selector literal into the sequence of indices it would visit."""
-    values: List[Any] = []
+    values: List[ShkValue] = []
 
     for part in selector.parts:
         if isinstance(part, SelectorIndex):
@@ -223,9 +224,9 @@ def _eval_selector_atom(node, frame, eval_fn):
 
     return eval_fn(child, frame)
 
-def _eval_seloptstop(node, frame, eval_fn) -> tuple[Any, bool]:
+def _eval_seloptstop(node, frame, eval_fn) -> tuple[ShkValue, bool]:
     if node is None:
-        return None, False
+        return ShkNull(), False
 
     selatom = child_by_label(node, "selatom")
     value = _eval_selector_atom(selatom, frame, eval_fn)
@@ -237,13 +238,8 @@ def _eval_seloptstop(node, frame, eval_fn) -> tuple[Any, bool]:
 
     return value, exclusive
 
-def _coerce_selector_number(value: Any, allow_none: bool = False) -> Optional[int]:
-    if value is None:
-        if allow_none:
-            return None
-        raise ShakarTypeError("Selector expects a numeric bound")
-
-    if isinstance(value, ShkNull):
+def _coerce_selector_number(value: ShkValue | None, allow_none: bool = False) -> Optional[int]:
+    if value is None or isinstance(value, ShkNull):
         if allow_none:
             return None
         raise ShakarTypeError("Selector expects a numeric bound")
@@ -258,7 +254,7 @@ def _coerce_selector_number(value: Any, allow_none: bool = False) -> Optional[in
 
     return int(num)
 
-def _expand_selector_value(value: Any, clamp: bool) -> List[SelectorPart]:
+def _expand_selector_value(value: ShkValue, clamp: bool) -> List[SelectorPart]:
     if isinstance(value, ShkSelector):
         return clone_selector_parts(value.parts, clamp)
 

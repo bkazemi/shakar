@@ -334,7 +334,7 @@ def _selector_values(selector: ShkSelector) -> List[ShkNumber]:
     if not values:
         raise ShakarRuntimeError("Selector literal produced no values")
 
-    return values
+    return [val for val in values if isinstance(val, ShkNumber)]
 
 def _coerce_number(value: Any) -> float:
     if isinstance(value, ShkNumber):
