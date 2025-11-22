@@ -3,8 +3,8 @@ from __future__ import annotations
 import importlib
 import subprocess
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-from typing_extensions import TypeAlias, TypeGuard
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
+from typing_extensions import Protocol, TypeAlias, TypeGuard
 
 # ---------- Value Model (only Sh* -> Shk*) ----------
 
@@ -341,7 +341,12 @@ def _ensure_shk_value(value: Any) -> ShkValue:
         return value
     raise ShakarTypeError(f"Unexpected value type {type(value).__name__}")
 
-MethodRegistry = Dict[str, Callable[..., ShkValue]]
+R_contra = TypeVar("R_contra", bound="ShkValue", contravariant=True)
+
+class Method(Protocol[R_contra]):
+    def __call__(self, frame: 'Frame', recv: R_contra, args: List['ShkValue']) -> 'ShkValue': ...
+
+MethodRegistry = Dict[str, Method[Any]]
 
 class Builtins:
     array_methods: MethodRegistry = {}
@@ -383,37 +388,28 @@ def init_stdlib() -> None:
         ("object","items"):  ("exact", 0),
     }
 
-def register_array(name: str):
-    def dec(fn: Callable[['Frame', ShkArray, List[ShkValue]], ShkValue]):
-        Builtins.array_methods[name] = fn
+def register_method(registry: MethodRegistry, name: str):
+    def dec(fn: Callable[..., ShkValue]):
+        registry[name] = fn
         return fn
 
     return dec
+
+def register_array(name: str):
+    return register_method(Builtins.array_methods, name)
 
 def register_string(name: str):
-    def dec(fn: Callable[['Frame', ShkString, List[ShkValue]], ShkValue]):
-        Builtins.string_methods[name] = fn
-        return fn
-
-    return dec
+    return register_method(Builtins.string_methods, name)
 
 def register_object(name: str):
-    def dec(fn: Callable[['Frame', ShkObject, List[ShkValue]], ShkValue]):
-        Builtins.object_methods[name] = fn
-        return fn
+    return register_method(Builtins.object_methods, name)
 
-    return dec
+def register_command(name: str):
+    return register_method(Builtins.command_methods, name)
 
 def register_stdlib(name: str, *, arity: int | None = None):
     def dec(fn: Callable[['Frame', List[ShkValue]], ShkValue]):
         Builtins.stdlib_functions[name] = StdlibFunction(fn=fn, arity=arity)
-        return fn
-
-    return dec
-
-def register_command(name: str):
-    def dec(fn: Callable[['Frame', ShkCommand, List[ShkValue]], ShkValue]):
-        Builtins.command_methods[name] = fn
         return fn
 
     return dec
