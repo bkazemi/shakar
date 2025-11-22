@@ -123,37 +123,21 @@ def apply_op(recv: Any, op: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
         context = recv
         recv = context.value
 
-    d = op.data
+    op_handlers: dict[str, Callable[[], Any]] = {
+        'field': lambda: _get_field(recv, op, frame),
+        'fieldsel': lambda: _get_field(recv, op, frame),
+        'index': lambda: apply_index_operation(recv, op, frame, eval_func),
+        'slicesel': lambda: apply_slice(recv, op.children, frame, eval_func),
+        'fieldfan': lambda: apply_fan_op(recv, op, frame, apply_op=apply_op, eval_func=eval_func),
+        'call': lambda: call_value(recv, eval_args_node(op.children[0] if op.children else None, frame, eval_func), frame, eval_func),
+        'method': lambda: _call_method(recv, op, frame, eval_func),
+    }
 
-    if d in {'field', 'fieldsel'}:
-        field_name = _expect_ident_token(op.children[0], "Field access")
-        result = get_field_value(recv, field_name, frame)
-    elif d == 'index':
-        result = apply_index_operation(recv, op, frame, eval_func)
-    elif d == 'slicesel':
-        result = apply_slice(recv, op.children, frame, eval_func)
-    elif d == 'fieldfan':
-        return apply_fan_op(recv, op, frame, apply_op=apply_op, eval_func=eval_func)
-    elif d == 'call':
-        args = eval_args_node(op.children[0] if op.children else None, frame, eval_func)
-        result = call_value(recv, args, frame, eval_func)
-    elif d == 'method':
-        method_name = _expect_ident_token(op.children[0], "Method call")
-        args = eval_args_node(op.children[1] if len(op.children) > 1 else None, frame, eval_func)
+    handler = op_handlers.get(op.data)
+    if handler is None:
+        raise ShakarRuntimeError(f"Unknown chain op: {op.data}")
 
-        try:
-            result = call_builtin_method(recv, method_name, args, frame)
-        except ShakarMethodNotFound:
-            cal = get_field_value(recv, method_name, frame)
-
-            if isinstance(cal, BoundMethod):
-                result = call_shkfn(cal.fn, args, subject=cal.subject, caller_frame=frame)
-            elif isinstance(cal, ShkFn):
-                result = call_shkfn(cal, args, subject=recv, caller_frame=frame)
-            else:
-                raise
-    else:
-        raise ShakarRuntimeError(f"Unknown chain op: {d}")
+    result = handler()
 
     if context is not None:
         context.value = result
@@ -163,6 +147,25 @@ def apply_op(recv: Any, op: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
         return context
 
     return result
+
+def _get_field(recv: Any, op: TreeNode, frame: Frame) -> Any:
+    field_name = _expect_ident_token(op.children[0], "Field access")
+    return get_field_value(recv, field_name, frame)
+
+def _call_method(recv: Any, op: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
+    method_name = _expect_ident_token(op.children[0], "Method call")
+    args = eval_args_node(op.children[1] if len(op.children) > 1 else None, frame, eval_func)
+
+    try:
+        return call_builtin_method(recv, method_name, args, frame)
+    except ShakarMethodNotFound:
+        cal = get_field_value(recv, method_name, frame)
+
+        if isinstance(cal, BoundMethod):
+            return call_shkfn(cal.fn, args, subject=cal.subject, caller_frame=frame)
+        if isinstance(cal, ShkFn):
+            return call_shkfn(cal, args, subject=recv, caller_frame=frame)
+        raise
 
 def call_value(cal: Any, args: List[Any], frame: Frame, eval_func: EvalFunc) -> Any:
     match cal:
