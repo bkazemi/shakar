@@ -157,9 +157,11 @@ class DeferEntry:
     label: Optional[str] = None
     deps: List[str] = field(default_factory=list)
 
+StdlibFn = Callable[['Frame', List['ShkValue']], 'ShkValue']
+
 @dataclass(frozen=True)
 class StdlibFunction:
-    fn: Callable[['Frame', List['ShkValue']], 'ShkValue']
+    fn: StdlibFn
     arity: Optional[int] = None
 
 ShkValue: TypeAlias = (
@@ -408,7 +410,7 @@ def register_command(name: str):
     return register_method(Builtins.command_methods, name)
 
 def register_stdlib(name: str, *, arity: int | None = None):
-    def dec(fn: Callable[['Frame', List[ShkValue]], ShkValue]):
+    def dec(fn: StdlibFn):
         Builtins.stdlib_functions[name] = StdlibFunction(fn=fn, arity=arity)
         return fn
 
