@@ -4,7 +4,7 @@ import asyncio
 import inspect
 from typing import Any, Awaitable, Callable, Coroutine, Iterable, List, TypeVar
 
-from ..runtime import Frame, ShkNull, ShkObject, ShkString, ShakarRuntimeError
+from ..runtime import Frame, ShkNull, ShkObject, ShkString, ShkValue, ShakarRuntimeError
 from ..tree import TreeNode, child_by_label, is_token, is_tree, tree_children, tree_label
 from .blocks import eval_body_node, run_body_with_subject, temporary_bindings
 from .common import token_kind as _token_kind
@@ -220,7 +220,7 @@ def eval_await_all_call(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
         entries.append((arm, value))
 
     resolved = await_all_entries(entries)
-    results_object: dict[str, Any] = {arm['label']: value for arm, value in resolved}
+    results_object: dict[str, ShkValue] = {arm['label']: value for arm, value in resolved}
     trailing_body = _extract_trailing_body(tree_children(n))
 
     if trailing_body is not None:

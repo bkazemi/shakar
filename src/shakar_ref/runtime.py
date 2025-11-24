@@ -183,11 +183,13 @@ ShkValue: TypeAlias = (
     | StdlibFunction
 )
 
+DotValue: TypeAlias = ShkValue | None
+
 class Frame:
-    def __init__(self, parent: Optional['Frame']=None, dot: ShkValue | None=None, source: Optional[str]=None):
+    def __init__(self, parent: Optional['Frame']=None, dot: DotValue=None, source: Optional[str]=None):
         self.parent = parent
         self.vars: Dict[str, ShkValue] = {}
-        self.dot = dot
+        self.dot: DotValue = dot
         self._defer_stack: List[List[DeferEntry]] = []
         self._is_function_frame = False
         self._active_error: Optional[ShakarRuntimeError] = None

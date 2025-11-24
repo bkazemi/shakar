@@ -5,7 +5,16 @@ from typing import Any, Callable, Iterator, List
 
 from lark import Tree
 
-from ..runtime import DeferEntry, Frame, ShkNull, ShkValue, ShakarBreakSignal, ShakarContinueSignal, ShakarRuntimeError
+from ..runtime import (
+    DeferEntry,
+    DotValue,
+    Frame,
+    ShkNull,
+    ShkValue,
+    ShakarBreakSignal,
+    ShakarContinueSignal,
+    ShakarRuntimeError,
+)
 from ..tree import TreeNode, is_token, is_tree, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token, token_kind as _token_kind
 from .helpers import is_truthy as _is_truthy
@@ -37,7 +46,7 @@ def eval_program(children: List[Any], frame: Frame, eval_func: EvalFunc, allow_l
 
     return result
 
-def get_subject(frame: Frame) -> Any:
+def get_subject(frame: Frame) -> ShkValue:
     if frame.dot is None:
         raise ShakarRuntimeError("No subject available for '.'")
 
@@ -163,7 +172,7 @@ def eval_body_node(body_node: Any, frame: Frame, eval_func: EvalFunc) -> Any:
 
     return eval_func(body_node, frame)
 
-def run_body_with_subject(body_node: Any, frame: Frame, subject_value: Any, eval_func: EvalFunc, extra_bindings: dict[str, Any] | None=None) -> Any:
+def run_body_with_subject(body_node: Any, frame: Frame, subject_value: DotValue, eval_func: EvalFunc, extra_bindings: dict[str, ShkValue] | None=None) -> Any:
     if extra_bindings:
         with temporary_subject(frame, subject_value), temporary_bindings(frame, extra_bindings):
             return eval_body_node(body_node, frame, eval_func)
@@ -172,7 +181,7 @@ def run_body_with_subject(body_node: Any, frame: Frame, subject_value: Any, eval
         return eval_body_node(body_node, frame, eval_func)
 
 @contextmanager
-def temporary_subject(frame: Frame, dot: Any) -> Iterator[None]:
+def temporary_subject(frame: Frame, dot: DotValue) -> Iterator[None]:
     prev = frame.dot
     frame.dot = dot
 

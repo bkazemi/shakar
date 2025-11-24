@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Callable
 
 from ..runtime import (
-    Frame,
     BoundMethod,
     BuiltinMethod,
     Builtins,
     Descriptor,
+    Frame,
     ShkArray,
     ShkCommand,
     ShkFn,
@@ -16,15 +16,16 @@ from ..runtime import (
     ShkObject,
     ShkSelector,
     ShkString,
+    ShkValue,
+    ShakarIndexError,
+    ShakarKeyError,
     ShakarRuntimeError,
     ShakarTypeError,
-    ShakarKeyError,
-    ShakarIndexError,
     call_shkfn,
 )
 from .selector import clone_selector_parts, apply_selectors_to_value
 
-def set_field_value(recv: Any, name: str, value: Any, frame: Frame, *, create: bool) -> Any:
+def set_field_value(recv: ShkValue, name: str, value: ShkValue, frame: Frame, *, create: bool) -> ShkValue:
     """Assign `recv.name = value`, honoring descriptors and creation semantics."""
     match recv:
         case ShkObject(slots=slots):
@@ -47,7 +48,7 @@ def set_field_value(recv: Any, name: str, value: Any, frame: Frame, *, create: b
         case _:
             raise ShakarTypeError(f"Cannot set field '{name}' on {type(recv).__name__}")
 
-def set_index_value(recv: Any, index: Any, value: Any, frame: Frame) -> Any:
+def set_index_value(recv: ShkValue, index: ShkValue, value: ShkValue, frame: Frame) -> ShkValue:
     """Assign `recv[index] = value` for arrays/objects with minimal coercions."""
     match recv:
         case ShkArray(items=items):
@@ -77,7 +78,7 @@ def set_index_value(recv: Any, index: Any, value: Any, frame: Frame) -> Any:
         case _:
             raise ShakarTypeError("Unsupported index assignment target")
 
-def index_value(recv: Any, idx: Any, frame: Frame, default_thunk: Callable[[], Any] | None=None) -> Any:
+def index_value(recv: ShkValue, idx: ShkValue, frame: Frame, default_thunk: Callable[[], ShkValue] | None=None) -> ShkValue:
     """Read `recv[idx]`, supporting selectors, descriptors, and builtins."""
     match recv:
         case ShkArray(items=items):
@@ -130,7 +131,7 @@ def index_value(recv: Any, idx: Any, frame: Frame, default_thunk: Callable[[], A
                 raise ShakarTypeError("Default index expects an object receiver")
             raise ShakarTypeError("Unsupported index operation")
 
-def slice_value(recv: Any, start: int | None, stop: int | None, step: int | None) -> Any:
+def slice_value(recv: ShkValue, start: int | None, stop: int | None, step: int | None) -> ShkValue:
     """Return a shallow slice of an array/string (selector extraction)."""
     s = slice(start, stop, step)
     match recv:
@@ -141,7 +142,7 @@ def slice_value(recv: Any, start: int | None, stop: int | None, step: int | None
         case _:
             raise ShakarTypeError("Slice only supported on arrays/strings")
 
-def get_field_value(recv: Any, name: str, frame: Frame) -> Any:
+def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
     """Fetch `recv.name`, resolving descriptors and builtin method sugar."""
     match recv:
         case ShkObject(slots=slots):
@@ -182,7 +183,7 @@ def get_field_value(recv: Any, name: str, frame: Frame) -> Any:
         case _:
             raise ShakarTypeError(f"Unsupported field access on {type(recv).__name__}")
 
-def _normalize_index_key(idx: Any) -> str:
+def _normalize_index_key(idx: ShkValue) -> str:
     """Map object index operands to canonical slot keys."""
 
     if isinstance(idx, ShkString):

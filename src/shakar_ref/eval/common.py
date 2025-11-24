@@ -4,7 +4,7 @@ from typing import Any, Callable, Iterable, List, Optional
 
 from lark import Tree, Token
 
-from ..runtime import ShkBool, ShkNumber, ShkString, ShakarRuntimeError, ShakarTypeError
+from ..runtime import Frame, ShkBool, ShkNumber, ShkString, ShakarRuntimeError, ShakarTypeError
 from ..tree import (
     is_token,
     is_tree,
@@ -37,7 +37,7 @@ def ident_token_value(node: Any) -> Optional[str]:
 def is_literal_node(node: Any) -> bool:
     return not isinstance(node, (Tree, Token))
 
-def get_source_segment(node: Any, frame: Any) -> Optional[str]:
+def get_source_segment(node: Any, frame: Frame) -> Optional[str]:
     source = getattr(frame, 'source', None)
     if source is None:
         return None

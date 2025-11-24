@@ -192,7 +192,7 @@ def _eval_optional_expr(node, frame, eval_fn):
 
     return eval_fn(node, frame)
 
-def _eval_selector_atom(node, frame, eval_fn):
+def _eval_selector_atom(node, frame, eval_fn) -> ShkValue | None:
     if node is None:
         return None
 
@@ -301,7 +301,7 @@ def _apply_selectors_to_string(s: ShkString, selectors: List[SelectorPart]) -> S
 
     return ShkString("".join(pieces))
 
-def _selector_index_to_int(value: Any) -> int:
+def _selector_index_to_int(value: ShkValue) -> int:
     if isinstance(value, ShkNumber):
         num = value.value
     else:
