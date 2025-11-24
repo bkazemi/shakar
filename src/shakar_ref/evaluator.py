@@ -71,6 +71,7 @@ from .eval.expr import (
 from .eval.literals import eval_keyword_literal, eval_shell_string, eval_string_interp
 from .eval.objects import eval_object, eval_key
 from .eval.fn import eval_fn_def, eval_decorator_def, eval_anonymous_fn, eval_amp_lambda, evaluate_decorator_list
+from .eval.using import eval_using_stmt
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
@@ -324,6 +325,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     'awaitstmt': lambda n, frame: eval_await_stmt(n, frame, eval_node),
     'awaitanycall': lambda n, frame: eval_await_any_call(n, frame, eval_node),
     'awaitallcall': lambda n, frame: eval_await_all_call(n, frame, eval_node),
+    'usingstmt': lambda n, frame: eval_using_stmt(n, frame, eval_node),
     'ifstmt': lambda n, frame: eval_if_stmt(n, frame, eval_node),
     'catchexpr': lambda n, frame: eval_catch_expr(n.children, frame, eval_node),
     'catchstmt': lambda n, frame: eval_catch_stmt(n.children, frame, eval_node),

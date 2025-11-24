@@ -558,6 +558,65 @@ class Prune(Transformer):
         ]
         return Tree('array', filtered)
 
+    def usingstmt(self, c: List[Node]) -> Tree:
+        handle = None
+        binder = None
+        expr = None
+        body = None
+        idx = 0
+
+        while idx < len(c):
+            node = c[idx]
+
+            if is_token(node):
+                t = getattr(node, "type", "")
+
+                if t == "USING":
+                    idx += 1
+                    continue
+                if t == "LSQB":
+                    if idx + 1 < len(c) and is_token(c[idx + 1]) and getattr(c[idx + 1], "type", "") == "IDENT":
+                        handle = c[idx + 1]
+                        idx += 2
+
+                        if idx < len(c) and is_token(c[idx]) and getattr(c[idx], "type", "") == "RSQB":
+                            idx += 1
+                        continue
+                if t == "BIND":
+                    if idx + 1 < len(c) and is_token(c[idx + 1]) and getattr(c[idx + 1], "type", "") == "IDENT":
+                        binder = c[idx + 1]
+                        idx += 2
+                        continue
+                if t == "COLON":
+                    idx += 1
+                    continue
+
+            if is_tree(node) and str(tree_label(node)) in {"indentblock", "inlinebody"}:
+                body = node
+                idx += 1
+                continue
+
+            if expr is None and node is not Discard:
+                expr = node
+
+            idx += 1
+
+        if expr is None or body is None:
+            raise SyntaxError("Malformed using statement")
+
+        children: List[Node] = []
+
+        if handle is not None:
+            children.append(Tree("using_handle", [handle]))
+
+        children.append(expr)
+
+        if binder is not None:
+            children.append(Tree("using_bind", [binder]))
+
+        children.append(body)
+        return Tree("usingstmt", children)
+
     def start_indented(self, children):
         """Normalize neutral expressions parsed under indented start."""
         items = [x for x in children if x is not Discard]

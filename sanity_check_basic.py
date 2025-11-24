@@ -463,6 +463,86 @@ bump(3)""",
         None,
     )
 )
+runtime_scenario(
+    lambda: _rt(
+        "using-enter-exit",
+        """flag := { value: 0 }
+resource := {
+  enter: fn():
+    flag.value = flag.value + 1
+    return "ok"
+  exit: fn(err):
+    flag.value = flag.value + 1
+}
+using[f] resource:
+  flag.value = flag.value + 1
+flag.value""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "using-enter-only",
+        """flag := { value: 0 }
+resource := {
+  enter: fn(): flag.value = flag.value + 1
+}
+using resource:
+  flag.value = flag.value + 1
+flag.value""",
+        ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "using-binder",
+        """resource := {
+  enter: fn(): { x: 1 }
+}
+using resource bind r:
+  r.x""",
+        ("number", 1),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "using-handle-default-binder",
+        """resource := { enter: fn(): 7 }
+using[r] resource:
+  r + 1""",
+        ("number", 8),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "using-using_exit-suppresses",
+        """resource := {
+  using_enter: fn(): 1
+  using_exit: fn(err): true
+}
+using resource:
+  throw "boom"
+1""",
+        ("number", 1),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "using-exit-err-propagates",
+        """resource := {
+  exit: fn(err): err
+}
+using resource:
+  throw "boom" """,
+        ("null", None),
+        None,
+    )
+)
 runtime_scenario(lambda: _rt("lambda-subject-direct-call", 'a := &(.trim()); a(" B")', ("string", "B"), None))
 runtime_scenario(lambda: _rt("floor-div-basic", '7 // 2', ("number", 3), None))
 runtime_scenario(lambda: _rt("floor-div-negative", '-7 // 2', ("number", -4), None))
