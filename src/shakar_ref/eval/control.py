@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Callable
+from lark import Token
 
 from ..runtime import (
     Frame,
@@ -18,14 +19,14 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-from ..tree import is_token, is_tree, tree_children, tree_label
+from ..tree import Node, Tree, is_token, is_tree, tree_children, tree_label
 from .blocks import eval_inline_body, eval_indent_block, temporary_bindings, temporary_subject
 from .common import expect_ident_token, node_source_span as _node_source_span, render_expr as _render_expr, stringify as _stringify
 from .helpers import current_function_frame as _current_function_frame, is_truthy as _is_truthy
 
-EvalFunc = Callable[[Any, Frame], Any]
+EvalFunc = Callable[[Node, Frame], ShkValue]
 
-def eval_return_stmt(children: list[Any], frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_return_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if _current_function_frame(frame) is None:
         raise ShakarRuntimeError("return outside of a function")
 
@@ -33,7 +34,7 @@ def eval_return_stmt(children: list[Any], frame: Frame, eval_func: EvalFunc) -> 
 
     raise ShakarReturnSignal(value)
 
-def eval_return_if(children: list[Any], frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_return_if(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if _current_function_frame(frame) is None:
         raise ShakarRuntimeError("?ret outside of a function")
 
@@ -46,7 +47,7 @@ def eval_return_if(children: list[Any], frame: Frame, eval_func: EvalFunc) -> An
 
     return ShkNull()
 
-def eval_throw_stmt(children: list[Any], frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_throw_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if children:
         value = eval_func(children[0], frame)
         raise coerce_throw_value(value)
@@ -55,13 +56,13 @@ def eval_throw_stmt(children: list[Any], frame: Frame, eval_func: EvalFunc) -> A
         raise ShakarRuntimeError("throw outside of catch")
     raise current
 
-def eval_break_stmt(frame: Frame) -> Any:
+def eval_break_stmt(frame: Frame) -> ShkValue:
     raise ShakarBreakSignal()
 
-def eval_continue_stmt(frame: Frame) -> Any:
+def eval_continue_stmt(frame: Frame) -> ShkValue:
     raise ShakarContinueSignal()
 
-def coerce_throw_value(value: Any) -> ShakarRuntimeError:
+def coerce_throw_value(value: ShkValue) -> ShakarRuntimeError:
     if isinstance(value, ShakarRuntimeError):
         return value
 
@@ -89,7 +90,7 @@ def coerce_throw_value(value: Any) -> ShakarRuntimeError:
     err.shk_payload = value
     return err
 
-def eval_assert(children: list[Any], frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_assert(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed assert statement")
 
@@ -132,7 +133,7 @@ def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
 
     return ShkObject(slots)
 
-def _parse_catch_components(children: list[Any]) -> tuple[Any, Any | None, list[str], Any]:
+def _parse_catch_components(children: list[Node]) -> tuple[Node, Token | None, list[str], Tree]:
     """Split canonical catch nodes into try expression, binder token, type list, and handler."""
     if not children:
         raise ShakarRuntimeError("Malformed catch node")
@@ -162,14 +163,14 @@ def _parse_catch_components(children: list[Any]) -> tuple[Any, Any | None, list[
     return try_node, binder, type_names, handler
 
 def _run_catch_handler(
-    handler: Any,
+    handler: Tree,
     frame: Frame,
-    binder: Any | None,
+    binder: Token | None,
     payload: ShkObject,
     original_exc: ShakarRuntimeError,
     allowed_types: list[str],
     eval_func: EvalFunc,
-) -> Any:
+) -> ShkValue:
     # type matching happens before we evaluate the handler body so unmatched errors bubble up
     payload_type = None
 
@@ -187,7 +188,7 @@ def _run_catch_handler(
     if binder is not None:
         binder_name = expect_ident_token(binder, "Catch binder")
 
-    def _exec_handler() -> Any:
+    def _exec_handler() -> ShkValue:
         label = tree_label(handler)
 
         if label == 'inlinebody':
@@ -211,7 +212,7 @@ def _run_catch_handler(
     finally:
         frame._active_error = prev_error
 
-def eval_catch_expr(children: list[Any], frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_catch_expr(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     try_node, binder, type_names, handler = _parse_catch_components(children)
 
     try:
@@ -220,7 +221,7 @@ def eval_catch_expr(children: list[Any], frame: Frame, eval_func: EvalFunc) -> A
         payload = _build_error_payload(exc)
         return _run_catch_handler(handler, frame, binder, payload, exc, type_names, eval_func)
 
-def eval_catch_stmt(children: list[Any], frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_catch_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     try_node, binder, type_names, body = _parse_catch_components(children)
 
     try:
@@ -231,7 +232,7 @@ def eval_catch_stmt(children: list[Any], frame: Frame, eval_func: EvalFunc) -> A
         _run_catch_handler(body, frame, binder, payload, exc, type_names, eval_func)
         return ShkNull()
 
-def _assert_source_snippet(node: Any, frame: Frame) -> str:
+def _assert_source_snippet(node: Node, frame: Frame) -> str:
     src: str | None = getattr(frame, 'source', None)
 
     if src is not None:

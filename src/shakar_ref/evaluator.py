@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional
+from typing import Callable, List, Optional
 from lark import Token
 
 from .runtime import (
@@ -8,6 +8,7 @@ from .runtime import (
     ShkArray,
     ShkBool,
     ShkNull,
+    ShkValue,
     ShakarBreakSignal,
     ShakarContinueSignal,
     ShakarRuntimeError,
@@ -15,14 +16,7 @@ from .runtime import (
     init_stdlib,
 )
 
-from .tree import (
-    TreeNode,
-    child_by_label,
-    is_token,
-    is_tree,
-    tree_children,
-    tree_label,
-)
+from .tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label
 
 from .eval.selector import eval_selectorliteral
 from .eval.mutation import set_field_value, set_index_value
@@ -78,6 +72,8 @@ from .eval.literals import eval_keyword_literal, eval_shell_string, eval_string_
 from .eval.objects import eval_object, eval_key
 from .eval.fn import eval_fn_def, eval_decorator_def, eval_anonymous_fn, eval_amp_lambda, evaluate_decorator_list
 
+EvalFunc = Callable[[Node, Frame], ShkValue]
+
 from .eval.common import is_literal_node, token_number, token_string
 
 from .eval.bind import (
@@ -103,7 +99,7 @@ from .eval.bind import (
 
 # ---------------- Public API ----------------
 
-def eval_expr(ast: Any, frame: Optional[Frame]=None, source: Optional[str]=None) -> Any:
+def eval_expr(ast: Node, frame: Optional[Frame]=None, source: Optional[str]=None) -> ShkValue:
     init_stdlib()
 
     if frame is None:
@@ -118,7 +114,7 @@ def eval_expr(ast: Any, frame: Optional[Frame]=None, source: Optional[str]=None)
 
 # ---------------- Core evaluator ----------------
 
-def eval_node(n: Any, frame: Frame) -> Any:
+def eval_node(n: Node, frame: Frame) -> ShkValue:
     if is_literal_node(n):
         return n
 
@@ -256,7 +252,7 @@ def eval_node(n: Any, frame: Frame) -> Any:
 
 # ---------------- Tokens ----------------
 
-def _eval_token(t: Token, frame: Frame) -> Any:
+def _eval_token(t: Token, frame: Frame) -> ShkValue:
     handler = _TOKEN_DISPATCH.get(t.type)
     if handler:
         return handler(t, frame)
@@ -266,7 +262,7 @@ def _eval_token(t: Token, frame: Frame) -> Any:
 
     raise ShakarRuntimeError(f"Unhandled token {t.type}:{t.value}")
 
-def _eval_implicit_chain(ops: List[Any], frame: Frame) -> Any:
+def _eval_implicit_chain(ops: List[Tree], frame: Frame) -> ShkValue:
     """Evaluate `.foo().bar` style chains using the current subject anchor."""
     val = get_subject(frame)
 
@@ -275,13 +271,13 @@ def _eval_implicit_chain(ops: List[Any], frame: Frame) -> Any:
 
     return val
 
-def _eval_break_stmt(frame: Frame) -> Any:
+def _eval_break_stmt(frame: Frame) -> ShkValue:
     raise ShakarBreakSignal()
 
-def _eval_continue_stmt(frame: Frame) -> Any:
+def _eval_continue_stmt(frame: Frame) -> ShkValue:
     raise ShakarContinueSignal()
 
-def _eval_formap1(n: TreeNode, frame: Frame) -> Any:
+def _eval_formap1(n: Tree, frame: Frame) -> ShkValue:
     child = n.children[0] if n.children else None
 
     if not is_tree(child):
@@ -291,7 +287,7 @@ def _eval_formap1(n: TreeNode, frame: Frame) -> Any:
 
 # ---------------- Grouping / dispatch ----------------
 
-def _eval_group(n: TreeNode, frame: Frame) -> Any:
+def _eval_group(n: Tree, frame: Frame) -> ShkValue:
     child = n.children[0] if n.children else None
     if child is None:
         return ShkNull()
@@ -303,7 +299,7 @@ def _eval_group(n: TreeNode, frame: Frame) -> Any:
     finally:
         frame.dot = saved
 
-_NODE_DISPATCH: dict[str, Callable[[TreeNode, Frame], Any]] = {
+_NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     'listcomp': lambda n, frame: eval_listcomp(n, frame, eval_node),
     'setcomp': lambda n, frame: eval_setcomp(n, frame, eval_node),
     'setliteral': lambda n, frame: eval_setliteral(n, frame, eval_node),
@@ -341,7 +337,7 @@ _NODE_DISPATCH: dict[str, Callable[[TreeNode, Frame], Any]] = {
     'onelineguard': lambda n, frame: eval_oneline_guard(n.children, frame, eval_node),
 }
 
-_TOKEN_DISPATCH: dict[str, Callable[[Token, Frame], Any]] = {
+_TOKEN_DISPATCH: dict[str, Callable[[Token, Frame], ShkValue]] = {
     'NUMBER': token_number,
     'STRING': token_string,
     'RAW_STRING': token_string,

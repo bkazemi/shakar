@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable, List
+from typing import Callable, List
+from lark import Token
 
 from ..runtime import (
     BoundMethod,
@@ -12,6 +13,7 @@ from ..runtime import (
     ShkFn,
     ShkSelector,
     SelectorIndex,
+    ShkValue,
     ShakarArityError,
     ShakarMethodNotFound,
     ShakarRuntimeError,
@@ -20,24 +22,24 @@ from ..runtime import (
     call_builtin_method,
     call_shkfn,
 )
-from ..tree import TreeNode, child_by_label, is_token, is_tree, tree_children, tree_label
+from ..tree import Node, Tree, Token, child_by_label, is_token, is_tree, tree_children, tree_label
 from .bind import FanContext, RebindContext, apply_fan_op
 from .common import expect_ident_token as _expect_ident_token
 from .mutation import get_field_value, index_value, slice_value
 from .selector import evaluate_selectorlist, apply_selectors_to_value
 
-EvalFunc = Callable[[Any, Frame], Any]
+EvalFunc = Callable[[Node, Frame], ShkValue]
 
-def eval_args_node(args_node: Any, frame: Frame, eval_func: EvalFunc) -> List[Any]:
-    def label(node: TreeNode) -> str | None:
+def eval_args_node(args_node: Tree | list[Tree] | None, frame: Frame, eval_func: EvalFunc) -> List[ShkValue]:
+    def label(node: Node) -> str | None:
         return tree_label(node)
 
-    def flatten(node: Any) -> List[Any]:
+    def flatten(node: Node) -> List[Node]:
         if is_tree(node):
             tag = label(node)
 
             if tag in {'args', 'arglist', 'arglistnamedmixed'}:
-                out: List[Any] = []
+                out: List[Node] = []
 
                 for ch in node.children:
                     out.extend(flatten(ch))
@@ -55,14 +57,14 @@ def eval_args_node(args_node: Any, frame: Frame, eval_func: EvalFunc) -> List[An
         return [eval_func(n, frame) for n in flatten(args_node)]
 
     if isinstance(args_node, list):
-        res: List[Any] = []
+        res: List[Tree] = []
         for n in args_node:
             res.extend(flatten(n))
         return [eval_func(n, frame) for n in res]
 
     return []
 
-def evaluate_index_operand(index_node: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
+def evaluate_index_operand(index_node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkSelector | ShkValue:
     selectorlist = child_by_label(index_node, 'selectorlist')
 
     if selectorlist is not None:
@@ -76,8 +78,8 @@ def evaluate_index_operand(index_node: TreeNode, frame: Frame, eval_func: EvalFu
     expr_node = _index_expr_from_children(index_node.children)
     return eval_func(expr_node, frame)
 
-def apply_slice(recv: Any, arms: List[Any], frame: Frame, eval_func: EvalFunc) -> Any:
-    def arm_to_py(node: Any) -> int | None:
+def apply_slice(recv: ShkValue, arms: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    def arm_to_py(node: Node) -> int | None:
         if tree_label(node) == 'emptyexpr':
             return None
 
@@ -90,7 +92,7 @@ def apply_slice(recv: Any, arms: List[Any], frame: Frame, eval_func: EvalFunc) -
 
     return slice_value(recv, start, stop, step)
 
-def apply_index_operation(recv: Any, op: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
+def apply_index_operation(recv: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     selectorlist = child_by_label(op, 'selectorlist')
     default_node = _default_arg(op)
     default_thunk = (lambda: eval_func(default_node, frame)) if default_node is not None else None
@@ -113,7 +115,7 @@ def apply_index_operation(recv: Any, op: TreeNode, frame: Frame, eval_func: Eval
 
     return apply_selectors_to_value(recv, selectors)
 
-def apply_op(recv: Any, op: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
+def apply_op(recv: ShkValue | FanContext | RebindContext, op: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue | RebindContext | FanContext:
     if isinstance(recv, FanContext):
         return apply_fan_op(recv, op, frame, apply_op=apply_op, eval_func=eval_func)
 
@@ -123,7 +125,7 @@ def apply_op(recv: Any, op: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
         context = recv
         recv = context.value
 
-    op_handlers: dict[str, Callable[[], Any]] = {
+    op_handlers: dict[str, Callable[[], ShkValue | RebindContext | FanContext]] = {
         'field': lambda: _get_field(recv, op, frame),
         'fieldsel': lambda: _get_field(recv, op, frame),
         'index': lambda: apply_index_operation(recv, op, frame, eval_func),
@@ -148,11 +150,11 @@ def apply_op(recv: Any, op: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
 
     return result
 
-def _get_field(recv: Any, op: TreeNode, frame: Frame) -> Any:
+def _get_field(recv: ShkValue, op: Tree, frame: Frame) -> ShkValue:
     field_name = _expect_ident_token(op.children[0], "Field access")
     return get_field_value(recv, field_name, frame)
 
-def _call_method(recv: Any, op: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
+def _call_method(recv: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     method_name = _expect_ident_token(op.children[0], "Method call")
     args = eval_args_node(op.children[1] if len(op.children) > 1 else None, frame, eval_func)
 
@@ -167,7 +169,7 @@ def _call_method(recv: Any, op: TreeNode, frame: Frame, eval_func: EvalFunc) -> 
             return call_shkfn(cal, args, subject=recv, caller_frame=frame)
         raise
 
-def call_value(cal: Any, args: List[Any], frame: Frame, eval_func: EvalFunc) -> Any:
+def call_value(cal: ShkValue, args: List[ShkValue], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     match cal:
         case BoundMethod(fn=fn, subject=subject):
             return call_shkfn(fn, args, subject=subject, caller_frame=frame)
@@ -192,7 +194,7 @@ def call_value(cal: Any, args: List[Any], frame: Frame, eval_func: EvalFunc) -> 
         case _:
             raise ShakarTypeError(f"Cannot call value of type {type(cal).__name__}")
 
-def _index_expr_from_children(children: List[Any]) -> Any:
+def _index_expr_from_children(children: List[Node]) -> Tree:
     queue = list(children)
 
     while queue:
@@ -213,7 +215,7 @@ def _index_expr_from_children(children: List[Any]) -> Any:
 
     raise ShakarRuntimeError("Malformed index expression")
 
-def _default_arg(node: TreeNode) -> Any | None:
+def _default_arg(node: Tree) -> Tree | None:
     children = tree_children(node)
     selector_index = None
 
@@ -235,5 +237,5 @@ def _default_arg(node: TreeNode) -> Any | None:
 
     return None
 
-def _is_single_index_selector(selectors: List[Any]) -> bool:
+def _is_single_index_selector(selectors: List[SelectorPart]) -> bool:
     return len(selectors) == 1 and isinstance(selectors[0], SelectorIndex)

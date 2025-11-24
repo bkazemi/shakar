@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 from ..runtime import (
     Frame,
@@ -10,11 +10,12 @@ from ..runtime import (
     ShkNumber,
     ShkObject,
     ShkString,
+    ShkValue,
 )
 from ..tree import is_token, is_tree, tree_label
 from .common import token_kind as _token_kind
 
-def is_truthy(val: Any) -> bool:
+def is_truthy(val: ShkValue) -> bool:
     match val:
         case ShkBool(value=b):
             return b
@@ -31,7 +32,7 @@ def is_truthy(val: Any) -> bool:
         case _:
             return True
 
-def retargets_anchor(node: Any) -> bool:
+def retargets_anchor(node: object) -> bool:
     if is_token(node):
         return _token_kind(node) == 'IDENT'
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 import subprocess
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import Callable, Dict, List, Optional, Tuple, TypeVar, Union
 from typing_extensions import Protocol, TypeAlias, TypeGuard
 
 # ---------- Value Model (only Sh* -> Shk*) ----------
@@ -97,7 +97,7 @@ class ShkSelector:
 @dataclass
 class ShkDecorator:
     params: Optional[List[str]]
-    body: Any
+    body: object
     frame: 'Frame'
 
 @dataclass
@@ -108,7 +108,7 @@ class DecoratorConfigured:
 @dataclass
 class ShkFn:
     params: Optional[List[str]]  # None for subject-only amp-lambda
-    body: Any                    # AST node
+    body: object                    # AST node
     frame: 'Frame'                   # Closure frame
     decorators: Optional[Tuple[DecoratorConfigured, ...]] = None
     kind: str = "fn"
@@ -257,8 +257,8 @@ class Frame:
 
 class ShakarRuntimeError(Exception):
     shk_type: str | None
-    shk_data: Any
-    shk_payload: Any
+    shk_data: object | None
+    shk_payload: object | None
 
     def __init__(self, message: str):
         super().__init__(message)
@@ -316,7 +316,7 @@ class ShakarBreakSignal(Exception):
 class ShakarContinueSignal(Exception):
     """Internal control flow for `continue`."""
 
-_SHK_VALUE_TYPES: Tuple[type[Any], ...] = (
+_SHK_VALUE_TYPES: Tuple[type[object], ...] = (
     ShkNull,
     ShkNumber,
     ShkString,
@@ -335,10 +335,10 @@ _SHK_VALUE_TYPES: Tuple[type[Any], ...] = (
     StdlibFunction,
 )
 
-def is_shk_value(value: Any) -> TypeGuard[ShkValue]:
+def is_shk_value(value: object) -> TypeGuard[ShkValue]:
     return isinstance(value, _SHK_VALUE_TYPES)
 
-def _ensure_shk_value(value: Any) -> ShkValue:
+def _ensure_shk_value(value: object) -> ShkValue:
     if value is None:
         return ShkNull()
     if is_shk_value(value):
@@ -350,7 +350,7 @@ R_contra = TypeVar("R_contra", bound="ShkValue", contravariant=True)
 class Method(Protocol[R_contra]):
     def __call__(self, frame: 'Frame', recv: R_contra, args: List['ShkValue']) -> 'ShkValue': ...
 
-MethodRegistry = Dict[str, Method[Any]]
+MethodRegistry = Dict[str, Method[ShkValue]]
 
 class Builtins:
     array_methods: MethodRegistry = {}

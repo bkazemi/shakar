@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Callable, Iterator, List
+from typing import Callable, Iterator, List
 
 from lark import Tree
 
@@ -15,15 +15,15 @@ from ..runtime import (
     ShakarContinueSignal,
     ShakarRuntimeError,
 )
-from ..tree import TreeNode, is_token, is_tree, tree_children, tree_label
+from ..tree import Node, Tree, Token, is_token, is_tree, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token, token_kind as _token_kind
 from .helpers import is_truthy as _is_truthy
 
-EvalFunc = Callable[[Any, Frame], Any]
+EvalFunc = Callable[[Node, Frame], ShkValue]
 
-def eval_program(children: List[Any], frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> Any:
+def eval_program(children: List[Node], frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> ShkValue:
     """Run a stmt list under a fresh defer scope, returning last value."""
-    result: Any = ShkNull()
+    result: ShkValue = ShkNull()
     skip_tokens = {'SEMI', '_NL', 'INDENT', 'DEDENT'}
     push_defer_scope(frame)
 
@@ -112,7 +112,7 @@ def schedule_defer(frame: Frame, thunk: Callable[[], None], label: str | None=No
 
     defer_frame.append(entry)
 
-def eval_inline_body(node: Any, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> Any:
+def eval_inline_body(node: Node, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> ShkValue:
     if tree_label(node) == 'inlinebody':
         for child in tree_children(node):
             if tree_label(child) == 'stmtlist':
@@ -124,12 +124,12 @@ def eval_inline_body(node: Any, frame: Frame, eval_func: EvalFunc, allow_loop_co
 
     return eval_func(node, frame)
 
-def eval_indent_block(node: TreeNode, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> Any:
+def eval_indent_block(node: Tree, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> ShkValue:
     return eval_program(node.children, frame, eval_func, allow_loop_control=allow_loop_control)
 
-def eval_oneline_guard(children: List[Any], frame: Frame, eval_func: EvalFunc) -> Any:
-    branches: List[TreeNode] = []
-    else_body: TreeNode | None = None
+def eval_oneline_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    branches: List[Tree] = []
+    else_body: Tree | None = None
 
     for child in children:
         data = tree_label(child)
@@ -161,7 +161,7 @@ def eval_oneline_guard(children: List[Any], frame: Frame, eval_func: EvalFunc) -
 
     return ShkNull()
 
-def eval_body_node(body_node: Any, frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_body_node(body_node: Node, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     label = tree_label(body_node) if is_tree(body_node) else None
 
     if label == 'inlinebody':
@@ -172,7 +172,7 @@ def eval_body_node(body_node: Any, frame: Frame, eval_func: EvalFunc) -> Any:
 
     return eval_func(body_node, frame)
 
-def run_body_with_subject(body_node: Any, frame: Frame, subject_value: DotValue, eval_func: EvalFunc, extra_bindings: dict[str, ShkValue] | None=None) -> Any:
+def run_body_with_subject(body_node: Node, frame: Frame, subject_value: DotValue, eval_func: EvalFunc, extra_bindings: dict[str, ShkValue] | None=None) -> ShkValue:
     if extra_bindings:
         with temporary_subject(frame, subject_value), temporary_bindings(frame, extra_bindings):
             return eval_body_node(body_node, frame, eval_func)
@@ -217,7 +217,7 @@ def temporary_bindings(frame: Frame, bindings: dict[str, ShkValue]) -> Iterator[
             else:
                 target.vars.pop(name, None)
 
-def eval_defer_stmt(children: List[Any], frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_defer_stmt(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed defer statement")
 

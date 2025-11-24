@@ -2,32 +2,34 @@ from __future__ import annotations
 
 """Helper routines for destructuring assignments and comprehensions."""
 
-from typing import Any, Iterable, Optional, Callable
+from typing import Callable, Iterable, Optional
 
 from lark import Token
 
-from ..runtime import Frame, ShkArray, ShkNull, ShakarRuntimeError
+from ..runtime import Frame, ShkArray, ShkNull, ShkValue, ShakarRuntimeError
 from ..utils import (
     is_sequence_value,
     sequence_items,
     coerce_sequence,
     replicate_empty_sequence,
 )
-from ..tree import TreeNode, tree_label, tree_children
+from ..tree import Node, Tree, tree_label, tree_children
 
-def _ident_token_value(node: Any) -> Optional[str]:
+EvalFunc = Callable[[Node, Frame], ShkValue]
+
+def _ident_token_value(node: object) -> Optional[str]:
     if isinstance(node, Token) and node.type == "IDENT":
         return str(node.value)
 
     return None
 
 def evaluate_destructure_rhs(
-    eval_fn: Callable[[Any, Frame], Any],
-    rhs_node: TreeNode,
+    eval_fn: EvalFunc,
+    rhs_node: Tree,
     frame: Frame,
     target_count: int,
     allow_broadcast: bool
-) -> tuple[list[Any], Any]:
+) -> tuple[list[ShkValue], ShkValue]:
     """Evaluate RHS once and expand/broadcast values to match the target count."""
     if tree_label(rhs_node) == "pack":
         # multiple RHS expressions separated by commas: evaluate each once.
@@ -67,10 +69,10 @@ def evaluate_destructure_rhs(
     return vals, result
 
 def assign_pattern(
-    eval_fn: Callable[[Any, Frame], Any],
-    assign_ident: Callable[[str, Any, Frame, bool], Any],
-    pattern: TreeNode,
-    value: Any,
+    eval_fn: EvalFunc,
+    assign_ident: Callable[[str, ShkValue, Frame, bool], ShkValue],
+    pattern: Tree,
+    value: ShkValue,
     frame: Frame,
     create: bool,
     allow_broadcast: bool
@@ -109,10 +111,10 @@ def assign_pattern(
     raise ShakarRuntimeError("Unsupported pattern element")
 
 def infer_implicit_binders(
-    exprs: Iterable[Any],
-    ifclause: Optional[TreeNode],
+    exprs: Iterable[Tree],
+    ifclause: Optional[Tree],
     frame: Frame,
-    collect_fn: Callable[[Any, Callable[[str], None]], None]
+    collect_fn: Callable[[Tree, Callable[[str], None]], None]
 ) -> list[str]:
     """Collect implicit binder names used inside comprehensions, skipping clashes."""
     names: list[str] = []
@@ -135,9 +137,9 @@ def infer_implicit_binders(
     return names
 
 def apply_comp_binders(
-    assign_fn: Callable[[TreeNode, Any, Frame], None],
-    binders: list[dict[str, Any]],
-    element: Any,
+    assign_fn: Callable[[Tree, ShkValue, Frame], None],
+    binders: list[dict[str, ShkValue]],
+    element: ShkValue,
     iter_frame: Frame,
     outer_frame: Frame
 ) -> None:
@@ -168,12 +170,12 @@ def _name_exists(frame: Frame, name: str) -> bool:
         return False
 
 def eval_destructure(
-    node: TreeNode,
+    node: Tree,
     frame: Frame,
-    eval_func: Callable[[Any, Frame], Any],
+    eval_func: EvalFunc,
     create: bool,
     allow_broadcast: bool
-) -> Any:
+) -> ShkValue:
     """Evaluate destructuring assignment/expression."""
     if len(node.children) != 2:
         raise ShakarRuntimeError("Malformed destructure")

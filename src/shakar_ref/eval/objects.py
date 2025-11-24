@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, List, Optional, Tuple
+from typing import Callable, Iterable, List, Optional, Tuple
 
 from lark import Token
 
-from ..runtime import Descriptor, Frame, ShkFn, ShkObject, ShkString, ShakarRuntimeError
-from ..tree import TreeNode, child_by_label, is_token, is_tree, tree_children, tree_label
+from ..runtime import Descriptor, Frame, ShkFn, ShkObject, ShkString, ShkValue, ShakarRuntimeError
+from ..tree import Tree, child_by_label, is_token, is_tree, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token
 
-EvalFunc = Callable[[Any, Frame], Any]
+EvalFunc = Callable[[object, Frame], ShkValue]
 
-def eval_object(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> ShkObject:
+def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
     """Build an object literal, installing descriptors/getters as needed."""
-    slots: dict[str, Any] = {}
+    slots: dict[str, ShkValue] = {}
 
     def _install_descriptor(name: str, getter: ShkFn | None=None, setter: ShkFn | None=None) -> None:
         existing = slots.get(name)
@@ -26,7 +26,7 @@ def eval_object(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> ShkObject:
         else:
             slots[name] = Descriptor(getter=getter, setter=setter)
 
-    def _extract_params(params_node: TreeNode | None) -> List[str]:
+    def _extract_params(params_node: Tree | None) -> List[str]:
         if params_node is None:
             return []
 
@@ -44,7 +44,7 @@ def eval_object(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 queue.extend(tree_children(node))
         return names
 
-    def _unwrap_ident(node: Any) -> str | None:
+    def _unwrap_ident(node: object) -> str | None:
         cur = node
         seen = set()
 
@@ -56,7 +56,7 @@ def eval_object(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> ShkObject:
             cur = cur.children[0]
         return cur.value if isinstance(cur, Token) and cur.type == 'IDENT' else None
 
-    def _maybe_method_signature(key_node: Any) -> Tuple[str, List[str]] | None:
+    def _maybe_method_signature(key_node: object) -> Tuple[str, List[str]] | None:
         if key_node is None or tree_label(key_node) != 'key_expr':
             return None
         if not is_tree(key_node):
@@ -117,7 +117,7 @@ def eval_object(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> ShkObject:
             params.append(ident)
         return (name, params)
 
-    def handle_item(item: TreeNode) -> None:
+    def handle_item(item: Tree) -> None:
         match item.data:
             case 'obj_field':
                 key_node, val_node = item.children
@@ -180,7 +180,7 @@ def eval_object(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 handle_item(child)
     return ShkObject(slots)
 
-def eval_key(k: Any, frame: Frame, eval_func) -> Any:
+def eval_key(k: object, frame: Frame, eval_func: EvalFunc) -> ShkValue | str:
     label = tree_label(k)
 
     if label is not None:

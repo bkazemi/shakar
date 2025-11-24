@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, List, Sequence
+from typing import Callable, Iterable, List, Sequence
 
-from ..runtime import Frame, ShkNull, ShakarRuntimeError
-from ..tree import find_tree_by_label, is_token, tree_children
+from ..runtime import Frame, ShkNull, ShkValue, ShakarRuntimeError
+from ..tree import Node, Tree, Token, find_tree_by_label, is_token, tree_children
 
-def define_new_ident(name: str, value: Any, frame: Frame) -> Any:
+EvalFunc = Callable[[Node, Frame], ShkValue]
+TruthyFunc = Callable[[ShkValue], bool]
+
+def define_new_ident(name: str, value: ShkValue, frame: Frame) -> ShkValue:
     """Introduce a new binding in the current scope; error if it already exists."""
     vars_dict = getattr(frame, "vars", None)
 
@@ -16,7 +19,7 @@ def define_new_ident(name: str, value: Any, frame: Frame) -> Any:
 
     return value
 
-def _walrus_target_name(node: Any) -> str:
+def _walrus_target_name(node: Node) -> str:
     children = tree_children(node)
     if not children:
         raise ShakarRuntimeError("Malformed walrus expression")
@@ -31,9 +34,9 @@ def _walrus_target_name(node: Any) -> str:
 
     raise ShakarRuntimeError("Unsupported walrus target")
 
-def _split_postfix_children(children: Sequence[Any], keyword_tokens: Iterable[str]) -> tuple[Any, Any]:
+def _split_postfix_children(children: Sequence[Node], keyword_tokens: Iterable[str]) -> tuple[Node, Node]:
     keywords = set(keyword_tokens)
-    semantic: List[Any] = []
+    semantic: List[Node] = []
 
     for ch in children:
         if is_token(ch) and ch.type in keywords:
@@ -47,35 +50,35 @@ def _split_postfix_children(children: Sequence[Any], keyword_tokens: Iterable[st
     return semantic[0], semantic[1]
 
 def eval_postfix_if(
-    children: Sequence[Any],
+    children: Sequence[Node],
     frame: Frame,
     *,
-    eval_func: Callable[[Any, Frame], Any],
-    truthy_fn: Callable[[Any], bool],
-) -> Any:
+    eval_func: EvalFunc,
+    truthy_fn: TruthyFunc,
+) -> ShkValue:
     stmt_node, cond_node = _split_postfix_children(children, {"IF"})
     return _eval_postfix_guard(stmt_node, cond_node, frame, eval_func, truthy_fn, run_on_truthy=True)
 
 def eval_postfix_unless(
-    children: Sequence[Any],
+    children: Sequence[Node],
     frame: Frame,
     *,
-    eval_func: Callable[[Any, Frame], Any],
-    truthy_fn: Callable[[Any], bool],
-) -> Any:
+    eval_func: EvalFunc,
+    truthy_fn: TruthyFunc,
+) -> ShkValue:
     stmt_node, cond_node = _split_postfix_children(children, {"UNLESS"})
 
     return _eval_postfix_guard(stmt_node, cond_node, frame, eval_func, truthy_fn, run_on_truthy=False)
 
 def _eval_postfix_guard(
-    stmt_node: Any,
-    cond_node: Any,
+    stmt_node: Node,
+    cond_node: Node,
     frame: Frame,
-    eval_func: Callable[[Any, Frame], Any],
-    truthy_fn: Callable[[Any], bool],
+    eval_func: EvalFunc,
+    truthy_fn: TruthyFunc,
     *,
     run_on_truthy: bool,
-) -> Any:
+) -> ShkValue:
     walrus_name = None
     walrus_node = find_tree_by_label(stmt_node, {"walrus", "walrus_nc"})
     if walrus_node is not None:

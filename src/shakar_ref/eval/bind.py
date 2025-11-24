@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Callable, List
+from typing import Callable, List
 
-from ..runtime import Frame, ShkArray, ShkNumber, ShakarRuntimeError
-from ..tree import TreeNode, child_by_label, is_token, is_tree, tree_children, tree_label
+from ..runtime import Frame, ShkArray, ShkNumber, ShkValue, ShakarRuntimeError
+from ..tree import Node, Tree, Token, child_by_label, is_token, is_tree, tree_children, tree_label
 
 from .common import expect_ident_token, token_kind, require_number
 from .destructure import assign_pattern as destructure_assign_pattern
@@ -11,9 +11,9 @@ from .mutation import get_field_value, set_field_value, index_value, set_index_v
 from .postfix import define_new_ident
 from ..utils import fanout_values
 
-EvalFunc = Callable[[Any, Frame], Any]
-ApplyOpFunc = Callable[[Any, TreeNode, Frame, EvalFunc], Any]
-IndexEvalFunc = Callable[[TreeNode, Frame, EvalFunc], Any]
+EvalFunc = Callable[[Node, Frame], ShkValue]
+ApplyOpFunc = Callable[[ShkValue, Tree, Frame, EvalFunc], ShkValue]
+IndexEvalFunc = Callable[[Tree, Frame, EvalFunc], ShkValue]
 
 __all__ = [
     "FanContext",
@@ -40,7 +40,7 @@ class RebindContext:
     """Tracks an assignable slot (identifier or field) so tail ops can write back."""
     __slots__ = ("value", "setter")
 
-    def __init__(self, value: Any, setter: Callable[[Any], None]) -> None:
+    def __init__(self, value: ShkValue, setter: Callable[[ShkValue], None]) -> None:
         self.value = value
         self.setter = setter
 
@@ -55,10 +55,10 @@ class FanContext:
     def update_from_contexts(self) -> None:
         self.values = [ctx.value for ctx in self.contexts]
 
-    def snapshot(self) -> List[Any]:
+    def snapshot(self) -> List[ShkValue]:
         return list(self.values)
 
-def assign_ident(name: str, value: Any, frame: Frame, *, create: bool) -> Any:
+def assign_ident(name: str, value: ShkValue, frame: Frame, *, create: bool) -> ShkValue:
     """Assign or define an identifier in the given frame."""
     try:
         frame.set(name, value)
@@ -69,7 +69,7 @@ def assign_ident(name: str, value: Any, frame: Frame, *, create: bool) -> Any:
             raise
     return value
  
-def eval_walrus(children: list[Any], frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_walrus(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if len(children) != 2:
         raise ShakarRuntimeError("Malformed walrus expression")
 
@@ -79,7 +79,7 @@ def eval_walrus(children: list[Any], frame: Frame, eval_func: EvalFunc) -> Any:
 
     return define_new_ident(name, value, frame)
 
-def eval_assign_stmt(children: list[Any], frame: Frame, eval_func: EvalFunc, apply_op: ApplyOpFunc, evaluate_index_operand: IndexEvalFunc) -> Any:
+def eval_assign_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc, apply_op: ApplyOpFunc, evaluate_index_operand: IndexEvalFunc) -> None:
     if len(children) < 2:
         raise ShakarRuntimeError("Malformed assignment statement")
 
@@ -108,7 +108,7 @@ _COMPOUND_ASSIGN_OPERATORS: dict[str, str] = {
     '**=': '**',
 }
 
-def eval_compound_assign(children: list[Any], frame: Frame, eval_func: EvalFunc, apply_op: ApplyOpFunc, evaluate_index_operand: IndexEvalFunc) -> Any:
+def eval_compound_assign(children: list[Node], frame: Frame, eval_func: EvalFunc, apply_op: ApplyOpFunc, evaluate_index_operand: IndexEvalFunc) -> None:
     if len(children) < 3:
         raise ShakarRuntimeError("Malformed compound assignment")
 
@@ -147,7 +147,7 @@ def eval_compound_assign(children: list[Any], frame: Frame, eval_func: EvalFunc,
 
     return None
 
-def eval_apply_assign(children: list[Any], frame: Frame, eval_func: EvalFunc, apply_op: ApplyOpFunc, evaluate_index_operand: IndexEvalFunc) -> Any:
+def eval_apply_assign(children: list[Node], frame: Frame, eval_func: EvalFunc, apply_op: ApplyOpFunc, evaluate_index_operand: IndexEvalFunc) -> ShkValue:
     lvalue_node = None
     rhs_node = None
 
@@ -169,7 +169,7 @@ def eval_apply_assign(children: list[Any], frame: Frame, eval_func: EvalFunc, ap
         evaluate_index_operand=evaluate_index_operand,
     )
 
-def eval_rebind_primary(node: TreeNode, frame: Frame, eval_func: EvalFunc, apply_op: ApplyOpFunc, evaluate_index_operand: IndexEvalFunc) -> RebindContext:
+def eval_rebind_primary(node: Tree, frame: Frame, eval_func: EvalFunc, apply_op: ApplyOpFunc, evaluate_index_operand: IndexEvalFunc) -> RebindContext:
     if not node.children:
         raise ShakarRuntimeError("Missing target for prefix rebind")
 
@@ -191,14 +191,14 @@ def make_ident_context(name: str, frame: Frame) -> RebindContext:
     """Produce a `RebindContext` for identifier assignments so tail ops can persist."""
     value = frame.get(name)
 
-    def setter(new_value: Any) -> None:
+    def setter(new_value: ShkValue) -> None:
         assign_ident(name, new_value, frame, create=False)
         frame.dot = new_value
 
     return RebindContext(value, setter)
 
 def resolve_assignable_node(
-    node: Any,
+    node: Node,
     frame: Frame,
     *,
     eval_func: EvalFunc,
@@ -252,8 +252,8 @@ def resolve_assignable_node(
     raise ShakarRuntimeError("Increment target must be assignable")
 
 def resolve_chain_assignment(
-    head_node: Any,
-    ops: List[Any],
+    head_node: Node,
+    ops: List[Tree],
     frame: Frame,
     *,
     eval_func: EvalFunc,
@@ -284,7 +284,7 @@ def resolve_chain_assignment(
             owner = current
             value = get_field_value(owner, field_name, frame)
 
-            def field_setter(new_value: Any, owner: Any = owner, field_name: str = field_name) -> None:
+            def field_setter(new_value: ShkValue, owner: ShkValue = owner, field_name: str = field_name) -> None:
                 set_field_value(owner, field_name, new_value, frame, create=False)
                 frame.dot = new_value
 
@@ -295,7 +295,7 @@ def resolve_chain_assignment(
             idx_value = evaluate_index_operand(op, frame, eval_func)
             value = index_value(owner, idx_value, frame)
 
-            def index_setter(new_value: Any, owner: Any = owner, idx_value: Any = idx_value) -> None:
+            def index_setter(new_value: ShkValue, owner: ShkValue = owner, idx_value: ShkValue = idx_value) -> None:
                 set_index_value(owner, idx_value, new_value, frame)
                 frame.dot = new_value
 
@@ -311,7 +311,7 @@ def resolve_chain_assignment(
 
     raise ShakarRuntimeError("Increment target must end with a field or index")
 
-def apply_numeric_delta(ref: RebindContext, delta: int) -> tuple[Any, Any]:
+def apply_numeric_delta(ref: RebindContext, delta: int) -> tuple[ShkValue, ShkValue]:
     """Increment/decrement the referenced numeric context and return (old, new)."""
     current = ref.value
     require_number(current)
@@ -323,7 +323,7 @@ def apply_numeric_delta(ref: RebindContext, delta: int) -> tuple[Any, Any]:
 
     return current, new_val
 
-def build_fieldfan_context(owner: Any, fan_node: TreeNode, frame: Frame) -> FanContext:
+def build_fieldfan_context(owner: ShkValue, fan_node: Tree, frame: Frame) -> FanContext:
     """Construct a fan context for `.={a,b}` nodes so updates reach every slot."""
     fieldlist_node = child_by_label(fan_node, "fieldlist")
     if fieldlist_node is None:
@@ -338,7 +338,7 @@ def build_fieldfan_context(owner: Any, fan_node: TreeNode, frame: Frame) -> FanC
     for name in names:
         value = get_field_value(owner, name, frame)
 
-        def setter(new_value: Any, owner: Any = owner, field_name: str = name) -> None:
+        def setter(new_value: ShkValue, owner: ShkValue = owner, field_name: str = name) -> None:
             set_field_value(owner, field_name, new_value, frame, create=False)
             frame.dot = new_value
 
@@ -346,10 +346,10 @@ def build_fieldfan_context(owner: Any, fan_node: TreeNode, frame: Frame) -> FanC
 
     return FanContext(contexts)
 
-def apply_fan_op(fan: FanContext, op: TreeNode, frame: Frame, *, apply_op: ApplyOpFunc, eval_func: EvalFunc) -> FanContext:
+def apply_fan_op(fan: FanContext, op: Tree, frame: Frame, *, apply_op: ApplyOpFunc, eval_func: EvalFunc) -> FanContext:
     """Apply an explicit-chain op to each fan target and keep contexts/values in sync."""
     new_contexts: List[RebindContext] = []
-    new_values: List[Any] = []
+    new_values: List[ShkValue] = []
     has_contexts = False
     has_values = False
 
@@ -386,14 +386,14 @@ def apply_fan_op(fan: FanContext, op: TreeNode, frame: Frame, *, apply_op: Apply
     return fan
 
 def apply_assign(
-    lvalue_node: TreeNode,
-    rhs_node: TreeNode,
+    lvalue_node: Tree,
+    rhs_node: Tree,
     frame: Frame,
     *,
     eval_func: EvalFunc,
     apply_op: ApplyOpFunc,
     evaluate_index_operand: IndexEvalFunc,
-) -> Any:
+) -> ShkValue:
     """Evaluate the `.= expr` apply-assign form (subject-aware updates)."""
     head, *ops = lvalue_node.children
 
@@ -443,7 +443,7 @@ def apply_assign(
             if not names:
                 raise ShakarRuntimeError("Empty field fan-out list")
 
-            results: List[Any] = []
+            results: List[ShkValue] = []
 
             for name in names:
                 old_val = get_field_value(target, name, frame)
@@ -456,15 +456,15 @@ def apply_assign(
     raise ShakarRuntimeError("Unsupported apply-assign target")
 
 def assign_lvalue(
-    node: Any,
-    value: Any,
+    node: Node,
+    value: ShkValue,
     frame: Frame,
     *,
     eval_func: EvalFunc,
     apply_op: ApplyOpFunc,
     evaluate_index_operand: IndexEvalFunc,
     create: bool,
-) -> Any:
+) -> ShkValue:
     """Assign to an lvalue, supporting fields, indices, and field fans."""
     if not is_tree(node) or tree_label(node) != "lvalue":
         raise ShakarRuntimeError("Invalid assignment target")
@@ -513,8 +513,8 @@ def assign_lvalue(
     raise ShakarRuntimeError("Unsupported assignment target")
 
 def assign_pattern_value(
-    pattern: TreeNode,
-    value: Any,
+    pattern: Tree,
+    value: ShkValue,
     frame: Frame,
     *,
     create: bool,
@@ -522,7 +522,7 @@ def assign_pattern_value(
     eval_func: EvalFunc,
 ) -> None:
     """Bind a destructuring pattern to a value, including walrus broadcasts."""
-    def _assign_ident_wrapper(name: str, val: Any, target_frame: Frame, create_flag: bool) -> None:
+    def _assign_ident_wrapper(name: str, val: ShkValue, target_frame: Frame, create_flag: bool) -> None:
         if create_flag and allow_broadcast:
             define_new_ident(name, val, target_frame)
             return
@@ -531,13 +531,13 @@ def assign_pattern_value(
     destructure_assign_pattern(eval_func, _assign_ident_wrapper, pattern, value, frame, create, allow_broadcast)
 
 def read_lvalue(
-    node: Any,
+    node: Node,
     frame: Frame,
     *,
     eval_func: EvalFunc,
     apply_op: ApplyOpFunc,
     evaluate_index_operand: IndexEvalFunc,
-) -> Any:
+) -> ShkValue:
     """Fetch the value behind an assignment target (e.g. for compound ops)."""
     if not is_tree(node) or tree_label(node) != "lvalue":
         raise ShakarRuntimeError("Invalid lvalue")
@@ -570,7 +570,7 @@ def read_lvalue(
     raise ShakarRuntimeError("Compound assignment not supported for this target")
 
 def resolve_rebind_lvalue(
-    node: Any,
+    node: Node,
     frame: Frame,
     *,
     eval_func: EvalFunc,

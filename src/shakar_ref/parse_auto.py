@@ -9,7 +9,7 @@ from lark.indenter import Indenter, DedentError
 
 if __package__:
     from .tree import (
-        TreeNode,
+        Node,
         is_tree,
         is_token,
         tree_label,
@@ -22,7 +22,7 @@ else:  # script execution (e.g. tools invoking parser directly)
     if SRC_DIR.exists():
         sys.path.append(str(SRC_DIR))
     from shakar_ref.tree import (
-        TreeNode,
+        Node,
         is_tree,
         is_token,
         tree_label,

@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Callable, List
 
 from lark import Tree
-from typing import Callable
-from ..tree import TreeNode
+from ..tree import Node
 
-from ..runtime import DecoratorConfigured, Frame, ShkDecorator, ShkFn, ShkNull, ShakarRuntimeError, ShakarTypeError
+from ..runtime import DecoratorConfigured, Frame, ShkDecorator, ShkFn, ShkNull, ShkValue, ShakarRuntimeError, ShakarTypeError
 from ..tree import is_tree, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token, ident_token_value as _ident_token_value
 
-def extract_param_names(params_node: Any, context: str="parameter list") -> List[str]:
+EvalFunc = Callable[[Node, Frame], ShkValue]
+
+def extract_param_names(params_node: object, context: str="parameter list") -> List[str]:
     if params_node is None:
         return []
 
@@ -29,7 +30,7 @@ def extract_param_names(params_node: Any, context: str="parameter list") -> List
 
     return names
 
-def eval_fn_def(children: List[Any], frame: Frame, eval_func: Callable[[Any, Frame], Any]) -> Any:
+def eval_fn_def(children: List[object], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed function definition")
 
@@ -61,7 +62,7 @@ def eval_fn_def(children: List[Any], frame: Frame, eval_func: Callable[[Any, Fra
 
     return ShkNull()
 
-def eval_decorator_def(children: List[Any], frame: Frame) -> Any:
+def eval_decorator_def(children: List[object], frame: Frame) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed decorator definition")
 
@@ -84,7 +85,7 @@ def eval_decorator_def(children: List[Any], frame: Frame) -> Any:
 
     return ShkNull()
 
-def eval_anonymous_fn(children: List[Any], frame: Frame) -> ShkFn:
+def eval_anonymous_fn(children: List[object], frame: Frame) -> ShkFn:
     params_node = None
     body_node = None
 
@@ -101,7 +102,7 @@ def eval_anonymous_fn(children: List[Any], frame: Frame) -> ShkFn:
 
     return ShkFn(params=params, body=body_node, frame=Frame(parent=frame, dot=None))
 
-def eval_amp_lambda(n: TreeNode, frame: Frame) -> ShkFn:
+def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
     if len(n.children) == 1:
         return ShkFn(params=None, body=n.children[0], frame=Frame(parent=frame, dot=None), kind="amp")
 
@@ -112,7 +113,7 @@ def eval_amp_lambda(n: TreeNode, frame: Frame) -> ShkFn:
 
     raise ShakarRuntimeError("amp_lambda malformed")
 
-def evaluate_decorator_list(node: TreeNode, frame: Frame, eval_func: Callable[[Any, Frame], Any]) -> List[DecoratorConfigured]:
+def evaluate_decorator_list(node: Tree, frame: Frame, eval_func: EvalFunc) -> List[DecoratorConfigured]:
     configured: List[DecoratorConfigured] = []
 
     for entry in tree_children(node):
@@ -127,7 +128,7 @@ def evaluate_decorator_list(node: TreeNode, frame: Frame, eval_func: Callable[[A
 
     return configured
 
-def _coerce_decorator_instance(value: Any) -> DecoratorConfigured:
+def _coerce_decorator_instance(value: ShkValue) -> DecoratorConfigured:
     match value:
         case DecoratorConfigured():
             return DecoratorConfigured(decorator=value.decorator, args=list(value.args))

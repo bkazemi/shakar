@@ -1,16 +1,16 @@
 from __future__ import annotations
-from typing import Any, List
+from typing import List
 
 from lark import Tree, Token
 
-from .tree import is_tree, tree_children, tree_label
+from .tree import Node, is_tree, tree_children, tree_label
 from .tree import is_token as is_token
 
-def lower(ast: Any) -> Any:
+def lower(ast: Node) -> Node:
     """Runtime lowering pass (currently: hole desugaring)."""
     return _desugar_call_holes(ast)
 
-def _desugar_call_holes(node: Any) -> Any:
+def _desugar_call_holes(node: Node) -> Node:
     if is_token(node) or not is_tree(node):
         return node
 
@@ -32,8 +32,8 @@ def _desugar_call_holes(node: Any) -> Any:
 
     return candidate
 
-def _chain_to_lambda_if_holes(chain: Any) -> Any | None:
-    def _contains_hole(node: Any) -> bool:
+def _chain_to_lambda_if_holes(chain: Tree) -> Tree | None:
+    def _contains_hole(node: Node) -> bool:
         if is_token(node) or not is_tree(node):
             return False
 
@@ -58,7 +58,7 @@ def _chain_to_lambda_if_holes(chain: Any) -> Any | None:
     if hole_call_index is not None and hole_call_index + 1 < len(ops):
         raise SyntaxError("Hole partials cannot be immediately invoked; assign or pass the partial before calling it")
 
-    def clone(node: Any) -> Any:
+    def clone(node: Node) -> Node:
         if is_token(node) or not is_tree(node):
             return node
 
@@ -70,7 +70,7 @@ def _chain_to_lambda_if_holes(chain: Any) -> Any | None:
             holes.append(name)
             return Token('IDENT', name)
 
-        cloned_children: list[Any] = [clone(child) for child in tree_children(node)]
+        cloned_children: list[Node] = [clone(child) for child in tree_children(node)]
         return Tree(label, cloned_children)
 
     cloned_chain = clone(chain)
@@ -79,8 +79,8 @@ def _chain_to_lambda_if_holes(chain: Any) -> Any | None:
         return None
 
     params = [Token('IDENT', name) for name in holes]
-    param_children: list[Any] = list(params)
+    param_children: list[Token] = list(params)
     paramlist = Tree('paramlist', param_children)
 
-    lambda_children: list[Any] = [paramlist, cloned_chain]
+    lambda_children: list[Node] = [paramlist, cloned_chain]
     return Tree('amp_lambda', lambda_children)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Iterable, List, Optional, Set
+from typing import Callable, Iterable, List, Optional, Set
 
 from lark import Token
 
@@ -12,6 +12,7 @@ from ..runtime import (
     ShkNull,
     ShkNumber,
     ShkObject,
+    ShkValue,
     ShkSelector,
     ShkString,
     ShakarKeyError,
@@ -19,7 +20,7 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-from ..tree import TreeNode, is_tree, node_meta, tree_children, tree_label
+from ..tree import Node, Tree, is_tree, node_meta, tree_children, tree_label
 from ..utils import shk_equals
 from .bind import FanContext, RebindContext
 from .chains import apply_op as chain_apply_op, evaluate_index_operand
@@ -27,7 +28,9 @@ from .common import require_number, stringify, token_kind
 from .helpers import is_truthy, retargets_anchor
 from .selector import selector_iter_values
 
-def normalize_unary_op(op_node: Any, frame: Frame) -> Any:
+EvalFunc = Callable[[Node, Frame], ShkValue]
+
+def normalize_unary_op(op_node: Node, frame: Frame) -> Node | str:
     if tree_label(op_node) == 'unaryprefixop':
         if op_node.children:
             return normalize_unary_op(op_node.children[0], frame)
@@ -39,7 +42,7 @@ def normalize_unary_op(op_node: Any, frame: Frame) -> Any:
         return ''
     return op_node
 
-def eval_unary(op_node: Any, rhs_node: Any, frame: Frame, eval_func, apply_op_func=chain_apply_op) -> Any:
+def eval_unary(op_node: Node, rhs_node: Tree, frame: Frame, eval_func: EvalFunc, apply_op_func=chain_apply_op) -> ShkValue:
     op_norm = normalize_unary_op(op_node, frame)
     op_value = op_norm.value if isinstance(op_norm, Token) else op_norm
 
@@ -75,7 +78,7 @@ def eval_unary(op_node: Any, rhs_node: Any, frame: Frame, eval_func, apply_op_fu
         case _:
             raise ShakarRuntimeError("Unsupported unary op")
 
-def eval_infix(children: List[Any], frame: Frame, eval_func, right_assoc_ops: Set[str] | None=None) -> Any:
+def eval_infix(children: List[Tree], frame: Frame, eval_func: EvalFunc, right_assoc_ops: Set[str] | None=None) -> ShkValue:
     if not children:
         return ShkNull()
 
@@ -99,7 +102,7 @@ def eval_infix(children: List[Any], frame: Frame, eval_func, right_assoc_ops: Se
 
     return acc
 
-def eval_compare(children: List[Any], frame: Frame, eval_func) -> Any:
+def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not children:
         return ShkNull()
 
@@ -152,7 +155,7 @@ def eval_compare(children: List[Any], frame: Frame, eval_func) -> Any:
 
     return ShkBool(bool(agg)) if agg is not None else ShkBool(True)
 
-def eval_logical(kind: str, children: List[Any], frame: Frame, eval_func) -> Any:
+def eval_logical(kind: str, children: List[Tree], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not children:
         return ShkNull()
 
@@ -160,7 +163,7 @@ def eval_logical(kind: str, children: List[Any], frame: Frame, eval_func) -> Any
     prev_dot = frame.dot
 
     try:
-        last_val: Any
+        last_val: ShkValue
         if normalized == 'and':
             last_val = ShkBool(True)
 
@@ -192,7 +195,7 @@ def eval_logical(kind: str, children: List[Any], frame: Frame, eval_func) -> Any
     finally:
         frame.dot = prev_dot
 
-def eval_nullish(children: List[Any], frame: Frame, eval_func) -> Any:
+def eval_nullish(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     exprs = [child for child in children if not (isinstance(child, Token) and child.value == '??')]
 
     if not exprs:
@@ -207,7 +210,7 @@ def eval_nullish(children: List[Any], frame: Frame, eval_func) -> Any:
 
     return current
 
-def eval_nullsafe(node: Any, frame: Frame, eval_func) -> Any:
+def eval_nullsafe(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not is_tree(node) or tree_label(node) != 'explicit_chain':
         return eval_func(node, frame)
 
@@ -236,7 +239,7 @@ def eval_nullsafe(node: Any, frame: Frame, eval_func) -> Any:
             return ShkNull()
     return current
 
-def eval_ternary(n: TreeNode, frame: Frame, eval_func) -> Any:
+def eval_ternary(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if len(n.children) != 3:
         raise ShakarRuntimeError("Malformed ternary expression")
 
@@ -248,10 +251,10 @@ def eval_ternary(n: TreeNode, frame: Frame, eval_func) -> Any:
 
     return eval_func(false_node, frame)
 
-def _all_ops_in(children: List[Any], allowed: Set[str]) -> bool:
+def _all_ops_in(children: List[Tree], allowed: Set[str]) -> bool:
     return all(as_op(children[i]) in allowed for i in range(1, len(children), 2))
 
-def as_op(x: Any) -> str:
+def as_op(x: Node) -> str:
     if isinstance(x, Token):
         return str(x.value)
 
@@ -274,7 +277,7 @@ def as_op(x: Any) -> str:
 
     raise ShakarRuntimeError(f"Expected operator token, got {x!r}")
 
-def apply_binary_operator(op: str, lhs: Any, rhs: Any) -> Any:
+def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
     match op:
         case '+':
             if isinstance(lhs, ShkString) or isinstance(rhs, ShkString):
@@ -301,7 +304,7 @@ def apply_binary_operator(op: str, lhs: Any, rhs: Any) -> Any:
             return ShkNumber(lhs.value ** rhs.value)
     raise ShakarRuntimeError(f"Unknown operator {op}")
 
-def _compare_values(op: str, lhs: Any, rhs: Any) -> bool:
+def _compare_values(op: str, lhs: ShkValue, rhs: ShkValue) -> bool:
     if isinstance(rhs, ShkSelector):
         return _compare_with_selector(op, lhs, rhs)
 
@@ -336,13 +339,13 @@ def _selector_values(selector: ShkSelector) -> List[ShkNumber]:
 
     return [val for val in values if isinstance(val, ShkNumber)]
 
-def _coerce_number(value: Any) -> float:
+def _coerce_number(value: ShkValue) -> float:
     if isinstance(value, ShkNumber):
         return value.value
 
     raise ShakarTypeError("Expected number")
 
-def _compare_with_selector(op: str, lhs: Any, selector: ShkSelector) -> bool:
+def _compare_with_selector(op: str, lhs: ShkValue, selector: ShkSelector) -> bool:
     values = _selector_values(selector)
 
     if op == '==':
@@ -366,7 +369,7 @@ def _compare_with_selector(op: str, lhs: Any, selector: ShkSelector) -> bool:
         case _:
             raise ShakarTypeError(f"Unsupported comparator '{op}' for selector literal")
 
-def _contains(container: Any, item: Any) -> bool:
+def _contains(container: ShkValue, item: ShkValue) -> bool:
     match container:
         case ShkArray(items=items):
             return any(shk_equals(element, item) for element in items)
@@ -381,7 +384,7 @@ def _contains(container: Any, item: Any) -> bool:
         case _:
             raise ShakarTypeError(f"Unsupported container type for 'in': {type(container).__name__}")
 
-def _nullsafe_recovers(err: Exception, recv: Any) -> bool:
+def _nullsafe_recovers(err: Exception, recv: ShkValue) -> bool:
     if isinstance(recv, ShkNull):
         return True
     return isinstance(err, (ShakarKeyError, ShakarIndexError))

@@ -2,28 +2,33 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from typing import Any, Awaitable, Callable, Coroutine, Iterable, List, TypeVar
+from typing import Awaitable, Callable, Iterable, List, TypeVar, TypedDict
 
 from ..runtime import Frame, ShkNull, ShkObject, ShkString, ShkValue, ShakarRuntimeError
-from ..tree import TreeNode, child_by_label, is_token, is_tree, tree_children, tree_label
+from ..tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label
 from .blocks import eval_body_node, run_body_with_subject, temporary_bindings
 from .common import token_kind as _token_kind
 
-EvalFunc = Callable[[Any, Frame], Any]
+EvalFunc = Callable[[Tree, Frame], ShkValue]
+
+class AwaitArm(TypedDict):
+    label: str
+    expr: Tree
+    body: Tree | None
 _T = TypeVar("_T")
 
-def _wrap_awaitable(value: Any) -> Coroutine[Any, Any, Any]:
+def _wrap_awaitable(value: Awaitable[ShkValue] | ShkValue) -> Awaitable[ShkValue]:
     if inspect.isawaitable(value):
-        async def _forward() -> Any:
+        async def _forward() -> ShkValue:
             return await value
         return _forward()
 
-    async def _immediate() -> Any:
+    async def _immediate() -> ShkValue:
         return value
 
     return _immediate()
 
-def _run_asyncio(coro: Coroutine[Any, Any, _T]) -> _T:
+def _run_asyncio(coro: Awaitable[_T]) -> _T:
     try:
         asyncio.get_running_loop()
     except RuntimeError: # no active event loop, ok to run
@@ -31,16 +36,16 @@ def _run_asyncio(coro: Coroutine[Any, Any, _T]) -> _T:
 
     raise ShakarRuntimeError("await constructs cannot run inside an active event loop")
 
-async def _await_any_async(entries: list[tuple[dict[str, Any], Any]]) -> tuple[dict[str, Any], Any]:
-    tasks: dict[asyncio.Task[Any], dict[str, Any]] = {}
+async def _await_any_async(entries: list[tuple[AwaitArm, ShkValue]]) -> tuple[AwaitArm, ShkValue]:
+    tasks: dict[asyncio.Task[ShkValue], AwaitArm] = {}
 
     for arm, value in entries:
-        task: asyncio.Task[Any] = asyncio.create_task(_wrap_awaitable(value))
+        task: asyncio.Task[ShkValue] = asyncio.create_task(_wrap_awaitable(value))
         tasks[task] = arm
 
     errors: list[Exception] = []
 
-    pending: set[asyncio.Task[Any]] = set(tasks.keys())
+    pending: set[asyncio.Task[ShkValue]] = set(tasks.keys())
     while pending:
         done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
 
@@ -64,26 +69,26 @@ async def _await_any_async(entries: list[tuple[dict[str, Any], Any]]) -> tuple[d
 
     raise ShakarRuntimeError("await[any] arms did not produce a value")
 
-async def _await_all_async(entries: list[tuple[dict[str, Any], Any]]) -> list[tuple[dict[str, Any], Any]]:
+async def _await_all_async(entries: list[tuple[AwaitArm, ShkValue]]) -> list[tuple[AwaitArm, ShkValue]]:
     coros = [_wrap_awaitable(value) for _, value in entries]
     results = await asyncio.gather(*coros)
 
     return [(entries[i][0], results[i]) for i in range(len(entries))]
 
-def await_any_entries(entries: list[tuple[dict[str, Any], Any]]) -> tuple[dict[str, Any], Any]:
+def await_any_entries(entries: list[tuple[AwaitArm, ShkValue]]) -> tuple[AwaitArm, ShkValue]:
     return _run_asyncio(_await_any_async(entries))
 
-def await_all_entries(entries: list[tuple[dict[str, Any], Any]]) -> list[tuple[dict[str, Any], Any]]:
+def await_all_entries(entries: list[tuple[AwaitArm, ShkValue]]) -> list[tuple[AwaitArm, ShkValue]]:
     return _run_asyncio(_await_all_async(entries))
 
-def resolve_await_result(value: Any) -> Any:
+def resolve_await_result(value: ShkValue) -> ShkValue:
     if inspect.isawaitable(value):
         return _run_asyncio(_wrap_awaitable(value))
 
     return value
 
-def _collect_await_arms(list_node: TreeNode, prefix: str) -> list[dict[str, Any]]:
-    arms: list[dict[str, Any]] = []
+def _collect_await_arms(list_node: Tree, prefix: str) -> list[AwaitArm]:
+    arms: list[AwaitArm] = []
 
     for idx, arm_node in enumerate(tree_children(list_node)):
         children = tree_children(arm_node)
@@ -116,7 +121,7 @@ def _collect_await_arms(list_node: TreeNode, prefix: str) -> list[dict[str, Any]
 
     return arms
 
-def _extract_trailing_body(children: List[Any]) -> Any | None:
+def _extract_trailing_body(children: List[Node]) -> Tree | None:
     seen_rpar = False
 
     for child in children:
@@ -130,10 +135,10 @@ def _extract_trailing_body(children: List[Any]) -> Any | None:
 
     return None
 
-def _await_winner_object(label: str, value: Any) -> ShkObject:
+def _await_winner_object(label: str, value: ShkValue) -> ShkObject:
     return ShkObject({'winner': ShkString(label), 'value': value})
 
-def eval_await_value(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_await_value(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     for child in tree_children(n):
         if not is_token(child):
             value = eval_func(child, frame)
@@ -141,7 +146,7 @@ def eval_await_value(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
 
     raise ShakarRuntimeError("Malformed await expression")
 
-def eval_await_stmt(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_await_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     expr_node = None
     body_node = None
 
@@ -159,7 +164,7 @@ def eval_await_stmt(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
 
     return ShkNull()
 
-def eval_await_any_call(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_await_any_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     arms_node = child_by_label(n, 'anyarmlist')
     if arms_node is None:
         raise ShakarRuntimeError("await[any] missing arm list")
@@ -174,7 +179,7 @@ def eval_await_any_call(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     if trailing_body is not None and per_arm_bodies:
         raise ShakarRuntimeError("await[any] cannot mix per-arm bodies with a trailing body")
 
-    entries: list[tuple[dict[str, Any], Any]] = []
+    entries: list[tuple[AwaitArm, ShkValue]] = []
     errors: list[ShakarRuntimeError] = []
 
     for arm in arms:
@@ -201,7 +206,7 @@ def eval_await_any_call(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
 
     return _await_winner_object(winner_arm['label'], winner_value)
 
-def eval_await_all_call(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
+def eval_await_all_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     arms_node = child_by_label(n, 'allarmlist')
     if arms_node is None:
         raise ShakarRuntimeError("await[all] missing arm list")
@@ -213,7 +218,7 @@ def eval_await_all_call(n: TreeNode, frame: Frame, eval_func: EvalFunc) -> Any:
     if any(arm['body'] is not None for arm in arms):
         raise ShakarRuntimeError("await[all] does not support per-arm bodies")
 
-    entries: list[tuple[dict[str, Any], Any]] = []
+    entries: list[tuple[dict[str, ShkValue], ShkValue]] = []
 
     for arm in arms:
         value = eval_func(arm['expr'], frame)

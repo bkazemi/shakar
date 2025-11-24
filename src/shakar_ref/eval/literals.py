@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import shlex
-from typing import Any
+from typing import Callable
 
-from ..tree import TreeNode
+from ..tree import Tree
 
-from ..runtime import ShkArray, ShkBool, ShkCommand, ShkNull, ShkString, ShakarRuntimeError
+from ..runtime import Frame, ShkArray, ShkBool, ShkCommand, ShkNull, ShkString, ShkValue, ShakarRuntimeError
 from ..tree import node_meta, tree_children, tree_label, is_token
 from .common import stringify
 
-def eval_keyword_literal(node: TreeNode) -> Any:
+EvalFunc = Callable[[object, Frame], ShkValue]
+
+def eval_keyword_literal(node: Tree) -> ShkValue:
     meta = node_meta(node)
     if meta is None:
         raise ShakarRuntimeError("Missing metadata for literal")
@@ -30,7 +32,7 @@ def eval_keyword_literal(node: TreeNode) -> Any:
 
     raise ShakarRuntimeError("Unknown literal")
 
-def eval_string_interp(node: TreeNode, frame, eval_func) -> ShkString:
+def eval_string_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkString:
     parts: list[str] = []
 
     for part in tree_children(node):
@@ -51,7 +53,7 @@ def eval_string_interp(node: TreeNode, frame, eval_func) -> ShkString:
 
     return ShkString("".join(parts))
 
-def eval_shell_string(node: TreeNode, frame, eval_func) -> ShkCommand:
+def eval_shell_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkCommand:
     parts: list[str] = []
 
     for part in tree_children(node):
@@ -77,16 +79,16 @@ def eval_shell_string(node: TreeNode, frame, eval_func) -> ShkCommand:
         parts.append(rendered)
     return ShkCommand(parts)
 
-def _render_shell_safe(value: Any) -> str:
+def _render_shell_safe(value: ShkValue) -> str:
     if isinstance(value, ShkArray):
         return " ".join(_quote_shell_value(item) for item in value.items)
     return _quote_shell_value(value)
 
-def _render_shell_raw(value: Any) -> str:
+def _render_shell_raw(value: ShkValue) -> str:
     if isinstance(value, ShkArray):
         return " ".join(stringify(item) for item in value.items)
     return stringify(value)
 
-def _quote_shell_value(value: Any) -> str:
+def _quote_shell_value(value: ShkValue) -> str:
     rendered = stringify(value)
     return shlex.quote(rendered)

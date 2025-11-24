@@ -1,43 +1,39 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional, TypeAlias
 
 from lark import Tree, Token
 
 from ..runtime import Frame, ShkBool, ShkNumber, ShkString, ShakarRuntimeError, ShakarTypeError
-from ..tree import (
-    is_token,
-    is_tree,
-    node_meta,
-    tree_children,
-    tree_label,
-)
+from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
 
-def token_kind(node: Any) -> Optional[str]:
+SourceSpan: TypeAlias = tuple[int, int] | tuple[None, None]
+
+def token_kind(node: Node) -> Optional[str]:
     if not is_token(node):
         return None
     tok: Token = node
     return str(tok.type)
 
-def is_token_type(node: Any, kind: str) -> bool:
+def is_token_type(node: Node, kind: str) -> bool:
     return is_token(node) and token_kind(node) == kind
 
-def expect_ident_token(node: Any, context: str) -> str:
+def expect_ident_token(node: Node, context: str) -> str:
     if is_token(node) and token_kind(node) == 'IDENT':
         return str(node.value)
 
     raise ShakarRuntimeError(f"{context} must be an identifier")
 
-def ident_token_value(node: Any) -> Optional[str]:
+def ident_token_value(node: Node) -> Optional[str]:
     if is_token(node) and token_kind(node) == 'IDENT':
         return str(node.value)
 
     return None
 
-def is_literal_node(node: Any) -> bool:
+def is_literal_node(node: Node) -> bool:
     return not isinstance(node, (Tree, Token))
 
-def get_source_segment(node: Any, frame: Frame) -> Optional[str]:
+def get_source_segment(node: Node, frame: Frame) -> Optional[str]:
     source = getattr(frame, 'source', None)
     if source is None:
         return None
@@ -53,7 +49,7 @@ def get_source_segment(node: Any, frame: Frame) -> Optional[str]:
 
     return str(source[start:end])
 
-def render_expr(node: Any) -> str:
+def render_expr(node: Node) -> str:
     if is_token(node):
         return str(node.value)
 
@@ -69,7 +65,7 @@ def render_expr(node: Any) -> str:
 
     return " ".join(parts)
 
-def node_source_span(node: Any) -> tuple[int | None, int | None]:
+def node_source_span(node: Node) -> SourceSpan:
     meta = node_meta(node)
     start = getattr(meta, 'start_pos', None)
     end = getattr(meta, 'end_pos', None)
@@ -87,14 +83,14 @@ def node_source_span(node: Any) -> tuple[int | None, int | None]:
 
     return None, None
 
-def require_number(value: Any) -> None:
+def require_number(value: ShkNumber) -> None:
     if not isinstance(value, ShkNumber):
         raise ShakarTypeError("Expected number")
 
-def token_number(token: Token, _: Any) -> ShkNumber:
+def token_number(token: Token, _: object) -> ShkNumber:
     return ShkNumber(float(token.value))
 
-def token_string(token: Token, _: Any) -> ShkString:
+def token_string(token: Token, _: object) -> ShkString:
     raw = token.value
     token_type = getattr(token, "type", "")
 
@@ -109,7 +105,7 @@ def token_string(token: Token, _: Any) -> ShkString:
 
     return ShkString(raw)
 
-def stringify(value: Any) -> str:
+def stringify(value: ShkValue | None) -> str:
     if isinstance(value, ShkString):
         return value.value
 
@@ -124,10 +120,10 @@ def stringify(value: Any) -> str:
 
     return str(value)
 
-def collect_free_identifiers(node: Any, callback: Callable[[str], None]) -> None:
+def collect_free_identifiers(node: Node, callback: Callable[[str], None]) -> None:
     skip_nodes = {'field', 'fieldsel', 'fieldfan', 'fieldlist', 'key_ident', 'key_string'}
 
-    def walk(n: Any) -> None:
+    def walk(n: Node) -> None:
         if is_token(n):
             if token_kind(n) == 'IDENT':
                 callback(n.value)
