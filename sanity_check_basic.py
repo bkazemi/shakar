@@ -543,6 +543,15 @@ using resource:
         None,
     )
 )
+runtime_scenario(
+    lambda: _rt(
+        "using-inlinebody",
+        """resource := { enter: fn(): 5 }
+using resource: resource + 1""",
+        ("number", 6),
+        None,
+    )
+)
 runtime_scenario(lambda: _rt("lambda-subject-direct-call", 'a := &(.trim()); a(" B")', ("string", "B"), None))
 runtime_scenario(lambda: _rt("floor-div-basic", '7 // 2', ("number", 3), None))
 runtime_scenario(lambda: _rt("floor-div-negative", '-7 // 2', ("number", -4), None))

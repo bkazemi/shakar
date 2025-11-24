@@ -78,7 +78,11 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
     with ctx:
         try:
-            result = eval_indent_block(body_node, frame, eval_func)
+            label = tree_label(body_node)
+            if label == "inlinebody":
+                result = eval_inline_body(body_node, frame, eval_func)
+            else:
+                result = eval_indent_block(body_node, frame, eval_func)
         except BaseException as e:  # noqa: BLE001
             exc = e
 

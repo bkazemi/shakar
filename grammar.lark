@@ -372,7 +372,7 @@ deferafter: "after" (IDENT | "(" (IDENT ("," IDENT)*)? ")")
 
 simplecall: callee "(" arglistnamedmixed? ")"
 
-!usingstmt: USING ("[" IDENT "]")? expr ("bind" IDENT)? ":" indentblock
+!usingstmt: USING ("[" IDENT "]")? expr ("bind" IDENT)? ":" (inlinebody | indentblock)
 
 assert: ASSERT expr ("," expr)?
 
