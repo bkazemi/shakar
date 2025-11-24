@@ -7,7 +7,7 @@ from lark import Tree, Token
 
 from ..runtime import Frame, ShkFn, ShkNull, ShkValue, ShakarRuntimeError, ShakarTypeError
 from ..tree import Node, is_token, is_tree, tree_label
-from .blocks import eval_indent_block, temporary_bindings
+from .blocks import eval_indent_block, eval_inline_body, temporary_bindings
 from .chains import call_value
 from .common import expect_ident_token as _expect_ident_token
 from .control import _build_error_payload
