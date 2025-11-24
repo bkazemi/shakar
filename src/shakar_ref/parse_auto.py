@@ -1,7 +1,7 @@
 import sys
 import argparse
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Iterator, List, Optional, Tuple, TypeAlias
 
 from lark import Lark, Transformer, Tree, UnexpectedInput, Token, v_args
 from lark.visitors import Discard
@@ -30,8 +30,10 @@ else:  # script execution (e.g. tools invoking parser directly)
         node_meta,
     )
 
-def pretty_inline(t, indent=""):
-    lines = []
+InterpolationSegment: TypeAlias = tuple[str, str | Node]
+
+def pretty_inline(t: Node, indent: str = "") -> List[str]:
+    lines: List[str] = []
 
     if is_tree(t):
         children = tree_children(t)
@@ -58,7 +60,7 @@ def enforce_subject_scope(tree: Tree) -> None:
     """Validate that bare '.' only appears inside an anchor/binder context."""
     errors: List[str] = []
 
-    def visit(node: Any, depth: int) -> None:
+    def visit(node: Node, depth: int) -> None:
         if not is_tree(node):
             return
 
@@ -101,8 +103,8 @@ def enforce_subject_scope(tree: Tree) -> None:
 
 class ChainNormalize(Transformer):
     @staticmethod
-    def _fuse(items):
-        out: List[Any] = []
+    def _fuse(items: List[Node]) -> List[Node]:
+        out: List[Node] = []
         i = 0
 
         while i < len(items):
@@ -127,18 +129,18 @@ class ChainNormalize(Transformer):
                     lam_children = ([params] if params is not None else []) + ([body] if body is not None else [])
                     args_node = Tree('args', [Tree('amp_lambda', lam_children)])
                     out.append(Tree('method', [name, args_node]))
-                    i += 2
-                    continue
+                i += 2
+                continue
 
             out.append(node)
             i += 1
 
         return out
 
-    def implicit_chain(self, c):
+    def implicit_chain(self, c: List[Node]) -> Tree:
         return Tree('implicit_chain', self._fuse(c))
 
-    def explicit_chain(self, c):
+    def explicit_chain(self, c: List[Node]) -> Tree:
         return Tree('explicit_chain', self._fuse(c))
 
 class Prune(Transformer):
@@ -214,7 +216,7 @@ class Prune(Transformer):
     def obj_sep(self, _c):
         return Discard
 
-    def _transform_string_token(self, token: Token):
+    def _transform_string_token(self, token: Token) -> Node:
         raw = token.value
         if len(raw) < 2:
             return token
@@ -227,7 +229,7 @@ class Prune(Transformer):
         if not segments:
             return token
 
-        nodes: List[Any] = []
+        nodes: List[Node] = []
 
         for kind, payload in segments:
             if kind == "text":
@@ -244,7 +246,7 @@ class Prune(Transformer):
             result.meta = meta
         return result
 
-    def _transform_shell_string_token(self, token: Token):
+    def _transform_shell_string_token(self, token: Token) -> Tree:
         raw = token.value
         if len(raw) < 4:
             return Tree("shell_string", [Token("STRING_TEXT", raw)])
@@ -257,7 +259,7 @@ class Prune(Transformer):
             return Tree("shell_string", [Token("STRING_TEXT", raw[2:])])
 
         segments = self._split_shell_interpolation_segments(body, token)
-        nodes: List[Any] = []
+        nodes: List[Node] = []
 
         for kind, payload in segments:
             if kind == "text":
@@ -282,8 +284,8 @@ class Prune(Transformer):
             result.meta = meta
         return result
 
-    def _split_interpolation_segments(self, text: str, token: Token) -> List[Tuple[str, Any]]:
-        parts: List[Tuple[str, Any]] = []
+    def _split_interpolation_segments(self, text: str, token: Token) -> List[InterpolationSegment]:
+        parts: List[InterpolationSegment] = []
         literal: List[str] = []
         index = 0
         length = len(text)
@@ -326,8 +328,8 @@ class Prune(Transformer):
             parts.append(("text", "".join(literal)))
         return parts
 
-    def _split_shell_interpolation_segments(self, text: str, token: Token) -> List[Tuple[str, Any]]:
-        parts: List[Tuple[str, Any]] = []
+    def _split_shell_interpolation_segments(self, text: str, token: Token) -> List[InterpolationSegment]:
+        parts: List[InterpolationSegment] = []
         literal: List[str] = []
         index = 0
         length = len(text)
@@ -417,7 +419,7 @@ class Prune(Transformer):
 
         raise SyntaxError(f"Unterminated interpolation expression in string literal: {token.value!r}")
 
-    def _parse_interpolation_expr(self, expr_src: str):
+    def _parse_interpolation_expr(self, expr_src: str) -> Node:
         parser = self._fragment_parser
         if parser is None:
             raise SyntaxError("String interpolation requires parser configuration")
@@ -426,7 +428,7 @@ class Prune(Transformer):
         pruned = self.__class__().transform(tree)
         return self._unwrap_fragment_expr(pruned)
 
-    def _unwrap_fragment_expr(self, node: Any) -> Any:
+    def _unwrap_fragment_expr(self, node: Node) -> Node:
         current = node
 
         while is_tree(current) and tree_label(current) == 'expr':
@@ -526,7 +528,7 @@ class Prune(Transformer):
                 event_name = node
             elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
                 body = node
-        children: list[Any] = []
+        children: List[Node] = []
 
         if event_name is not None:
             children.append(event_name)
@@ -579,10 +581,10 @@ class Prune(Transformer):
         return self._keep_or_flatten('start_indented', items)
 
     @staticmethod
-    def _is_ident_token(node: Any) -> bool:
+    def _is_ident_token(node: Node) -> bool:
         return is_token(node) and getattr(node, 'type', None) == 'IDENT'
 
-    def _merge_ident_head(self, ident: Token, node: Any) -> Optional[Tree]:
+    def _merge_ident_head(self, ident: Token, node: Node) -> Optional[Tree]:
         if is_tree(node):
             label = tree_label(node)
             children = tree_children(node)
@@ -720,7 +722,7 @@ class Prune(Transformer):
                 params = node
             elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
                 body = node
-        children: list[Any] = []
+        children: List[Node] = []
 
         if name is not None:
             children.append(name)
@@ -768,7 +770,7 @@ class Prune(Transformer):
             elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
                 body = node
 
-        children: list[Any] = []
+        children: List[Node] = []
         if name is not None:
             children.append(name)
         if params is not None:
@@ -778,7 +780,7 @@ class Prune(Transformer):
 
         return Tree('decorator_def', children)
 
-    def _build_anonfn_node(self, parts, allow_params: bool=True) -> Tree:
+    def _build_anonfn_node(self, parts: List[Node], allow_params: bool=True) -> Tree:
         params = None
         body = None
 
@@ -790,7 +792,7 @@ class Prune(Transformer):
             elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
                 body = node
 
-        children: list[Any] = []
+        children: List[Node] = []
         if params is not None:
             children.append(params)
         if body is not None:
@@ -805,9 +807,9 @@ class Prune(Transformer):
         call_node = Tree('call', [])
         return Tree('explicit_chain', [fn_node, call_node])
 
-    def deferstmt(self, c):
+    def deferstmt(self, c: List[Node]) -> Tree:
         label = None
-        deps: List[Any] = []
+        deps: List[Token] = []
         body_node = None
 
         for node in c:
@@ -826,7 +828,7 @@ class Prune(Transformer):
                 else:
                     body_node = self._transform_tree(node)
 
-        children: List[Any] = []
+        children: List[Node] = []
         if label is not None:
             children.append(Tree('deferlabel', [Token('IDENT', label)]))
         if body_node is not None:
@@ -835,19 +837,19 @@ class Prune(Transformer):
             children.append(Tree('deferdeps', deps))
         return Tree('deferstmt', children)
 
-    def returnstmt(self, c):
-        exprs: List[Any] = []
+    def returnstmt(self, c: List[Node]) -> Tree:
+        exprs: List[Node] = []
 
         for node in c:
             if is_token(node) and getattr(node, "type", "") == "RETURN":
                 continue
             exprs.append(node)
         return Tree('returnstmt', exprs)
-    def returnif(self, c):
+    def returnif(self, c: List[Node]) -> Tree:
         return Tree('returnif', c)
 
-    def throwstmt(self, c):
-        exprs: List[Any] = []
+    def throwstmt(self, c: List[Node]) -> Tree:
+        exprs: List[Node] = []
 
         for node in c:
             if is_token(node) and getattr(node, "type", "") == "THROW":
@@ -855,12 +857,12 @@ class Prune(Transformer):
             exprs.append(node)
         return Tree('throwstmt', exprs)
 
-    def _parse_catch_head(self, nodes: List[Any]) -> tuple[Any, Any, List[Token], Any]:
-        try_node = None
-        binder = None
+    def _parse_catch_head(self, nodes: List[Node]) -> tuple[Optional[Node], Optional[Token], List[Token], Optional[Node]]:
+        try_node: Optional[Node] = None
+        binder: Optional[Token] = None
         types: List[Token] = []
-        handler = None
-        flat_nodes: List[Any] = []
+        handler: Optional[Node] = None
+        flat_nodes: List[Node] = []
 
         for node in nodes:
             if is_tree(node) and tree_label(node) == 'catchtail':
@@ -905,14 +907,14 @@ class Prune(Transformer):
             break
         return try_node, binder, types, handler
 
-    def catchexpr(self, c):
+    def catchexpr(self, c: List[Node]) -> Tree:
         nodes = c
 
         if len(c) >= 2 and is_tree(c[1]) and tree_label(c[1]) == 'catchhead':
             nodes = [c[0]] + tree_children(c[1]) + c[2:]
 
         try_node, binder, types, handler = self._parse_catch_head(nodes)
-        children: List[Any] = []
+        children: List[Node] = []
 
         if try_node is not None:
             children.append(try_node)
@@ -925,10 +927,10 @@ class Prune(Transformer):
 
         return Tree('catchexpr', children)
 
-    def walrus_rhs(self, c):
+    def walrus_rhs(self, c: List[Node]) -> Node:
         return c[0] if len(c) == 1 else Tree('walrus_rhs', c)
 
-    def catchstmt(self, c):
+    def catchstmt(self, c: List[Node]) -> Tree:
         try_node, binder, types, body_node = self._parse_catch_head(c)
 
         # If the handler is a simple inline expression, lower to the expression-form catch.
@@ -940,7 +942,7 @@ class Prune(Transformer):
                 body_expr = body_children[0]
 
         if body_expr is not None:
-            children: List[Any] = []
+            children: List[Node] = []
 
             if try_node is not None:
                 children.append(try_node)
@@ -951,7 +953,7 @@ class Prune(Transformer):
             children.append(body_expr)
             return Tree('catchexpr', children)
 
-        children: List[Any] = []
+        children: List[Node] = []
 
         if try_node is not None:
             children.append(try_node)
@@ -1082,7 +1084,7 @@ class ArgTidy(Transformer):
     def arglist(self, c):    return Tree('args', c)   # nicer label
     def arglistnamedmixed(self, c): return Tree('args', c)
 
-def _enforce_toplevel_line_separators(tree, code: str, start_sym: str):
+def _enforce_toplevel_line_separators(tree: Tree, code: str, start_sym: str) -> None:
     """
     Forbid two *top-level* stmtlists on the same physical source line without a semicolon.
     Conservative and meta-spill-proof: only uses each child's *start* position/line.
@@ -1143,7 +1145,7 @@ class ShakarIndenter(Indenter):
     CLOSE_PAREN_types = ["RPAR", "RSQB"]
     tab_len = 8
 
-    def handle_NL(self, token: Token):
+    def handle_NL(self, token: Token) -> Iterator[Token]:
         if self.paren_level > 0:
             return
 
@@ -1208,7 +1210,7 @@ def _remap_ident(t: Token) -> Token:
     t.type = KEYWORDS.get(t.value, t.type)
     return t
 
-def build_parser(grammar_text: str, parser_kind: str, use_indenter: bool, start_sym: str):
+def build_parser(grammar_text: str, parser_kind: str, use_indenter: bool, start_sym: str) -> Lark:
     _ = use_indenter  # legacy flag; indentation handling now always on
     parser = Lark(
         grammar_text,
@@ -1245,7 +1247,7 @@ def looks_like_offside(code: str) -> bool:
             return True
     return False
 
-def parse_or_first_error(parser, src: str):
+def parse_or_first_error(parser: Lark, src: str) -> Tree:
     """
     Try to parse and, on failure, re-raise the *first* UnexpectedInput encountered
     so that the caller (main) can print a concise, consistent error message with
@@ -1269,16 +1271,16 @@ def parse_or_first_error(parser, src: str):
         # If all prefixes were ok, re-raise the original (usually EOF/dedent problem)
         raise whole_err
 
-def validate_named_args(tree):
-    def is_namedarg(n):
+def validate_named_args(tree: Tree) -> None:
+    def is_namedarg(n: Node) -> bool:
         return is_tree(n) and tree_label(n) == "namedarg"
 
-    def unwrap(n):
+    def unwrap(n: Node) -> Node:
         if is_tree(n) and tree_label(n) in {"argitem", "arg"}:
             return tree_children(n)[0] if tree_children(n) else n
         return n
 
-    def visit(n):
+    def visit(n: Node) -> None:
         if not is_tree(n):
             return
 
@@ -1314,10 +1316,9 @@ def validate_named_args(tree):
     visit(tree)
 
 
-
-def validate_hoisted_binders(tree):
-    def hoist_info_from_node(n):
-        res = []
+def validate_hoisted_binders(tree: Tree) -> None:
+    def hoist_info_from_node(n: Node) -> list[tuple[str, bool]]:
+        res: list[tuple[str, bool]] = []
 
         if is_tree(n) and tree_label(n) == "forindexed":
             for ch in tree_children(n):
@@ -1361,7 +1362,7 @@ def validate_hoisted_binders(tree):
                             res.append((item.value, False))
         return res
 
-    def walk(n):
+    def walk(n: Node) -> None:
         if not is_tree(n):
             return
         pairs = hoist_info_from_node(n)
@@ -1451,6 +1452,9 @@ def parse_to_ast(
         pruned = ChainNormalize().transform(pruned)
     normalized = _normalize_root(pruned)
     canonical = _canonicalize_ast(normalized)
+
+    if canonical is None:
+        raise SyntaxError("Canonicalization produced no AST")
     canonical = _desugar_call_holes(canonical)
     canonical = _infer_amp_lambda_params(canonical)
 
@@ -1504,10 +1508,10 @@ def _strip_discard(node: Tree) -> Tree:
     kept = [child for child in tree_children(node) if child is not Discard]
     return Tree(node.data, kept)
 
-def _desugar_call_holes(node: Any) -> Any:
+def _desugar_call_holes(node: Node) -> Node:
     if is_token(node) or not is_tree(node):
         return node
-    children = getattr(node, "children", [])
+    children = node.children
     changed = False
 
     for idx, child in enumerate(list(children)):
@@ -1516,8 +1520,8 @@ def _desugar_call_holes(node: Any) -> Any:
         if lowered is not child:
             children[idx] = lowered
             changed = True
-    candidate = node
 
+    candidate = node
     if tree_label(candidate) == 'explicit_chain':
         replacement = _chain_to_lambda_if_holes(candidate)
 
@@ -1525,8 +1529,8 @@ def _desugar_call_holes(node: Any) -> Any:
             return replacement
     return candidate
 
-def _chain_to_lambda_if_holes(chain: Tree) -> Tree | None:
-    def _contains_hole(node: Any) -> bool:
+def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
+    def _contains_hole(node: Node) -> bool:
         if is_token(node) or not is_tree(node):
             return False
 
@@ -1550,7 +1554,7 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Tree | None:
     if hole_call_index is not None and hole_call_index + 1 < len(ops):
         raise SyntaxError("Hole partials cannot be immediately invoked; assign or pass the partial before calling it")
 
-    def clone(node: Any) -> Any:
+    def clone(node: Node) -> Node:
         if is_token(node):
             return node
 
@@ -1573,7 +1577,7 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Tree | None:
     paramlist = Tree('paramlist', params)
     return Tree('amp_lambda', [paramlist, cloned_chain])
 
-def _infer_amp_lambda_params(node: Any) -> Any:
+def _infer_amp_lambda_params(node: Node) -> Node:
     if is_token(node) or not is_tree(node):
         return node
     label = tree_label(node)
@@ -1594,7 +1598,7 @@ def _infer_amp_lambda_params(node: Any) -> Any:
     node.children = [_infer_amp_lambda_params(child) for child in tree_children(node)]
     return node
 
-def _collect_lambda_free_names(node: Any) -> tuple[List[str], bool]:
+def _collect_lambda_free_names(node: Node) -> tuple[List[str], bool]:
     names: List[str] = []
     uses_subject = False
 
@@ -1602,7 +1606,7 @@ def _collect_lambda_free_names(node: Any) -> tuple[List[str], bool]:
         if name not in names:
             names.append(name)
 
-    def walk(n: Any, parent_label: Optional[str]) -> None:
+    def walk(n: Node, parent_label: Optional[str]) -> None:
         nonlocal uses_subject
 
         if is_tree(n):
@@ -1642,12 +1646,12 @@ def _collect_lambda_free_names(node: Any) -> tuple[List[str], bool]:
     walk(node, None)
     return names, uses_subject
 
-def _get_ident_value(node: Any) -> Optional[str]:
+def _get_ident_value(node: Node) -> Optional[str]:
     if is_token(node) and getattr(node, 'type', None) == 'IDENT':
         return node.value
     return None
 
-def _canonicalize_ast(node: Any) -> Any:
+def _canonicalize_ast(node: Node) -> Optional[Node]:
     if is_token(node):
         return None if node.type in _IGNORED_TOKEN_TYPES else node
 
@@ -1655,7 +1659,7 @@ def _canonicalize_ast(node: Any) -> Any:
         return node
     label = tree_label(node)
     renamed = _CANONICAL_RENAMES.get(label, label)
-    new_children: List[Any] = []
+    new_children: List[Node] = []
 
     for child in tree_children(node):
         canon = _canonicalize_ast(child)
@@ -1669,7 +1673,7 @@ def _canonicalize_ast(node: Any) -> Any:
     return Tree(renamed, new_children)
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("source", nargs="?", help="Path to a source file (defaults to stdin)")
     ap.add_argument("-g", "--grammar", default="grammar.lark", help="Path to grammar.lark")
@@ -1722,7 +1726,7 @@ def main():
         enforce_subject_scope(tree)
         print("OK")
 
-def _prune_assert(_self, c):
+def _prune_assert(_self: Transformer, c: List[Node]) -> Tree:
     filtered = [node for node in c if not (is_token(node) and getattr(node, "type", "") == "ASSERT")]
     node = Tree('assert', filtered)
     meta = getattr(c[0], 'meta', None) if c else None
@@ -1737,8 +1741,8 @@ setattr(Prune, 'assert', _prune_assert)
 if __name__ == "__main__":
     main()
 
-def _first_ident(node: Any) -> str | None:
-    queue = [node]
+def _first_ident(node: Node) -> Optional[str]:
+    queue: List[Node] = [node]
 
     while queue:
         cur = queue.pop(0)
