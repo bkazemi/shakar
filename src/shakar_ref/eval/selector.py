@@ -187,7 +187,7 @@ def _selector_slice_from_slicesel(node: Tree, frame: Frame, eval_fn: EvalFunc, c
 
     return SelectorSlice(start=start_val, stop=stop_val, step=step_val, clamp=clamp, exclusive_stop=True)
 
-def _eval_optional_expr(node: Tree | None, frame: Frame, eval_fn: EvalFunc) -> ShkValue | None:
+def _eval_optional_expr(node: Optional[Tree], frame: Frame, eval_fn: EvalFunc) -> Optional[ShkValue]:
     if node is None:
         return None
 
@@ -196,7 +196,7 @@ def _eval_optional_expr(node: Tree | None, frame: Frame, eval_fn: EvalFunc) -> S
 
     return eval_fn(node, frame)
 
-def _eval_selector_atom(node: Tree | None, frame: Frame, eval_fn: EvalFunc) -> ShkValue | None:
+def _eval_selector_atom(node: Optional[Tree], frame: Frame, eval_fn: EvalFunc) -> Optional[ShkValue]:
     if node is None:
         return None
 
@@ -228,7 +228,7 @@ def _eval_selector_atom(node: Tree | None, frame: Frame, eval_fn: EvalFunc) -> S
 
     return eval_fn(child, frame)
 
-def _eval_seloptstop(node: Tree | None, frame: Frame, eval_fn: EvalFunc) -> tuple[ShkValue, bool]:
+def _eval_seloptstop(node: Optional[Tree], frame: Frame, eval_fn: EvalFunc) -> tuple[ShkValue, bool]:
     if node is None:
         return ShkNull(), False
 
@@ -242,7 +242,7 @@ def _eval_seloptstop(node: Tree | None, frame: Frame, eval_fn: EvalFunc) -> tupl
 
     return value, exclusive
 
-def _coerce_selector_number(value: ShkValue | None, allow_none: bool = False) -> Optional[int]:
+def _coerce_selector_number(value: Optional[ShkValue], allow_none: bool = False) -> Optional[int]:
     if value is None or isinstance(value, ShkNull):
         if allow_none:
             return None

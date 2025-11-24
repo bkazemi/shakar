@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, List
+from typing import Callable, List, Optional
 from lark import Token
 
 from ..runtime import (
@@ -31,7 +31,7 @@ from .selector import evaluate_selectorlist, apply_selectors_to_value
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
 def eval_args_node(args_node: Tree | list[Tree] | None, frame: Frame, eval_func: EvalFunc) -> List[ShkValue]:
-    def label(node: Node) -> str | None:
+    def label(node: Node) -> Optional[str]:
         return tree_label(node)
 
     def flatten(node: Node) -> List[Node]:
@@ -79,7 +79,7 @@ def evaluate_index_operand(index_node: Tree, frame: Frame, eval_func: EvalFunc) 
     return eval_func(expr_node, frame)
 
 def apply_slice(recv: ShkValue, arms: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
-    def arm_to_py(node: Node) -> int | None:
+    def arm_to_py(node: Node) -> Optional[int]:
         if tree_label(node) == 'emptyexpr':
             return None
 
@@ -215,7 +215,7 @@ def _index_expr_from_children(children: List[Node]) -> Tree:
 
     raise ShakarRuntimeError("Malformed index expression")
 
-def _default_arg(node: Tree) -> Tree | None:
+def _default_arg(node: Tree) -> Optional[Tree]:
     children = tree_children(node)
     selector_index = None
 

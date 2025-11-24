@@ -5,6 +5,7 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple, TypeVar, Union
 from typing_extensions import Protocol, TypeAlias, TypeGuard
+from .tree import Node
 
 # ---------- Value Model (only Sh* -> Shk*) ----------
 
@@ -97,7 +98,7 @@ class ShkSelector:
 @dataclass
 class ShkDecorator:
     params: Optional[List[str]]
-    body: object
+    body: Node
     frame: 'Frame'
 
 @dataclass
@@ -108,7 +109,7 @@ class DecoratorConfigured:
 @dataclass
 class ShkFn:
     params: Optional[List[str]]  # None for subject-only amp-lambda
-    body: object                    # AST node
+    body: Node                    # AST node
     frame: 'Frame'                   # Closure frame
     decorators: Optional[Tuple[DecoratorConfigured, ...]] = None
     kind: str = "fn"
@@ -135,15 +136,15 @@ class BuiltinMethod:
 
 @dataclass
 class Descriptor:
-    getter: ShkFn | None = None
-    setter: ShkFn | None = None
+    getter: Optional[ShkFn] = None
+    setter: Optional[ShkFn] = None
 
 @dataclass
 class DecoratorContinuation:
     fn: ShkFn
     decorators: Tuple[DecoratorConfigured, ...]
     index: int
-    subject: 'ShkValue | None'
+    subject: Optional['ShkValue']
     caller_frame: 'Frame'
 
     def invoke(self, args_value: ShkValue) -> 'ShkValue':
@@ -183,7 +184,7 @@ ShkValue: TypeAlias = (
     | StdlibFunction
 )
 
-DotValue: TypeAlias = ShkValue | None
+DotValue: TypeAlias = Optional[ShkValue]
 
 class Frame:
     def __init__(self, parent: Optional['Frame']=None, dot: DotValue=None, source: Optional[str]=None):
@@ -256,9 +257,9 @@ class Frame:
 # ---------- Exceptions (keep Shakar* canonical) ----------
 
 class ShakarRuntimeError(Exception):
-    shk_type: str | None
-    shk_data: object | None
-    shk_payload: object | None
+    shk_type: Optional[str]
+    shk_data: Optional[ShkValue]
+    shk_payload: Optional[ShkValue]
 
     def __init__(self, message: str):
         super().__init__(message)
@@ -316,7 +317,7 @@ class ShakarBreakSignal(Exception):
 class ShakarContinueSignal(Exception):
     """Internal control flow for `continue`."""
 
-_SHK_VALUE_TYPES: Tuple[type[object], ...] = (
+_SHK_VALUE_TYPES: Tuple[type, ...] = (
     ShkNull,
     ShkNumber,
     ShkString,
@@ -335,10 +336,10 @@ _SHK_VALUE_TYPES: Tuple[type[object], ...] = (
     StdlibFunction,
 )
 
-def is_shk_value(value: object) -> TypeGuard[ShkValue]:
+def is_shk_value(value: ShkValue | Node) -> TypeGuard[ShkValue]:
     return isinstance(value, _SHK_VALUE_TYPES)
 
-def _ensure_shk_value(value: object) -> ShkValue:
+def _ensure_shk_value(value: ShkValue | Node) -> ShkValue:
     if value is None:
         return ShkNull()
     if is_shk_value(value):
@@ -411,7 +412,7 @@ def register_object(name: str):
 def register_command(name: str):
     return register_method(Builtins.command_methods, name)
 
-def register_stdlib(name: str, *, arity: int | None = None):
+def register_stdlib(name: str, *, arity: Optional[int] = None):
     def dec(fn: StdlibFn):
         Builtins.stdlib_functions[name] = StdlibFunction(fn=fn, arity=arity)
         return fn
@@ -498,7 +499,7 @@ def call_builtin_method(recv: ShkValue, name: str, args: List[ShkValue], frame: 
 
     raise ShakarMethodNotFound(recv, name)
 
-def call_shkfn(fn: ShkFn, positional: List[ShkValue], subject: ShkValue | None, caller_frame: 'Frame') -> ShkValue:
+def call_shkfn(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue], caller_frame: 'Frame') -> ShkValue:
     """
     Subjectful call semantics:
     - subject is available to callee as frame.dot
@@ -511,7 +512,7 @@ def call_shkfn(fn: ShkFn, positional: List[ShkValue], subject: ShkValue | None, 
 
     return _call_shkfn_raw(fn, positional, subject, caller_frame)
 
-def _call_shkfn_raw(fn: ShkFn, positional: List[ShkValue], subject: ShkValue | None, caller_frame: 'Frame') -> ShkValue:
+def _call_shkfn_raw(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue], caller_frame: 'Frame') -> ShkValue:
     _ = caller_frame
     from .evaluator import eval_node  # local import to avoid cycle
 
@@ -547,7 +548,7 @@ def _call_shkfn_raw(fn: ShkFn, positional: List[ShkValue], subject: ShkValue | N
     except ShakarReturnSignal as signal:
         return signal.value
 
-def _call_shkfn_with_decorators(fn: ShkFn, positional: List[ShkValue], subject: ShkValue | None, caller_frame: 'Frame') -> ShkValue:
+def _call_shkfn_with_decorators(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue], caller_frame: 'Frame') -> ShkValue:
     chain = fn.decorators or ()
     args = ShkArray(list(positional))
 
@@ -558,7 +559,7 @@ def _run_decorator_chain(
     chain: Tuple[DecoratorConfigured, ...],
     index: int,
     args_value: ShkArray,
-    subject: ShkValue | None,
+    subject: Optional[ShkValue],
     caller_frame: 'Frame',
 ) -> ShkValue:
     if index >= len(chain):
@@ -578,7 +579,7 @@ def _execute_decorator_instance(
     inst: DecoratorConfigured,
     continuation: DecoratorContinuation,
     args_value: ShkArray,
-    subject: ShkValue | None,
+    subject: Optional[ShkValue],
     caller_frame: 'Frame',
 ) -> ShkValue:
     from .evaluator import eval_node  # defer to avoid cycle

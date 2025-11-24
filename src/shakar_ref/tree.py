@@ -25,7 +25,7 @@ def tree_children(node: Node) -> List[Node]:
 
     return list(children)
 
-def node_meta(node: Node) -> object | None:
+def node_meta(node: Node) -> Optional[Node]:
     return getattr(node, "meta", None)
 
 def child_by_label(node: Node, label: str) -> Optional[Node]:

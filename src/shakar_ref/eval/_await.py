@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from typing import Awaitable, Callable, Iterable, List, TypeVar, TypedDict
+from typing import Awaitable, Callable, Iterable, List, Optional, TypeVar, TypedDict
 
 from ..runtime import Frame, ShkNull, ShkObject, ShkString, ShkValue, ShakarRuntimeError
 from ..tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label
@@ -14,7 +14,7 @@ EvalFunc = Callable[[Tree, Frame], ShkValue]
 class AwaitArm(TypedDict):
     label: str
     expr: Tree
-    body: Tree | None
+    body: Optional[Tree]
 _T = TypeVar("_T")
 
 def _wrap_awaitable(value: Awaitable[ShkValue] | ShkValue) -> Awaitable[ShkValue]:
@@ -121,7 +121,7 @@ def _collect_await_arms(list_node: Tree, prefix: str) -> list[AwaitArm]:
 
     return arms
 
-def _extract_trailing_body(children: List[Node]) -> Tree | None:
+def _extract_trailing_body(children: List[Node]) -> Optional[Tree]:
     seen_rpar = False
 
     for child in children:

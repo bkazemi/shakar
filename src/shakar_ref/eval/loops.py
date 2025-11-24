@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Iterable, List
+from typing import Callable, Iterable, List, Optional
 
 from lark import Token, Tree
 
@@ -64,7 +64,7 @@ def _parse_overspec(node: Tree) -> tuple[Tree, list[dict[str, ShkValue]]]:
 
     return iter_expr_node, binders
 
-def _extract_loop_iter_and_body(children: List[Node]) -> tuple[Node | None, Tree | None]:
+def _extract_loop_iter_and_body(children: List[Node]) -> tuple[Optional[Node], Optional[Tree]]:
     iter_expr = None
     body_node = None
 
@@ -91,7 +91,7 @@ def _extract_loop_iter_and_body(children: List[Node]) -> tuple[Node | None, Tree
 
     return iter_expr, body_node
 
-def _extract_clause(node: Tree, label: str) -> tuple[Node | None, Node]:
+def _extract_clause(node: Tree, label: str) -> tuple[Optional[Node], Node]:
     nodes = [child for child in tree_children(node) if not is_token(child)]
 
     if label == "else":
@@ -230,7 +230,7 @@ def _apply_comp_binders_wrapper(binders: list[dict[str, ShkValue]], element: Shk
         outer_frame,
     )
 
-def _prepare_comprehension(n: Tree, frame: Frame, head_nodes: list[Tree], eval_func: EvalFunc) -> tuple[Tree, list[dict[str, ShkValue]], Tree | None]:
+def _prepare_comprehension(n: Tree, frame: Frame, head_nodes: list[Tree], eval_func: EvalFunc) -> tuple[Tree, list[dict[str, ShkValue]], Optional[Tree]]:
     comphead = child_by_label(n, "comphead")
     if comphead is None:
         raise ShakarRuntimeError("Malformed comprehension")
@@ -360,7 +360,7 @@ def eval_for_in(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     iter_source = eval_func(iter_expr, frame)
     iterable = _iterable_values(iter_source)
     outer_dot = frame.dot
-    object_pairs: list[tuple[str, ShkValue]] | None = None
+    object_pairs: Optional[list[tuple[str, ShkValue]]] = None
 
     if isinstance(iter_source, ShkObject):
         object_pairs = list(iter_source.slots.items())

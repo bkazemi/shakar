@@ -1,17 +1,20 @@
 from __future__ import annotations
 
-from pathlib import Path
-from lark import Lark, UnexpectedInput
 import sys
+from pathlib import Path
+from typing import Optional
+
+from lark import Lark, UnexpectedInput
 from .parse_auto import build_parser  # use the project's builder (lexer remap + indenter)
 from .parse_auto import Prune, looks_like_offside
 from .lower import lower
 from .evaluator import eval_expr
+from .runtime import ShkValue
 from .runtime import Frame, init_stdlib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-def _read_grammar(grammar_path: str|None, variant: str="default") -> str:
+def _read_grammar(grammar_path: Optional[str], variant: str="default") -> str:
     if grammar_path:
         p = Path(grammar_path)
         if p.exists():
@@ -31,7 +34,7 @@ def _read_grammar(grammar_path: str|None, variant: str="default") -> str:
 
     raise FileNotFoundError("grammar.lark not found. pass an explicit path")
 
-def make_parser(grammar_path: str|None=None, use_indenter: bool=False, start_sym: str|None=None, grammar_variant: str="default") -> Lark:
+def make_parser(grammar_path: Optional[str]=None, use_indenter: bool=False, start_sym: Optional[str]=None, grammar_variant: str="default") -> Lark:
     g = _read_grammar(grammar_path, variant=grammar_variant)
 
     if start_sym is None:
@@ -44,7 +47,7 @@ def make_parser(grammar_path: str|None=None, use_indenter: bool=False, start_sym
     parser: Lark = build_parser(g, parser_kind=parser_kind, use_indenter=use_indenter, start_sym=start_sym)
     return parser
 
-def run(src: str, grammar_path: str|None=None, use_indenter: bool|None=None, grammar_variant: str="default") -> object:
+def run(src: str, grammar_path: Optional[str]=None, use_indenter: Optional[bool]=None, grammar_variant: str="default") -> ShkValue:
     init_stdlib()
 
     if use_indenter is None:
@@ -53,7 +56,7 @@ def run(src: str, grammar_path: str|None=None, use_indenter: bool|None=None, gra
     else:
         attempts = [use_indenter]
 
-    last_error: UnexpectedInput | None = None
+    last_error: Optional[UnexpectedInput] = None
     tree = None
 
     for flag in attempts:
@@ -83,7 +86,7 @@ def run(src: str, grammar_path: str|None=None, use_indenter: bool|None=None, gra
 
     return eval_expr(ast2, Frame(source=src), source=src)
 
-def _load_source(arg: str | None) -> str:
+def _load_source(arg: Optional[str]) -> str:
     """
     Resolve CLI input into source text.
     - None or "-" => read stdin.

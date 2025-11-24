@@ -78,7 +78,7 @@ def eval_unary(op_node: Node, rhs_node: Tree, frame: Frame, eval_func: EvalFunc,
         case _:
             raise ShakarRuntimeError("Unsupported unary op")
 
-def eval_infix(children: List[Tree], frame: Frame, eval_func: EvalFunc, right_assoc_ops: Set[str] | None=None) -> ShkValue:
+def eval_infix(children: List[Tree], frame: Frame, eval_func: EvalFunc, right_assoc_ops: Optional[Set[str]]=None) -> ShkValue:
     if not children:
         return ShkNull()
 

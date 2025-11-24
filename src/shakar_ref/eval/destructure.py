@@ -17,7 +17,7 @@ from ..tree import Node, Tree, tree_label, tree_children
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
-def _ident_token_value(node: object) -> Optional[str]:
+def _ident_token_value(node: Node) -> Optional[str]:
     if isinstance(node, Token) and node.type == "IDENT":
         return str(node.value)
 

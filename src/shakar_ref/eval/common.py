@@ -87,10 +87,10 @@ def require_number(value: ShkNumber) -> None:
     if not isinstance(value, ShkNumber):
         raise ShakarTypeError("Expected number")
 
-def token_number(token: Token, _: object) -> ShkNumber:
+def token_number(token: Token, _: None) -> ShkNumber:
     return ShkNumber(float(token.value))
 
-def token_string(token: Token, _: object) -> ShkString:
+def token_string(token: Token, _: None) -> ShkString:
     raw = token.value
     token_type = getattr(token, "type", "")
 
@@ -105,7 +105,7 @@ def token_string(token: Token, _: object) -> ShkString:
 
     return ShkString(raw)
 
-def stringify(value: ShkValue | None) -> str:
+def stringify(value: Optional[ShkValue]) -> str:
     if isinstance(value, ShkString):
         return value.value
 

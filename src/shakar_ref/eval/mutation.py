@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Optional
 
 from ..runtime import (
     BoundMethod,
@@ -78,7 +78,7 @@ def set_index_value(recv: ShkValue, index: ShkValue, value: ShkValue, frame: Fra
         case _:
             raise ShakarTypeError("Unsupported index assignment target")
 
-def index_value(recv: ShkValue, idx: ShkValue, frame: Frame, default_thunk: Callable[[], ShkValue] | None=None) -> ShkValue:
+def index_value(recv: ShkValue, idx: ShkValue, frame: Frame, default_thunk: Optional[Callable[[], ShkValue]]=None) -> ShkValue:
     """Read `recv[idx]`, supporting selectors, descriptors, and builtins."""
     match recv:
         case ShkArray(items=items):
@@ -131,7 +131,7 @@ def index_value(recv: ShkValue, idx: ShkValue, frame: Frame, default_thunk: Call
                 raise ShakarTypeError("Default index expects an object receiver")
             raise ShakarTypeError("Unsupported index operation")
 
-def slice_value(recv: ShkValue, start: int | None, stop: int | None, step: int | None) -> ShkValue:
+def slice_value(recv: ShkValue, start: Optional[int], stop: Optional[int], step: Optional[int]) -> ShkValue:
     """Return a shallow slice of an array/string (selector extraction)."""
     s = slice(start, stop, step)
     match recv:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 from lark import Tree
 from ..tree import Node
@@ -11,7 +11,7 @@ from .common import expect_ident_token as _expect_ident_token, ident_token_value
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
-def extract_param_names(params_node: object, context: str="parameter list") -> List[str]:
+def extract_param_names(params_node: Optional[Node], context: str="parameter list") -> List[str]:
     if params_node is None:
         return []
 
@@ -30,7 +30,7 @@ def extract_param_names(params_node: object, context: str="parameter list") -> L
 
     return names
 
-def eval_fn_def(children: List[object], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed function definition")
 
@@ -62,7 +62,7 @@ def eval_fn_def(children: List[object], frame: Frame, eval_func: EvalFunc) -> Sh
 
     return ShkNull()
 
-def eval_decorator_def(children: List[object], frame: Frame) -> ShkValue:
+def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed decorator definition")
 
@@ -85,7 +85,7 @@ def eval_decorator_def(children: List[object], frame: Frame) -> ShkValue:
 
     return ShkNull()
 
-def eval_anonymous_fn(children: List[object], frame: Frame) -> ShkFn:
+def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
     params_node = None
     body_node = None
 

@@ -32,7 +32,7 @@ def _desugar_call_holes(node: Node) -> Node:
 
     return candidate
 
-def _chain_to_lambda_if_holes(chain: Tree) -> Tree | None:
+def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
     def _contains_hole(node: Node) -> bool:
         if is_token(node) or not is_tree(node):
             return False

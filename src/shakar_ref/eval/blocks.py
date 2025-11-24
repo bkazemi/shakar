@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Callable, Iterator, List
+from typing import Callable, Iterator, List, Optional
 
 from lark import Tree
 
@@ -98,7 +98,7 @@ def _run_defer_entries(entries: List[DeferEntry]) -> None:
     for idx in reversed(range(len(entries))):
         run_index(idx)
 
-def schedule_defer(frame: Frame, thunk: Callable[[], None], label: str | None=None, deps: List[str] | None=None) -> None:
+def schedule_defer(frame: Frame, thunk: Callable[[], None], label: Optional[str]=None, deps: Optional[List[str]]=None) -> None:
     if not frame.has_defer_frame():
         raise ShakarRuntimeError("Cannot use defer outside of a block")
 
@@ -129,7 +129,7 @@ def eval_indent_block(node: Tree, frame: Frame, eval_func: EvalFunc, allow_loop_
 
 def eval_oneline_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     branches: List[Tree] = []
-    else_body: Tree | None = None
+    else_body: Optional[Tree] = None
 
     for child in children:
         data = tree_label(child)
@@ -172,7 +172,7 @@ def eval_body_node(body_node: Node, frame: Frame, eval_func: EvalFunc) -> ShkVal
 
     return eval_func(body_node, frame)
 
-def run_body_with_subject(body_node: Node, frame: Frame, subject_value: DotValue, eval_func: EvalFunc, extra_bindings: dict[str, ShkValue] | None=None) -> ShkValue:
+def run_body_with_subject(body_node: Node, frame: Frame, subject_value: DotValue, eval_func: EvalFunc, extra_bindings: Optional[dict[str, ShkValue]]=None) -> ShkValue:
     if extra_bindings:
         with temporary_subject(frame, subject_value), temporary_bindings(frame, extra_bindings):
             return eval_body_node(body_node, frame, eval_func)
@@ -195,7 +195,7 @@ def temporary_bindings(frame: Frame, bindings: dict[str, ShkValue]) -> Iterator[
     records: list[tuple[Frame, str, ShkValue, bool]] = []
 
     for name, value in bindings.items():
-        target: Frame | None = frame
+        target: Optional[Frame] = frame
 
         while target is not None and name not in target.vars:
             target = getattr(target, "parent", None)

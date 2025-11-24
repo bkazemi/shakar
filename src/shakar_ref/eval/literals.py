@@ -9,7 +9,7 @@ from ..runtime import Frame, ShkArray, ShkBool, ShkCommand, ShkNull, ShkString, 
 from ..tree import node_meta, tree_children, tree_label, is_token
 from .common import stringify
 
-EvalFunc = Callable[[object, Frame], ShkValue]
+EvalFunc = Callable[[Tree, Frame], ShkValue]
 
 def eval_keyword_literal(node: Tree) -> ShkValue:
     meta = node_meta(node)
