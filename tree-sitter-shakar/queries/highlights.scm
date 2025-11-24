@@ -10,13 +10,11 @@
   "await" "any" "all"
   "using" "hook" "defer"
   "return" "assert" "dbg"
+  "break" "continue" "throw"
+  "decorator" "fn"
   "and" "or" "not" "is"
   "catch" "set" "get"
 ] @keyword
-
-((identifier) @keyword
-  (#match? @keyword "^(if|elif|else|for|in|over|bind|await|using|hook|defer|return|assert|dbg|and|or|not|is|catch|set|get|fn)$"))
-
 
 (catch_expression "catch" @keyword)
 (catch_statement "catch" @keyword)
@@ -27,12 +25,67 @@
 (guard_chain "|" @operator)
 (guard_chain "|:" @operator)
 
+;; Punctuation (mirror python defaults)
+[
+  "("
+  ")"
+  "["
+  "]"
+  "{"
+  "}"
+] @punctuation.bracket
+
+[
+  ","
+  ":"
+] @punctuation.delimiter
+
+;; Subject placeholder (implicit dot) — distinct capture, with a fallback delimiter color
+((subject_expression ".") @shakar.subject @punctuation.delimiter)
+(subject_expression) @shakar.subject
+(field_expression "." @punctuation.delimiter)
+(field_fan "." @punctuation.delimiter)
+
+;; Selector literals: backtick delimiters
+(selector_literal "`" @punctuation.special)
+
 ;; Literals
 (string) @string
+(raw_string) @string.special
+(raw_hash_string) @string.special
+(shell_string) @string.special
 (number) @number
 
 ;; Comments
 (comment) @comment
+
+;; Identifiers
+(identifier) @variable
+(field_expression name: (identifier) @property)
+
+;; Assignment statements that start with '=' (rebind)
+(rebind_statement "=" @operator)
+
+; Decorators (match Python behavior: bold @ and decorator name)
+((decorator_entry "@" @attribute)
+  (#set! "priority" 110))
+
+((decorator_entry decorator: (primary_expression (identifier) @attribute))
+  (#set! "priority" 110))
+
+((decorator_entry decorator: (call_expression
+    function: (primary_expression (identifier) @attribute)))
+  (#set! "priority" 110))
+
+;; Null-safe call marker (distinguish from infix ?? operator)
+((nullsafe_expression "??") @punctuation.special)
+
+; CCC separator commas
+(ccc_separator) @operator
+
+;; Ternary
+(conditional_expression "?" @operator)
+(conditional_expression ":" @operator)
 
 ;; Operators
 [
@@ -52,6 +105,7 @@
   (assignment_expression "or=" @operator)
   (assignment_expression "+>=" @operator)
 ]
+( "@" @operator)
 (application_expression ".=" @operator)
 (walrus_expression ":=" @operator)
 [
@@ -90,15 +144,8 @@
 ]
 (range_expression "??" @operator)
 
-;; Identifiers
-(identifier) @variable
-(field_expression name: (identifier) @property)
-
 ;; Functions
-(call_expression
-  function: (primary_expression (identifier) @function.call))
-
-(lambda_expression) @function
+(lambda_expression "&" @function.macro)
 
 ;; Objects
 (object_literal "{" @punctuation.bracket)
@@ -108,3 +155,4 @@
 (set_literal "set" @keyword)
 (dict_comprehension "{" @punctuation.bracket)
 (dict_comprehension "}" @punctuation.bracket)
+(ccc_separator) @operator

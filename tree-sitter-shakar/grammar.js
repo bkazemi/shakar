@@ -49,6 +49,7 @@ module.exports = grammar({
     [$.await_arm, $.primary_expression],
     [$.dbg_statement, $.primary_expression],
     [$.dbg_statement],
+    [$.throw_statement],
     [$.slice_selector],
   ],
 
@@ -78,9 +79,14 @@ module.exports = grammar({
       $.await_statement,
       $.await_any_statement,
       $.await_all_statement,
+      $.break_statement,
+      $.continue_statement,
+      $.throw_statement,
       $.using_statement,
       $.defer_statement,
       $.hook_statement,
+      $.decorator_statement,
+      $.function_statement,
       $.catch_statement,
       $.rebind_statement,
       $.dbg_statement,
@@ -143,7 +149,12 @@ module.exports = grammar({
       field('value', $._expression),
       optional(seq('bind', $.identifier)),
       ':',
-      field('body', $.block)
+      field('body', $.block_or_inline)
+    ),
+
+    block_or_inline: $ => choice(
+      $.block,
+      $.inline_body
     ),
 
     defer_statement: $ => seq(
@@ -160,13 +171,33 @@ module.exports = grammar({
       optional($.terminator)
     ),
 
+    decorator_statement: $ => seq(
+      'decorator',
+      field('name', $.identifier),
+      optional(seq('(', optional($.parameter_list), ')')),
+      ':',
+      field('body', $.block),
+      optional($.terminator)
+    ),
+
+    function_statement: $ => seq(
+      optional($.decorator_list),
+      'fn',
+      field('name', $.identifier),
+      '(',
+      optional($.parameter_list),
+      ')',
+      ':',
+      field('body', $.block),
+      optional($.terminator)
+    ),
+
     catch_statement: $ => seq(
       field('subject', $._expression),
       'catch',
-      choice(
-        seq(':', field('body', $.block)),
-        field('body', $.brace_block)
-      ),
+      optional($.catch_tail),
+      ':',
+      field('body', $.block),
       optional($.terminator)
     ),
 
@@ -181,6 +212,16 @@ module.exports = grammar({
       field('subject', $.await_target),
       ':',
       field('body', $.block)
+    ),
+
+    break_statement: $ => seq('break', optional($.terminator)),
+
+    continue_statement: $ => seq('continue', optional($.terminator)),
+
+    throw_statement: $ => seq(
+      'throw',
+      optional(field('value', $._expression)),
+      optional($.terminator)
     ),
 
     await_any_statement: $ => seq(
@@ -212,8 +253,8 @@ module.exports = grammar({
 
     guard_chain: $ => seq(
       $.guard_branch,
-      repeat(seq('|', $.guard_branch)),
-      optional(seq('|:', $.inline_body))
+      repeat(seq(choice('|', '||'), $.guard_branch)),
+      optional(seq(choice('|:', '||:'), $.inline_body))
     ),
 
     await_guard_chain: $ => seq(
@@ -319,6 +360,7 @@ module.exports = grammar({
       $.binary_expression,
       $.unary_expression,
       $.await_expression,
+      $.function_expression,
       $.call_expression,
       $.lambda_expression,
       $.primary_expression
@@ -361,7 +403,7 @@ module.exports = grammar({
     catch_expression: $ => prec.left(PREC.catch, seq(
       field('subject', $._expression),
       'catch',
-      optional(field('alias', $.identifier)),
+      optional($.catch_tail),
       choice(
         seq('=>', field('handler', $._expression)),
         seq(':', field('handler', $.inline_body))
@@ -371,12 +413,17 @@ module.exports = grammar({
     catch_sugar_expression: $ => prec.left(PREC.catch, seq(
       field('subject', $._expression),
       '@@',
-      optional(field('alias', $.identifier)),
+      optional($.catch_tail),
       choice(
         seq('=>', field('handler', $._expression)),
         seq(':', field('handler', $.inline_body))
       )
     )),
+
+    catch_tail: $ => choice(
+      seq('(', $.identifier, repeat(seq(',', $.identifier)), ')', optional(seq('bind', $.identifier))),
+      $.identifier
+    ),
 
     conditional_expression: $ => prec.right(PREC.conditional, seq(
       field('condition', $._expression),
@@ -394,7 +441,12 @@ module.exports = grammar({
     compare_expression: $ => prec.left(PREC.compare, seq(
       $._expression,
       choice('==','!=','<=','>=','<','>','is','in','!is','not','!in'),
-      $._expression
+      $._expression,
+      repeat(seq(
+        alias(',', $.ccc_separator),
+        choice('==','!=','<=','>=','<','>','is','in','!is','not','!in'),
+        $._expression
+      ))
     )),
 
     range_expression: $ => prec.left(PREC.nullish, seq(
@@ -422,6 +474,15 @@ module.exports = grammar({
     await_target: $ => choice(
       seq('(', $._expression, ')'),
       $._expression
+    ),
+
+    function_expression: $ => seq(
+      'fn',
+      '(',
+      optional($.parameter_list),
+      ')',
+      ':',
+      field('body', $.block)
     ),
 
     call_expression: $ => prec(PREC.call, seq(
@@ -509,11 +570,24 @@ module.exports = grammar({
       $.call_expression
     )),
 
-    _literal: $ => choice($.string, $.number, $.boolean, $.nil),
+    _literal: $ => choice($.string, $.raw_string, $.raw_hash_string, $.shell_string, $.number, $.boolean, $.nil),
 
     string: _ => choice(
       token(seq('"', repeat(choice(/[^"\\\n]/, /\\./)), '"')),
       token(seq("'", repeat(choice(/[^'\\\n]/, /\\./)), "'"))
+    ),
+
+    raw_string: _ => choice(
+      token(seq('raw"', repeat(/[^"\n]/), '"')),
+      token(seq("raw'", repeat(/[^'\n]/), "'"))
+    ),
+
+    // Simplified raw hash string: raw#" ... "# (no nested "#)
+    raw_hash_string: _ => token(seq('raw#"', repeat(/[^"\n]/), '"#')),
+
+    shell_string: _ => choice(
+      token(seq('sh"', repeat(choice(/[^"\\\n]/, /\\./)), '"')),
+      token(seq("sh'", repeat(choice(/[^'\\\n]/, /\\./)), "'"))
     ),
 
     number: _ => token(seq(
@@ -554,6 +628,10 @@ module.exports = grammar({
     ),
 
     parameter_list: $ => commaSep1($.identifier),
+
+    decorator_list: $ => repeat1($.decorator_entry),
+
+    decorator_entry: $ => seq('@', field('decorator', $._expression)),
 
     array_literal: $ => seq(
       '[',
