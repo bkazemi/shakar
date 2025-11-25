@@ -40,6 +40,9 @@
   ":"
 ] @punctuation.delimiter
 
+;; Default selector
+(default_selector "default" @keyword)
+
 ;; Subject placeholder (implicit dot) — distinct capture, with a fallback delimiter color
 ((subject_expression ".") @shakar.subject @punctuation.delimiter)
 (subject_expression) @shakar.subject
@@ -48,6 +51,10 @@
 
 ;; Selector literals: backtick delimiters
 (selector_literal "`" @punctuation.special)
+
+;; Identifiers inside selector literals (allow separate styling, e.g. italics)
+(selector_literal (selector (primary_expression (identifier) @shakar.selector)))
+(selector_literal (selector (slice_selector (primary_expression (identifier)) @shakar.selector)))
 
 ;; Literals
 (string) @string
@@ -70,11 +77,7 @@
 ((decorator_entry "@" @attribute)
   (#set! "priority" 110))
 
-((decorator_entry decorator: (primary_expression (identifier) @attribute))
-  (#set! "priority" 110))
-
-((decorator_entry decorator: (call_expression
-    function: (primary_expression (identifier) @attribute)))
+((decorator_entry decorator: (_) @attribute)
   (#set! "priority" 110))
 
 ;; Null-safe call marker (distinguish from infix ?? operator)
@@ -82,6 +85,34 @@
 
 ; CCC separator commas
 (ccc_separator) @operator
+
+;; await[any]/await[all] keywords and timeout
+(await_any_statement "await" @keyword)
+(await_all_statement "await" @keyword)
+(await_any_expression "await" @keyword)
+(await_all_expression "await" @keyword)
+(await_any_statement "[" @punctuation.bracket)
+(await_all_statement "[" @punctuation.bracket)
+(await_any_expression "[" @punctuation.bracket)
+(await_all_expression "[" @punctuation.bracket)
+(await_any_statement "any" @keyword)
+(await_all_statement "all" @keyword)
+(await_any_expression "any" @keyword)
+(await_all_expression "all" @keyword)
+(await_any_statement "]" @punctuation.bracket)
+(await_all_statement "]" @punctuation.bracket)
+(await_any_expression "]" @punctuation.bracket)
+(await_all_expression "]" @punctuation.bracket)
+(await_any_statement "(" @punctuation.bracket)
+(await_any_statement ")" @punctuation.bracket)
+(await_all_statement "(" @punctuation.bracket)
+(await_all_statement ")" @punctuation.bracket)
+(await_any_expression "(" @punctuation.bracket)
+(await_any_expression ")" @punctuation.bracket)
+(await_all_expression "(" @punctuation.bracket)
+(await_all_expression ")" @punctuation.bracket)
+(await_arm "timeout" @keyword)
+(await_arm name: (identifier) @variable.parameter)
 
 ;; Ternary
 (conditional_expression "?" @operator)
@@ -129,20 +160,10 @@
   (unary_expression "++" @operator)
   (unary_expression "--" @operator)
 ]
-[
-  (compare_expression "==" @operator)
-  (compare_expression "!=" @operator)
-  (compare_expression "<=" @operator)
-  (compare_expression ">=" @operator)
-  (compare_expression "<" @operator)
-  (compare_expression ">" @operator)
-  (compare_expression "is" @operator)
-  (compare_expression "in" @operator)
-  (compare_expression "!is" @operator)
-  (compare_expression "not" @operator)
-  (compare_expression "!in" @operator)
-]
-(range_expression "??" @operator)
+(range_expression "??" @keyword.operator)
+
+;; Comparison operators (including CCC chains)
+(cmp_operator) @operator
 
 ;; Functions
 (lambda_expression "&" @function.macro)
@@ -155,4 +176,3 @@
 (set_literal "set" @keyword)
 (dict_comprehension "{" @punctuation.bracket)
 (dict_comprehension "}" @punctuation.bracket)
-(ccc_separator) @operator

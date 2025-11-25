@@ -10,12 +10,13 @@ const PREC = {
   logical_or: 6,
   logical_and: 7,
   compare: 8,
-  add: 9,
-  mul: 10,
-  pow: 11,
-  unary: 12,
-  call: 13,
-  member: 14,
+  range: 9,
+  add: 10,
+  mul: 11,
+  pow: 12,
+  unary: 13,
+  call: 14,
+  member: 15,
 };
 
 module.exports = grammar({
@@ -27,6 +28,7 @@ module.exports = grammar({
   ],
 
   conflicts: $ => [
+    [$.postfix_expression, $.lvalue],
     [$.object_literal, $.block],
     [$.pattern, $.tuple_pattern],
     [$.primary_expression, $.lvalue],
@@ -42,6 +44,8 @@ module.exports = grammar({
     [$.await_guard_chain, $.await_target],
     [$.await_target, $.primary_expression],
     [$.await_guard_chain, $.await_target, $.primary_expression],
+    [$.await_any_statement, $.await_any_expression],
+    [$.await_all_statement, $.await_all_expression],
     [$.inline_body, $.block],
     [$.brace_block, $.object_literal],
     [$.inline_body, $.dict_comprehension],
@@ -51,6 +55,8 @@ module.exports = grammar({
     [$.dbg_statement],
     [$.throw_statement],
     [$.slice_selector],
+    [$.break_statement, $.terminator],
+    [$.continue_statement, $.terminator],
   ],
 
   supertypes: $ => [
@@ -96,7 +102,7 @@ module.exports = grammar({
       $.comment
     ),
 
-    expression_statement: $ => prec(1, seq($._expression, optional($.terminator))),
+    expression_statement: $ => prec.right(1, seq($._expression, optional($.terminator))),
 
     assignment_statement: $ => seq(
       field('target', $.lvalue),
@@ -152,10 +158,7 @@ module.exports = grammar({
       field('body', $.block_or_inline)
     ),
 
-    block_or_inline: $ => choice(
-      $.block,
-      $.inline_body
-    ),
+    block_or_inline: $ => choice($.block, $.inline_body),
 
     defer_statement: $ => seq(
       'defer',
@@ -244,6 +247,26 @@ module.exports = grammar({
       optional($.await_arm_list),
       ')',
       optional(seq(':', $.block))
+    ),
+
+    await_any_expression: $ => seq(
+      'await',
+      '[',
+      'any',
+      ']',
+      '(',
+      optional($.await_arm_list),
+      ')'
+    ),
+
+    await_all_expression: $ => seq(
+      'await',
+      '[',
+      'all',
+      ']',
+      '(',
+      optional($.await_arm_list),
+      ')'
     ),
 
     guard_statement: $ => seq(
@@ -360,6 +383,8 @@ module.exports = grammar({
       $.binary_expression,
       $.unary_expression,
       $.await_expression,
+      $.await_any_expression,
+      $.await_all_expression,
       $.function_expression,
       $.call_expression,
       $.lambda_expression,
@@ -440,14 +465,39 @@ module.exports = grammar({
 
     compare_expression: $ => prec.left(PREC.compare, seq(
       $._expression,
-      choice('==','!=','<=','>=','<','>','is','in','!is','not','!in'),
+      $.cmp_operator,
       $._expression,
-      repeat(seq(
-        alias(',', $.ccc_separator),
-        choice('==','!=','<=','>=','<','>','is','in','!is','not','!in'),
-        $._expression
-      ))
+      optional($.ccc_chain)
     )),
+
+    cmp_operator: _ => choice('==','!=','<=','>=','<','>','is','in','!is','not','!in'),
+
+    ccc_chain: $ => prec.right(seq(
+      alias(',', $.ccc_separator),
+      $.ccc_leg,
+      repeat(seq(alias(',', $.ccc_separator), $.ccc_leg))
+    )),
+
+    ccc_leg: $ => choice(
+      $.ccc_or_leg,
+      $.ccc_and_leg
+    ),
+
+    ccc_or_leg: $ => seq(
+      'or',
+      $.cmp_operator,
+      $._expression
+    ),
+
+    ccc_and_leg: $ => seq(
+      optional('and'),
+      $.ccc_and_payload
+    ),
+
+    ccc_and_payload: $ => choice(
+      seq($.cmp_operator, $._expression),
+      $._expression
+    ),
 
     range_expression: $ => prec.left(PREC.nullish, seq(
       field('left', $._expression),
@@ -485,10 +535,17 @@ module.exports = grammar({
       field('body', $.block)
     ),
 
-    call_expression: $ => prec(PREC.call, seq(
-      field('function', $._primary),
-      field('arguments', $.call_arguments)
+    postfix_expression: $ => prec.left(PREC.member, seq(
+      choice($.primary_expression, $.postfix_expression),
+      choice(
+        $.call_arguments,
+        $.field_expression,
+        $.index_expression,
+        $.field_fan
+      )
     )),
+
+    call_expression: $ => $.postfix_expression,
 
     call_arguments: $ => seq(
       '(',
@@ -512,7 +569,7 @@ module.exports = grammar({
     ),
 
     lvalue: $ => prec.left(PREC.member, seq(
-      $._primary,
+      $.primary_expression,
       repeat(choice($.field_expression, $.index_expression, $.field_fan))
     )),
 

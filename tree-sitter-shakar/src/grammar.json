@@ -1,5 +1,4 @@
 {
-  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/grammar.schema.json",
   "name": "shakar",
   "word": "identifier",
   "rules": {
@@ -112,7 +111,7 @@
       ]
     },
     "expression_statement": {
-      "type": "PREC",
+      "type": "PREC_RIGHT",
       "value": 1,
       "content": {
         "type": "SEQ",
@@ -1070,6 +1069,88 @@
         }
       ]
     },
+    "await_any_expression": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "await"
+        },
+        {
+          "type": "STRING",
+          "value": "["
+        },
+        {
+          "type": "STRING",
+          "value": "any"
+        },
+        {
+          "type": "STRING",
+          "value": "]"
+        },
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "await_arm_list"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        }
+      ]
+    },
+    "await_all_expression": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "await"
+        },
+        {
+          "type": "STRING",
+          "value": "["
+        },
+        {
+          "type": "STRING",
+          "value": "all"
+        },
+        {
+          "type": "STRING",
+          "value": "]"
+        },
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "await_arm_list"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        }
+      ]
+    },
     "guard_statement": {
       "type": "SEQ",
       "members": [
@@ -1677,6 +1758,14 @@
         },
         {
           "type": "SYMBOL",
+          "name": "await_any_expression"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "await_all_expression"
+        },
+        {
+          "type": "SYMBOL",
           "name": "function_expression"
         },
         {
@@ -2147,57 +2236,95 @@
             "name": "_expression"
           },
           {
-            "type": "CHOICE",
-            "members": [
-              {
-                "type": "STRING",
-                "value": "=="
-              },
-              {
-                "type": "STRING",
-                "value": "!="
-              },
-              {
-                "type": "STRING",
-                "value": "<="
-              },
-              {
-                "type": "STRING",
-                "value": ">="
-              },
-              {
-                "type": "STRING",
-                "value": "<"
-              },
-              {
-                "type": "STRING",
-                "value": ">"
-              },
-              {
-                "type": "STRING",
-                "value": "is"
-              },
-              {
-                "type": "STRING",
-                "value": "in"
-              },
-              {
-                "type": "STRING",
-                "value": "!is"
-              },
-              {
-                "type": "STRING",
-                "value": "not"
-              },
-              {
-                "type": "STRING",
-                "value": "!in"
-              }
-            ]
+            "type": "SYMBOL",
+            "name": "cmp_operator"
           },
           {
             "type": "SYMBOL",
             "name": "_expression"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "ccc_chain"
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "cmp_operator": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "=="
+        },
+        {
+          "type": "STRING",
+          "value": "!="
+        },
+        {
+          "type": "STRING",
+          "value": "<="
+        },
+        {
+          "type": "STRING",
+          "value": ">="
+        },
+        {
+          "type": "STRING",
+          "value": "<"
+        },
+        {
+          "type": "STRING",
+          "value": ">"
+        },
+        {
+          "type": "STRING",
+          "value": "is"
+        },
+        {
+          "type": "STRING",
+          "value": "in"
+        },
+        {
+          "type": "STRING",
+          "value": "!is"
+        },
+        {
+          "type": "STRING",
+          "value": "not"
+        },
+        {
+          "type": "STRING",
+          "value": "!in"
+        }
+      ]
+    },
+    "ccc_chain": {
+      "type": "PREC_RIGHT",
+      "value": 0,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "ALIAS",
+            "content": {
+              "type": "STRING",
+              "value": ","
+            },
+            "named": true,
+            "value": "ccc_separator"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "ccc_leg"
           },
           {
             "type": "REPEAT",
@@ -2214,63 +2341,87 @@
                   "value": "ccc_separator"
                 },
                 {
-                  "type": "CHOICE",
-                  "members": [
-                    {
-                      "type": "STRING",
-                      "value": "=="
-                    },
-                    {
-                      "type": "STRING",
-                      "value": "!="
-                    },
-                    {
-                      "type": "STRING",
-                      "value": "<="
-                    },
-                    {
-                      "type": "STRING",
-                      "value": ">="
-                    },
-                    {
-                      "type": "STRING",
-                      "value": "<"
-                    },
-                    {
-                      "type": "STRING",
-                      "value": ">"
-                    },
-                    {
-                      "type": "STRING",
-                      "value": "is"
-                    },
-                    {
-                      "type": "STRING",
-                      "value": "in"
-                    },
-                    {
-                      "type": "STRING",
-                      "value": "!is"
-                    },
-                    {
-                      "type": "STRING",
-                      "value": "not"
-                    },
-                    {
-                      "type": "STRING",
-                      "value": "!in"
-                    }
-                  ]
-                },
-                {
                   "type": "SYMBOL",
-                  "name": "_expression"
+                  "name": "ccc_leg"
                 }
               ]
             }
           }
         ]
       }
+    },
+    "ccc_leg": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "ccc_or_leg"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "ccc_and_leg"
+        }
+      ]
+    },
+    "ccc_or_leg": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "or"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "cmp_operator"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_expression"
+        }
+      ]
+    },
+    "ccc_and_leg": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "and"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "ccc_and_payload"
+        }
+      ]
+    },
+    "ccc_and_payload": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "cmp_operator"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "_expression"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_expression"
+        }
+      ]
     },
     "range_expression": {
       "type": "PREC_LEFT",
@@ -2306,7 +2457,7 @@
       "members": [
         {
           "type": "PREC_LEFT",
-          "value": 9,
+          "value": 10,
           "content": {
             "type": "SEQ",
             "members": [
@@ -2344,7 +2495,7 @@
         },
         {
           "type": "PREC_LEFT",
-          "value": 10,
+          "value": 11,
           "content": {
             "type": "SEQ",
             "members": [
@@ -2382,7 +2533,7 @@
         },
         {
           "type": "PREC_RIGHT",
-          "value": 11,
+          "value": 12,
           "content": {
             "type": "SEQ",
             "members": [
@@ -2405,7 +2556,7 @@
     },
     "unary_expression": {
       "type": "PREC",
-      "value": 12,
+      "value": 13,
       "content": {
         "type": "SEQ",
         "members": [
@@ -2455,7 +2606,7 @@
     },
     "await_expression": {
       "type": "PREC",
-      "value": 12,
+      "value": 13,
       "content": {
         "type": "SEQ",
         "members": [
@@ -2537,30 +2688,52 @@
         }
       ]
     },
-    "call_expression": {
-      "type": "PREC",
-      "value": 13,
+    "postfix_expression": {
+      "type": "PREC_LEFT",
+      "value": 15,
       "content": {
         "type": "SEQ",
         "members": [
           {
-            "type": "FIELD",
-            "name": "function",
-            "content": {
-              "type": "SYMBOL",
-              "name": "_primary"
-            }
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "primary_expression"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "postfix_expression"
+              }
+            ]
           },
           {
-            "type": "FIELD",
-            "name": "arguments",
-            "content": {
-              "type": "SYMBOL",
-              "name": "call_arguments"
-            }
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "call_arguments"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "field_expression"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "index_expression"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "field_fan"
+              }
+            ]
           }
         ]
       }
+    },
+    "call_expression": {
+      "type": "SYMBOL",
+      "name": "postfix_expression"
     },
     "call_arguments": {
       "type": "SEQ",
@@ -2722,13 +2895,13 @@
     },
     "lvalue": {
       "type": "PREC_LEFT",
-      "value": 14,
+      "value": 15,
       "content": {
         "type": "SEQ",
         "members": [
           {
             "type": "SYMBOL",
-            "name": "_primary"
+            "name": "primary_expression"
           },
           {
             "type": "REPEAT",
@@ -3043,7 +3216,7 @@
     },
     "_primary": {
       "type": "PREC",
-      "value": 14,
+      "value": 15,
       "content": {
         "type": "CHOICE",
         "members": [
@@ -4264,6 +4437,10 @@
   ],
   "conflicts": [
     [
+      "postfix_expression",
+      "lvalue"
+    ],
+    [
       "object_literal",
       "block"
     ],
@@ -4324,6 +4501,14 @@
       "primary_expression"
     ],
     [
+      "await_any_statement",
+      "await_any_expression"
+    ],
+    [
+      "await_all_statement",
+      "await_all_expression"
+    ],
+    [
       "inline_body",
       "block"
     ],
@@ -4355,6 +4540,14 @@
     ],
     [
       "slice_selector"
+    ],
+    [
+      "break_statement",
+      "terminator"
+    ],
+    [
+      "continue_statement",
+      "terminator"
     ]
   ],
   "precedences": [],
@@ -4367,6 +4560,5 @@
   "supertypes": [
     "_statement",
     "_expression"
-  ],
-  "reserved": {}
+  ]
 }
