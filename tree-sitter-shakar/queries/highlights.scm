@@ -70,6 +70,12 @@
 (identifier) @variable
 (field_expression name: (identifier) @property)
 
+((identifier) @type
+  (#match? @type "^[A-Z].*[a-z]"))
+
+((identifier) @constant
+  (#match? @constant "^[A-Z][A-Z0-9_]*$"))
+
 ;; Assignment statements that start with '=' (rebind)
 (rebind_statement "=" @operator)
 
