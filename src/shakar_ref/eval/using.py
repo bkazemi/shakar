@@ -56,11 +56,17 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         raise ShakarRuntimeError("Malformed using statement")
 
     bind_name = None
+    implicit_bind_name = None
+
+    if binder_tok is None and handle_tok is None and is_token(expr_node) and getattr(expr_node, "type", "") == "IDENT":
+        implicit_bind_name = expr_node.value
 
     if binder_tok is not None:
         bind_name = _expect_ident_token(binder_tok, "Using binder")
     elif handle_tok is not None:
         bind_name = _expect_ident_token(handle_tok, "Using handle")
+    elif implicit_bind_name is not None:
+        bind_name = implicit_bind_name
 
     resource = eval_func(expr_node, frame)
 

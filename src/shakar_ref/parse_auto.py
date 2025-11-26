@@ -1546,6 +1546,7 @@ _IGNORED_TOKEN_TYPES = {'SEMI', '_NL', 'INDENT', 'DEDENT'}
 #   stmtlist(stmt, ...)          - ordered statements (no Discard children)
 #   explicit_chain(head, op...)  - head expression followed by postfix ops
 #   fieldfan(fieldlist)          - fan-out fields with IDENT tokens only
+#   valuefan(valuefan_list)      - fan-out expression values (fields/calls) to array
 #   call(args)                   - call nodes always contain a single args tree
 #   args(expr, ...)              - positional arguments in evaluation order
 #   walrus/assign/bind/etc.      - keep grammar names but operands flattened

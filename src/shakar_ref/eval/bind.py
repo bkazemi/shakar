@@ -11,10 +11,6 @@ from .mutation import get_field_value, set_field_value, index_value, set_index_v
 from .postfix import define_new_ident
 from ..utils import fanout_values
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
-ApplyOpFunc = Callable[[ShkValue, Tree, Frame, EvalFunc], ShkValue]
-IndexEvalFunc = Callable[[Tree, Frame, EvalFunc], ShkValue]
-
 __all__ = [
     "FanContext",
     "RebindContext",
@@ -57,6 +53,10 @@ class FanContext:
 
     def snapshot(self) -> List[ShkValue]:
         return list(self.values)
+
+EvalFunc = Callable[[Node, Frame], ShkValue]
+ApplyOpFunc = Callable[[ShkValue | FanContext | RebindContext, Tree, Frame, EvalFunc], ShkValue | FanContext | RebindContext]
+IndexEvalFunc = Callable[[Tree, Frame, EvalFunc], ShkValue]
 
 def assign_ident(name: str, value: ShkValue, frame: Frame, *, create: bool) -> ShkValue:
     """Assign or define an identifier in the given frame."""
@@ -333,6 +333,9 @@ def build_fieldfan_context(owner: ShkValue, fan_node: Tree, frame: Frame) -> Fan
     if not names:
         raise ShakarRuntimeError("Field fan requires at least one identifier")
 
+    if len(set(names)) != len(names):
+        raise ShakarRuntimeError("Field fan cannot contain duplicate fields")
+
     contexts: List[RebindContext] = []
 
     for name in names:
@@ -346,8 +349,17 @@ def build_fieldfan_context(owner: ShkValue, fan_node: Tree, frame: Frame) -> Fan
 
     return FanContext(contexts)
 
-def apply_fan_op(fan: FanContext, op: Tree, frame: Frame, *, apply_op: ApplyOpFunc, eval_func: EvalFunc) -> FanContext:
-    """Apply an explicit-chain op to each fan target and keep contexts/values in sync."""
+def apply_fan_op(fan: FanContext | ShkValue, op: Tree, frame: Frame, *, apply_op: ApplyOpFunc, eval_func: EvalFunc) -> FanContext:
+    """Apply chain ops across a fan context; initial fieldfan builds contexts."""
+    if not isinstance(fan, FanContext):
+        # First encounter: build contexts from base value and the fan node.
+        return build_fieldfan_context(fan, op, frame)
+
+    # Further ops after fan: apply to each context/value.
+    label = tree_label(op)
+    if label == "fieldfan":
+        raise ShakarRuntimeError("Nested field fan not supported inside fanout")
+
     new_contexts: List[RebindContext] = []
     new_values: List[ShkValue] = []
     has_contexts = False
@@ -442,6 +454,8 @@ def apply_assign(
             names = [tok.value for tok in fieldlist_node.children if is_token(tok) and token_kind(tok) == "IDENT"]
             if not names:
                 raise ShakarRuntimeError("Empty field fan-out list")
+            if len(set(names)) != len(names):
+                raise ShakarRuntimeError("Field fan cannot contain duplicate fields")
 
             results: List[ShkValue] = []
 
@@ -503,6 +517,8 @@ def assign_lvalue(
             names = [tok.value for tok in tree_children(fieldlist_node) if is_token(tok) and token_kind(tok) == "IDENT"]
             if not names:
                 raise ShakarRuntimeError("Empty field fan-out list")
+            if len(set(names)) != len(names):
+                raise ShakarRuntimeError("Field fan cannot contain duplicate fields")
 
             vals = fanout_values(value, len(names))
 

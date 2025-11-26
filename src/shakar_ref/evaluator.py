@@ -55,10 +55,12 @@ from .eval.loops import (
     eval_setliteral,
     eval_dictcomp,
 )
+from .eval.fanout import eval_fanout_block
 from .eval.destructure import eval_destructure
 
 from .eval._await import eval_await_value, eval_await_stmt, eval_await_any_call, eval_await_all_call
 from .eval.chains import apply_op, evaluate_index_operand, eval_args_node, call_value
+from .eval.valuefan import eval_valuefan
 from .eval.expr import (
     eval_unary,
     eval_infix,
@@ -327,6 +329,8 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     'awaitallcall': lambda n, frame: eval_await_all_call(n, frame, eval_node),
     'usingstmt': lambda n, frame: eval_using_stmt(n, frame, eval_node),
     'ifstmt': lambda n, frame: eval_if_stmt(n, frame, eval_node),
+    'fanoutblock': lambda n, frame: eval_fanout_block(n, frame, eval_node, apply_op, evaluate_index_operand),
+    'valuefan': lambda n, frame: eval_valuefan(eval_node(n.children[0], frame), n, frame, eval_node, apply_op),
     'catchexpr': lambda n, frame: eval_catch_expr(n.children, frame, eval_node),
     'catchstmt': lambda n, frame: eval_catch_stmt(n.children, frame, eval_node),
     'forin': lambda n, frame: eval_for_in(n, frame, eval_node),

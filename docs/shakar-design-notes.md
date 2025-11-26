@@ -355,7 +355,31 @@ assert ix == [0,1] and vals == [11,12]
     user.first .= .title(); user.last .= .title()
     =user.address.city.title(); =user.address.street.title()
     ```
-  - Rules: only after a path; left-to-right order; duplicates collapse; missing fields error; `.=` RHS uses per-field old value; chain rebinds can fan out and yield list of updated values.
+  - Rules: only after a path; left-to-right order; duplicates are errors; missing fields error; `.=` RHS uses per-field old value; chain rebinds can fan out and yield list of updated values.
+- **Fanout block statement**:
+  - Surface:
+    ```shakar
+    state{
+      .cur = .next
+      .x += 1
+      .name .= .trim()
+    }
+    ```
+  - Desugar:
+    ```shakar
+    state.cur = state.next
+    state.x += 1
+    state.name .= .trim()  # RHS sees old state.name as `.`
+    ```
+  - Semantics: `.` anchors to `state`; each clause starts with `.` and uses `=/.=/+= -= *= /= //= %= **=`; `.=` RHS sees the old field value as `.` then resets `.` to the base for the next clause. Clauses run top→down; base eval once; missing/duplicate fields error; result unused (statement-only).
+- **Fanout value + call auto-spread**:
+  ```shakar
+  values = state.{a, b, c}      # [state.a, state.b, state.c]
+  fn call(): someFn(1, state.{a, b}, 2)  # spreads to positional args
+  ```
+  Items may be field names or chained postfix off a field (calls/indexes). Evaluates base once, items left→right; missing/duplicate fields error. In arglists the resulting tuple/array auto-flattens; illegal in named-arg position unless wrapped (e.g., `f(xs: [state.{a,b}])`). LHS fanout semantics stay the same; shared duplicate/missing checks.
+  Expression-style fanout blocks (`base{ .c - .d }` returning a value) remain in the "considering" bucket.
+# Apply-assign with selector on old LHS + expression-valued anchor
 - **Deep object merge `+>` and `+>=`**: recursive key-wise merge where RHS wins; non-object at a path replaces LHS at that path; arrays/sets/strings/numbers replace wholesale. Additive-tier precedence. `+>=` mutates LHS (must be object or error); `+>` yields value.
 - **Object index with default**:
   ```shakar
@@ -561,6 +585,7 @@ u := makeUser() and .isValid()
   3) Run block. `using` is not subjectful; `.` stays whatever an enclosing binder set (free `.` errors).
   4) Exit always runs (even on error/return): call `r.using_exit(err?)` else `r.exit(err?)` else `r.close()`. If exit method returns truthy, original block error is suppressed. Errors in exit propagate; dual failures preserve both contexts.
   - Single resource per `using`; nest for multiples. Without `bind`, enter value is unnamed. Preferred style: call through bound name; use walrus temporary if dot on resource is needed.
+    - Pragmatics: when `expr` is a bare identifier and no `bind`/handle is given, `using` implicitly rebinds that identifier to the enter value for the body (restored on exit).
   - Examples:
     ```shakar
     using openFile(path): processFile(.)

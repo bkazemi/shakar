@@ -11,6 +11,7 @@ from ..runtime import (
     Frame,
     ShkDecorator,
     ShkFn,
+    ShkArray,
     ShkSelector,
     SelectorIndex,
     ShkValue,
@@ -27,6 +28,7 @@ from .bind import FanContext, RebindContext, apply_fan_op
 from .common import expect_ident_token as _expect_ident_token
 from .mutation import get_field_value, index_value, slice_value
 from .selector import evaluate_selectorlist, apply_selectors_to_value
+from .valuefan import eval_valuefan
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
@@ -49,20 +51,59 @@ def eval_args_node(args_node: Tree | list[Tree] | None, frame: Frame, eval_func:
                 return flatten(node.children[0])
 
             if tag == 'namedarg' and node.children:
-                return flatten(node.children[-1])
+                # Keep namedarg intact; handle spreading logic separately.
+                return [node]
 
         return [node]
 
     if is_tree(args_node):
-        return [eval_func(n, frame) for n in flatten(args_node)]
+        return _eval_args(flatten(args_node), frame, eval_func)
 
     if isinstance(args_node, list):
         res: List[Tree] = []
         for n in args_node:
             res.extend(flatten(n))
-        return [eval_func(n, frame) for n in res]
+        return _eval_args(res, frame, eval_func)
 
     return []
+
+def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[ShkValue]:
+    values: List[ShkValue] = []
+
+    for node in nodes:
+        if _is_namedarg(node):
+            # named args: evaluate value once; no auto-spread
+            value_expr = node.children[-1] if node.children else None
+            if value_expr is None:
+                raise ShakarRuntimeError("Malformed named argument")
+            values.append(eval_func(value_expr, frame))
+            continue
+
+        if _is_raw_fieldfan(node):
+            spread_val = eval_func(node, frame)
+
+            if not isinstance(spread_val, ShkArray):
+                raise ShakarRuntimeError("Fanout argument did not produce an array value")
+
+            values.extend(spread_val.items)
+            continue
+
+        values.append(eval_func(node, frame))
+
+    return values
+
+def _is_namedarg(node: Node) -> bool:
+    return is_tree(node) and tree_label(node) == 'namedarg'
+
+def _is_raw_fieldfan(node: Node) -> bool:
+    """Detect `Base.{a,b}` with no trailing ops so we can auto-flatten in call args."""
+    if not is_tree(node) or tree_label(node) != 'explicit_chain':
+        return False
+
+    ops = node.children[1:]
+    if not (bool(ops) and len(ops) == 1):
+        return False
+    return tree_label(ops[0]) in {'fieldfan', 'valuefan'}
 
 def evaluate_index_operand(index_node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkSelector | ShkValue:
     selectorlist = child_by_label(index_node, 'selectorlist')
@@ -131,6 +172,7 @@ def apply_op(recv: ShkValue | FanContext | RebindContext, op: Tree, frame: Frame
         'index': lambda: apply_index_operation(recv, op, frame, eval_func),
         'slicesel': lambda: apply_slice(recv, op.children, frame, eval_func),
         'fieldfan': lambda: apply_fan_op(recv, op, frame, apply_op=apply_op, eval_func=eval_func),
+        'valuefan': lambda: _valuefan(recv, op, frame, eval_func),
         'call': lambda: call_value(recv, eval_args_node(op.children[0] if op.children else None, frame, eval_func), frame, eval_func),
         'method': lambda: _call_method(recv, op, frame, eval_func),
     }
@@ -168,6 +210,10 @@ def _call_method(recv: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc) ->
         if isinstance(cal, ShkFn):
             return call_shkfn(cal, args, subject=recv, caller_frame=frame)
         raise
+
+def _valuefan(base: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    """Evaluate value fanout `base.{...}` to an array of values."""
+    return eval_valuefan(base, op, frame, eval_func, apply_op)
 
 def call_value(cal: ShkValue, args: List[ShkValue], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     match cal:

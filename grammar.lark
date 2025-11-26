@@ -149,7 +149,7 @@ postfix_call:  "(" arglistnamedmixed? ")" -> call
 imphead: "." IDENT -> field
        | "." "(" arglist? ")"
        | "." LSQB selectorlist ("," "default" ":" expr)? RSQB -> index
-?postfix: postfix_field | postfix_index | postfix_call | postfix_lam1 | postfix_lamn | fieldfan
+?postfix: postfix_field | postfix_index | postfix_call | postfix_lam1 | postfix_lamn | fieldfan | valuefan
 postfixincr: "++" -> incr | "--" -> decr
 
 array: LSQB _NL* [ expr (_NL* "," _NL* expr)* _NL* ("," _NL*)? ] RSQB -> array
@@ -198,6 +198,13 @@ assignor: lvalue "or=" expr
 lvalue: primary ( postfix_field | lv_index )* ( fieldfan )?
 fieldlist: IDENT ("," IDENT)*
 fieldfan: "." "{" fieldlist "}"
+valuefan: "." "{" valuefan_list "}"
+valuefan_list: valuefan_item ("," valuefan_item)*
+valuefan_item: IDENT
+             | identchain
+
+// reuse existing chain pieces: IDENT (postfix)* (calls, fields, indices)
+identchain: IDENT postfix+
 
 breakstmt: BREAK
 continuestmt: CONTINUE
@@ -224,6 +231,7 @@ continuestmt: CONTINUE
           | usingstmt
           | deferstmt
           | hook
+          | fanoutblock
           | catchstmt
           | awaitstmt
           | awaitanycall
@@ -338,6 +346,22 @@ anonymous_fn: FN "(" paramlist? ")" ":" (inlinebody | indentblock)
 anonymous_fn_auto: FN "(" "(" ")" ")" ":" (inlinebody | indentblock)
 
 compound_assign: lvalue (PLUSEQ | MINUSEQ | STAREQ | SLASHEQ | FLOORDIVEQ | MODEQ | POWEQ) expr_nc
+fanoutblock: expr fanblock
+fanblock: "{" fanclause (fanclause_sep fanclause)* fanclause_sep? "}"
+fanclause_sep: _NL+ | SEMI | ","
+fanassignop: "=" -> fanop_assign
+          | APPLYASSIGN -> fanop_apply
+          | PLUSEQ -> fanop_pluseq
+          | MINUSEQ -> fanop_minuseq
+          | STAREQ -> fanop_stareq
+          | SLASHEQ -> fanop_slasheq
+          | FLOORDIVEQ -> fanop_floordiveq
+          | MODEQ -> fanop_modeq
+          | POWEQ -> fanop_poweq
+fanclause: DOT fanpath fanassignop expr
+fanpath: fanseg+
+fanseg: IDENT -> field
+      | "[" selectorlist "]" -> lv_index
 
 // SINGLE-TOKEN separators
 obj_sep: COMMA | SEMI | _NL | INDENT | DEDENT
