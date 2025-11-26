@@ -57,6 +57,8 @@ module.exports = grammar({
     [$.slice_selector],
     [$.break_statement, $.terminator],
     [$.continue_statement, $.terminator],
+    [$.field_fan, $.value_fan],
+    [$.field_fan, $.value_fan_item],
   ],
 
   supertypes: $ => [
@@ -91,6 +93,7 @@ module.exports = grammar({
       $.using_statement,
       $.defer_statement,
       $.hook_statement,
+      $.fanout_block_statement,
       $.decorator_statement,
       $.function_statement,
       $.catch_statement,
@@ -172,6 +175,52 @@ module.exports = grammar({
       ':',
       field('body', $.block),
       optional($.terminator)
+    ),
+
+    fanout_block_statement: $ => seq(
+      field('base', $._expression),
+      field('fanout', $.fan_block),
+      optional($.terminator)
+    ),
+
+    fan_block: $ => seq(
+      '{',
+      optional(seq(
+        $.fan_clause,
+        repeat(seq(optional($.fan_clause_separator), $.fan_clause)),
+        optional($.fan_clause_separator)
+      )),
+      '}'
+    ),
+
+    fan_clause_separator: _ => choice(',', ';'),
+
+    fan_clause: $ => seq(
+      '.',
+      field('path', $.fan_path),
+      field('operator', $.fan_assignment_operator),
+      field('value', $._expression)
+    ),
+
+    fan_path: $ => repeat1($.fan_segment),
+
+    fan_segment: $ => choice(
+      field('field', $.identifier),
+      field('index', $.fan_index)
+    ),
+
+    fan_index: $ => seq('[', $.selector_list, ']'),
+
+    fan_assignment_operator: _ => choice(
+      '=',
+      '.=',
+      '+=',
+      '-=',
+      '*=',
+      '/=',
+      '//=',
+      '%=',
+      '**='
     ),
 
     decorator_statement: $ => seq(
@@ -541,7 +590,8 @@ module.exports = grammar({
         $.call_arguments,
         $.field_expression,
         $.index_expression,
-        $.field_fan
+        $.field_fan,
+        $.value_fan
       )
     )),
 
@@ -603,6 +653,29 @@ module.exports = grammar({
       '{',
       commaSep1($.identifier),
       '}'
+    ),
+
+    value_fan: $ => seq(
+      '.',
+      '{',
+      commaSep1($.value_fan_item),
+      '}'
+    ),
+
+    value_fan_item: $ => choice(
+      field('field', $.identifier),
+      $.value_fan_chain
+    ),
+
+    value_fan_chain: $ => seq(
+      field('head', $.identifier),
+      repeat1(choice(
+        $.call_arguments,
+        $.field_expression,
+        $.index_expression,
+        $.field_fan,
+        $.value_fan
+      ))
     ),
 
     primary_expression: $ => choice(

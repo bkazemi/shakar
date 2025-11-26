@@ -48,6 +48,8 @@
 (subject_expression) @shakar.subject
 (field_expression "." @punctuation.delimiter)
 (field_fan "." @punctuation.delimiter)
+(value_fan "." @punctuation.delimiter)
+(fan_clause "." @punctuation.delimiter)
 
 ;; Selector literals: backtick delimiters
 (selector_literal "`" @punctuation.special)
@@ -75,6 +77,10 @@
 
 ((identifier) @constant
   (#match? @constant "^[A-Z][A-Z0-9_]*$"))
+
+(value_fan_chain head: (identifier) @property)
+(value_fan_item (identifier) @property)
+(fan_segment field: (identifier) @property)
 
 ;; Assignment statements that start with '=' (rebind)
 (rebind_statement "=" @operator)
@@ -167,6 +173,7 @@
   (unary_expression "--" @operator)
 ]
 (range_expression "??" @keyword.operator)
+(fan_assignment_operator) @operator
 
 ;; Comparison operators (including CCC chains)
 (cmp_operator) @operator
