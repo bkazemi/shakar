@@ -156,7 +156,17 @@ def eval_await_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         elif not is_token(child) and expr_node is None:
             expr_node = child
 
-    if expr_node is None or body_node is None:
+    if expr_node is None:
+        raise ShakarRuntimeError("Malformed await statement")
+
+    # If the expression is already a bracketed any/all call node, delegate directly
+    label = tree_label(expr_node)
+    if label == 'awaitanycall':
+        return eval_await_any_call(expr_node, frame, eval_func)
+    if label == 'awaitallcall':
+        return eval_await_all_call(expr_node, frame, eval_func)
+
+    if body_node is None:
         raise ShakarRuntimeError("Malformed await statement")
 
     short_form = _parse_bracketed_any_all(expr_node)
