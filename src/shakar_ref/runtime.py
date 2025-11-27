@@ -260,12 +260,32 @@ class ShakarRuntimeError(Exception):
     shk_type: Optional[str]
     shk_data: Optional[ShkValue]
     shk_payload: Optional[ShkValue]
+    shk_meta: Optional[object]
 
     def __init__(self, message: str):
         super().__init__(message)
         self.shk_type = None
         self.shk_data = None
         self.shk_payload = None
+        self.shk_meta = None
+
+    def __str__(self) -> str:  # pragma: no cover - trivial formatting
+        msg = super().__str__()
+
+        meta = getattr(self, "shk_meta", None)
+        if meta is None:
+            return msg
+
+        line = getattr(meta, "line", None)
+        col = getattr(meta, "column", None)
+
+        if line is None:
+            return msg
+
+        if col is None:
+            return f"{msg} (line {line})"
+
+        return f"{msg} (line {line}, col {col})"
 
 class ShakarTypeError(ShakarRuntimeError):
     pass

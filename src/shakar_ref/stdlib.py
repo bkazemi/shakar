@@ -9,6 +9,27 @@ from .runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, Sh
 from .runtime import ShakarRuntimeError
 from .eval.helpers import is_truthy
 
+@register_stdlib("int")
+def std_int(_frame, args: List[ShkValue]) -> ShkNumber:
+    if len(args) != 1:
+        raise ShakarTypeError("int() expects exactly one argument")
+
+    val = args[0]
+
+    if isinstance(val, ShkNumber):
+        return ShkNumber(int(val.value))
+
+    if isinstance(val, ShkBool):
+        return ShkNumber(int(bool(val.value)))
+
+    if isinstance(val, ShkString):
+        try:
+            return ShkNumber(int(val.value))
+        except ValueError:
+            raise ShakarTypeError("int() expects numeric string or number")
+
+    raise ShakarTypeError("int() expects number or numeric string")
+
 def _render(value):
     if isinstance(value, ShkString):
         return value.value

@@ -1228,8 +1228,10 @@ class ShakarIndenter(Indenter):
         if indent != self.indent_level[-1]:
             raise DedentError('Unexpected dedent to column %s. Expected dedent to %s' % (indent, self.indent_level[-1]))
 
-        if emitted_dedent and indent == 0 and indent_str == "":
-            yield Token.new_borrow_pos(self.NL_type, "\n", token)
+        if emitted_dedent:
+            # Propagate a newline token at the new indentation level so outer blocks
+            # can see the line break that triggered this dedent.
+            yield Token.new_borrow_pos(self.NL_type, "\n" + indent_str, token)
 
 KEYWORDS = {
     "and": "AND",

@@ -16,7 +16,7 @@ from .runtime import (
     init_stdlib,
 )
 
-from .tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label
+from .tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label, node_meta
 
 from .eval.selector import eval_selectorliteral
 from .eval.mutation import set_field_value, set_index_value
@@ -37,7 +37,7 @@ from .eval.blocks import (
     eval_program,
     eval_inline_body,
     eval_indent_block,
-    eval_oneline_guard,
+    eval_guard,
     eval_defer_stmt,
     get_subject,
 )
@@ -78,7 +78,8 @@ from .eval.using import eval_using_stmt
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
-from .eval.common import is_literal_node, token_number, token_string
+from .eval.common import is_literal_node, token_number, token_string, node_source_span
+from types import SimpleNamespace
 
 from .eval.bind import (
     FanContext,
@@ -101,6 +102,32 @@ from .eval.bind import (
     resolve_rebind_lvalue,
 )
 
+
+def _maybe_attach_location(exc: ShakarRuntimeError, node: Node, frame: Frame) -> None:
+    if getattr(exc, "_augmented", False):
+        return
+
+    meta = node_meta(node)
+
+    if meta is not None and getattr(meta, "line", None) is not None:
+        exc.shk_meta = meta
+        exc._augmented = True  # type: ignore[attr-defined]
+        return
+
+    start, _ = node_source_span(node)
+    if start is None:
+        return
+
+    source = getattr(frame, "source", None)
+    if source is None:
+        return
+
+    line = source.count("\n", 0, start) + 1
+    last_nl = source.rfind("\n", 0, start)
+    col = start + 1 if last_nl == -1 else start - last_nl
+    exc.shk_meta = SimpleNamespace(line=line, column=col)
+    exc._augmented = True  # type: ignore[attr-defined]
+
 # ---------------- Public API ----------------
 
 def eval_expr(ast: Node, frame: Optional[Frame]=None, source: Optional[str]=None) -> ShkValue:
@@ -114,11 +141,23 @@ def eval_expr(ast: Node, frame: Optional[Frame]=None, source: Optional[str]=None
         elif not hasattr(frame, 'source'):
             frame.source = None
 
-    return eval_node(ast, frame)
+    try:
+        return eval_node(ast, frame)
+    except ShakarRuntimeError as e:
+        _maybe_attach_location(e, ast, frame)
+        raise
 
 # ---------------- Core evaluator ----------------
 
 def eval_node(n: Node, frame: Frame) -> ShkValue:
+    try:
+        return _eval_node_inner(n, frame)
+    except ShakarRuntimeError as e:
+        _maybe_attach_location(e, n, frame)
+        raise
+
+
+def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
     if is_literal_node(n):
         return n
 
@@ -248,6 +287,7 @@ def eval_node(n: Node, frame: Frame) -> ShkValue:
         case 'keyexpr' | 'keyexpr_nc':
             return eval_node(n.children[0], frame) if n.children else ShkNull()
         case 'destructure':
+            # plain destructure must not create new names; walrus form does.
             return eval_destructure(n, frame, eval_node, create=False, allow_broadcast=False)
         case 'destructure_walrus':
             return eval_destructure(n, frame, eval_node, create=True, allow_broadcast=True)
@@ -261,7 +301,7 @@ def _eval_token(t: Token, frame: Frame) -> ShkValue:
     if handler:
         return handler(t, frame)
 
-    if t.type in ('IDENT', 'ANY', 'ALL'):
+    if t.type in ('IDENT', 'ANY', 'ALL', 'OVER'):
         return frame.get(t.value)
 
     raise ShakarRuntimeError(f"Unhandled token {t.type}:{t.value}")
@@ -342,7 +382,8 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     'formap2': lambda n, frame: eval_for_map2(n, frame, eval_node),
     'inlinebody': lambda n, frame: eval_inline_body(n, frame, eval_node),
     'indentblock': lambda n, frame: eval_indent_block(n, frame, eval_node),
-    'onelineguard': lambda n, frame: eval_oneline_guard(n.children, frame, eval_node),
+    'onelineguard': lambda n, frame: eval_guard(n.children, frame, eval_node),
+    'pack': lambda n, frame: ShkArray([eval_node(ch, frame) for ch in n.children]),
 }
 
 _TOKEN_DISPATCH: dict[str, Callable[[Token, Frame], ShkValue]] = {

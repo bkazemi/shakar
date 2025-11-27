@@ -71,7 +71,9 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
             return Token('IDENT', name)
 
         cloned_children: list[Node] = [clone(child) for child in tree_children(node)]
-        return Tree(label, cloned_children)
+        cloned = Tree(label, cloned_children)
+        setattr(cloned, "_meta", getattr(node, "meta", None))
+        return cloned
 
     cloned_chain = clone(chain)
 
@@ -81,6 +83,9 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
     params = [Token('IDENT', name) for name in holes]
     param_children: list[Token] = list(params)
     paramlist = Tree('paramlist', param_children)
+    setattr(paramlist, "_meta", getattr(chain, "meta", None))
 
     lambda_children: list[Node] = [paramlist, cloned_chain]
-    return Tree('amp_lambda', lambda_children)
+    lam = Tree('amp_lambda', lambda_children)
+    setattr(lam, "_meta", getattr(chain, "meta", None))
+    return lam

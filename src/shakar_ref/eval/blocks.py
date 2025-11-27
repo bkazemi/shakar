@@ -127,7 +127,8 @@ def eval_inline_body(node: Node, frame: Frame, eval_func: EvalFunc, allow_loop_c
 def eval_indent_block(node: Tree, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> ShkValue:
     return eval_program(node.children, frame, eval_func, allow_loop_control=allow_loop_control)
 
-def eval_oneline_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    """Execute guard chains (`cond1, cond2: body`) in inline or indented form."""
     branches: List[Tree] = []
     else_body: Optional[Tree] = None
 
@@ -135,7 +136,7 @@ def eval_oneline_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) 
         data = tree_label(child)
         if data == 'guardbranch':
             branches.append(child)
-        elif data == 'inlinebody':
+        elif data in {'inlinebody', 'indentblock'}:
             else_body = child
 
     outer_dot = frame.dot
@@ -151,11 +152,11 @@ def eval_oneline_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) 
 
         if _is_truthy(cond_val):
             with temporary_subject(frame, outer_dot):
-                return eval_inline_body(body_node, frame, eval_func)
+                return eval_body_node(body_node, frame, eval_func)
 
     if else_body is not None:
         with temporary_subject(frame, outer_dot):
-            return eval_inline_body(else_body, frame, eval_func)
+            return eval_body_node(else_body, frame, eval_func)
 
     frame.dot = outer_dot
 

@@ -170,6 +170,7 @@ def apply_op(recv: ShkValue | FanContext | RebindContext, op: Tree, frame: Frame
         'field': lambda: _get_field(recv, op, frame),
         'fieldsel': lambda: _get_field(recv, op, frame),
         'index': lambda: apply_index_operation(recv, op, frame, eval_func),
+        'lv_index': lambda: apply_index_operation(recv, op, frame, eval_func),
         'slicesel': lambda: apply_slice(recv, op.children, frame, eval_func),
         'fieldfan': lambda: apply_fan_op(recv, op, frame, apply_op=apply_op, eval_func=eval_func),
         'valuefan': lambda: _valuefan(recv, op, frame, eval_func),
@@ -193,7 +194,15 @@ def apply_op(recv: ShkValue | FanContext | RebindContext, op: Tree, frame: Frame
     return result
 
 def _get_field(recv: ShkValue, op: Tree, frame: Frame) -> ShkValue:
-    field_name = _expect_ident_token(op.children[0], "Field access")
+    # field nodes may carry a leading DOT token plus the identifier; pick the name token
+    tokens = [ch for ch in op.children if isinstance(ch, Token)]
+    tok = tokens[-1] if tokens else op.children[0]
+    try:
+        field_name = _expect_ident_token(tok, "Field access")
+    except ShakarRuntimeError as err:
+        meta = getattr(tok, 'meta', None)
+        span = (getattr(meta, 'line', None), getattr(meta, 'column', None)) if meta else (None, None)
+        raise ShakarRuntimeError(f"{err.args[0]} at {span}") from None
     return get_field_value(recv, field_name, frame)
 
 def _call_method(recv: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:

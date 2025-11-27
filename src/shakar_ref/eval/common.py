@@ -19,13 +19,15 @@ def is_token_type(node: Node, kind: str) -> bool:
     return is_token(node) and token_kind(node) == kind
 
 def expect_ident_token(node: Node, context: str) -> str:
-    if is_token(node) and token_kind(node) == 'IDENT':
+    if is_token(node) and token_kind(node) in {'IDENT', 'OVER'}:
         return str(node.value)
 
-    raise ShakarRuntimeError(f"{context} must be an identifier")
+    kind = token_kind(node)
+    val = getattr(node, 'value', None)
+    raise ShakarRuntimeError(f"{context} must be an identifier (got {kind}:{val})")
 
 def ident_token_value(node: Node) -> Optional[str]:
-    if is_token(node) and token_kind(node) == 'IDENT':
+    if is_token(node) and token_kind(node) in {'IDENT', 'OVER'}:
         return str(node.value)
 
     return None

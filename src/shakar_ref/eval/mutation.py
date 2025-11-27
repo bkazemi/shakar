@@ -129,7 +129,10 @@ def index_value(recv: ShkValue, idx: ShkValue, frame: Frame, default_thunk: Opti
         case _:
             if default_thunk is not None:
                 raise ShakarTypeError("Default index expects an object receiver")
-            raise ShakarTypeError("Unsupported index operation")
+
+            raise ShakarTypeError(
+                f"Unsupported index operation on {type(recv).__name__} with {type(idx).__name__}"
+            )
 
 def slice_value(recv: ShkValue, start: Optional[int], stop: Optional[int], step: Optional[int]) -> ShkValue:
     """Return a shallow slice of an array/string (selector extraction)."""
@@ -174,6 +177,8 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
             if name in Builtins.string_methods:
                 return BuiltinMethod(name=name, subject=recv)
             raise ShakarTypeError(f"String has no field '{name}'")
+        case ShkNumber():
+            raise ShakarTypeError(f"Number has no field '{name}'")
         case ShkCommand():
             if name in Builtins.command_methods:
                 return BuiltinMethod(name=name, subject=recv)

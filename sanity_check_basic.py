@@ -432,6 +432,46 @@ value()""",
 )
 runtime_scenario(
     lambda: _rt(
+        "number-len-typeerror",
+        "x := 1\nx.len",
+        None,
+        ShakarTypeError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "object-assign-requires-existing-field",
+        "o := {}\no.x = 1",
+        None,
+        ShakarRuntimeError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "assign-requires-existing-var",
+        "x = 1",
+        None,
+        ShakarRuntimeError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "int-builtin",
+        "int(3) + int(\"4\")",
+        ("number", 7),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "array-concat",
+        "([1,2] + [3]).len",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "decorator-chain-order",
         """decorator mark(label): args[0] = args[0] * 10 + label
 @mark(3)

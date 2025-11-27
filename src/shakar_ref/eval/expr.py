@@ -280,6 +280,8 @@ def as_op(x: Node) -> str:
 def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
     match op:
         case '+':
+            if isinstance(lhs, ShkArray) and isinstance(rhs, ShkArray):
+                return ShkArray(lhs.items + rhs.items)
             if isinstance(lhs, ShkString) or isinstance(rhs, ShkString):
                 return ShkString(stringify(lhs) + stringify(rhs))
             require_number(lhs); require_number(rhs)
