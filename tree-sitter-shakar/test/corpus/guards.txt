@@ -12,20 +12,26 @@ ready(): start() | retries < 3: retry() |: log("nope")
           (postfix_expression
             (primary_expression (identifier))
             (call_arguments)))
-        body: (inline_body (call_expression
-          (postfix_expression
-            (primary_expression (identifier))
-            (call_arguments)))))
+        body: (inline_body
+          (expression_statement
+            (call_expression
+              (postfix_expression
+                (primary_expression (identifier))
+                (call_arguments))))))
       (guard_branch
         condition: (compare_expression
           (primary_expression (identifier))
           (cmp_operator)
           (primary_expression (number)))
-        body: (inline_body (call_expression
-          (postfix_expression
-            (primary_expression (identifier))
-            (call_arguments)))))
-      default_body: (inline_body (call_expression
-        (postfix_expression
-          (primary_expression (identifier))
-          (call_arguments (primary_expression (string)))))))))
+        body: (inline_body
+          (expression_statement
+            (call_expression
+              (postfix_expression
+                (primary_expression (identifier))
+                (call_arguments))))))
+      default_body: (inline_body
+        (expression_statement
+          (call_expression
+            (postfix_expression
+              (primary_expression (identifier))
+              (call_arguments (primary_expression (string))))))))))

@@ -24,6 +24,7 @@ module.exports = grammar({
 
   extras: $ => [
     /[ \t]/,
+    $.newline,
     $.comment,
   ],
 
@@ -34,6 +35,7 @@ module.exports = grammar({
   ],
 
   conflicts: $ => [
+    [$.assignment_statement, $.expression_statement],
     [$.postfix_expression, $.lvalue],
     [$.object_literal, $.block],
     [$.pattern, $.tuple_pattern],
@@ -75,7 +77,6 @@ module.exports = grammar({
     [$.expression_statement, $.catch_statement, $.catch_expression],
     [$.destructure_statement, $.pack_expression],
     [$.destructure_statement],
-    [$.rebind_statement],
     [$.assert_statement],
     [$.defer_statement],
     [$.fanout_block_statement],
@@ -106,7 +107,6 @@ module.exports = grammar({
     _statement: $ => choice(
       $.expression_statement,
       $.assignment_statement,
-      $.apply_assignment_statement,
       $.destructure_statement,
       $.return_statement,
       $.assert_statement,
@@ -123,30 +123,39 @@ module.exports = grammar({
       $.decorator_statement,
       $.function_statement,
       $.catch_statement,
-      $.rebind_statement,
       $.dbg_statement,
       $.if_statement,
       $.while_statement,
       $.for_statement,
       $.guard_statement,
+      $.newline,
       $.comment
     ),
 
     expression_statement: $ => prec.right(1, seq($._expression, optional($.terminator))),
 
-    assignment_statement: $ => seq(
+    assignment_statement: $ => prec.right(2, seq(
       field('target', $.lvalue),
-      '=',
+      choice(
+        '=',
+        '+=',
+        '-=',
+        '*=',
+        '/=',
+        '//=',
+        '%=',
+        '**=',
+        '<<=',
+        '>>=',
+        '&=',
+        '^=',
+        '|=',
+        'or=',
+        '+>='
+      ),
       field('value', $._expression),
       optional($.terminator)
-    ),
-
-    apply_assignment_statement: $ => seq(
-      field('target', $.lvalue),
-      '.=',
-      field('value', $._expression),
-      optional($.terminator)
-    ),
+    )),
 
     destructure_statement: $ => seq(
       field('pattern', $.tuple_pattern),
@@ -270,7 +279,7 @@ module.exports = grammar({
       optional($.parameter_list),
       ')',
       ':',
-      field('body', $.block),
+      field('body', $.block_or_inline),
       optional($.terminator)
     ),
 
@@ -283,17 +292,11 @@ module.exports = grammar({
       optional($.terminator)
     ),
 
-    rebind_statement: $ => seq(
-      '=',
-      field('value', $._expression),
-      optional($.terminator)
-    ),
-
     await_statement: $ => seq(
       'await',
       field('subject', $.await_target),
       ':',
-      field('body', $.block)
+      field('body', $.block_or_inline)
     ),
 
     break_statement: $ => seq('break', optional($.terminator)),
@@ -314,7 +317,7 @@ module.exports = grammar({
       '(',
       optional($.await_arm_list),
       ')',
-      optional(seq(':', $.block))
+      optional(seq(':', $.block_or_inline))
     ),
 
     await_all_statement: $ => seq(
@@ -325,7 +328,7 @@ module.exports = grammar({
       '(',
       optional($.await_arm_list),
       ')',
-      optional(seq(':', $.block))
+      optional(seq(':', $.block_or_inline))
     ),
 
     await_any_expression: $ => seq(
@@ -376,17 +379,17 @@ module.exports = grammar({
       seq(
         'timeout',
         field('timeout', $._expression),
-        optional(seq(':', field('body', $.block)))
+        optional(seq(':', field('body', $.block_or_inline)))
       ),
       seq(
         field('name', $.identifier),
         ':',
         field('value', $._expression),
-        optional(seq(':', field('body', $.block)))
+        optional(seq(':', field('body', $.block_or_inline)))
       ),
       seq(
         field('value', $._expression),
-        optional(seq(':', field('body', $.block)))
+        optional(seq(':', field('body', $.block_or_inline)))
       )
     ),
 
@@ -399,16 +402,29 @@ module.exports = grammar({
       ))
     ),
 
+    _simple_statement: $ => choice(
+      $.expression_statement,
+      $.assignment_statement,
+      $.destructure_statement,
+      $.return_statement,
+      $.assert_statement,
+      $.break_statement,
+      $.continue_statement,
+      $.throw_statement,
+      $.defer_statement,
+      $.dbg_statement
+    ),
+
     inline_body: $ => choice(
       $.brace_block,
-      $._expression
+      $._simple_statement
     ),
 
     if_statement: $ => seq(
       'if',
       field('condition', $._expression),
       ':',
-      field('consequence', $.block),
+      field('consequence', $.block_or_inline),
       repeat($.elif_clause),
       optional($.else_clause)
     ),
@@ -491,7 +507,6 @@ module.exports = grammar({
     terminator: _ => ';',
 
     _expression: $ => choice(
-      $.assignment_expression,
       $.application_expression,
       $.walrus_expression,
       $.catch_expression,
@@ -510,28 +525,6 @@ module.exports = grammar({
       $.lambda_expression,
       $.primary_expression
     ),
-
-    assignment_expression: $ => prec.right(PREC.assignment, seq(
-      field('target', $.lvalue),
-      choice(
-        '=',
-        '+=',
-        '-=',
-        '*=',
-        '/=',
-        '//=',
-        '%=',
-        '**=',
-        '<<=',
-        '>>=',
-        '&=',
-        '^=',
-        '|=',
-        'or=',
-        '+>='
-      ),
-      field('value', $._expression)
-    )),
 
     application_expression: $ => prec.right(PREC.walrus, seq(
       field('target', $.lvalue),
@@ -652,7 +645,7 @@ module.exports = grammar({
       optional($.parameter_list),
       ')',
       ':',
-      field('body', $.block)
+      field('body', $.block_or_inline)
     ),
 
     postfix_expression: $ => prec.left(PREC.member, seq(
@@ -761,6 +754,7 @@ module.exports = grammar({
       $.nullsafe_expression,
       $.amp_subject_reference,
       $.hole_expression,
+      $.rebind_expression,
       $._literal,
       $.identifier,
       seq('(', $._expression, ')')
@@ -891,14 +885,14 @@ module.exports = grammar({
       $.pattern
     ),
 
-    binder_pattern: $ => choice(
-      seq('^', $.identifier),
-      $.pattern
-    ),
-
     if_clause: $ => seq(
       'if',
       $._expression
+    ),
+
+    rebind_expression: $ => choice(
+      seq('=', $.identifier),
+      seq('=', '(', $.lvalue, ')')
     ),
 
     subject_expression: $ => '.',

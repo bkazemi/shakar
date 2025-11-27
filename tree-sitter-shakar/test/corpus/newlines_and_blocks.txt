@@ -1,0 +1,61 @@
+================================
+Blank lines
+================================
+
+a = 1
+
+b = 2
+
+---
+
+(source_file
+  (newline)
+  (assignment_statement
+    target: (lvalue (primary_expression (identifier)))
+    value: (primary_expression (number)))
+  (newline)
+  (newline)
+  (assignment_statement
+    target: (lvalue (primary_expression (identifier)))
+    value: (primary_expression (number)))
+  (newline))
+
+================================
+Inline if
+================================
+
+if true: return
+
+---
+
+(source_file
+  (newline)
+  (if_statement
+    condition: (primary_expression (boolean))
+    consequence: (block_or_inline
+      (inline_body
+        (return_statement))))
+  (newline))
+
+================================
+Multiline list
+================================
+
+a = [
+  1,
+  2
+]
+
+---
+
+(source_file
+  (newline)
+  (assignment_statement
+    target: (lvalue (primary_expression (identifier)))
+    value: (primary_expression (array_literal
+      (newline)
+      (primary_expression (number))
+      (newline)
+      (primary_expression (number))
+      (newline))))
+  (newline))

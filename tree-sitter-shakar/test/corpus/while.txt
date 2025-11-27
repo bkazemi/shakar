@@ -1,0 +1,26 @@
+============================
+While loop
+============================
+while foo < 3:
+  foo += 1
+----------------------------
+
+(source_file
+  (while_statement
+    condition: (compare_expression
+      (primary_expression
+        (identifier))
+      (cmp_operator)
+      (primary_expression
+        (number)))
+    body: (block_or_inline
+      (statement_block
+        (newline)
+        (indent)
+        (assignment_statement
+          target: (lvalue
+            (primary_expression
+              (identifier)))
+          value: (primary_expression
+            (number)))
+        (dedent)))))
