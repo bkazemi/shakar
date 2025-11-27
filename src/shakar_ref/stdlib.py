@@ -6,6 +6,8 @@ import asyncio
 from typing import List
 
 from .runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, ShkValue, ShakarTypeError, ShkObject
+from .runtime import ShakarRuntimeError
+from .eval.helpers import is_truthy
 
 def _render(value):
     if isinstance(value, ShkString):
@@ -58,3 +60,47 @@ def std_error(_frame, args: List[ShkValue]) -> ShkObject:
     }
 
     return ShkObject(slots)
+
+
+@register_stdlib("all")
+def std_all(_frame, args: List[ShkValue]) -> ShkBool:
+    if not args:
+        raise ShakarRuntimeError("all() expects at least one argument")
+
+    iterable: List[ShkValue] = args if len(args) > 1 else list(_iter_coerce(args[0]))
+
+    for val in iterable:
+        if not is_truthy(val):
+            return ShkBool(False)
+    return ShkBool(True)
+
+
+@register_stdlib("any")
+def std_any(_frame, args: List[ShkValue]) -> ShkBool:
+    if not args:
+        raise ShakarRuntimeError("any() expects at least one argument")
+
+    iterable: List[ShkValue] = args if len(args) > 1 else list(_iter_coerce(args[0]))
+
+    for val in iterable:
+        if is_truthy(val):
+            return ShkBool(True)
+    return ShkBool(False)
+
+
+def _iter_coerce(value: ShkValue):
+    """Coerce arrays/strings/objects/iterables into iteration."""
+    if isinstance(value, ShkString):
+        for ch in value.value:
+            yield ShkString(ch)
+    elif isinstance(value, ShkObject):
+        for key in value.slots:
+            yield ShkString(key)
+    elif isinstance(value, (list, tuple, set)):
+        for v in value:
+            yield v
+    elif hasattr(value, "items") and isinstance(value.items, list):
+        for v in value.items:
+            yield v
+    else:
+        raise ShakarTypeError("all/any expects iterable or multiple args")

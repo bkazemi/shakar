@@ -32,6 +32,7 @@ from shakar_ref.runtime import (
     ShkNull,
     ShkNumber,
     ShkString,
+    ShkBool,
     ShakarArityError,
     ShakarAssertionError,
     ShakarRuntimeError,
@@ -569,6 +570,13 @@ runtime_scenario(lambda: _rt("fanout-value-array", 'state := {a: 1, b: 2}; arr :
 runtime_scenario(lambda: _rt("fanout-call-spread", 'state := {a: 1, b: 2}; fn add(x, y): x + y; add(state.{a, b})', ("number", 3), None))
 runtime_scenario(lambda: _rt("fanout-value-call-item", 'state := {a: fn():3, b: 2}; vals := state.{a(), b}; vals[0] + vals[1]', ("number", 5), None))
 runtime_scenario(lambda: _rt("fanout-named-arg-no-spread", 'state := {a: 1, b: 2}; fn wrap(x): x[1]; wrap(named: state.{a, b})', ("number", 2), None))
+runtime_scenario(lambda: _rt("all-varargs", 'all(true, 1, "x")', ("bool", True), None))
+runtime_scenario(lambda: _rt("all-varargs-short", 'all(true, false, 1)', ("bool", False), None))
+runtime_scenario(lambda: _rt("all-iterable", 'all([true, 1, "x"])', ("bool", True), None))
+runtime_scenario(lambda: _rt("all-empty-iterable", 'all([])', ("bool", True), None))
+runtime_scenario(lambda: _rt("all-zero-args-error", 'all()', None, ShakarRuntimeError))
+runtime_scenario(lambda: _rt("any-varargs", 'any(false, 0, "x")', ("bool", True), None))
+runtime_scenario(lambda: _rt("any-iterable", 'any([false, 0, ""])', ("bool", False), None))
 runtime_scenario(lambda: _rt("raw-string-basic", 'raw"hi {name}\\n"', ("string", "hi {name}\\n"), None))
 runtime_scenario(lambda: _rt("raw-hash-string", 'raw#"path "C:\\\\tmp"\\file"#', ("string", 'path "C:\\\\tmp"\\file'), None))
 runtime_scenario(lambda: _rt("shell-string-quote", 'path := "file name.txt"; sh"cat {path}"', ("command", "cat 'file name.txt'"), None))
@@ -1331,12 +1339,18 @@ class CaseRunner:
 
 class SanitySuite:
     """Coordinates parser, AST, and runtime checks then emits a text report."""
-    def __init__(self, plan: KeywordPlan):
+    def __init__(self, plan: KeywordPlan, filters: Optional[Sequence[str]] = None):
         self.plan = plan
+        self.filters = list(filters) if filters else []
         self.parsers = ParserBundle(GRAMMAR_TEXT)
         self.case_runner = CaseRunner(self.parsers)
         self.ast_parser = runner
         self.cases = self._build_cases()
+
+    def _matches_filter(self, name: str) -> bool:
+        if not self.filters:
+            return True
+        return any(token in name for token in self.filters)
 
     def _build_cases(self) -> List[Case]:
         cases: List[Case] = []
@@ -1350,7 +1364,8 @@ class SanitySuite:
             key = (case.name, case.code, case.start)
             if key not in seen:
                 seen.add(key)
-                deduped.append(case)
+                if self._matches_filter(case.name):
+                    deduped.append(case)
         return deduped
 
     def execute(self) -> Tuple[str, int]:
@@ -1394,6 +1409,8 @@ class SanitySuite:
         total = 0
         failed = 0
         for scenario in AST_SCENARIOS:
+            if not self._matches_filter(scenario.name):
+                continue
             total += 1
             try:
                 ast = self._parse_ast(scenario.code)
@@ -1420,6 +1437,8 @@ class SanitySuite:
         total = 0
         failed = 0
         for scenario in RUNTIME_SCENARIOS:
+            if not self._matches_filter(scenario.name):
+                continue
             total += 1
             try:
                 result = run_program(scenario.source)
@@ -1457,6 +1476,12 @@ class SanitySuite:
             if abs(value.value - float(expected)) > 1e-9:
                 return f"expected {expected}, got {value.value}"
             return None
+        if kind == "bool":
+            if not isinstance(value, ShkBool):
+                return f"expected bool, got {type(value).__name__}"
+            if bool(value.value) != bool(expected):
+                return f"expected {expected}, got {value.value}"
+            return None
         if kind == "null":
             if not isinstance(value, ShkNull):
                 return f"expected ShkNull, got {type(value).__name__}"
@@ -1487,13 +1512,22 @@ class SanitySuite:
 # Entrypoint
 # ---------------------------------------------------------------------------
 
-def run() -> Tuple[str, int]:
+def _selected_filters(argv: Sequence[str]) -> List[str]:
+    env = os.getenv("SANITY_FILTER")
+    filters: List[str] = []
+    if env:
+        filters.extend([tok for tok in env.split(",") if tok.strip()])
+    if argv:
+        filters.extend(list(argv))
+    return filters
+
+def run(argv: Sequence[str] = ()) -> Tuple[str, int]:
     plan = build_keyword_plan()
-    suite = SanitySuite(plan)
+    suite = SanitySuite(plan, filters=_selected_filters(argv))
     return suite.execute()
 
 if __name__ == "__main__":
-    report, failures = run()
+    report, failures = run(sys.argv[1:])
     out_path = Path("sanity_report.txt")
     out_path.write_text(report, encoding="utf-8")
     print(report)

@@ -1242,8 +1242,6 @@ KEYWORDS = {
     "elif": "ELIF",
     "else": "ELSE",
     "await": "AWAIT",
-    "any": "ANY",
-    "all": "ALL",
     "using": "USING",
     "over": "OVER",
     "hook": "HOOK",

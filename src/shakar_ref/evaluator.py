@@ -260,7 +260,7 @@ def _eval_token(t: Token, frame: Frame) -> ShkValue:
     if handler:
         return handler(t, frame)
 
-    if t.type == 'IDENT':
+    if t.type in ('IDENT', 'ANY', 'ALL'):
         return frame.get(t.value)
 
     raise ShakarRuntimeError(f"Unhandled token {t.type}:{t.value}")

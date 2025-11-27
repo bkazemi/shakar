@@ -159,10 +159,100 @@ def eval_await_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if expr_node is None or body_node is None:
         raise ShakarRuntimeError("Malformed await statement")
 
+    short_form = _parse_bracketed_any_all(expr_node)
+    if short_form is not None:
+        kind, arms = short_form
+        if kind == 'any':
+            entries: list[tuple[AwaitArm, ShkValue]] = []
+            errors: list[ShakarRuntimeError] = []
+
+            for arm in arms:
+                try:
+                    value = eval_func(arm['expr'], frame)
+                except ShakarRuntimeError as err:
+                    errors.append(err)
+                    continue
+                entries.append((arm, value))
+
+            if not entries:
+                if errors:
+                    raise errors[-1]
+                raise ShakarRuntimeError("await[any] arms did not produce a value")
+
+            winner_arm, winner_value = await_any_entries(entries)
+
+            if body_node is not None:
+                bindings = {'winner': ShkString(winner_arm['label'])}
+                return run_body_with_subject(body_node, frame, winner_value, eval_func, bindings)
+
+            return _await_winner_object(winner_arm['label'], winner_value)
+
+        if kind == 'all':
+            entries = [(arm, eval_func(arm['expr'], frame)) for arm in arms]
+            resolved = await_all_entries(entries)
+            results_object = {arm['label']: value for arm, value in resolved}
+
+            if body_node is not None:
+                with temporary_bindings(frame, results_object):
+                    return eval_body_node(body_node, frame, eval_func)
+
+            return ShkObject(results_object)
+
     value = resolve_await_result(eval_func(expr_node, frame))
     run_body_with_subject(body_node, frame, value, eval_func)
 
     return ShkNull()
+
+def _parse_bracketed_any_all(expr_node: Tree) -> Optional[tuple[str, list[AwaitArm]]]:
+    """Detects the sugar form `await [any](label: expr, ...) : body` produced as
+    an explicit_chain of array(any|all) followed by a call."""
+    if not (is_tree(expr_node) and tree_label(expr_node) == 'explicit_chain'):
+        return None
+
+    children = tree_children(expr_node)
+    if len(children) < 2:
+        return None
+
+    array_node, call_node = children[0], children[1]
+    if tree_label(array_node) != 'array' or tree_label(call_node) != 'call':
+        return None
+
+    label_tok = None
+    for ch in tree_children(array_node):
+        if is_token(ch) and ch.type in {'ANY', 'ALL', 'IDENT'}:
+            label_tok = ch
+            break
+
+    if label_tok is None:
+        return None
+
+    kind = label_tok.value
+    if kind not in {'any', 'all'}:
+        return None
+
+    arglist = child_by_label(call_node, 'arglistnamedmixed')
+    if arglist is None:
+        return None
+
+    arms: list[AwaitArm] = []
+    for idx, item in enumerate(tree_children(arglist)):
+        # Each argitem holds a namedarg (label + expr)
+        if not is_tree(item) or not tree_children(item):
+            continue
+        namedarg = tree_children(item)[0]
+        if not is_tree(namedarg) or not tree_children(namedarg):
+            continue
+        name_tok = tree_children(namedarg)[0]
+        expr = tree_children(namedarg)[1] if len(tree_children(namedarg)) > 1 else None
+        if expr is None or not is_token(name_tok) or _token_kind(name_tok) != 'IDENT':
+            continue
+        arms.append({
+            'label': name_tok.value,
+            'expr': expr,
+            'body': None,
+        })
+
+    return (kind, arms) if arms else None
 
 def eval_await_any_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     arms_node = child_by_label(n, 'anyarmlist')

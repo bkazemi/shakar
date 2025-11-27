@@ -37,7 +37,7 @@ STRING: /"(?:\\.|[^"\\])*"/ | /'(?:\\.|[^'\\])*'/
 
 %import common.NUMBER -> NUMBER
 
-%declare AND OR IS IN NOT FOR IF ELIF ELSE AWAIT ANY USING OVER ALL HOOK RETURN DEFER ASSERT DBG GET SET FN BREAK CONTINUE THROW DECORATOR DECORATE
+%declare AND OR IS IN NOT FOR IF ELIF ELSE AWAIT USING OVER HOOK RETURN DEFER ASSERT DBG GET SET FN BREAK CONTINUE THROW DECORATOR DECORATE
 
 %import common.CNAME -> IDENT
 
@@ -162,6 +162,8 @@ slicearm: expr -> slicearm_expr | -> slicearm_empty
 optstop: "<" expr | expr?
 primary: rebind_primary
        | IDENT
+       | ANY
+       | ALL
        | literal
        | object
        | array
@@ -174,6 +176,8 @@ primary: rebind_primary
 NIL: "nil"
 TRUE: "true"
 FALSE: "false"
+ANY: "any"
+ALL: "all"
 
 literal: STRING | RAW_STRING | RAW_HASH_STRING | SHELL_STRING | NUMBER | NIL | TRUE | FALSE
 selectorliteral: "`" sellist "`"
@@ -234,8 +238,6 @@ continuestmt: CONTINUE
           | fanoutblock
           | catchstmt
           | awaitstmt
-          | awaitanycall
-          | awaitallcall
           | ifstmt
           | expr
 
@@ -322,10 +324,11 @@ destrhs: expr ("," expr)+ -> pack
 destructure: pattern_list "=" (destrhs | expr)
 destructure_walrus: pattern_list ":=" (destrhs | expr)
 
-!awaitstmt: AWAIT ( "(" expr ")" | expr ) ":" (inlinebody | indentblock)
+!awaitstmt: AWAIT await_body
+await_body: "[" "any" "]" "(" anyarmlist optcomma ")" ( ":" (inlinebody | indentblock) )? -> awaitanycall
+          | "[" "all" "]" "(" allarmlist optcomma ")" ( ":" (inlinebody | indentblock) )? -> awaitallcall
+          | ( "(" expr ")" | expr ) ":" (inlinebody | indentblock) -> awaitstmt
 await_value: AWAIT ( "(" expr ")" | expr ) -> await_value
-!awaitanycall: AWAIT "[" ANY "]" "(" anyarmlist optcomma ")" ( ":" (inlinebody | indentblock) )?
-!awaitallcall: AWAIT "[" ALL "]" "(" allarmlist optcomma ")" ( ":" (inlinebody | indentblock) )?
 anyarmlist: anyarm ("," anyarm)*
 allarmlist: anyarm ("," anyarm)*
 anyarm: (IDENT ":")? expr (":" (inlinebody | indentblock))? | "timeout" expr (":" (inlinebody | indentblock))?
