@@ -6,6 +6,7 @@
 
 [
   "if" "elif" "else"
+  "while"
   "for" "in" "over" "bind"
   "await" "any" "all"
   "using" "hook" "defer"

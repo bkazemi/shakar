@@ -126,6 +126,7 @@ module.exports = grammar({
       $.rebind_statement,
       $.dbg_statement,
       $.if_statement,
+      $.while_statement,
       $.for_statement,
       $.guard_statement,
       $.comment
@@ -421,6 +422,13 @@ module.exports = grammar({
 
     else_clause: $ => seq(
       'else',
+      ':',
+      field('body', $.block_or_inline)
+    ),
+
+    while_statement: $ => seq(
+      'while',
+      field('condition', $._expression),
       ':',
       field('body', $.block_or_inline)
     ),

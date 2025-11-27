@@ -180,6 +180,10 @@
       {
         "type": "using_statement",
         "named": true
+      },
+      {
+        "type": "while_statement",
+        "named": true
       }
     ]
   },
@@ -2796,6 +2800,32 @@
     }
   },
   {
+    "type": "while_statement",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "block_or_inline",
+            "named": true
+          }
+        ]
+      },
+      "condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "!",
     "named": false
   },
@@ -3166,6 +3196,10 @@
   },
   {
     "type": "using",
+    "named": false
+  },
+  {
+    "type": "while",
     "named": false
   },
   {
