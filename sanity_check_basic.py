@@ -898,7 +898,7 @@ runtime_scenario(
         """user := { name: "Ada", score: 5 }
 msg := "Name: {user.name}, score: {user.score}"
 msg""",
-        ("string", "Name: Ada, score: 5.0"),
+        ("string", "Name: Ada, score: 5"),
         None,
     )
 )
@@ -908,7 +908,7 @@ runtime_scenario(
         """value := 10
 text := "set {{value}} = {value}"
 text""",
-        ("string", "set {value} = 10.0"),
+        ("string", "set {value} = 10"),
         None,
     )
 )

@@ -112,7 +112,7 @@ def stringify(value: Optional[ShkValue]) -> str:
         return value.value
 
     if isinstance(value, ShkNumber):
-        return str(value.value)
+        return str(value)
 
     if isinstance(value, ShkBool):
         return "true" if value.value else "false"
