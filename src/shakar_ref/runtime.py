@@ -449,6 +449,31 @@ def _string_arg(method: str, arg: ShkValue) -> str:
 
     raise ShakarTypeError(f"string.{method} expects a string argument")
 
+@register_string("join")
+def _string_join(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkString:
+    items: List[ShkValue]
+    if len(args) == 1 and isinstance(args[0], ShkArray):
+        items = args[0].items
+    else:
+        items = args
+
+    strings = []
+    def _stringify(val: ShkValue) -> str:
+        if isinstance(val, ShkString):
+            return val.value
+        if isinstance(val, ShkNumber):
+            return str(int(val.value)) if val.value.is_integer() else str(val.value)
+        if isinstance(val, ShkBool):
+            return "true" if val.value else "false"
+        if isinstance(val, ShkNull) or val is None:
+            return "nil"
+        return str(val)
+
+    for item in items:
+        strings.append(_stringify(item))
+
+    return ShkString(recv.value.join(strings))
+
 @register_string("trim")
 def _string_trim(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkString:
     _string_expect_arity("trim", args, 0)

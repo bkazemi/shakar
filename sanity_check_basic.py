@@ -470,6 +470,9 @@ runtime_scenario(
         None,
     )
 )
+runtime_scenario(lambda: _rt("join-array", '", ".join(["a", "b"])', ("string", "a, b"), None))
+runtime_scenario(lambda: _rt("join-varargs", '"-".join("a", "b")', ("string", "a-b"), None))
+runtime_scenario(lambda: _rt("join-mixed", '"|".join("a", 1, true)', ("string", "a|1|true"), None))
 runtime_scenario(
     lambda: _rt(
         "decorator-chain-order",
@@ -1617,5 +1620,3 @@ for name, source, expect in r_runtime_ops:
 # value""",
 #         ("number", 2),
 #         None,
-#     )
-# )
