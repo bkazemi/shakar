@@ -1,0 +1,31 @@
+============================
+Inline guard with else
+============================
+ready(): start() | retries < 3: retry() |: log("nope")
+----------------------------
+
+(source_file
+  (guard_statement
+    (guard_chain
+      (guard_branch
+        condition: (call_expression
+          (postfix_expression
+            (primary_expression (identifier))
+            (call_arguments)))
+        body: (inline_body (call_expression
+          (postfix_expression
+            (primary_expression (identifier))
+            (call_arguments)))))
+      (guard_branch
+        condition: (compare_expression
+          (primary_expression (identifier))
+          (cmp_operator)
+          (primary_expression (number)))
+        body: (inline_body (call_expression
+          (postfix_expression
+            (primary_expression (identifier))
+            (call_arguments)))))
+      default_body: (inline_body (call_expression
+        (postfix_expression
+          (primary_expression (identifier))
+          (call_arguments (primary_expression (string)))))))))

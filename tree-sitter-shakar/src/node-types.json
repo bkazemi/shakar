@@ -635,11 +635,11 @@
       "required": true,
       "types": [
         {
-          "type": "_expression",
+          "type": "brace_block",
           "named": true
         },
         {
-          "type": "brace_block",
+          "type": "statement_block",
           "named": true
         }
       ]
@@ -654,11 +654,11 @@
       "required": true,
       "types": [
         {
-          "type": "block",
+          "type": "inline_body",
           "named": true
         },
         {
-          "type": "inline_body",
+          "type": "statement_block",
           "named": true
         }
       ]
@@ -782,7 +782,7 @@
         "required": true,
         "types": [
           {
-            "type": "block",
+            "type": "block_or_inline",
             "named": true
           }
         ]
@@ -1123,7 +1123,7 @@
         "required": true,
         "types": [
           {
-            "type": "block",
+            "type": "block_or_inline",
             "named": true
           }
         ]
@@ -1284,7 +1284,7 @@
         "required": true,
         "types": [
           {
-            "type": "block",
+            "type": "block_or_inline",
             "named": true
           }
         ]
@@ -1310,7 +1310,7 @@
         "required": true,
         "types": [
           {
-            "type": "block",
+            "type": "block_or_inline",
             "named": true
           }
         ]
@@ -1547,7 +1547,17 @@
         "required": true,
         "types": [
           {
-            "type": "block",
+            "type": "block_or_inline",
+            "named": true
+          }
+        ]
+      },
+      "index": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "binder_pattern",
             "named": true
           }
         ]
@@ -1562,12 +1572,32 @@
           }
         ]
       },
+      "key": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "binder_pattern",
+            "named": true
+          }
+        ]
+      },
       "subject": {
         "multiple": false,
         "required": false,
         "types": [
           {
             "type": "_expression",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "binder_pattern",
             "named": true
           }
         ]
@@ -1655,6 +1685,10 @@
           {
             "type": "inline_body",
             "named": true
+          },
+          {
+            "type": "statement_block",
+            "named": true
           }
         ]
       },
@@ -1673,7 +1707,22 @@
   {
     "type": "guard_chain",
     "named": true,
-    "fields": {},
+    "fields": {
+      "default_body": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "inline_body",
+            "named": true
+          },
+          {
+            "type": "statement_block",
+            "named": true
+          }
+        ]
+      }
+    },
     "children": {
       "multiple": true,
       "required": true,
@@ -1683,7 +1732,7 @@
           "named": true
         },
         {
-          "type": "inline_body",
+          "type": "newline",
           "named": true
         }
       ]
@@ -1726,7 +1775,7 @@
         "required": true,
         "types": [
           {
-            "type": "block",
+            "type": "block_or_inline",
             "named": true
           }
         ]
@@ -2495,6 +2544,37 @@
         {
           "type": "_statement",
           "named": true
+        },
+        {
+          "type": "newline",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "statement_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "_statement",
+          "named": true
+        },
+        {
+          "type": "dedent",
+          "named": true
+        },
+        {
+          "type": "indent",
+          "named": true
+        },
+        {
+          "type": "newline",
+          "named": true
         }
       ]
     }
@@ -2973,6 +3053,10 @@
     "named": false
   },
   {
+    "type": "dedent",
+    "named": true
+  },
+  {
     "type": "default",
     "named": false
   },
@@ -3021,8 +3105,16 @@
     "named": false
   },
   {
+    "type": "indent",
+    "named": true
+  },
+  {
     "type": "is",
     "named": false
+  },
+  {
+    "type": "newline",
+    "named": true
   },
   {
     "type": "nil",

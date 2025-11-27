@@ -1,0 +1,11 @@
+============================
+Adjacent comments
+============================
+# first
+# second
+----------------------------
+
+(source_file
+  (comment)
+  (newline)
+  (comment))

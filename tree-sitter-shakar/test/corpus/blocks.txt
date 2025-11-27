@@ -1,0 +1,38 @@
+============================
+Block for rows
+============================
+for [cy, row] rows:
+  for col in row:
+    return col
+----------------------------
+
+(source_file
+  (for_statement
+    (binder_pattern
+      (pattern
+        (identifier)))
+    (binder_pattern
+      (pattern
+        (identifier)))
+    (primary_expression
+      (identifier))
+    (block_or_inline
+      (statement_block
+        (newline)
+        (indent)
+        (for_statement
+          (compare_expression
+            (primary_expression
+              (identifier))
+            (cmp_operator)
+            (primary_expression
+              (identifier)))
+          (block_or_inline
+            (statement_block
+              (newline)
+              (indent)
+              (return_statement
+                (primary_expression
+                  (identifier)))
+              (dedent))))
+        (dedent)))))

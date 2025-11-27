@@ -16,11 +16,13 @@
   "catch" "set" "get"
 ] @keyword
 
+
 (catch_expression "catch" @keyword)
 (catch_statement "catch" @keyword)
 (catch_expression "=>" @operator)
 (catch_sugar_expression "@@" @operator)
 (catch_sugar_expression "=>" @operator)
+
 
 (guard_chain "|" @operator)
 (guard_chain "|:" @operator)

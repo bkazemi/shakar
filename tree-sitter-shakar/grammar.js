@@ -23,8 +23,14 @@ module.exports = grammar({
   name: 'shakar',
 
   extras: $ => [
-    /[ \t\r\n]/,
+    /[ \t]/,
     $.comment,
+  ],
+
+  externals: $ => [
+    $.newline,
+    $.indent,
+    $.dedent,
   ],
 
   conflicts: $ => [
@@ -55,10 +61,30 @@ module.exports = grammar({
     [$.dbg_statement],
     [$.throw_statement],
     [$.slice_selector],
+    [$.break_statement],
     [$.break_statement, $.terminator],
+    [$.continue_statement],
     [$.continue_statement, $.terminator],
     [$.field_fan, $.value_fan],
     [$.field_fan, $.value_fan_item],
+    [$.binder_pattern, $.pattern],
+    [$.statement_block],
+    [$.guard_statement],
+    [$.guard_chain],
+    [$.expression_statement, $.catch_statement, $.inline_body, $.catch_expression],
+    [$.expression_statement, $.catch_statement, $.catch_expression],
+    [$.destructure_statement, $.pack_expression],
+    [$.destructure_statement],
+    [$.rebind_statement],
+    [$.assert_statement],
+    [$.defer_statement],
+    [$.fanout_block_statement],
+    [$.hook_statement],
+    [$.decorator_statement],
+    [$.catch_statement],
+    [$.if_statement],
+    [$.pack_expression],
+    [$.function_statement],
   ],
 
   supertypes: $ => [
@@ -75,7 +101,7 @@ module.exports = grammar({
   word: $ => $.identifier,
 
   rules: {
-    source_file: $ => repeat($._statement),
+    source_file: $ => repeat(seq($._statement, optional($.newline))),
 
     _statement: $ => choice(
       $.expression_statement,
@@ -161,7 +187,10 @@ module.exports = grammar({
       field('body', $.block_or_inline)
     ),
 
-    block_or_inline: $ => choice($.block, $.inline_body),
+    block_or_inline: $ => choice(
+      $.statement_block,
+      $.inline_body
+    ),
 
     defer_statement: $ => seq(
       'defer',
@@ -173,7 +202,7 @@ module.exports = grammar({
       'hook',
       field('name', $.string),
       ':',
-      field('body', $.block),
+      field('body', $.block_or_inline),
       optional($.terminator)
     ),
 
@@ -228,7 +257,7 @@ module.exports = grammar({
       field('name', $.identifier),
       optional(seq('(', optional($.parameter_list), ')')),
       ':',
-      field('body', $.block),
+      field('body', $.block_or_inline),
       optional($.terminator)
     ),
 
@@ -249,7 +278,7 @@ module.exports = grammar({
       'catch',
       optional($.catch_tail),
       ':',
-      field('body', $.block),
+      field('body', $.block_or_inline),
       optional($.terminator)
     ),
 
@@ -325,8 +354,12 @@ module.exports = grammar({
 
     guard_chain: $ => seq(
       $.guard_branch,
-      repeat(seq(choice('|', '||'), $.guard_branch)),
-      optional(seq(choice('|:', '||:'), $.inline_body))
+      repeat(seq(optional($.newline), choice('|', '||'), $.guard_branch)),
+      optional(seq(
+        optional($.newline),
+        choice('|:', '||:'),
+        field('default_body', choice($.statement_block, $.inline_body))
+      ))
     ),
 
     await_guard_chain: $ => seq(
@@ -359,7 +392,10 @@ module.exports = grammar({
     guard_branch: $ => seq(
       field('condition', $._expression),
       ':',
-      field('body', $.inline_body)
+      field('body', choice(
+        $.statement_block,
+        $.inline_body
+      ))
     ),
 
     inline_body: $ => choice(
@@ -380,13 +416,13 @@ module.exports = grammar({
       'elif',
       field('condition', $._expression),
       ':',
-      field('body', $.block)
+      field('body', $.block_or_inline)
     ),
 
     else_clause: $ => seq(
       'else',
       ':',
-      field('body', $.block)
+      field('body', $.block_or_inline)
     ),
 
     for_statement: $ => choice(
@@ -396,13 +432,33 @@ module.exports = grammar({
         'in',
         field('iterable', $._expression),
         ':',
-        field('body', $.block)
+        field('body', $.block_or_inline)
       ),
       seq(
         'for',
         field('subject', $._expression),
         ':',
-        field('body', $.block)
+        field('body', $.block_or_inline)
+      ),
+      seq(
+        'for',
+        '[',
+        field('index', $.binder_pattern),
+        ']',
+        field('iterable', $._expression),
+        ':',
+        field('body', $.block_or_inline)
+      ),
+      seq(
+        'for',
+        '[',
+        field('key', $.binder_pattern),
+        ',',
+        field('value', $.binder_pattern),
+        ']',
+        field('iterable', $._expression),
+        ':',
+        field('body', $.block_or_inline)
       )
     ),
 
@@ -412,9 +468,16 @@ module.exports = grammar({
       '}'
     ),
 
+    statement_block: $ => seq(
+      $.newline,
+      $.indent,
+      repeat1(seq($._statement, optional($.newline))),
+      $.dedent
+    ),
+
     block: $ => choice(
       $.brace_block,
-      $._expression
+      $.statement_block
     ),
 
     terminator: _ => ';',
@@ -814,6 +877,11 @@ module.exports = grammar({
     ),
 
     binder_list: $ => commaSep1($.binder_pattern),
+
+    binder_pattern: $ => choice(
+      seq('^', $.identifier),
+      $.pattern
+    ),
 
     binder_pattern: $ => choice(
       seq('^', $.identifier),
