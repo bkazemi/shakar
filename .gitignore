@@ -20,3 +20,10 @@ pylint.log
 # Misc
 .DS_Store
 *.swp
+.cache
+.config
+.npm-cache
+.npm
+AGENTS.md
+CLAUDE.md
+GEMINI.md

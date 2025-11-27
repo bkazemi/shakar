@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from .runtime import (
+from .types import (
     ShkValue,
     DecoratorConfigured,
     DecoratorContinuation,

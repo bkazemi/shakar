@@ -4,7 +4,7 @@ from typing import Callable, Iterable, List, Optional, TypeAlias
 
 from lark import Tree, Token
 
-from ..runtime import Frame, ShkBool, ShkNumber, ShkString, ShakarRuntimeError, ShakarTypeError
+from ..types import Frame, ShkBool, ShkNumber, ShkString, ShakarRuntimeError, ShakarTypeError, ShkValue, ShkNull
 from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
 
 SourceSpan: TypeAlias = tuple[int, int] | tuple[None, None]
@@ -117,7 +117,7 @@ def stringify(value: Optional[ShkValue]) -> str:
     if isinstance(value, ShkBool):
         return "true" if value.value else "false"
 
-    if value is None:
+    if isinstance(value, ShkNull) or value is None:
         return "nil"
 
     return str(value)
