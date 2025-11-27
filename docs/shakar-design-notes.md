@@ -439,6 +439,7 @@ u := makeUser() and .isValid()
   - `for[i] Expr:` indexed view; `i` = view index; `.` = element.
   - `for[k] m:` / `for[k, v] m:` on objects; `.` = value (or `v` if bound). Destructuring alias: `for (k, v) in m:`.
   - `for … in <selectors>:` iterate selector lists/values.
+  - `while expr:` standard while loop; condition re-evaluated each iteration; supports inline or indented bodies.
 - Rules: `.` is per-iteration and does not leak. Nested subjectful constructs rebind `.`; name outer value if needed before nesting. Works with any iterable.
 - **Hoisted binders `^name`**: bind loop variable to an outer-scope binding (create it with `nil` if absent). Each iteration assigns current value. Illegal to mix `^x` and `x` or repeat `^name` in a binder list. Closures capture the single hoisted binding. Examples:
   ```shakar
@@ -813,6 +814,7 @@ ForSubject      ::= "for" Expr ":" (InlineBody | IndentBlock) ;
 ForIndexed      ::= "for" "[" IDENT "]" Expr ":" (InlineBody | IndentBlock) ;
 ForMap1         ::= ForIndexed ;  (* alias; '.' = value; IDENT = key *)
 ForMap2         ::= "for" "[" IDENT "," IDENT "]" Expr ":" (InlineBody | IndentBlock) ;  (* '.' = value; key,value bound *)
+WhileStmt       ::= "while" Expr ":" (InlineBody | IndentBlock) ;
 
 (* ===== Selectors (per-selector step allowed) ===== *)
 
@@ -935,4 +937,4 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
     assert user ~ UserSchema
   ```
 - **Conditional apply-assign `.?=`**: assign only if RHS (evaluated with old LHS as `.`) is non-nil; today use `=<LHS> ??(.transform()) ?? .` or `<LHS> .= ??(.transform()) ?? .`.
-- **Keyword aliases**, **autocall nullary methods**, **copy-update `with` sugar**, **pipes `|>`**, **nested/multi-source comprehensions**, **word range aliases `to`/`until`**, **while/until loops**, **sticky subject `%expr`** (anchor stays sticky; selectors/`.=`/statement-subject tails still win).
+- **Keyword aliases**, **autocall nullary methods**, **copy-update `with` sugar**, **pipes `|>`**, **nested/multi-source comprehensions**, **word range aliases `to`/`until`**, **until loops**, **sticky subject `%expr`** (anchor stays sticky; selectors/`.=`/statement-subject tails still win).

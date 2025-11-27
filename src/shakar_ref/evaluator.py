@@ -46,6 +46,7 @@ from .eval.postfix import define_new_ident, eval_postfix_if as _postfix_eval_if,
 
 from .eval.loops import (
     eval_if_stmt,
+    eval_while_stmt,
     eval_for_in,
     eval_for_subject,
     eval_for_indexed,
@@ -329,6 +330,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     'awaitallcall': lambda n, frame: eval_await_all_call(n, frame, eval_node),
     'usingstmt': lambda n, frame: eval_using_stmt(n, frame, eval_node),
     'ifstmt': lambda n, frame: eval_if_stmt(n, frame, eval_node),
+    'whilestmt': lambda n, frame: eval_while_stmt(n, frame, eval_node),
     'fanoutblock': lambda n, frame: eval_fanout_block(n, frame, eval_node, apply_op, evaluate_index_operand),
     'valuefan': lambda n, frame: eval_valuefan(eval_node(n.children[0], frame), n, frame, eval_node, apply_op),
     'catchexpr': lambda n, frame: eval_catch_expr(n.children, frame, eval_node),

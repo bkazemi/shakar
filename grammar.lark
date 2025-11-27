@@ -37,7 +37,7 @@ STRING: /"(?:\\.|[^"\\])*"/ | /'(?:\\.|[^'\\])*'/
 
 %import common.NUMBER -> NUMBER
 
-%declare AND OR IS IN NOT FOR IF ELIF ELSE AWAIT USING OVER HOOK RETURN DEFER ASSERT DBG GET SET FN BREAK CONTINUE THROW DECORATOR DECORATE
+%declare AND OR IS IN NOT FOR IF ELIF ELSE WHILE AWAIT USING OVER HOOK RETURN DEFER ASSERT DBG GET SET FN BREAK CONTINUE THROW DECORATOR DECORATE
 
 %import common.CNAME -> IDENT
 
@@ -238,6 +238,7 @@ continuestmt: CONTINUE
           | fanoutblock
           | catchstmt
           | awaitstmt
+          | whilestmt
           | ifstmt
           | expr
 
@@ -257,6 +258,7 @@ stmt: simplestmt
 ifstmt: IF expr ":" (inlinebody | indentblock) (_NL* elifclause)* (_NL* elseclause)?
 elifclause: ELIF expr ":" (inlinebody | indentblock)
 elseclause: ELSE ":" (inlinebody | indentblock)
+whilestmt: WHILE expr ":" (inlinebody | indentblock)
 
 returnif: "?ret" expr
 

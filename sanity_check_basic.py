@@ -1012,6 +1012,31 @@ result""",
 )
 runtime_scenario(
     lambda: _rt(
+        "while-basic",
+        """i := 0
+while i < 3: { i += 1 }
+i""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "while-break-continue",
+        """i := 0
+acc := 0
+while true:
+  i += 1
+  if i == 5: break
+  if i % 2 == 0: continue
+  acc += i
+acc""",
+        ("number", 4),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "object-getter-setter",
         """obj := {
   name: "Ada"

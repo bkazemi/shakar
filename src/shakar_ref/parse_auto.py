@@ -1241,6 +1241,7 @@ KEYWORDS = {
     "if": "IF",
     "elif": "ELIF",
     "else": "ELSE",
+    "while": "WHILE",
     "await": "AWAIT",
     "using": "USING",
     "over": "OVER",

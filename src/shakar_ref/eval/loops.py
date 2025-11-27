@@ -316,6 +316,38 @@ def eval_if_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         return _execute_loop_body(else_body, frame, eval_func)
     return ShkNull()
 
+def eval_while_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    cond_node = None
+    body_node = None
+
+    for child in tree_children(n):
+        if is_token(child):
+            if cond_node is None and _token_kind(child) not in {"WHILE", "COLON"}:
+                cond_node = child
+            continue
+        if cond_node is None:
+            cond_node = child
+        elif body_node is None:
+            body_node = child
+
+    if cond_node is None or body_node is None:
+        raise ShakarRuntimeError("Malformed while statement")
+
+    outer_dot = frame.dot
+
+    try:
+        while _is_truthy(eval_func(cond_node, frame)):
+            try:
+                _execute_loop_body(body_node, frame, eval_func)
+            except ShakarContinueSignal:
+                continue
+            except ShakarBreakSignal:
+                break
+    finally:
+        frame.dot = outer_dot
+
+    return ShkNull()
+
 def eval_for_in(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     pattern_node = None
     iter_expr = None

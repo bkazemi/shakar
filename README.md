@@ -40,11 +40,12 @@ cfg["db", default: {}]["host"] .= .trim() ?? "localhost"
 
 Both forms are built on the same implicit-subject rules, which makes “update this thing based on its old value” cheap to write without making the flow mysterious.
 
-### Fan-out helpers
+### Fan-out helpers and loops
 
 - Assignment fan-out: `=user.{name, email}.trim()` and `user.{first, last} .= .title()` walk a single base and apply the tail to each listed field (identifiers only on the LHS).
 - Value fan-out: `user.{fullName(), email}` collects multiple projections from one base into an array and auto-spreads in positional calls: `send(user.{fullName(), email})` ⇒ `send(user.fullName(), user.email)`. Duplicate paths error; named args never auto-spread (wrap to pass as one argument).
 - Fan-out block statement: `state{ .cur = .next; .x += 1; .name .= .trim() }` anchors `.` to `state`, runs clauses top→down, and errors on duplicate targets.
+- `while` loops support inline or indented bodies and honor `break`/`continue`.
 
 ---
 
