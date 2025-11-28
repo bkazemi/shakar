@@ -43,7 +43,8 @@ from shakar_ref import parse_auto as runner
 # Optional RD parser import
 TEST_RD_PARSER = os.getenv("TEST_RD_PARSER", "").lower() in {"1", "true", "yes"}
 if TEST_RD_PARSER:
-    from shakar_ref.parser_rd import parse_source as parse_rd
+    from shakar_ref.parser_rd import parse_source as parse_rd, ParseError
+    from shakar_ref.lexer_rd import LexError
     from shakar_ref.parse_auto import Prune
     from shakar_ref.lower import lower
     from lark import Tree, Token
@@ -251,6 +252,8 @@ class ParserBundle:
                 if not match:
                     return False, f"{label} (RD vs Lark): AST mismatch: {error}"
 
+            except (ParseError, LexError) as exc:
+                return False, f"{label} (RD): {exc}"
             except Exception as exc:
                 return False, f"{label} (RD): {exc}"
 

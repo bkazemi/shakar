@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Optional
 
 from lark import UnexpectedInput
-from .parser_rd import parse_source
+from .parser_rd import parse_source, ParseError
+from .lexer_rd import LexError
 from .ast_transforms import Prune, looks_like_offside
 from .lower import lower
 from .evaluator import eval_expr
@@ -28,7 +29,7 @@ def run(src: str, grammar_path: Optional[str]=None, use_indenter: Optional[bool]
         try:
             tree = parse_source(src, use_indenter=flag)
             break
-        except UnexpectedInput as exc:
+        except (UnexpectedInput, ParseError, LexError) as exc:
             last_error = exc
 
     if tree is None:
