@@ -37,6 +37,7 @@ class TT(Enum):
     CATCH = auto()
     ASSERT = auto()
     DBG = auto()
+    DECORATOR = auto()
     GET = auto()
     SET = auto()
     HOOK = auto()

@@ -584,6 +584,20 @@ class Prune(Transformer):
         items = [item for item in c if item is not Discard]
         return Tree("decorator_list", items)
 
+    def decorator_entry(self, c):
+        # Store the raw decorator expression; omit leading '@' and newlines.
+        expr = next(
+            (
+                node
+                for node in c
+                if not (is_token(node) and getattr(node, "type", "") in {"AT", "_NL"})
+            ),
+            None,
+        )
+        if expr is None:
+            return Discard
+        return Tree("decorator_spec", [expr])
+
     def decorator_target(self, c):
         # preserve every decorator expression in order; runtime evaluates them later.
         entries = [node for node in c if node is not Discard]
@@ -613,6 +627,58 @@ class Prune(Transformer):
             children.append(body)
 
         return Tree("decorator_def", children)
+
+    def fnstmt(self, c):
+        """
+        Normalize function statements to fndef, preserving optional decorators.
+        """
+        name = None
+        params = None
+        body = None
+        decorators = None
+
+        for node in c:
+            if is_tree(node) and tree_label(node) == "decorator_list":
+                decorators = node
+                continue
+
+            if is_token(node) and getattr(node, "type", "") == "IDENT" and name is None:
+                name = node
+            elif is_tree(node) and tree_label(node) == "paramlist":
+                params = node
+            elif is_tree(node) and tree_label(node) in {"inlinebody", "indentblock"}:
+                body = node
+
+        children: List[Node] = []
+
+        if name is not None:
+            children.append(name)
+        if params is not None:
+            children.append(params)
+        if body is not None:
+            children.append(body)
+        if decorators is not None:
+            children.append(decorators)
+
+        return Tree("fndef", children)
+
+    def returnstmt(self, c: List[Node]) -> Tree:
+        exprs: List[Node] = []
+
+        for node in c:
+            if is_token(node) and getattr(node, "type", "") == "RETURN":
+                continue
+            exprs.append(node)
+        return Tree("returnstmt", exprs)
+
+    def throwstmt(self, c: List[Node]) -> Tree:
+        exprs: List[Node] = []
+
+        for node in c:
+            if is_token(node) and getattr(node, "type", "") == "THROW":
+                continue
+            exprs.append(node)
+        return Tree("throwstmt", exprs)
 
     # ---- catch normalization ----
     def catchexpr(self, c: List[Node]) -> Tree:

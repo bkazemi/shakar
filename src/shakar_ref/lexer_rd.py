@@ -50,6 +50,7 @@ class Lexer:
         'catch': TT.CATCH,
         'assert': TT.ASSERT,
         'dbg': TT.DBG,
+        'decorator': TT.DECORATOR,
         'get': TT.GET,
         'set': TT.SET,
         'hook': TT.HOOK,

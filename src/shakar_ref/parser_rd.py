@@ -168,6 +168,11 @@ class Parser:
             return self.parse_for_stmt()
 
         # Declarations
+        if self.check(TT.DECORATOR):
+            return self.parse_decorator_stmt()
+        if self.check(TT.AT):
+            # Decorator list followed by fn statement
+            return self.parse_fn_stmt()
         if self.check(TT.FN):
             return self.parse_fn_stmt()
 
@@ -182,6 +187,8 @@ class Parser:
             return self.parse_throw_stmt()
         if self.check(TT.ASSERT):
             return self.parse_assert_stmt()
+        if self.check(TT.DBG):
+            return self.parse_dbg_stmt()
 
         # Guard chains (inline if-else)
         # expr : body | expr : body |: else
@@ -205,25 +212,11 @@ class Parser:
 
         # Check for assignment operators
         if self.check(TT.ASSIGN, TT.WALRUS, TT.APPLYASSIGN,
-                      TT.PLUSEQ, TT.MINUSEQ, TT.STAREQ, TT.SLASHEQ):
+                      TT.PLUSEQ, TT.MINUSEQ, TT.STAREQ, TT.SLASHEQ, TT.FLOORDIVEQ, TT.MODEQ):
             # This is actually handled in parse_expr for walrus/apply
             # But = assignments need special handling
             if self.check(TT.ASSIGN):
-                # Wrap expr in lvalue
-                # Need to unwrap expression wrappers to find the core
-                core_expr = expr
-                while isinstance(core_expr, Tree) and len(core_expr.children) == 1:
-                    # Skip single-child wrapper nodes (expr, ternaryexpr, compareexpr, etc.)
-                    core_expr = core_expr.children[0]
-
-                if isinstance(core_expr, Token) and core_expr.type == 'IDENT':
-                    lvalue = Tree('lvalue', [core_expr])
-                elif isinstance(core_expr, Tree) and core_expr.data == 'explicit_chain':
-                    # Unwrap explicit_chain - put its children directly in lvalue
-                    lvalue = Tree('lvalue', list(core_expr.children))
-                else:
-                    # Fallback: just wrap
-                    lvalue = Tree('lvalue', [expr])
+                lvalue = self._expr_to_lvalue(expr)
 
                 eq_tok = self.advance()
                 rhs = self.parse_nullish_expr()  # Parse from nullish down (like walrus)
@@ -231,12 +224,8 @@ class Parser:
                 return Tree('assignstmt', [lvalue, Token('EQUAL', '='), rhs_nc])
 
             # Compound assignments
-            if self.check(TT.PLUSEQ, TT.MINUSEQ, TT.STAREQ, TT.SLASHEQ):
-                # Wrap expr in lvalue
-                if isinstance(expr, Token) and expr.type == 'IDENT':
-                    lvalue = Tree('lvalue', [expr])
-                else:
-                    lvalue = Tree('lvalue', [expr])
+            if self.check(TT.PLUSEQ, TT.MINUSEQ, TT.STAREQ, TT.SLASHEQ, TT.FLOORDIVEQ, TT.MODEQ):
+                lvalue = self._expr_to_lvalue(expr)
 
                 op = self.advance()
                 rhs = self.parse_nullish_expr()
@@ -344,11 +333,42 @@ class Parser:
         body = self.parse_body()
         return Tree('forsubject', [Token('FOR', 'for'), iterable, body])
 
+    def parse_decorator_stmt(self) -> Tree:
+        """
+        Parse decorator declaration:
+        decorator name(params): body
+        """
+        self.expect(TT.DECORATOR)
+        name = self.expect(TT.IDENT)
+
+        self.expect(TT.LPAR)
+        params = self.parse_param_list()
+        self.expect(TT.RPAR)
+
+        self.expect(TT.COLON)
+        body = self.parse_body()
+
+        return Tree('decorator_def', [Token('IDENT', name.value), params, body])
+
     def parse_fn_stmt(self) -> Tree:
         """
-        Parse function declaration:
+        Parse function declaration (possibly with decorators):
+        [@decorator_call]*
         fn name(params): body
         """
+        # Check for decorator list before fn
+        decorators = []
+        while self.check(TT.AT):
+            self.advance()  # consume @
+            # Parse decorator: identifier with optional field access and call
+            # @name, @name(), @obj.field, @obj.method()
+            decorator_expr = self.parse_postfix_expr()
+            # Skip newlines after decorator
+            while self.match(TT.NEWLINE):
+                pass
+            # decorator_entry: just the expression, no @ token
+            decorators.append(Tree('decorator_entry', [decorator_expr]))
+
         self.expect(TT.FN)
         name = self.expect(TT.IDENT)
 
@@ -358,6 +378,11 @@ class Parser:
 
         self.expect(TT.COLON)
         body = self.parse_body()
+
+        # fnstmt structure: [name, params, body] or [name, params, body, decorator_list]
+        if decorators:
+            decorator_list = Tree('decorator_list', decorators)
+            return Tree('fnstmt', [Token('IDENT', name.value), params, body, decorator_list])
 
         return Tree('fnstmt', [Token('IDENT', name.value), params, body])
 
@@ -393,6 +418,13 @@ class Parser:
         self.expect(TT.ASSERT)
         value = self.parse_expr()
         return Tree('assert', [value])
+
+    def parse_dbg_stmt(self) -> Tree:
+        """Parse dbg: dbg expr (stub - treated as expression statement)"""
+        self.expect(TT.DBG)
+        value = self.parse_expr()
+        # Just return the expression - dbg is a no-op stub for now
+        return value
 
     def parse_guard_chain(self) -> Tree:
         """
@@ -580,20 +612,45 @@ class Parser:
         left = self.parse_walrus_expr()
 
         if self.match(TT.APPLYASSIGN):
-            # Left should be an lvalue (identifier or chain)
-            # Wrap it in Tree('lvalue', [...])
-            if isinstance(left, Token) and left.type == 'IDENT':
-                lvalue = Tree('lvalue', [left])
-            else:
-                # For now, just wrap whatever we have
-                # TODO: properly parse lvalue chains
-                lvalue = Tree('lvalue', [left])
+            lvalue = self._expr_to_lvalue(left)
 
             right = self.parse_bind_expr()  # Right associative
             return Tree('bind', [lvalue, right])
 
         # No bind, just return walrus level
         return left
+
+    def _expr_to_lvalue(self, expr: Tree | Token) -> Tree:
+        """
+        Convert an expression node into an lvalue tree, preserving chain
+        structure and normalizing index ops to lv_index for assignment
+        handling.
+        """
+        core_expr: Tree | Token = expr
+
+        # Unwrap single-child precedence wrappers (expr, ternaryexpr, etc.)
+        while isinstance(core_expr, Tree) and len(core_expr.children) == 1:
+            core_expr = core_expr.children[0]
+
+        if isinstance(core_expr, Token) and core_expr.type == 'IDENT':
+            return Tree('lvalue', [core_expr])
+
+        if isinstance(core_expr, Tree) and core_expr.data in {'explicit_chain', 'implicit_chain'}:
+            if not core_expr.children:
+                return Tree('lvalue', [core_expr])
+
+            head, *ops = core_expr.children
+
+            norm_ops: List[Tree | Token] = []
+            for op in ops:
+                if isinstance(op, Tree) and op.data == 'index':
+                    norm_ops.append(Tree('lv_index', list(op.children)))
+                else:
+                    norm_ops.append(op)
+
+            return Tree('lvalue', [head] + norm_ops)
+
+        return Tree('lvalue', [expr])
 
     def parse_walrus_expr(self) -> Tree:
         """Parse walrus: x := expr"""
@@ -886,12 +943,8 @@ class Parser:
                 elif self.match(TT.LPAR):
                     args = self.parse_arg_list()
                     self.expect(TT.RPAR)
-                    # Wrap args based on context:
-                    # - In inline body: call(argitem, argitem, ...)
-                    # - Not inline: call(arglistnamedmixed(argitem, argitem, ...))
                     if args:
-                        if not self.in_inline_body:
-                            args = [Tree('arglistnamedmixed', args)]
+                        args = [Tree('arglistnamedmixed', args)]
                     else:
                         args = []
                     postfix_ops.append(Tree('call', args))
@@ -951,12 +1004,8 @@ class Parser:
             elif self.match(TT.LPAR):
                 args = self.parse_arg_list()
                 self.expect(TT.RPAR)
-                # Wrap args based on context:
-                # - In inline body: call(argitem, argitem, ...)
-                # - Not inline: call(arglistnamedmixed(argitem, argitem, ...))
                 if args:
-                    if not self.in_inline_body:
-                        args = [Tree('arglistnamedmixed', args)]
+                    args = [Tree('arglistnamedmixed', args)]
                 else:
                     args = []
                 postfix_ops.append(Tree('call', args))

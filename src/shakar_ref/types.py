@@ -17,7 +17,8 @@ class ShkNumber:
     value: float
     def __repr__(self) -> str:
         v = self.value
-        return str(int(v)) if v.is_integer() else str(v)
+        # Always show .0 for integer values to match expected output
+        return f"{int(v)}.0" if v.is_integer() else str(v)
 
 @dataclass
 class ShkString:
