@@ -4,44 +4,15 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from lark import Lark, UnexpectedInput
-from .parse_auto import build_parser  # use the project's builder (lexer remap + indenter)
-from .parse_auto import Prune, looks_like_offside
+from lark import UnexpectedInput
+from .parser_rd import parse_source
+from .ast_transforms import Prune, looks_like_offside
 from .lower import lower
 from .evaluator import eval_expr
 from .runtime import ShkValue
 from .runtime import Frame, init_stdlib
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-
-def _read_grammar(grammar_path: Optional[str], variant: str="default") -> str:
-    if grammar_path:
-        p = Path(grammar_path)
-        if p.exists():
-            return p.read_text(encoding="utf-8")
-
-    # fallback: sibling grammar files at the repository root
-    parent_dir = REPO_ROOT
-
-    fallback = parent_dir / "grammar.lark"
-    if fallback.exists():
-        return fallback.read_text(encoding="utf-8")
-
-    raise FileNotFoundError("grammar.lark not found. pass an explicit path")
-
-def make_parser(grammar_path: Optional[str]=None, use_indenter: bool=False, start_sym: Optional[str]=None, grammar_variant: str="default") -> Lark:
-    g = _read_grammar(grammar_path, variant=grammar_variant)
-
-    if start_sym is None:
-        start_sym = "start_indented" if use_indenter else "start_noindent"
-
-    # RD variant will route to the recursive-descent pipeline; Earley remains default.
-    parser_kind = "earley"
-
-    parser: Lark = build_parser(g, parser_kind=parser_kind, use_indenter=use_indenter, start_sym=start_sym)
-    return parser
-
-def run(src: str, grammar_path: Optional[str]=None, use_indenter: Optional[bool]=None, grammar_variant: str="default") -> ShkValue:
+def run(src: str, grammar_path: Optional[str]=None, use_indenter: Optional[bool]=None, grammar_variant: str="default") -> ShkValue:  # grammar_path/variant kept for CLI compatibility; ignored
     init_stdlib()
 
     if use_indenter is None:
@@ -54,9 +25,8 @@ def run(src: str, grammar_path: Optional[str]=None, use_indenter: Optional[bool]
     tree = None
 
     for flag in attempts:
-        parser = make_parser(grammar_path, use_indenter=flag, grammar_variant=grammar_variant)
         try:
-            tree = parser.parse(src)
+            tree = parse_source(src, use_indenter=flag)
             break
         except UnexpectedInput as exc:
             last_error = exc
@@ -107,17 +77,6 @@ def main() -> None:
     it = iter(sys.argv[1:])
 
     for token in it:
-        if token.startswith("--grammar="):
-            grammar_path = token.split("=", 1)[1]
-            continue
-
-        if token == "--grammar":
-            try:
-                grammar_path = next(it)
-            except StopIteration:
-                raise SystemExit("--grammar flag requires a path") from None
-            continue
-
         if arg is None:
             arg = token
         else:

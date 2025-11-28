@@ -40,6 +40,14 @@ from shakar_ref.runtime import (
 )
 from shakar_ref import parse_auto as runner
 
+# Optional RD parser import
+TEST_RD_PARSER = os.getenv("TEST_RD_PARSER", "").lower() in {"1", "true", "yes"}
+if TEST_RD_PARSER:
+    from shakar_ref.parser_rd import parse_source as parse_rd
+    from shakar_ref.parse_auto import Prune
+    from shakar_ref.lower import lower
+    from lark import Tree, Token
+
 GRAMMAR_PATH = Path("grammar.lark")
 GRAMMAR_TEXT = GRAMMAR_PATH.read_text(encoding="utf-8")
 
@@ -183,16 +191,70 @@ class ParserBundle:
                 start_sym="start_indented",
             ),
         }
+        self.test_rd = TEST_RD_PARSER
+
+    def _trees_match(self, rd_tree, lark_tree, path="") -> Tuple[bool, str]:
+        """Compare RD and Lark trees for equivalence."""
+        # Both are tokens
+        if isinstance(rd_tree, Token) and isinstance(lark_tree, Token):
+            if rd_tree.type != lark_tree.type:
+                return False, f"{path}: Token type mismatch: {rd_tree.type} vs {lark_tree.type}"
+            if rd_tree.value != lark_tree.value:
+                return False, f"{path}: Token value mismatch: {rd_tree.value!r} vs {lark_tree.value!r}"
+            return True, ""
+
+        # Both are trees
+        if isinstance(rd_tree, Tree) and isinstance(lark_tree, Tree):
+            if rd_tree.data != lark_tree.data:
+                return False, f"{path}: Tree data mismatch: {rd_tree.data} vs {lark_tree.data}"
+
+            if len(rd_tree.children) != len(lark_tree.children):
+                return False, f"{path}: Child count mismatch: {len(rd_tree.children)} vs {len(lark_tree.children)}"
+
+            for i, (rd_child, lark_child) in enumerate(zip(rd_tree.children, lark_tree.children)):
+                match, err = self._trees_match(rd_child, lark_child, f"{path}/{rd_tree.data}[{i}]")
+                if not match:
+                    return False, err
+
+            return True, ""
+
+        # Type mismatch
+        return False, f"{path}: Type mismatch: {type(rd_tree).__name__} vs {type(lark_tree).__name__}"
 
     def parse(self, start: str, code: str) -> Tuple[bool, Optional[str]]:
         """Parse using the requested start symbol, returning (ok, error_message)."""
         parser = self.parsers[start]
         label = f"start_{start}"
+
+        # Parse with Lark
         try:
-            parser.parse(code)
-            return True, None
+            lark_tree = parser.parse(code)
         except Exception as exc:  # pragma: no cover - defensive
-            return False, f"{label}: {exc}"
+            return False, f"{label} (Lark): {exc}"
+
+        # If RD testing is enabled, compare
+        if self.test_rd:
+            try:
+                # Parse with RD (use indenter for indented mode)
+                use_indenter = (start == "indented")
+                rd_tree = parse_rd(code, use_indenter=use_indenter)
+                # Apply same transformations as Lark
+                rd_tree = Prune().transform(rd_tree)
+                rd_tree = lower(rd_tree)
+
+                # Also apply transformations to Lark tree for fair comparison
+                lark_tree_transformed = Prune().transform(lark_tree)
+                lark_tree_transformed = lower(lark_tree_transformed)
+
+                # Compare trees
+                match, error = self._trees_match(rd_tree, lark_tree_transformed)
+                if not match:
+                    return False, f"{label} (RD vs Lark): AST mismatch: {error}"
+
+            except Exception as exc:
+                return False, f"{label} (RD): {exc}"
+
+        return True, None
 
 # ---------------------------------------------------------------------------
 # Case builders
