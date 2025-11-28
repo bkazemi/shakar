@@ -1738,8 +1738,6 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("source", nargs="?", help="Path to a source file (defaults to stdin)")
     ap.add_argument("-g", "--grammar", default="grammar.lark", help="Path to grammar.lark")
-    ap.add_argument("--earley", action="store_true", help="Use Earley (default)")
-    ap.add_argument("--lalr", action="store_true", help="Use LALR")
     ap.add_argument("--indenter", action="store_true", help="Force Indenter ON")
     ap.add_argument("--no-indenter", action="store_true", help="Force Indenter OFF")
     ap.add_argument("--tree", action="store_true", help="Print parse tree")
@@ -1748,7 +1746,7 @@ def main() -> None:
 
     args = ap.parse_args()
 
-    parser_kind = "earley" if (args.earley or not args.lalr) else "lalr"
+    parser_kind = "earley"  # RD variant can be wired here later
     grammar_text = Path(args.grammar).read_text(encoding="utf-8")
     code = Path(args.source).read_text(encoding="utf-8") if args.source else sys.stdin.read()
 

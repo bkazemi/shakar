@@ -23,11 +23,6 @@ def _read_grammar(grammar_path: Optional[str], variant: str="default") -> str:
     # fallback: sibling grammar files at the repository root
     parent_dir = REPO_ROOT
 
-    if variant == "lalr":
-        cand = parent_dir / "grammar_lalr.lark"
-        if cand.exists():
-            return cand.read_text(encoding="utf-8")
-
     fallback = parent_dir / "grammar.lark"
     if fallback.exists():
         return fallback.read_text(encoding="utf-8")
@@ -40,9 +35,8 @@ def make_parser(grammar_path: Optional[str]=None, use_indenter: bool=False, star
     if start_sym is None:
         start_sym = "start_indented" if use_indenter else "start_noindent"
 
+    # RD variant will route to the recursive-descent pipeline; Earley remains default.
     parser_kind = "earley"
-    if grammar_variant == "lalr":
-        parser_kind = "lalr"
 
     parser: Lark = build_parser(g, parser_kind=parser_kind, use_indenter=use_indenter, start_sym=start_sym)
     return parser
@@ -113,10 +107,6 @@ def main() -> None:
     it = iter(sys.argv[1:])
 
     for token in it:
-        if token == "--lalr":
-            grammar_variant = "lalr"
-            continue
-
         if token.startswith("--grammar="):
             grammar_path = token.split("=", 1)[1]
             continue
