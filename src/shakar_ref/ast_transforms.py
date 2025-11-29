@@ -57,7 +57,14 @@ def enforce_subject_scope(tree: Tree) -> None:
             visit(children[0], depth)
             visit(children[1], depth + 1)
             return
-        if label in {"awaitstmt", "hook"}:
+        if label in {"awaitstmt", "hook", "awaitanycall", "awaitallcall"}:
+            for ch in children:
+                if is_tree(ch) and tree_label(ch) in {"inlinebody", "indentblock"}:
+                    visit(ch, depth + 1)
+                else:
+                    visit(ch, depth)
+            return
+        if label in {"anyarm", "allarm"}:
             for ch in children:
                 if is_tree(ch) and tree_label(ch) in {"inlinebody", "indentblock"}:
                     visit(ch, depth + 1)
@@ -537,38 +544,32 @@ class Prune(Transformer):
     def usingstmt(self, c):
         expr = None
         body = None
-        name: Optional[Token] = None
+        handle: Optional[str] = None
+        binder: Optional[str] = None
 
         for node in c:
             if is_tree(node) and tree_label(node) in {"inlinebody", "indentblock"}:
                 body = node
+            elif is_tree(node) and tree_label(node) == "using_handle":
+                handle = _first_ident(node)
+            elif is_tree(node) and tree_label(node) == "using_bind":
+                binder = _first_ident(node)
             elif is_tree(node) and tree_label(node) == "bindexpr":
                 expr = node
-            elif is_token(node) and getattr(node, "type", "") == "IDENT":
-                name = node
+            elif expr is None and node is not Discard:
+                expr = node
 
         if expr is None or body is None:
             raise SyntaxError("Malformed using statement")
 
-        def _build_tryfinally(resource_expr: Node, name_tok: Optional[Token]) -> Tree:
-            open_call = Tree("call", [Tree("args", [])])
-            close_call = Tree("call", [Tree("args", [])])
-
-            if name_tok is None:
-                open_chain = Tree("explicit_chain", [resource_expr, Tree("field", [Token("IDENT", "open")]), open_call])
-                close_chain = Tree("explicit_chain", [resource_expr, Tree("field", [Token("IDENT", "close")]), close_call])
-                binding = resource_expr
-            else:
-                open_chain = Tree("explicit_chain", [resource_expr, Tree("field", [Token("IDENT", "open")]), open_call])
-                close_chain = Tree("explicit_chain", [Tree("field", [Token("IDENT", name_tok.value)]), Tree("field", [Token("IDENT", "close")]), close_call])
-                binding = Tree("lvalue", [name_tok])
-
-            try_block = Tree("try_body", [Tree("stmtlist", [Tree("assign", [binding, open_chain])])])
-            finally_block = Tree("finally_body", [Tree("stmtlist", [Tree("exprstmt", [close_chain])])])
-            return Tree("tryfinally", [try_block, finally_block])
-
-        tryfinally = _build_tryfinally(expr, name)
-        return Tree("using", [tryfinally, body])
+        children: List[Node] = []
+        if handle is not None:
+            children.append(Tree("using_handle", [Token("IDENT", handle)]))
+        if binder is not None:
+            children.append(Tree("using_bind", [Token("IDENT", binder)]))
+        children.append(expr)
+        children.append(body)
+        return Tree("usingstmt", children)
 
     # --- decorators ----
     def decorator(self, c):
@@ -661,6 +662,40 @@ class Prune(Transformer):
             children.append(decorators)
 
         return Tree("fndef", children)
+
+    def deferstmt(self, c: List[Node]) -> Tree:
+        label = None
+        deps: List[Token] = []
+        body_node = None
+
+        for node in c:
+            if is_tree(node):
+                tag = tree_label(node)
+
+                if tag == "deferlabel" and label is None and node.children:
+                    ident = _first_ident(node)
+                    if ident:
+                        label = ident
+                    continue
+                if tag == "deferafter":
+                    deps.extend(_collect_defer_after(node))
+                    continue
+                if tag == "defer_block":
+                    block = self._transform_tree(node.children[0])
+                    body_node = Tree("deferblock", [block])
+                    continue
+                body_node = self._transform_tree(node)
+            else:
+                body_node = node
+
+        children: List[Node] = []
+        if label is not None:
+            children.append(Tree("deferlabel", [Token("IDENT", label)]))
+        if body_node is not None:
+            children.append(body_node)
+        if deps:
+            children.append(Tree("deferdeps", deps))
+        return Tree("deferstmt", children)
 
     def returnstmt(self, c: List[Node]) -> Tree:
         exprs: List[Node] = []
@@ -901,6 +936,17 @@ def validate_hoisted_binders(tree: Tree) -> None:
 def _strip_discard(node: Tree) -> Tree:
     kept = [child for child in tree_children(node) if child is not Discard]
     return Tree(node.data, kept)
+
+
+def _collect_defer_after(node: Tree) -> List[Token]:
+    deps: List[Token] = []
+
+    for ch in tree_children(node):
+        name = _first_ident(ch)
+        if name:
+            deps.append(Token("IDENT", name))
+
+    return deps
 
 
 def _desugar_call_holes(node: Node) -> Node:

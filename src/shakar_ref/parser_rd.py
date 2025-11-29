@@ -166,6 +166,13 @@ class Parser:
             return self.parse_while_stmt()
         if self.check(TT.FOR):
             return self.parse_for_stmt()
+        if self.check(TT.USING):
+            return self.parse_using_stmt()
+        if self.check(TT.DEFER):
+            return self.parse_defer_stmt()
+        if self.check(TT.AWAIT):
+            # Statement-form await with optional bodies/arms
+            return self.parse_await_stmt()
 
         # Declarations
         if self.check(TT.DECORATOR):
@@ -189,6 +196,8 @@ class Parser:
             return self.parse_assert_stmt()
         if self.check(TT.DBG):
             return self.parse_dbg_stmt()
+        if self.check(TT.AWAIT):
+            return self.parse_await_stmt()
 
         # Guard chains (inline if-else)
         # expr : body | expr : body |: else
@@ -333,6 +342,175 @@ class Parser:
         body = self.parse_body()
         return Tree('forsubject', [Token('FOR', 'for'), iterable, body])
 
+    def parse_using_stmt(self) -> Tree:
+        """
+        Parse using statement:
+        using [handle] expr [bind ident]: body
+        """
+        self.expect(TT.USING)
+
+        handle = None
+        if self.match(TT.LSQB):
+            ident_tok = self.expect(TT.IDENT)
+            self.expect(TT.RSQB)
+            handle = ident_tok
+
+        resource = self.parse_expr()
+
+        binder = None
+        if self.check(TT.IDENT) and getattr(self.current, "value", "") == "bind":
+            self.advance()
+            binder = self.expect(TT.IDENT)
+
+        self.expect(TT.COLON)
+        body = self.parse_body()
+
+        children: List[Any] = []
+        if handle is not None:
+            children.append(Tree('using_handle', [Token('IDENT', handle.value)]))
+        children.append(resource)
+        if binder is not None:
+            children.append(Tree('using_bind', [Token('IDENT', binder.value)]))
+        children.append(body)
+        return Tree('usingstmt', children)
+
+    def parse_defer_stmt(self) -> Tree:
+        """
+        Parse defer statement:
+        defer simplecall [after ...]
+        defer [label] [after ...] : body
+        """
+        self.expect(TT.DEFER)
+
+        # Lookahead to see if a colon appears before a left paren; colon => block form
+        colon_ahead = False
+        lpar_ahead = False
+        depth = 0
+        scan_pos = self.pos
+        while scan_pos < len(self.tokens):
+            tok = self.tokens[scan_pos]
+            if tok.type in {TT.LPAR, TT.LSQB, TT.LBRACE}:
+                depth += 1
+            elif tok.type in {TT.RPAR, TT.RSQB, TT.RBRACE} and depth > 0:
+                depth -= 1
+            if depth == 0:
+                if tok.type == TT.COLON:
+                    colon_ahead = True
+                    break
+                if tok.type == TT.LPAR and not lpar_ahead:
+                    lpar_ahead = True
+            if tok.type in {TT.NEWLINE, TT.INDENT, TT.DEDENT, TT.EOF} and depth == 0:
+                break
+            scan_pos += 1
+
+        defer_children: List[Tree | Token] = []
+
+        if colon_ahead:
+            # Optional label
+            if self.check(TT.IDENT):
+                label_tok = self.advance()
+                defer_children.append(Tree('deferlabel', [Token('IDENT', label_tok.value)]))
+
+            # Optional deferafter
+            if self.check(TT.IDENT) and getattr(self.current, "value", "") == "after":
+                self.advance()
+                defer_children.append(self._parse_defer_after())
+
+            self.expect(TT.COLON)
+            body = self.parse_body()
+            defer_children.append(Tree('defer_block', [body]))
+            return Tree('deferstmt', defer_children)
+
+        # simplecall branch
+        call_expr = self.parse_postfix_expr()
+        if not self._expr_has_call(call_expr):
+            raise ParseError("defer expects a call expression or block", self.current)
+
+        # Optional deferafter
+        if self.check(TT.IDENT) and getattr(self.current, "value", "") == "after":
+            self.advance()
+            defer_children.append(self._parse_defer_after())
+        defer_children.append(call_expr)
+
+        return Tree('deferstmt', defer_children)
+
+    def _parse_defer_after(self) -> Tree:
+        deps: List[Token] = []
+
+        if self.match(TT.LPAR):
+            if not self.check(TT.RPAR):
+                deps.append(Token('IDENT', self.expect(TT.IDENT).value))
+                while self.match(TT.COMMA):
+                    deps.append(Token('IDENT', self.expect(TT.IDENT).value))
+            self.expect(TT.RPAR)
+        else:
+            deps.append(Token('IDENT', self.expect(TT.IDENT).value))
+
+        return Tree('deferafter', deps)
+
+    def _expr_has_call(self, expr: Tree | Token) -> bool:
+        if isinstance(expr, Tree):
+            if expr.data == 'call':
+                return True
+            return any(self._expr_has_call(ch) for ch in expr.children)
+        return False
+
+    def _scan_for_colon(self) -> bool:
+        """Look ahead on the current line for a colon before newline/semicolon/dedent."""
+        depth = 0
+        idx = self.pos + 1
+        while idx < len(self.tokens):
+            tok = self.tokens[idx]
+            if tok.type in {TT.NEWLINE, TT.SEMI, TT.DEDENT, TT.EOF} and depth == 0:
+                return False
+            if tok.type in {TT.LPAR, TT.LSQB, TT.LBRACE}:
+                depth += 1
+            elif tok.type in {TT.RPAR, TT.RSQB, TT.RBRACE} and depth > 0:
+                depth -= 1
+            if depth == 0 and tok.type == TT.COLON:
+                return True
+            idx += 1
+        return False
+
+    def _scan_colon_after_parens(self, start_pos: int) -> bool:
+        """Look ahead from a '(' token to find a matching ')' followed by a colon at depth 0."""
+        depth = 0
+        idx = start_pos
+
+        while idx < len(self.tokens):
+            tok = self.tokens[idx]
+
+            if tok.type in {TT.LPAR, TT.LSQB, TT.LBRACE}:
+                depth += 1
+            elif tok.type in {TT.RPAR, TT.RSQB, TT.RBRACE}:
+                depth -= 1
+                if depth < 0:
+                    return False
+
+            if depth == 0:
+                if tok.type == TT.COLON:
+                    return True
+                if tok.type in {TT.COMMA, TT.RBRACE, TT.SEMI, TT.NEWLINE, TT.EOF}:
+                    return False
+
+            idx += 1
+
+        return False
+
+    def _looks_like_object_item_start(self) -> bool:
+        """Heuristic to detect start of the next object item without consuming tokens."""
+        if self.check(TT.RBRACE):
+            return True
+        if self.check(TT.GET, TT.SET):
+            return True
+        if self.check(TT.IDENT):
+            nxt = self.peek(1)
+            if nxt.type == TT.COLON:
+                return True
+            if nxt.type == TT.LPAR and self._scan_colon_after_parens(self.pos + 1):
+                return True
+        return False
+
     def parse_decorator_stmt(self) -> Tree:
         """
         Parse decorator declaration:
@@ -385,6 +563,42 @@ class Parser:
             return Tree('fnstmt', [Token('IDENT', name.value), params, body, decorator_list])
 
         return Tree('fnstmt', [Token('IDENT', name.value), params, body])
+
+    def parse_await_stmt(self) -> Tree:
+        """
+        Parse await statement forms:
+        - await [any](arms) [: body]
+        - await [all](arms) [: body]
+        - await expr : body
+        """
+        await_tok = self.expect(TT.AWAIT)
+
+        # await [any|all](...) ...
+        if self.match(TT.LSQB):
+            kind_tok = self.advance()  # expect ANY or ALL identifiers
+            kind = getattr(kind_tok, "type", None)
+            self.expect(TT.RSQB)
+            self.expect(TT.LPAR)
+            arms = self.parse_await_arm_list(kind_tok)
+            self.expect(TT.RPAR)
+
+            trailing_body = None
+            if self.match(TT.COLON):
+                trailing_body = self.parse_body()
+
+            root_label = 'awaitanycall' if kind == TT.ANY else 'awaitallcall'
+            children: List[Any] = [Tree('anyarmlist' if root_label == 'awaitanycall' else 'allarmlist', arms)]
+            if trailing_body is not None:
+                children.append(Token('RPAR', ')'))
+                children.append(trailing_body)
+            return Tree(root_label, children)
+
+        # await expr [: body]?
+        expr = self.parse_expr()
+        if self.match(TT.COLON):
+            body = self.parse_body()
+            return Tree('awaitstmt', [Token('AWAIT', await_tok.value), expr, body])
+        return Tree('await_value', [Token('AWAIT', await_tok.value), expr])
 
     def parse_return_stmt(self) -> Tree:
         """Parse return statement: return [expr]"""
@@ -474,6 +688,9 @@ class Parser:
             while not self.check(TT.RBRACE, TT.EOF):
                 if self.match(TT.NEWLINE):
                     continue
+                if self.match(TT.SEMI):
+                    stmts.append(Token('SEMI', ';'))
+                    continue
                 stmts.append(self.parse_statement())
             self.expect(TT.RBRACE)
             return Tree('indentblock', stmts)
@@ -487,6 +704,9 @@ class Parser:
             # Parse statements in the block
             while not self.check(TT.DEDENT, TT.EOF):
                 if self.match(TT.NEWLINE):
+                    continue
+                if self.match(TT.SEMI):
+                    children.append(Token('SEMI', ';'))
                     continue
                 stmt = self.parse_statement()
                 children.append(Tree('stmt', [stmt]))
@@ -645,6 +865,9 @@ class Parser:
             for op in ops:
                 if isinstance(op, Tree) and op.data == 'index':
                     norm_ops.append(Tree('lv_index', list(op.children)))
+                elif isinstance(op, Tree) and op.data == 'valuefan':
+                    # valuefan is expression fan-out; for assignment treat as fieldfan
+                    norm_ops.append(Tree('fieldfan', op.children))
                 else:
                     norm_ops.append(op)
 
@@ -920,7 +1143,7 @@ class Parser:
                     elif self.match(TT.LBRACE):
                         items = self.parse_fan_items()
                         self.expect(TT.RBRACE)
-                        postfix_ops.append(Tree('fieldfan', [Tree('fieldlist', items)]))
+                        postfix_ops.append(Tree('valuefan', [Tree('valuefan_list', [Tree('valuefan_item', [Token('IDENT', t.value)]) for t in items])]))
                     else:
                         raise ParseError("Expected field name after '.'", self.current)
                 elif self.check(TT.LSQB):
@@ -972,7 +1195,7 @@ class Parser:
                     # Fan syntax: .{field1, field2} or .{chain1, chain2}
                     items = self.parse_fan_items()
                     self.expect(TT.RBRACE)
-                    postfix_ops.append(Tree('fieldfan', [Tree('fieldlist', items)]))
+                    postfix_ops.append(Tree('valuefan', [Tree('valuefan_list', [Tree('valuefan_item', [Token('IDENT', t.value)]) for t in items])]))
                 else:
                     raise ParseError("Expected field name after '.'", self.current)
 
@@ -1040,6 +1263,10 @@ class Parser:
             tok = self.advance()
             return Token('NUMBER', tok.value)
 
+        # Hole placeholder for partial application
+        if self.match(TT.QMARK):
+            return Tree('holeexpr', [])
+
         if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING, TT.SHELL_STRING):
             tok = self.advance()
             return Token(tok.type.name, tok.value)
@@ -1050,6 +1277,31 @@ class Parser:
             return Token('FALSE', 'false')
         if self.match(TT.NIL):
             return Token('NIL', 'nil')
+
+        # Set literal / comprehension
+        if self.match(TT.SET):
+            self.expect(TT.LBRACE)
+            if self.check(TT.RBRACE):
+                self.advance()
+                return Tree('setliteral', [])
+
+            first_expr = self.parse_expr()
+            if self.check(TT.FOR, TT.OVER):
+                comphead = self.parse_comphead()
+                ifclause = self.parse_ifclause_opt()
+                self.expect(TT.RBRACE)
+                children = [first_expr, comphead]
+                if ifclause:
+                    children.append(ifclause)
+                return Tree('setcomp', children)
+
+            items = [first_expr]
+            while self.match(TT.COMMA):
+                if self.check(TT.RBRACE):
+                    break
+                items.append(self.parse_expr())
+            self.expect(TT.RBRACE)
+            return Tree('setliteral', items)
 
         # Identifiers
         if self.check(TT.IDENT):
@@ -1072,23 +1324,38 @@ class Parser:
 
         # Array literal
         if self.match(TT.LSQB):
-            elements = []
-
             # Skip newlines in array
             while self.match(TT.NEWLINE):
                 pass
 
-            while not self.check(TT.RSQB, TT.EOF):
-                elements.append(self.parse_expr())
+            if self.check(TT.RSQB):
+                self.advance()
+                return Tree('array', [])
 
-                # Skip newlines
-                while self.match(TT.NEWLINE):
-                    pass
+            first_elem = self.parse_expr()
 
+            if self.check(TT.FOR, TT.OVER):
+                comphead = self.parse_comphead()
+                ifclause = self.parse_ifclause_opt()
+                self.expect(TT.RSQB)
+                children = [first_elem, comphead]
+                if ifclause:
+                    children.append(ifclause)
+                return Tree('listcomp', children)
+
+            elements = [first_elem]
+
+            # Skip newlines
+            while self.match(TT.NEWLINE):
+                pass
+            while True:
                 if not self.match(TT.COMMA):
                     break
-
-                # Skip newlines after comma
+                while self.match(TT.NEWLINE):
+                    pass
+                if self.check(TT.RSQB, TT.EOF):
+                    break
+                elements.append(self.parse_expr())
                 while self.match(TT.NEWLINE):
                     pass
 
@@ -1097,11 +1364,35 @@ class Parser:
 
         # Object literal
         if self.match(TT.LBRACE):
+            # Try dict comprehension detection
+            saved_pos = self.pos
+            saved_current = self.current
+
+            try:
+                first_key = self.parse_expr()
+                if self.check(TT.COLON):
+                    self.advance()
+                    first_val = self.parse_expr()
+                    if self.check(TT.FOR, TT.OVER):
+                        comphead = self.parse_comphead()
+                        ifclause = self.parse_ifclause_opt()
+                        self.expect(TT.RBRACE)
+                        children = [first_key, first_val, comphead]
+                        if ifclause:
+                            children.append(ifclause)
+                        return Tree('dictcomp', children)
+            except ParseError:
+                pass
+
+            # reset cursor if not dictcomp
+            self.pos = saved_pos
+            self.current = saved_current
+
             items = []
 
             while not self.check(TT.RBRACE, TT.EOF):
                 # Skip newlines
-                while self.match(TT.NEWLINE):
+                while self.match(TT.NEWLINE) or self.match(TT.INDENT) or self.match(TT.DEDENT):
                     pass
 
                 if self.check(TT.RBRACE):
@@ -1109,18 +1400,24 @@ class Parser:
 
                 items.append(self.parse_object_item())
 
-                # Skip newlines
-                while self.match(TT.NEWLINE):
+                # Skip newlines/indent markers
+                while self.match(TT.NEWLINE) or self.match(TT.INDENT) or self.match(TT.DEDENT):
                     pass
 
                 if not self.match(TT.COMMA):
-                    # Allow optional trailing comma
-                    while self.match(TT.NEWLINE):
+                    # Allow optional trailing comma but permit newline-separated entries
+                    while self.match(TT.NEWLINE) or self.match(TT.INDENT) or self.match(TT.DEDENT):
                         pass
-                    break
+                    if self.check(TT.RBRACE):
+                        break
+                    continue
 
             self.expect(TT.RBRACE)
             return Tree('object', items)
+
+        # Anonymous fn literal (expression form)
+        if self.match(TT.FN):
+            return self.parse_anonymous_fn_decl()
 
         # Anonymous functions - & for lambda
         if self.match(TT.AMP):
@@ -1160,6 +1457,72 @@ class Parser:
 
         return Tree('paramlist', params)
 
+    def parse_pattern(self) -> Tree:
+        if self.check(TT.IDENT):
+            tok = self.advance()
+            return Tree('pattern', [Token('IDENT', tok.value)])
+
+        if self.match(TT.LPAR):
+            items = [self.parse_pattern()]
+            if not self.match(TT.COMMA):
+                raise ParseError("Pattern list requires comma", self.current)
+            items.append(self.parse_pattern())
+            while self.match(TT.COMMA):
+                items.append(self.parse_pattern())
+            self.expect(TT.RPAR)
+            return Tree('pattern', [Tree('pattern_list', items)])
+
+        raise ParseError("Expected pattern", self.current)
+
+    def parse_binderpattern(self) -> Tree:
+        if self.match(TT.CARET):
+            ident = self.expect(TT.IDENT)
+            return Tree('hoist', [Token('IDENT', ident.value)])
+        return Tree('binderpattern', [self.parse_pattern()])
+
+    def parse_binderlist(self) -> Tree:
+        items = [self.parse_binderpattern()]
+        while self.match(TT.COMMA):
+            items.append(self.parse_binderpattern())
+        return Tree('binderlist', items)
+
+    def parse_overspec(self) -> Tree:
+        children: List[Any] = []
+
+        if self.match(TT.LSQB):
+            binder_list = self.parse_binderlist()
+            self.expect(TT.RSQB)
+            iter_expr = self.parse_expr()
+            children.append(binder_list)
+            children.append(iter_expr)
+            return Tree('overspec', children)
+
+        iter_expr = self.parse_expr()
+        children.append(iter_expr)
+        if self.check(TT.IDENT) and getattr(self.current, "value", "") == "bind":
+            self.advance()
+            pattern = self.parse_pattern()
+            children.append(pattern)
+        return Tree('overspec', children)
+
+    def parse_comphead(self) -> Tree:
+        if self.check(TT.FOR):
+            self.advance()
+            spec = self.parse_overspec()
+            return Tree('comphead', [Token('FOR', 'for'), spec])
+        if self.check(TT.OVER):
+            self.advance()
+            spec = self.parse_overspec()
+            return Tree('comphead', [Token('OVER', 'over'), spec])
+        raise ParseError("Expected comprehension head", self.current)
+
+    def parse_ifclause_opt(self) -> Optional[Tree]:
+        if not self.check(TT.IF):
+            return None
+        self.advance()
+        cond = self.parse_expr()
+        return Tree('ifclause', [Token('IF', 'if'), cond])
+
     def parse_arg_list(self) -> Optional[List[Tree]]:
         """
         Parse function call arguments
@@ -1188,6 +1551,40 @@ class Parser:
 
         # Return argitems directly (let caller wrap if needed)
         return argitems
+
+    def parse_await_arm_list(self, kind_tok: Tok) -> List[Tree]:
+        if getattr(kind_tok, "type", None) not in {TT.ANY, TT.ALL}:
+            raise ParseError("await expects [any] or [all]", kind_tok)
+
+        arms: List[Tree] = []
+
+        while not self.check(TT.RPAR, TT.EOF):
+            label_tok = None
+            expr = None
+            body = None
+
+            # Optional label:
+            if self.check(TT.IDENT) and self.peek(1).type == TT.COLON:
+                label_tok = self.advance()
+                self.expect(TT.COLON)
+
+            expr = self.parse_expr()
+
+            if self.match(TT.COLON):
+                body = self.parse_body()
+
+            arm_children: List[Any] = []
+            if label_tok is not None:
+                arm_children.append(Token('IDENT', label_tok.value))
+            arm_children.append(expr)
+            if body is not None:
+                arm_children.append(body)
+            arms.append(Tree('anyarm' if kind_tok.type == TT.ANY else 'allarm', arm_children))
+
+            if not self.match(TT.COMMA):
+                break
+
+        return arms
 
     def parse_selector_list(self) -> List[Tree]:
         """
@@ -1286,7 +1683,7 @@ class Parser:
                 params = self.parse_param_list()
                 self.expect(TT.RPAR)
                 self.expect(TT.COLON)
-                body = self.parse_expr()
+                body = self.parse_object_body()
                 return Tree('obj_method', [Token('IDENT', name.value), params, body])
 
             # Field: name: value
@@ -1305,7 +1702,7 @@ class Parser:
         if self.match(TT.GET):
             name = self.expect(TT.IDENT)
             self.expect(TT.COLON)
-            body = self.parse_expr()
+            body = self.parse_object_body()
             return Tree('obj_get', [Token('IDENT', name.value), body])
 
         if self.match(TT.SET):
@@ -1314,10 +1711,39 @@ class Parser:
             param = self.expect(TT.IDENT)
             self.expect(TT.RPAR)
             self.expect(TT.COLON)
-            body = self.parse_expr()
+            body = self.parse_object_body()
             return Tree('obj_set', [Token('IDENT', name.value), Token('IDENT', param.value), body])
 
         raise ParseError("Expected object item", self.current)
+
+    def parse_object_body(self) -> Tree:
+        """
+        Parse a method/get/set body inside an object literal.
+        No INDENT tokens inside braces; collect statements until next item or RBRACE.
+        """
+        stmts: List[Tree] = []
+
+        while True:
+            if self._looks_like_object_item_start():
+                break
+
+            if self.match(TT.NEWLINE):
+                continue
+
+            stmt = self.parse_statement()
+            stmts.append(Tree('stmt', [stmt]))
+
+            if self.match(TT.SEMI):
+                continue
+
+            while self.match(TT.NEWLINE):
+                pass
+
+            # If next token starts a new object item, stop collecting
+            if self._looks_like_object_item_start():
+                break
+
+        return Tree('indentblock', stmts)
 
     def parse_destructure_pattern(self) -> Tree:
         """Parse destructuring pattern for assignments"""
@@ -1345,6 +1771,54 @@ class Parser:
                 break
 
         return items
+
+    def parse_anonymous_fn_decl(self) -> Tree:
+        """
+        Anonymous function literal: fn(params): body
+        Auto-invoked form: fn(()): body
+        """
+        self.expect(TT.LPAR)
+        auto_invoke = False
+        params: Tree = Tree('paramlist', [])
+
+        if self.match(TT.LPAR):
+            # fn ( ( ) ) : body  -> auto invoke
+            self.expect(TT.RPAR)
+            auto_invoke = True
+        else:
+            params = self.parse_param_list() if not self.check(TT.RPAR) else Tree('paramlist', [])
+        self.expect(TT.RPAR)
+        self.expect(TT.COLON)
+        if self.check(TT.LBRACE):
+            lookahead = self.peek(1)
+            looks_like_object = lookahead.type in {
+                TT.IDENT,
+                TT.STRING,
+                TT.RAW_STRING,
+                TT.RAW_HASH_STRING,
+                TT.GET,
+                TT.SET,
+                TT.OVER,
+            } and (self.peek(2).type == TT.COLON or lookahead.type in {TT.GET, TT.SET})
+
+            if looks_like_object:
+                expr_body = self.parse_expr()
+                body = Tree('inlinebody', [Tree('stmt', [expr_body])])
+            else:
+                body = self.parse_body()
+        else:
+            body = self.parse_body()
+
+        paramlist_node = None if auto_invoke else params
+        anon_children: List[Any] = []
+        if paramlist_node is not None:
+            anon_children.append(paramlist_node)
+        anon_children.append(body)
+        anon = Tree('anonfn', anon_children)
+
+        if auto_invoke:
+            return Tree('explicit_chain', [anon, Tree('call', [])])
+        return anon
 
     def parse_anonymous_fn(self) -> Tree:
         """
