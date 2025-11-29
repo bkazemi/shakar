@@ -238,13 +238,21 @@ def _eval_seloptstop(node: Optional[Tree], frame: Frame, eval_fn: EvalFunc) -> t
     if node is None:
         return ShkNull(), False
 
-    selatom = child_by_label(node, "selatom")
-    value = _eval_selector_atom(selatom, frame, eval_fn)
-    segment = _get_source_segment(node, frame)
+    children = tree_children(node)
     exclusive = False
 
-    if segment is not None:
-        exclusive = segment.lstrip().startswith("<")
+    # Check for LT token as first child (exclusive slice from RD parser)
+    if children and is_token(children[0]) and children[0].type == 'LT':
+        exclusive = True
+
+    # Also check source segment for backwards compatibility with Lark parser
+    if not exclusive:
+        segment = _get_source_segment(node, frame)
+        if segment is not None and segment.lstrip().startswith("<"):
+            exclusive = True
+
+    selatom = child_by_label(node, "selatom")
+    value = _eval_selector_atom(selatom, frame, eval_fn)
 
     return value, exclusive
 
