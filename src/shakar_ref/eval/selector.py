@@ -191,8 +191,14 @@ def _eval_optional_expr(node: Optional[Tree], frame: Frame, eval_fn: EvalFunc) -
     if node is None:
         return None
 
-    if tree_label(node) == "emptyexpr":
+    label = tree_label(node)
+
+    if label in {"emptyexpr", "slicearm_empty"}:
         return None
+
+    if label == "slicearm_expr":
+        ch = tree_children(node)
+        return eval_fn(ch[0], frame) if ch else None
 
     return eval_fn(node, frame)
 

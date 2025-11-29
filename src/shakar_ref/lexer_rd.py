@@ -234,19 +234,41 @@ class Lexer:
         self.emit(TT.STRING, value)
 
     def scan_raw_string(self):
-        """Scan raw string: raw"..." or raw'...'"""
-        # 'raw' keyword already consumed
-        quote = self.advance()
-        value = ''
+        """Scan raw string: raw"..." or raw'...' or raw#"..."#"""
+        # 'raw' keyword already consumed, build full token including 'raw' prefix
+        # Check for hash-delimited raw string
+        if self.peek() == '#':
+            hash_char = self.advance()  # consume #
+            quote = self.advance()  # " or '
+            content = ''
 
-        while self.pos < len(self.source) and self.peek() != quote:
-            value += self.advance()
+            # Scan until we find quote followed by #
+            while self.pos < len(self.source):
+                if self.peek() == quote and self.pos + 1 < len(self.source) and self.source[self.pos + 1] == '#':
+                    self.advance()  # consume quote
+                    self.advance()  # consume #
+                    # Emit full raw#"..."# token value
+                    full_value = 'raw#' + quote + content + quote + '#'
+                    self.emit(TT.RAW_HASH_STRING, full_value)
+                    return
+                content += self.advance()
 
-        if self.pos >= len(self.source):
-            raise LexError(f"Unterminated raw string at line {self.line}")
+            raise LexError(f"Unterminated hash raw string at line {self.line}")
+        else:
+            # Regular raw string
+            quote = self.advance()
+            content = ''
 
-        self.advance()  # Closing quote
-        self.emit(TT.RAW_STRING, value)
+            while self.pos < len(self.source) and self.peek() != quote:
+                content += self.advance()
+
+            if self.pos >= len(self.source):
+                raise LexError(f"Unterminated raw string at line {self.line}")
+
+            self.advance()  # Closing quote
+            # Emit full raw"..." token value
+            full_value = 'raw' + quote + content + quote
+            self.emit(TT.RAW_STRING, full_value)
 
     def scan_shell_string(self):
         """Scan shell string: sh"..." or sh'...'"""

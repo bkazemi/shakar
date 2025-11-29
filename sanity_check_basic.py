@@ -859,7 +859,7 @@ runtime_scenario(
 seen := users.len
 users[seen - 1]
 "" + seen""",
-        ("string", "2.0"),
+        ("string", "2"),
         None,
     )
 )
@@ -1171,7 +1171,7 @@ label_after := obj.label
 greet := obj.greet(label_after)
 dyn := obj["dynKey"]
 label_before + "|" + greet + "|" + ("" + dyn) + "|" + ("" + before) + "|" + ("" + after_dot) + "|" + ("" + after_index) + "|" + label_after""",
-        ("string", "Ada|hi GRACE|42.0|24.0|10.0|18.0|GRACE"),
+        ("string", "Ada|hi GRACE|42|24|10|18|GRACE"),
         None,
     )
 )
@@ -1277,7 +1277,7 @@ runtime_scenario(
 items := ["a", "b"]
 for[i] items: logs = logs + ("" + i)
 logs""",
-        ("string", "0.01.0"),
+        ("string", "01"),
         None,
     )
 )
@@ -1289,7 +1289,7 @@ keys := ""
 sum := 0
 for[k, v] obj: { keys = keys + k; sum = sum + v }
 keys + ":" + ("" + sum)""",
-        ("string", "ab:3.0"),
+        ("string", "ab:3"),
         None,
     )
 )
@@ -1301,7 +1301,7 @@ keys := ""
 sum := 0
 for k, v in obj: { keys = keys + k; sum = sum + v }
 keys + ":" + ("" + sum)""",
-        ("string", "ab:3.0"),
+        ("string", "ab:3"),
         None,
     )
 )

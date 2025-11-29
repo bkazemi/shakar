@@ -174,6 +174,9 @@ def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
         case 'start_noindent' | 'start_indented' | 'stmtlist':
             return eval_program(n.children, frame, eval_node)
         case 'stmt':
+            # stmt is a wrapper for a single child - unwrap it to preserve loop control
+            if len(n.children) == 1:
+                return eval_node(n.children[0], frame)
             return eval_program(n.children, frame, eval_node)
         case 'literal' | 'primary' | 'expr' | 'expr_nc':
             if len(n.children) == 1:
@@ -375,6 +378,8 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     'valuefan': lambda n, frame: eval_valuefan(eval_node(n.children[0], frame), n, frame, eval_node, apply_op),
     'catchexpr': lambda n, frame: eval_catch_expr(n.children, frame, eval_node),
     'catchstmt': lambda n, frame: eval_catch_stmt(n.children, frame, eval_node),
+    'slicearm_expr': lambda n, frame: eval_node(n.children[0], frame) if n.children else ShkNull(),
+    'slicearm_empty': lambda _n, _frame: ShkNull(),
     'forin': lambda n, frame: eval_for_in(n, frame, eval_node),
     'forsubject': lambda n, frame: eval_for_subject(n, frame, eval_node),
     'forindexed': lambda n, frame: eval_for_indexed(n, frame, eval_node),
