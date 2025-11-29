@@ -40,14 +40,13 @@ from shakar_ref.runtime import (
 )
 from shakar_ref import parse_auto as runner
 
-# Optional RD parser import
-TEST_RD_PARSER = os.getenv("TEST_RD_PARSER", "").lower() in {"1", "true", "yes"}
-if TEST_RD_PARSER:
-    from shakar_ref.parser_rd import parse_source as parse_rd, ParseError
-    from shakar_ref.lexer_rd import LexError
-    from shakar_ref.parse_auto import Prune
-    from shakar_ref.lower import lower
-    from lark import Tree, Token
+# RD parser is default, Lark comparison is opt-in
+COMPARE_LARK = os.getenv("COMPARE_LARK", "").lower() in {"1", "true", "yes"}
+from shakar_ref.parser_rd import parse_source as parse_rd, ParseError
+from shakar_ref.lexer_rd import LexError
+from shakar_ref.parse_auto import Prune
+from shakar_ref.lower import lower
+from lark import Tree, Token
 
 GRAMMAR_PATH = Path("grammar.lark")
 GRAMMAR_TEXT = GRAMMAR_PATH.read_text(encoding="utf-8")
@@ -178,6 +177,32 @@ def build_keyword_plan() -> KeywordPlan:
 class ParserBundle:
     """Caches the no-indent and indented parser variants for reuse."""
     def __init__(self, grammar_text: str):
+        import hashlib
+        from pathlib import Path
+
+        self.compare_lark = COMPARE_LARK
+
+        # Skip Lark entirely if not comparing
+        if not COMPARE_LARK:
+            self.parsers = None
+            return
+
+        # Try to load from disk cache
+        grammar_hash = hashlib.md5(grammar_text.encode()).hexdigest()
+        cache_file = Path(f".parser_cache_{grammar_hash}.dill")
+
+        if cache_file.exists():
+            try:
+                import dill
+                with open(cache_file, 'rb') as f:
+                    self.parsers = dill.load(f)
+                return
+            except (ImportError, Exception):
+                # dill not available or cache corrupted, rebuild
+                pass
+
+        # Module-level cache in build_parser() means repeated calls within
+        # same process are fast
         self.parsers = {
             "noindent": runner.build_parser(
                 grammar_text,
@@ -192,7 +217,20 @@ class ParserBundle:
                 start_sym="start_indented",
             ),
         }
-        self.test_rd = TEST_RD_PARSER
+
+        # Try to save to disk cache (requires dill)
+        try:
+            import dill
+            with open(cache_file, 'wb') as f:
+                dill.dump(self.parsers, f)
+        except ImportError:
+            # dill not available, skip caching
+            import sys
+            print("[INFO] dill not installed, parser cache will not persist to disk", file=sys.stderr)
+        except Exception as e:
+            # serialization failed, skip caching
+            import sys
+            print(f"[INFO] Failed to cache parsers: {type(e).__name__}: {e}", file=sys.stderr)
 
     def _trees_match(self, rd_tree, lark_tree, path="") -> Tuple[bool, str]:
         """Compare RD and Lark trees for equivalence."""
@@ -224,8 +262,23 @@ class ParserBundle:
 
     def parse(self, start: str, code: str) -> Tuple[bool, Optional[str]]:
         """Parse using the requested start symbol, returning (ok, error_message)."""
-        parser = self.parsers[start]
         label = f"start_{start}"
+        use_indenter = (start == "indented")
+
+        # RD-only mode (default)
+        if not self.compare_lark:
+            try:
+                rd_tree = parse_rd(code, use_indenter=use_indenter)
+                rd_tree = Prune().transform(rd_tree)
+                rd_tree = lower(rd_tree)
+                return True, None
+            except (ParseError, LexError) as exc:
+                return False, f"{label} (RD): {exc}"
+            except Exception as exc:
+                return False, f"{label} (RD): {exc}"
+
+        # Lark comparison mode
+        parser = self.parsers[start]
 
         # Parse with Lark
         try:
@@ -233,29 +286,26 @@ class ParserBundle:
         except Exception as exc:  # pragma: no cover - defensive
             return False, f"{label} (Lark): {exc}"
 
-        # If RD testing is enabled, compare
-        if self.test_rd:
-            try:
-                # Parse with RD (use indenter for indented mode)
-                use_indenter = (start == "indented")
-                rd_tree = parse_rd(code, use_indenter=use_indenter)
-                # Apply same transformations as Lark
-                rd_tree = Prune().transform(rd_tree)
-                rd_tree = lower(rd_tree)
+        # Compare with RD
+        try:
+            rd_tree = parse_rd(code, use_indenter=use_indenter)
+            # Apply same transformations as Lark
+            rd_tree = Prune().transform(rd_tree)
+            rd_tree = lower(rd_tree)
 
-                # Also apply transformations to Lark tree for fair comparison
-                lark_tree_transformed = Prune().transform(lark_tree)
-                lark_tree_transformed = lower(lark_tree_transformed)
+            # Also apply transformations to Lark tree for fair comparison
+            lark_tree_transformed = Prune().transform(lark_tree)
+            lark_tree_transformed = lower(lark_tree_transformed)
 
-                # Compare trees
-                match, error = self._trees_match(rd_tree, lark_tree_transformed)
-                if not match:
-                    return False, f"{label} (RD vs Lark): AST mismatch: {error}"
+            # Compare trees
+            match, error = self._trees_match(rd_tree, lark_tree_transformed)
+            if not match:
+                return False, f"{label} (RD vs Lark): AST mismatch: {error}"
 
-            except (ParseError, LexError) as exc:
-                return False, f"{label} (RD): {exc}"
-            except Exception as exc:
-                return False, f"{label} (RD): {exc}"
+        except (ParseError, LexError) as exc:
+            return False, f"{label} (RD): {exc}"
+        except Exception as exc:
+            return False, f"{label} (RD): {exc}"
 
         return True, None
 
@@ -1475,10 +1525,24 @@ class SanitySuite:
     def __init__(self, plan: KeywordPlan, filters: Optional[Sequence[str]] = None):
         self.plan = plan
         self.filters = list(filters) if filters else []
-        self.parsers = ParserBundle(GRAMMAR_TEXT)
-        self.case_runner = CaseRunner(self.parsers)
+        self._parsers: Optional[ParserBundle] = None
+        self._case_runner: Optional[CaseRunner] = None
         self.ast_parser = runner
         self.cases = self._build_cases()
+
+    @property
+    def parsers(self) -> ParserBundle:
+        """Lazy-load parsers only when needed."""
+        if self._parsers is None:
+            self._parsers = ParserBundle(GRAMMAR_TEXT)
+        return self._parsers
+
+    @property
+    def case_runner(self) -> CaseRunner:
+        """Lazy-load case runner only when needed."""
+        if self._case_runner is None:
+            self._case_runner = CaseRunner(self.parsers)
+        return self._case_runner
 
     def _matches_filter(self, name: str) -> bool:
         if not self.filters:

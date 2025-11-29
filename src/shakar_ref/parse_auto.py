@@ -1,7 +1,7 @@
 import sys
 import argparse
 from pathlib import Path
-from typing import Iterator, List, Optional, Tuple, TypeAlias
+from typing import Dict, Iterator, List, Optional, Tuple, TypeAlias
 
 from lark import Lark, Transformer, Tree, UnexpectedInput, Token, v_args
 from lark.visitors import Discard
@@ -1270,8 +1270,21 @@ def _remap_ident(t: Token) -> Token:
     t.type = KEYWORDS.get(t.value, t.type)
     return t
 
+# Module-level parser cache for reuse within same Python process
+_PARSER_CACHE: Dict[Tuple[str, str, str], Lark] = {}
+
 def build_parser(grammar_text: str, parser_kind: str, use_indenter: bool, start_sym: str) -> Lark:
     _ = use_indenter  # legacy flag; indentation handling now always on
+
+    # Check cache first
+    import hashlib
+    grammar_hash = hashlib.md5(grammar_text.encode()).hexdigest()[:16]
+    cache_key = (parser_kind, start_sym, grammar_hash)
+
+    if cache_key in _PARSER_CACHE:
+        return _PARSER_CACHE[cache_key]
+
+    # Build parser
     parser = Lark(
         grammar_text,
         parser=parser_kind,
@@ -1284,6 +1297,9 @@ def build_parser(grammar_text: str, parser_kind: str, use_indenter: bool, start_
     )
     if start_sym in {"start_noindent", "start_indented"}:
         Prune.configure_fragment_parser(grammar_text, parser_kind)
+
+    # Cache it
+    _PARSER_CACHE[cache_key] = parser
     return parser
     '''else: # dynamic ver
         return Lark(
