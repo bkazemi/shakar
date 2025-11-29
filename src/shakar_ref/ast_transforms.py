@@ -204,15 +204,14 @@ class Prune(Transformer):
 
     def _transform_shell_string_token(self, token: Token) -> Tree:
         raw = token.value
-        if len(raw) < 4:
-            return Tree("shell_string", [Token("STRING_TEXT", raw)])
 
+        # Lexer currently emits the body without the leading sh""; accept both forms.
         if raw.startswith('sh"') and raw.endswith('"'):
             body = raw[3:-1]
         elif raw.startswith("sh'") and raw.endswith("'"):
             body = raw[3:-1]
         else:
-            return Tree("shell_string", [Token("STRING_TEXT", raw[2:])])
+            body = raw
 
         segments = self._split_shell_interpolation_segments(body, token)
         nodes: List[Node] = []
@@ -239,6 +238,9 @@ class Prune(Transformer):
         if meta is not None:
             result.meta = meta
         return result
+
+    def SHELL_STRING(self, token: Token) -> Tree:
+        return self._transform_shell_string_token(token)
 
     def _split_interpolation_segments(self, text: str, token: Token) -> List[InterpolationSegment]:
         parts: List[InterpolationSegment] = []

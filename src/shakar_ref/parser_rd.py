@@ -204,45 +204,51 @@ class Parser:
         expr_start = self.pos
         expr = self.parse_expr()
 
-        # Check for guard chain syntax
+        # Guard chain inline form
         if self.check(TT.COLON):
-            # Could be guard chain or just expression statement
-            # Try to parse as guard chain
-            self.pos = expr_start  # Backtrack
+            self.pos = expr_start
+            self.current = self.tokens[self.pos] if self.pos < len(self.tokens) else Tok(TT.EOF, None, 0, 0)
             return self.parse_guard_chain()
 
-        # Check for postfix if/unless
-        if self.check(TT.IF):
-            if_tok = self.advance()
-            cond = self.parse_expr()
-            # Wrap base statement in Tree('expr', [...])
-            base_stmt = Tree('expr', [expr])
-            return Tree('postfixif', [base_stmt, Token('IF', 'if'), Tree('expr', [cond])])
+        # Catch statement form: expr catch ... : body
+        if self.check(TT.CATCH) or (self.check(TT.AT) and self.peek(1).type == TT.AT):
+            self.pos = expr_start
+            self.current = self.tokens[self.pos] if self.pos < len(self.tokens) else Tok(TT.EOF, None, 0, 0)
+            return self.parse_catch_stmt()
 
-        # Check for assignment operators
+        # Base statement starts as expression
+        base_stmt: Tree | Token = expr
+
+        # Assignment handling before postfix-if to match grammar precedence
         if self.check(TT.ASSIGN, TT.WALRUS, TT.APPLYASSIGN,
                       TT.PLUSEQ, TT.MINUSEQ, TT.STAREQ, TT.SLASHEQ, TT.FLOORDIVEQ, TT.MODEQ):
-            # This is actually handled in parse_expr for walrus/apply
-            # But = assignments need special handling
             if self.check(TT.ASSIGN):
                 lvalue = self._expr_to_lvalue(expr)
-
-                eq_tok = self.advance()
-                rhs = self.parse_nullish_expr()  # Parse from nullish down (like walrus)
+                self.advance()  # =
+                rhs = self.parse_nullish_expr()
                 rhs_nc = Tree('expr_nc', [rhs])
-                return Tree('assignstmt', [lvalue, Token('EQUAL', '='), rhs_nc])
-
-            # Compound assignments
-            if self.check(TT.PLUSEQ, TT.MINUSEQ, TT.STAREQ, TT.SLASHEQ, TT.FLOORDIVEQ, TT.MODEQ):
+                base_stmt = Tree('assignstmt', [lvalue, Token('EQUAL', '='), rhs_nc])
+            else:
                 lvalue = self._expr_to_lvalue(expr)
-
                 op = self.advance()
                 rhs = self.parse_nullish_expr()
                 rhs_nc = Tree('expr_nc', [rhs])
-                return Tree('compound_assign', [lvalue, Token(op.type.name, op.value), rhs_nc])
+                base_stmt = Tree('compound_assign', [lvalue, Token(op.type.name, op.value), rhs_nc])
 
-        # Just an expression statement
-        return expr
+        # Postfix if/unless wraps the base statement
+        if self.check(TT.IF):
+            self.advance()
+            cond = self.parse_expr()
+            wrapped_base = base_stmt if isinstance(base_stmt, Tree) else Tree('expr', [base_stmt])
+            return Tree('postfixif', [wrapped_base, Token('IF', 'if'), Tree('expr', [cond])])
+        if self.check(TT.IDENT) and getattr(self.current, "value", "") == "unless":
+            self.advance()
+            cond = self.parse_expr()
+            wrapped_base = base_stmt if isinstance(base_stmt, Tree) else Tree('expr', [base_stmt])
+            return Tree('postfixunless', [wrapped_base, Tree('expr', [cond])])
+
+        # Just a statement/expression
+        return base_stmt
 
     def parse_if_stmt(self) -> Tree:
         """
@@ -654,7 +660,7 @@ class Parser:
         branches.append(Tree('guardbranch', [cond, body]))
 
         # Parse additional branches
-        while self.match(TT.OR):  # | for guard chain
+        while self.match(TT.OR) or self.match(TT.PIPE):  # | or || for guard chain
             if self.check(TT.COLON):  # |: for else
                 self.advance()
                 else_body = self.parse_body()
@@ -750,33 +756,84 @@ class Parser:
                 self.advance()  # @
 
             # Optional type filter: (Type1, Type2)
-            types = None
+            types: List[Token] = []
             if self.match(TT.LPAR):
-                types = []
-                types.append(self.expect(TT.IDENT))
+                ident_tok = self.expect(TT.IDENT)
+                types.append(Token('IDENT', ident_tok.value))
                 while self.match(TT.COMMA):
-                    types.append(self.expect(TT.IDENT))
+                    ident_tok = self.expect(TT.IDENT)
+                    types.append(Token('IDENT', ident_tok.value))
                 self.expect(TT.RPAR)
 
-            # Optional binder: bind x
-            binder = None
-            if self.match(TT.IDENT):
-                binder = self.current
+            # Optional binder: either bare IDENT or 'bind' IDENT
+            binder: Optional[Tok] = None
+            if self.check(TT.IDENT) and getattr(self.current, "value", "") == "bind":
+                self.advance()
+                binder = self.expect(TT.IDENT)
+            elif self.check(TT.IDENT) and not types:
+                # binder_simple form when no typed list
+                binder = self.advance()
 
             self.expect(TT.COLON)
-            handler = self.parse_expr()
+            # Choose expression vs block handler
+            if self.check(TT.LBRACE, TT.INDENT) or (self.check(TT.NEWLINE) and self.peek(1).type == TT.INDENT):
+                handler = self.parse_body()
+                is_stmt = True
+            else:
+                handler = self.parse_expr()
+                is_stmt = False
 
             # Build catch node
             children = [expr]
-            if types:
-                children.append(Tree('catchtypes', types))
             if binder:
                 children.append(Token('IDENT', binder.value))
+            if types:
+                children.append(Tree('catchtypes', types))
             children.append(handler)
 
-            return Tree('catchexpr', children)
+            return Tree('catchstmt' if is_stmt else 'catchexpr', children)
 
         return expr
+
+    def parse_catch_stmt(self) -> Tree:
+        """Parse catch statement starting at current position."""
+        try_expr = self.parse_expr()
+
+        if not (self.check(TT.CATCH) or (self.check(TT.AT) and self.peek(1).type == TT.AT)):
+            return try_expr
+
+        if self.check(TT.CATCH):
+            self.advance()
+        else:
+            self.advance()
+            self.advance()
+
+        types: List[Token] = []
+        if self.match(TT.LPAR):
+            ident_tok = self.expect(TT.IDENT)
+            types.append(Token('IDENT', ident_tok.value))
+            while self.match(TT.COMMA):
+                ident_tok = self.expect(TT.IDENT)
+                types.append(Token('IDENT', ident_tok.value))
+            self.expect(TT.RPAR)
+
+        binder_tok = None
+        if self.check(TT.IDENT) and getattr(self.current, "value", "") == "bind":
+            self.advance()
+            binder_tok = self.expect(TT.IDENT)
+        elif self.check(TT.IDENT) and not types:
+            binder_tok = self.advance()
+
+        self.expect(TT.COLON)
+        body = self.parse_body()
+
+        children: List[Any] = [try_expr]
+        if binder_tok is not None:
+            children.append(Token('IDENT', binder_tok.value))
+        if types:
+            children.append(Tree('catchtypes', types))
+        children.append(body)
+        return Tree('catchstmt', children)
 
     def parse_ternary_expr(self) -> Tree:
         """Parse ternary: expr ? then : else"""
@@ -882,7 +939,7 @@ class Parser:
             name = self.advance()
             self.advance()  # :=
             # Parse the RHS - wrapping in expr_nc to match Lark
-            value = self.parse_nullish_expr()  # Parse from nullish down
+            value = self.parse_catch_expr()  # allow catch expressions in walrus RHS
             value_nc = Tree('expr_nc', [value])
             return Tree('walrus', [Token('IDENT', name.value), value_nc])
 
@@ -1055,6 +1112,14 @@ class Parser:
 
     def parse_unary_expr(self) -> Tree:
         """Parse unary operators: -expr, !expr, ++expr, await expr"""
+        # Throw as expression-form
+        if self.check(TT.THROW):
+            self.advance()
+            if self.check(TT.NEWLINE, TT.EOF, TT.SEMI, TT.RBRACE, TT.RPAR, TT.COMMA):
+                return Tree('throwstmt', [])
+            value = self.parse_unary_expr()
+            return Tree('throwstmt', [value])
+
         # Await
         if self.check(TT.AWAIT):
             await_tok = self.advance()
