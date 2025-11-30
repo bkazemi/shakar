@@ -395,6 +395,13 @@ def build_misc_cases(_: KeywordPlan) -> List[Case]:
     return [Case(name=f"misc-{i}", code=src, start="both") for i, src in enumerate(samples)]
 
 @case_builder
+def build_destructure_inline_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "if true: a, b := 1, 2",
+    ]
+    return [Case(name="inline-destructure-walrus", code=src, start="both") for src in samples]
+
+@case_builder
 def build_fn_cases(_: KeywordPlan) -> List[Case]:
     samples = [
         "fn add(x, y): x + y",
@@ -1080,6 +1087,14 @@ sum := arr[sel]
 sum[0] + sum[1]""",
         ("number", 11),
         None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "compare-anchor-object",
+        'a := {b: 1, c: 2}; a >= .b',
+        None,
+        ShakarTypeError,
     )
 )
 runtime_scenario(

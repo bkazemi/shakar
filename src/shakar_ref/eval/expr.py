@@ -20,7 +20,7 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-from ..tree import Node, Tree, is_tree, node_meta, tree_children, tree_label
+from ..tree import Node, Tree, is_tree, is_token, node_meta, tree_children, tree_label
 from ..utils import shk_equals
 from .bind import FanContext, RebindContext
 from .chains import apply_op as chain_apply_op, evaluate_index_operand
@@ -82,8 +82,29 @@ def eval_infix(children: List[Tree], frame: Frame, eval_func: EvalFunc, right_as
     if not children:
         return ShkNull()
 
+    arithmetic_ops: Set[str] = {"+", "-", "*", "/", "//", "%", "+>", "^", "**"}
+
+    def _should_retarget(node: Node, next_op: Optional[str]) -> bool:
+        if not retargets_anchor(node):
+            return False
+
+        # Avoid clobbering anchor for plain identifiers in arithmetic chains so subjectful anchors survive (e.g., acc + .upper()).
+        if is_token(node) and token_kind(node) == "IDENT" and (next_op in arithmetic_ops or next_op is None):
+            return False
+
+        return True
+
     if right_assoc_ops and _all_ops_in(children, right_assoc_ops):
-        vals = [eval_func(children[i], frame) for i in range(0, len(children), 2)]
+        vals: List[ShkValue] = []
+        ops = [as_op(children[i]) for i in range(1, len(children), 2)]
+        for idx in range(0, len(children), 2):
+            operand_node = children[idx]
+            next_op = ops[idx] if idx < len(ops) else None
+            val = eval_func(operand_node, frame)
+            if _should_retarget(operand_node, next_op):
+                frame.dot = val
+            vals.append(val)
+
         acc = vals[-1]
 
         for i in range(len(vals)-2, -1, -1):
@@ -92,12 +113,19 @@ def eval_infix(children: List[Tree], frame: Frame, eval_func: EvalFunc, right_as
             acc = ShkNumber(lhs.value ** rhs.value)
         return acc
 
-    it = iter(children)
-    acc = eval_func(next(it), frame)
+    operands = children[0::2]
+    ops = [as_op(op_node) for op_node in children[1::2]]
 
-    for x in it:
-        op = as_op(x)
-        rhs = eval_func(next(it), frame)
+    acc = eval_func(operands[0], frame)
+    if _should_retarget(operands[0], ops[0] if ops else None):
+        frame.dot = acc
+
+    for idx in range(1, len(operands)):
+        op = ops[idx - 1]
+        rhs_node = operands[idx]
+        rhs = eval_func(rhs_node, frame)
+        if _should_retarget(rhs_node, ops[idx] if idx < len(ops) else None):
+            frame.dot = rhs
         acc = apply_binary_operator(op, acc, rhs)
 
     return acc
@@ -109,7 +137,10 @@ def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
     if len(children) == 1:
         return eval_func(children[0], frame)
 
-    subject = eval_func(children[0], frame)
+    first_node = children[0]
+    subject = eval_func(first_node, frame)
+    if retargets_anchor(first_node):
+        frame.dot = subject
     idx = 1
     joiner = 'and'
     last_comp: Optional[str] = None
@@ -136,7 +167,10 @@ def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
 
             if idx >= len(children):
                 raise ShakarRuntimeError("Missing right-hand side for comparison")
-            rhs = eval_func(children[idx], frame)
+            rhs_node = children[idx]
+            rhs = eval_func(rhs_node, frame)
+            if retargets_anchor(rhs_node):
+                frame.dot = rhs
             idx += 1
         else:
             if last_comp is None:
@@ -144,6 +178,8 @@ def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
 
             comp = last_comp
             rhs = eval_func(node, frame)
+            if retargets_anchor(node):
+                frame.dot = rhs
             idx += 1
 
         leg_val = _compare_values(comp, subject, rhs)

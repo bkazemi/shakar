@@ -28,7 +28,12 @@ def retargets_anchor(node: Node) -> bool:
         return _token_kind(node) == 'IDENT'
 
     if is_tree(node):
-        return tree_label(node) not in {
+        label = tree_label(node)
+
+        if label in {'expr', 'expr_nc', 'compareexpr', 'unaryexpr', 'ternaryexpr'} and node.children:
+            return retargets_anchor(node.children[0])
+
+        return label not in {
             'implicit_chain',
             'subject',
             'group',
@@ -36,8 +41,6 @@ def retargets_anchor(node: Node) -> bool:
             'literal',
             'bind',
             'bind_nc',
-            'expr',
-            'expr_nc',
         }
     return True
 

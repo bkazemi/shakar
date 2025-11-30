@@ -57,6 +57,7 @@ class Parser:
         self.current = tokens[0] if tokens else Tok(TT.EOF, None, 0, 0)
         self.in_inline_body = False  # Track if we're in inlinebody context
         self.use_indenter = use_indenter  # Track indentation mode
+        self.paren_depth = 0  # Track parenthesis nesting depth
 
     # ========================================================================
     # Token Navigation
@@ -72,11 +73,30 @@ class Parser:
     def advance(self) -> Tok:
         """Consume current token and move to next"""
         prev = self.current
+
+        # Track paren depth
+        if prev.type == TT.LPAR:
+            self.paren_depth += 1
+        elif prev.type == TT.RPAR:
+            self.paren_depth -= 1
+
         self.pos += 1
         if self.pos < len(self.tokens):
             self.current = self.tokens[self.pos]
         else:
             self.current = Tok(TT.EOF, None, 0, 0)
+
+        # Skip newlines and layout tokens when inside parentheses
+        if self.paren_depth > 0:
+            skip_types = (TT.NEWLINE, TT.INDENT, TT.DEDENT) if self.use_indenter else (TT.NEWLINE,)
+            while self.current.type in skip_types:
+                self.pos += 1
+                if self.pos < len(self.tokens):
+                    self.current = self.tokens[self.pos]
+                else:
+                    self.current = Tok(TT.EOF, None, 0, 0)
+                    break
+
         return prev
 
     def check(self, *types: TT) -> bool:
@@ -96,6 +116,15 @@ class Parser:
             msg = message or f"Expected {token_type.name}, got {self.current.type.name}"
             raise ParseError(msg, self.current)
         return self.advance()
+
+    def skip_layout_tokens(self) -> None:
+        """Skip NEWLINE and optionally INDENT/DEDENT tokens (when using indenter)"""
+        if self.use_indenter:
+            while self.match(TT.NEWLINE, TT.INDENT, TT.DEDENT):
+                pass
+        else:
+            while self.match(TT.NEWLINE):
+                pass
 
     # ========================================================================
     # Top-Level Parsing
@@ -209,6 +238,27 @@ class Parser:
         # expr : body | expr : body |: else
         expr_start = self.pos
         expr = self.parse_expr()
+
+        # Check for destructuring: a, b, c = ... or a, b, c := ...
+        if self.check(TT.COMMA):
+            first_tok = self.tokens[expr_start] if expr_start < len(self.tokens) else None
+            if first_tok is None or first_tok.type not in {TT.IDENT, TT.LPAR}:
+                # Not a valid pattern start; comma belongs to surrounding expression (e.g., anon fn body)
+                pass
+            else:
+                # Backtrack and parse as pattern_list
+                self.pos = expr_start
+                self.current = self.tokens[self.pos] if self.pos < len(self.tokens) else Tok(TT.EOF, None, 0, 0)
+                pattern_list = self.parse_pattern_list()
+
+                if self.match(TT.ASSIGN):
+                    rhs = self.parse_destructure_rhs()
+                    return Tree('destructure', [pattern_list, rhs])
+                elif self.match(TT.WALRUS):
+                    rhs = self.parse_destructure_rhs()
+                    return Tree('destructure_walrus', [pattern_list, rhs])
+                else:
+                    raise ParseError(f"Expected = or := after pattern list", self.current)
 
         # Guard chain inline form
         if self.check(TT.COLON):
@@ -723,15 +773,25 @@ class Parser:
         return Tree('await_value', [Token('AWAIT', await_tok.value), expr])
 
     def parse_return_stmt(self) -> Tree:
-        """Parse return statement: return [expr]"""
+        """Parse return statement: return [expr | pack]"""
         ret_tok = self.expect(TT.RETURN)
 
         # Check if there's a value
         if self.check(TT.NEWLINE, TT.EOF, TT.SEMI, TT.RBRACE):
             return Tree('returnstmt', [Token('RETURN', 'return')])
 
-        value = self.parse_expr()
-        return Tree('returnstmt', [Token('RETURN', 'return'), value])
+        # Parse first expression
+        first_expr = self.parse_expr()
+
+        # Check for pack (comma-separated expressions)
+        if self.check(TT.COMMA):
+            exprs = [first_expr]
+            while self.match(TT.COMMA):
+                exprs.append(self.parse_expr())
+            pack = Tree('pack', exprs)
+            return Tree('returnstmt', [Token('RETURN', 'return'), pack])
+
+        return Tree('returnstmt', [Token('RETURN', 'return'), first_expr])
 
     def parse_break_stmt(self) -> Tree:
         """Parse break statement"""
@@ -772,6 +832,7 @@ class Parser:
         """
         Parse guard chain (inline if-else):
         expr : body | expr : body |: else
+        Supports multi-line continuation with | or |:
         """
         branches = []
 
@@ -781,19 +842,31 @@ class Parser:
         body = self.parse_body()
         branches.append(Tree('guardbranch', [cond, body]))
 
-        # Parse additional branches
-        while self.match(TT.OR) or self.match(TT.PIPE):  # | or || for guard chain
-            if self.check(TT.COLON):  # |: for else
-                self.advance()
-                else_body = self.parse_body()
-                branches.append(else_body)
-                break
+        # Parse additional branches (allow newlines before | or |:)
+        while True:
+            # Skip newlines and check for continuation
+            saved_pos = self.pos
+            saved_current = self.current
+            while self.match(TT.NEWLINE):
+                pass
 
-            # Another conditional branch
-            cond = self.parse_expr()
-            self.expect(TT.COLON)
-            body = self.parse_body()
-            branches.append(Tree('guardbranch', [cond, body]))
+            if self.match(TT.OR) or self.match(TT.PIPE):  # | or || for guard chain
+                if self.check(TT.COLON):  # |: for else
+                    self.advance()
+                    else_body = self.parse_body()
+                    branches.append(else_body)
+                    break
+
+                # Another conditional branch
+                cond = self.parse_expr()
+                self.expect(TT.COLON)
+                body = self.parse_body()
+                branches.append(Tree('guardbranch', [cond, body]))
+            else:
+                # No continuation, restore position and exit
+                self.pos = saved_pos
+                self.current = saved_current
+                break
 
         return Tree('onelineguard', branches)
 
@@ -1232,7 +1305,7 @@ class Parser:
 
         if self.match(TT.POW):
             exp = self.parse_pow_expr()  # Right associative
-            return Tree('powexpr', [base, exp])
+            return Tree('powexpr', [base, Token('POW', '**'), exp])
 
         # Just wrap in powexpr even if no operator
         return base
@@ -1544,9 +1617,8 @@ class Parser:
 
         # Array literal
         if self.match(TT.LSQB):
-            # Skip newlines in array
-            while self.match(TT.NEWLINE):
-                pass
+            # Skip layout tokens in array
+            self.skip_layout_tokens()
 
             if self.check(TT.RSQB):
                 self.advance()
@@ -1565,19 +1637,16 @@ class Parser:
 
             elements = [first_elem]
 
-            # Skip newlines
-            while self.match(TT.NEWLINE):
-                pass
+            # Skip layout tokens
+            self.skip_layout_tokens()
             while True:
                 if not self.match(TT.COMMA):
                     break
-                while self.match(TT.NEWLINE):
-                    pass
+                self.skip_layout_tokens()
                 if self.check(TT.RSQB, TT.EOF):
                     break
                 elements.append(self.parse_expr())
-                while self.match(TT.NEWLINE):
-                    pass
+                self.skip_layout_tokens()
 
             self.expect(TT.RSQB)
             return Tree('array', elements)
@@ -2069,7 +2138,8 @@ class Parser:
     def parse_object_item(self) -> Tree:
         """Parse object item: key: value or method(params): body"""
         # Field, method, getter, setter
-        if self.check(TT.IDENT):
+        # Grammar allows: (IDENT | OVER) for field names
+        if self.check(TT.IDENT, TT.OVER):
             name = self.advance()
 
             # Method: name(params): body
@@ -2171,6 +2241,34 @@ class Parser:
                 break
 
         return Tree('indentblock', stmts)
+
+    def parse_pattern_list(self) -> Tree:
+        """Parse destructuring pattern list: a, b, c"""
+        patterns = [self.parse_pattern()]
+
+        if not self.match(TT.COMMA):
+            raise ParseError("Pattern list requires at least two patterns", self.current)
+
+        patterns.append(self.parse_pattern())
+
+        while self.match(TT.COMMA):
+            patterns.append(self.parse_pattern())
+
+        return Tree('pattern_list', patterns)
+
+    def parse_destructure_rhs(self) -> Tree:
+        """Parse destructuring RHS: expr or expr, expr, ..."""
+        first_expr = self.parse_expr()
+
+        # Check if there are more expressions (pack)
+        if self.check(TT.COMMA):
+            exprs = [first_expr]
+            while self.match(TT.COMMA):
+                exprs.append(self.parse_expr())
+            return Tree('pack', exprs)
+
+        # Single expression
+        return first_expr
 
     def parse_destructure_pattern(self) -> Tree:
         """Parse destructuring pattern for assignments"""
