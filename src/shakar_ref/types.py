@@ -16,12 +16,12 @@ class ShkNull:
 class ShkNumber:
     value: float
     def __repr__(self) -> str:
-        v = self.value
+        v = float(self.value)
         # Always show .0 for integer values to match expected output
         return f"{int(v)}.0" if v.is_integer() else str(v)
     def __str__(self) -> str:
         # For stringify: render integral floats without .0
-        v = self.value
+        v = float(self.value)
         return str(int(v)) if v.is_integer() else str(v)
 
 @dataclass

@@ -592,9 +592,42 @@ runtime_scenario(
         None,
     )
 )
+runtime_scenario(
+    lambda: _rt(
+        "array-high",
+        """xs := [10, 20, 30]
+xs.high""",
+        ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "array-high-empty",
+        " [].high",
+        ("number", -1),
+        None,
+    )
+)
 runtime_scenario(lambda: _rt("join-array", '", ".join(["a", "b"])', ("string", "a, b"), None))
 runtime_scenario(lambda: _rt("join-varargs", '"-".join("a", "b")', ("string", "a-b"), None))
 runtime_scenario(lambda: _rt("join-mixed", '"|".join("a", 1, true)', ("string", "a|1|true"), None))
+runtime_scenario(
+    lambda: _rt(
+        "string-high",
+        '"hello".high',
+        ("number", 4),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "string-high-empty",
+        ' "".high',
+        ("number", -1),
+        None,
+    )
+)
 runtime_scenario(
     lambda: _rt(
         "decorator-chain-order",

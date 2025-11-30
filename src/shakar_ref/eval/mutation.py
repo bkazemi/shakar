@@ -169,10 +169,18 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
         case ShkArray(items=items):
             if name == "len":
                 return ShkNumber(float(len(items)))
+            if name == "high":
+                size = len(items)
+                return ShkNumber(size - 1) if size > 0 else ShkNumber(-1)
+            if name in Builtins.array_methods:
+                return BuiltinMethod(name=name, subject=recv)
             raise ShakarTypeError(f"Array has no field '{name}'")
         case ShkString(value=value):
             if name == "len":
                 return ShkNumber(float(len(value)))
+            if name == "high":
+                size = len(value)
+                return ShkNumber(size - 1) if size > 0 else ShkNumber(-1)
 
             if name in Builtins.string_methods:
                 return BuiltinMethod(name=name, subject=recv)
