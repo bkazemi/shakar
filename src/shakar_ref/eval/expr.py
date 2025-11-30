@@ -247,10 +247,17 @@ def eval_nullish(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
     return current
 
 def eval_nullsafe(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
-    if not is_tree(node) or tree_label(node) != 'explicit_chain':
-        return eval_func(node, frame)
+    target = node
+    if is_tree(node) and tree_label(node) == 'nullsafe' and node.children:
+        target = node.children[0]
 
-    children = tree_children(node)
+    if not is_tree(target) or tree_label(target) != 'explicit_chain':
+        try:
+            return eval_func(target, frame)
+        except (ShakarKeyError, ShakarIndexError):
+            return ShkNull()
+
+    children = tree_children(target)
     if not children:
         return ShkNull()
 

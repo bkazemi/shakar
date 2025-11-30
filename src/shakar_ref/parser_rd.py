@@ -1550,6 +1550,13 @@ class Parser:
                 ident = self.expect(TT.IDENT)
                 return Tree('rebind_primary', [Token('IDENT', ident.value)])
 
+        # Null-safe chain: ??(expr)
+        if self.match(TT.NULLISH):
+            self.expect(TT.LPAR)
+            inner = self.parse_expr()
+            self.expect(TT.RPAR)
+            return Tree('nullsafe', [inner])
+
         # Literals - just return tokens, Prune() will wrap if needed
         if self.check(TT.NUMBER):
             tok = self.advance()

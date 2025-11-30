@@ -1185,6 +1185,18 @@ result""",
 )
 runtime_scenario(
     lambda: _rt(
+        "guard-nullsafe-index",
+        """fn rotate(shape):
+  ??(!shape[0]): return []
+  return shape
+
+rotate([])""",
+        None,
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "while-basic",
         """i := 0
 while i < 3: { i += 1 }
