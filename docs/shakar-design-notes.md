@@ -316,6 +316,7 @@ assert ix == [0,1] and vals == [11,12]
 
 - Nil-safe chain `??(expr)` turns a deep deref/call chain into nil-propagating expression.
 - Nil-coalescing `a ?? b` returns `a` unless `a` is `nil`, otherwise `b` (right-assoc, tighter than `or`).
+- Allow paren-free nullsafe `?? expr` sugar (equivalent to `??(expr)`, tighter than infix `??`, capturing the following postfix chain) ❓
 
 ### Assignment & mutation
 
