@@ -409,6 +409,130 @@ def build_fn_cases(_: KeywordPlan) -> List[Case]:
     ]
     return [Case(name=f"fn-{i}", code=src, start="both") for i, src in enumerate(samples)]
 
+@case_builder
+def build_power_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "2 ** 3",
+        "x ** 2 + y ** 2",
+        "a ** b ** c",
+    ]
+    return [Case(name=f"power-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
+@case_builder
+def build_unary_incr_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "++x",
+        "--y",
+        "++(a.b)",
+    ]
+    return [Case(name=f"unary-incr-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
+@case_builder
+def build_postfix_incr_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "x++",
+        "y--",
+        "arr[i]++",
+        "obj.count--",
+    ]
+    return [Case(name=f"postfix-incr-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
+@case_builder
+def build_valuefan_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "state.{a, b}",
+        "obj.{x(), y}",
+        "[state.{a, b, c}]",
+    ]
+    return [Case(name=f"valuefan-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
+@case_builder
+def build_dbg_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "dbg(x)",
+    ]
+    return [Case(name=f"dbg-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
+@case_builder
+def build_computed_key_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        '{ ("key" + "1"): 10 }',
+        '{ (a + b): value }',
+    ]
+    return [Case(name=f"computed-key-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
+@case_builder
+def build_anon_fn_expr_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "x := fn(): 42",
+        "arr.map(fn(x): x + 1)",
+        "result := fn(()): { tmp := 1; tmp + 2 }",
+    ]
+    return [Case(name=f"anon-fn-expr-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
+@case_builder
+def build_pattern_destructure_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "a, b = 1, 2",
+        "a, b := get_pair()",
+        "x, y, z := 1, 2, 3",
+    ]
+    return [Case(name=f"pattern-destructure-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
+@case_builder
+def build_deepmerge_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "a +> b",
+        "obj1 +> obj2 +> obj3",
+    ]
+    return [Case(name=f"deepmerge-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
+@case_builder
+def build_assignor_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "config.key or= default",
+        "obj.field or= fallback",
+    ]
+    return [Case(name=f"assignor-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
+@case_builder
+def build_slice_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "arr[1:3]",
+        "arr[:5]",
+        "arr[2:]",
+        "arr[::2]",
+        "arr[1:3:2]",
+    ]
+    return [Case(name=f"slice-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
+@case_builder
+def build_comp_for_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "[x for x in arr]",
+        "[x + 1 for x in nums if x > 0]",
+        "set{ x for x in vals }",
+        "{ k: v for [k, v] items }",
+    ]
+    return [Case(name=f"comp-for-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
+@case_builder
+def build_nullsafe_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "??(x)",
+        "??(arr[0])",
+        "??(obj.field)",
+    ]
+    return [Case(name=f"nullsafe-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
+@case_builder
+def build_postfix_unless_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "x = 1 unless false",
+        "return 5 unless cond",
+    ]
+    return [Case(name=f"postfix-unless-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
 # ---------------------------------------------------------------------------
 # AST + runtime scenarios
 # ---------------------------------------------------------------------------
@@ -1553,6 +1677,13 @@ partial(0, 16)""",
     )
 )
 runtime_scenario(lambda: _rt("lambda-hole-iifc", 'blend(?, ?, 0.25)()', None, SyntaxError))
+runtime_scenario(lambda: _rt("power-basic", '2 ** 3', ("number", 8), None))
+runtime_scenario(lambda: _rt("power-precedence", '2 ** 3 ** 2', ("number", 512), None))
+runtime_scenario(lambda: _rt("power-negative", '(-2) ** 3', ("number", -8), None))
+runtime_scenario(lambda: _rt("postfix-incr-basic", 'a := 5; a++; a', ("number", 6), None))
+runtime_scenario(lambda: _rt("postfix-decr-basic", 'a := 5; a--; a', ("number", 4), None))
+runtime_scenario(lambda: _rt("prefix-incr-basic", 'a := 5; ++a; a', ("number", 6), None))
+runtime_scenario(lambda: _rt("prefix-decr-basic", 'a := 5; --a; a', ("number", 4), None))
 
 # ---------------------------------------------------------------------------
 # Suite execution
