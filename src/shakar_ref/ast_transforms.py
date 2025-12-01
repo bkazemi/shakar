@@ -529,8 +529,29 @@ class Prune(Transformer):
     def call(self, c):
         return Tree("call", c)
 
+    def lambdacall1(self, c):
+        body = c[-1] if c else None
+        # unify postfix &(...) into a normal call with an amp_lambda arg
+        return Tree('call', [Tree('args', [Tree('amp_lambda', [body])])])
+
+    def lambdacalln(self, c):
+        params, body = c[0], c[-1]
+        return Tree('call', [Tree('args', [Tree('amp_lambda', [params, body])])])
+
+    def amp_lambda1(self, c):
+        # Standalone &(expr) -> amp_lambda
+        return Tree('amp_lambda', [c[0]])
+
+    def amp_lambdan(self, c):
+        # Standalone &[params](expr) -> amp_lambda with paramlist
+        params, body = c[0], c[1]
+        return Tree('amp_lambda', [params, body])
+
     def primary(self, c):
         return c[0] if len(c) == 1 else Tree("primary", c)
+
+    def stmt(self, c):
+        return c[0] if len(c) == 1 else Tree("stmt", c)
 
     def expr(self, c):
         return c[0]

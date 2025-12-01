@@ -74,17 +74,45 @@ def main() -> None:
     grammar_variant = "default"
     grammar_path = None
     arg = None
+    show_tree = False
     it = iter(sys.argv[1:])
 
     for token in it:
-        if arg is None:
+        if token == "--tree":
+            show_tree = True
+        elif arg is None:
             arg = token
         else:
             raise SystemExit(f"Unexpected argument: {token}")
 
     arg = arg or "-"
     source = _load_source(arg)
-    print(run(source, grammar_path=grammar_path, grammar_variant=grammar_variant))
+
+    if show_tree:
+        # Parse and show AST without executing
+        init_stdlib()
+        preferred = looks_like_offside(source)
+        attempts = [preferred, not preferred]
+
+        last_error = None
+        tree = None
+        for flag in attempts:
+            try:
+                tree = parse_source(source, use_indenter=flag)
+                break
+            except (ParseError, LexError) as exc:
+                last_error = exc
+
+        if tree is None:
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("Parser failed without producing a parse tree")
+
+        ast = Prune().transform(tree)
+        ast2 = lower(ast)
+        print(ast2.pretty())
+    else:
+        print(run(source, grammar_path=grammar_path, grammar_variant=grammar_variant))
 
 if __name__ == "__main__":
     main()

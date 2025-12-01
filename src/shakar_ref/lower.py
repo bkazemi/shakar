@@ -1,14 +1,17 @@
 from __future__ import annotations
-from typing import List
+from typing import List, Optional
 
 from .tree import Tree, Token
 
 from .tree import Node, is_tree, tree_children, tree_label
 from .tree import is_token as is_token
+from .ast_transforms import _infer_amp_lambda_params
 
 def lower(ast: Node) -> Node:
-    """Runtime lowering pass (currently: hole desugaring)."""
-    return _desugar_call_holes(ast)
+    """Runtime lowering pass: hole desugaring + amp-lambda parameter inference."""
+    ast = _desugar_call_holes(ast)
+    ast = _infer_amp_lambda_params(ast)
+    return ast
 
 def _desugar_call_holes(node: Node) -> Node:
     if is_token(node) or not is_tree(node):

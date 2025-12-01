@@ -2,14 +2,18 @@
 
 The `src/shakar_ref/` package hosts the core Python implementation of the parser, lowering pass, and evaluator:
 
-- `parse_auto.py` – auto-generated parser/pruner glue to turn Lark trees into canonical nodes.
-- `lower.py` – AST normalization (hole desugaring, etc.).
+- `parser_rd.py` – recursive-descent parser producing AST from source.
+- `lexer_rd.py` – lexer with indentation-aware tokenization.
+- `ast_transforms.py` – Prune transform that normalizes raw parse trees.
+- `lower.py` – AST lowering (hole desugaring, amp-lambda parameter inference).
 - `evaluator.py` – walks the canonical AST and executes programs.
 - `runtime.py` – value model (`ShkNumber`, `ShkString`, etc.), frames, and stdlib registry.
+- `tree.py` – local Tree/Token implementations (Lark-compatible).
 - `eval/` – helper modules for selectors, mutation, destructuring, and await logic used by the evaluator.
-- `runner.py` – convenience entry point (`PYTHONPATH=src python -m shakar_ref.runner program.shk`) that wires parse → prune → eval.
+- `runner.py` – convenience entry point (`PYTHONPATH=src python -m shakar_ref.runner program.shk`) that wires parse → prune → lower → eval.
 
 Developer notes:
 
-- The repo targets Python 3.10+. Use a virtualenv (`python -m venv .venv && source .venv/bin/activate`) so imports like `lark`/`tree_sitter` resolve cleanly. When running modules directly, prepend `PYTHONPATH=src` (or install the package in editable mode) so `shakar_ref` resolves.
+- The repo targets Python 3.10+. Use a virtualenv (`python -m venv .venv && source .venv/bin/activate`). When running modules directly, prepend `PYTHONPATH=src` (or install the package in editable mode) so `shakar_ref` resolves.
 - The stdlib (`stdlib.py`) registers its functions via `register_stdlib` and is imported defensively so `print()` and future additions are always available.
+- Legacy Lark-based parser lives in `lark.old/parse_auto.py` (deprecated, only used by tree validation tests).

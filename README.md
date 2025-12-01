@@ -177,10 +177,10 @@ Selector literals use backticks and have precise semantics for ranges, lists, an
 
 ### Tooling and introspection
 
-Shakar ships with a small reference parser and runtime, plus a `--tree` mode so you can inspect the AST of a file when you want to see exactly what your sugars are doing.
+Shakar ships with a recursive-descent parser and runtime, plus a `--tree` mode so you can inspect the AST of a file when you want to see exactly what your sugars are doing.
 
 ```bash
-python shakar_parse_auto.py --tree path/to/file.shk
+PYTHONPATH=src python -m shakar_ref.runner --tree path/to/file.shk
 ```
 
 There is no hidden control flow beyond what is written in the spec, which keeps it friendly to formatters, linters, and AI-assisted refactors.

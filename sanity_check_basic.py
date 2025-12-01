@@ -1675,17 +1675,11 @@ class SanitySuite:
         return "\n".join(lines), failed
 
     def _parse_ast(self, source: str):
-        # AST scenarios still use Lark temporarily (RD parser has known gaps with
-        # amp-lambda transforms, hooks, and decorators). These 6 AST tests will be fixed
-        # when RD parser implements those features. For now, keep using Lark here.
-        #
-        # Failing tests: lambda-infer-zipwith, lambda-hole-desugar, lambda-dot-mix-error,
-        #                hook-inline-body, decorator-ast-def, decorated-fn-ast
-        #
-        # All grammar/parser and runtime scenarios pass with RD parser.
-        sys.path.insert(0, str(BASE_DIR / "lark.old"))
-        from parse_auto import parse_to_ast
-        return parse_to_ast(source, GRAMMAR_TEXT)
+        # Use RD parser pipeline for AST scenarios
+        tree = parse_rd(source, use_indenter=False)
+        tree = Prune().transform(tree)
+        tree = lower(tree)
+        return tree
 
     def _run_ast_scenarios(self) -> Tuple[List[str], int, int]:
         lines: List[str] = []

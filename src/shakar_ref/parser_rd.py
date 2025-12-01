@@ -204,6 +204,8 @@ class Parser:
             return self.parse_await_stmt()
 
         # Declarations
+        if self.check(TT.HOOK):
+            return self.parse_hook_stmt()
         if self.check(TT.DECORATOR):
             return self.parse_decorator_stmt()
         if self.check(TT.AT):
@@ -626,6 +628,22 @@ class Parser:
         if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING):
             return True
         return False
+
+    def parse_hook_stmt(self) -> Tree:
+        """
+        Parse hook statement (stub):
+        hook "name": body
+
+        Grammar: hook: HOOK (STRING | RAW_STRING | RAW_HASH_STRING) ":" (inlinebody | indentblock)
+        """
+        self.expect(TT.HOOK)
+        name = self.expect(TT.STRING)  # TODO: support RAW_STRING, RAW_HASH_STRING
+        self.expect(TT.COLON)
+        body = self.parse_body()
+
+        # Convert inlinebody to amp_lambda if it contains implicit chain
+        # For now, just wrap the body directly
+        return Tree('hook', [name, Tree('amp_lambda', [body])])
 
     def parse_decorator_stmt(self) -> Tree:
         """
@@ -1526,6 +1544,15 @@ class Parser:
             elif self.check(TT.INCR, TT.DECR):
                 op = self.advance()
                 postfix_ops.append(Tree(op.type.name.lower(), []))
+
+            # Postfix amp-lambda: expr&(body) or expr&[params](body)
+            elif self.match(TT.AMP):
+                lam = self.parse_anonymous_fn()
+                # Wrap as lambdacall1 or lambdacalln depending on whether it has params
+                if len(lam.children) == 2:  # Has paramlist
+                    postfix_ops.append(Tree('lambdacalln', lam.children))
+                else:  # Subject-based lambda
+                    postfix_ops.append(Tree('lambdacall1', lam.children))
 
             else:
                 break

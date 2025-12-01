@@ -1,28 +1,20 @@
 # lark.old/
 
-This directory contains the legacy Lark-based parser (`parse_auto.py`) that has been deprecated in favor of the recursive-descent parser (`src/shakar_ref/parser_rd.py`).
+This directory contains the legacy Lark-based parser (`parse_auto.py`) that has been **deprecated** in favor of the recursive-descent parser (`src/shakar_ref/parser_rd.py`).
 
 ## Current Status
 
-The RD parser is now the default and handles all grammar/parser tests and runtime scenarios successfully.
+**Lark deprecation is essentially complete.** The RD parser is now the default and handles all sanity tests successfully:
+- All grammar/parser tests pass
+- All AST scenario tests pass
+- All runtime tests pass
 
-## Temporary Usage
+## Remaining Usage
 
 `parse_auto.py` is still used by:
-- `sanity_check_basic.py`: AST scenario tests (6 tests) that require features not yet implemented in RD parser
-- `sanity_treecheck.py`: Tree validation tests that specifically test Lark parsing behavior
+- `sanity_treecheck.py`: Tree validation tests that specifically validate Lark parsing behavior and invariants
 
-## AST Test Gaps
-
-The following 6 AST tests still require Lark's Earley parser:
-1. `lambda-infer-zipwith` - Amp-lambda with inference
-2. `lambda-hole-desugar` - Lambda hole desugaring
-3. `lambda-dot-mix-error` - Lambda dot syntax error detection
-4. `hook-inline-body` - Hook inline body handling
-5. `decorator-ast-def` - Decorator AST definition
-6. `decorated-fn-ast` - Decorated function AST
-
-These will be fixed when the RD parser implements the corresponding features.
+This is a specialized validation tool that tests parse tree structure, not a required dependency for the main codebase.
 
 ## Dependencies
 
@@ -30,4 +22,4 @@ These will be fixed when the RD parser implements the corresponding features.
 
 ## Future
 
-Once the RD parser implements amp-lambda transforms, hooks, and decorators, this directory can be removed entirely.
+`sanity_treecheck.py` could be rewritten to use the RD parser, at which point this directory and the Lark dependency can be removed entirely. However, since it's just a validation tool (not part of the main runtime), this is low priority.
