@@ -281,8 +281,18 @@ class Parser:
         base_stmt: Tree | Token = expr
 
         # Assignment handling before postfix-if to match grammar precedence
-        if self.check(TT.ASSIGN, TT.WALRUS, TT.APPLYASSIGN,
-                      TT.PLUSEQ, TT.MINUSEQ, TT.STAREQ, TT.SLASHEQ, TT.FLOORDIVEQ, TT.MODEQ):
+        if self.check(
+            TT.ASSIGN,
+            TT.WALRUS,
+            TT.APPLYASSIGN,
+            TT.PLUSEQ,
+            TT.MINUSEQ,
+            TT.STAREQ,
+            TT.SLASHEQ,
+            TT.FLOORDIVEQ,
+            TT.MODEQ,
+            TT.POWEQ,
+        ):
             if self.check(TT.ASSIGN):
                 lvalue = self._expr_to_lvalue(expr)
                 self.advance()  # =

@@ -1680,6 +1680,7 @@ runtime_scenario(lambda: _rt("lambda-hole-iifc", 'blend(?, ?, 0.25)()', None, Sy
 runtime_scenario(lambda: _rt("power-basic", '2 ** 3', ("number", 8), None))
 runtime_scenario(lambda: _rt("power-precedence", '2 ** 3 ** 2', ("number", 512), None))
 runtime_scenario(lambda: _rt("power-negative", '(-2) ** 3', ("number", -8), None))
+runtime_scenario(lambda: _rt("power-assign", 'x := 2; x **= 3; x', ("number", 8), None))
 runtime_scenario(lambda: _rt("postfix-incr-basic", 'a := 5; a++; a', ("number", 6), None))
 runtime_scenario(lambda: _rt("postfix-decr-basic", 'a := 5; a--; a', ("number", 4), None))
 runtime_scenario(lambda: _rt("prefix-incr-basic", 'a := 5; ++a; a', ("number", 6), None))
