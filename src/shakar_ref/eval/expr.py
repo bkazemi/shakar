@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Callable, Iterable, List, Optional, Set
 
-from lark import Token
+from ..tree import Token
 
 from ..runtime import (
     Frame,

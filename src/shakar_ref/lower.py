@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import List
 
-from lark import Tree, Token
+from .tree import Tree, Token
 
 from .tree import Node, is_tree, tree_children, tree_label
 from .tree import is_token as is_token

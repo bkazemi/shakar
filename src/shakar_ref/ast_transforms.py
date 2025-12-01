@@ -9,8 +9,8 @@ from __future__ import annotations
 import sys
 from typing import Iterator, List, Optional, Tuple, TypeAlias
 
-from lark import Transformer, Tree, Token, v_args
-from lark.visitors import Discard
+from .tree import Tree, Token, Transformer, v_args
+from .tree import Discard
 
 from .tree import (
     Node,

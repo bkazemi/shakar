@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, Iterable, List, Optional
 
-from lark import Token, Tree
+from ..tree import Tree, Token
 
 from ..runtime import Frame, ShkArray, ShkNull, ShkNumber, ShkObject, ShkSelector, ShkString, ShkValue, ShakarBreakSignal, ShakarContinueSignal, ShakarRuntimeError, ShakarTypeError
 from ..tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label

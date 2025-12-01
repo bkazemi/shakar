@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, Iterable, List, Optional, Tuple
 
-from lark import Token
+from ..tree import Token
 
 from ..runtime import Descriptor, Frame, ShkFn, ShkObject, ShkString, ShkValue, ShakarRuntimeError
 from ..tree import Tree, child_by_label, is_token, is_tree, tree_children, tree_label

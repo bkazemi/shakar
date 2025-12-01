@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Callable, Iterable, Optional
 
-from lark import Token
+from ..tree import Token
 
 from ..runtime import Frame, ShkArray, ShkNull, ShkValue, ShakarRuntimeError
 from ..utils import (

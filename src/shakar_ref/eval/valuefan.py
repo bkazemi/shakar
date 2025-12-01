@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import List
-from lark import Tree
+from ..tree import Tree
 
 from ..runtime import Frame, ShkArray, ShkValue, ShakarRuntimeError
 from ..tree import Node, Tree, is_tree, tree_children, tree_label

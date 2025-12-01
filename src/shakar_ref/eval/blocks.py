@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Callable, Iterator, List, Optional
 
-from lark import Tree
+from ..tree import Tree
 
 from ..runtime import (
     DeferEntry,

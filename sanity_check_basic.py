@@ -38,15 +38,15 @@ from shakar_ref.runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-from shakar_ref import parse_auto as runner
-
-# RD parser is default, Lark comparison is opt-in
-COMPARE_LARK = os.getenv("COMPARE_LARK", "").lower() in {"1", "true", "yes"}
+# RD parser only (Lark deprecated)
 from shakar_ref.parser_rd import parse_source as parse_rd, ParseError
-from shakar_ref.lexer_rd import LexError
-from shakar_ref.parse_auto import Prune
+from shakar_ref.lexer_rd import LexError, Lexer
+from shakar_ref.ast_transforms import Prune
 from shakar_ref.lower import lower
-from lark import Tree, Token
+from shakar_ref.tree import Tree, Token
+
+# Get KEYWORDS for test generation
+KEYWORDS = Lexer.KEYWORDS
 
 GRAMMAR_PATH = Path("grammar.lark")
 GRAMMAR_TEXT = GRAMMAR_PATH.read_text(encoding="utf-8")
@@ -148,7 +148,7 @@ def _keyword_sample(all_keywords: Sequence[str], default_limit: int) -> Tuple[Li
     return words[:limit], notes
 
 def build_keyword_plan() -> KeywordPlan:
-    sample, notes = _keyword_sample(runner.KEYWORDS.keys(), default_limit=12)
+    sample, notes = _keyword_sample(KEYWORDS.keys(), default_limit=12)
     variant_limit = _limit_from_env(
         "SANITY_KEYWORD_VARIANTS",
         default=2,
@@ -175,139 +175,24 @@ def build_keyword_plan() -> KeywordPlan:
 # ---------------------------------------------------------------------------
 
 class ParserBundle:
-    """Caches the no-indent and indented parser variants for reuse."""
+    """Simplified parser runner using RD parser only."""
     def __init__(self, grammar_text: str):
-        import hashlib
-        from pathlib import Path
-
-        self.compare_lark = COMPARE_LARK
-
-        # Skip Lark entirely if not comparing
-        if not COMPARE_LARK:
-            self.parsers = None
-            return
-
-        # Try to load from disk cache
-        grammar_hash = hashlib.md5(grammar_text.encode()).hexdigest()
-        cache_file = Path(f".parser_cache_{grammar_hash}.dill")
-
-        if cache_file.exists():
-            try:
-                import dill
-                with open(cache_file, 'rb') as f:
-                    self.parsers = dill.load(f)
-                return
-            except (ImportError, Exception):
-                # dill not available or cache corrupted, rebuild
-                pass
-
-        # Module-level cache in build_parser() means repeated calls within
-        # same process are fast
-        self.parsers = {
-            "noindent": runner.build_parser(
-                grammar_text,
-                parser_kind="earley",
-                use_indenter=False,
-                start_sym="start_noindent",
-            ),
-            "indented": runner.build_parser(
-                grammar_text,
-                parser_kind="earley",
-                use_indenter=True,
-                start_sym="start_indented",
-            ),
-        }
-
-        # Try to save to disk cache (requires dill)
-        try:
-            import dill
-            with open(cache_file, 'wb') as f:
-                dill.dump(self.parsers, f)
-        except ImportError:
-            # dill not available, skip caching
-            import sys
-            print("[INFO] dill not installed, parser cache will not persist to disk", file=sys.stderr)
-        except Exception as e:
-            # serialization failed, skip caching
-            import sys
-            print(f"[INFO] Failed to cache parsers: {type(e).__name__}: {e}", file=sys.stderr)
-
-    def _trees_match(self, rd_tree, lark_tree, path="") -> Tuple[bool, str]:
-        """Compare RD and Lark trees for equivalence."""
-        # Both are tokens
-        if isinstance(rd_tree, Token) and isinstance(lark_tree, Token):
-            if rd_tree.type != lark_tree.type:
-                return False, f"{path}: Token type mismatch: {rd_tree.type} vs {lark_tree.type}"
-            if rd_tree.value != lark_tree.value:
-                return False, f"{path}: Token value mismatch: {rd_tree.value!r} vs {lark_tree.value!r}"
-            return True, ""
-
-        # Both are trees
-        if isinstance(rd_tree, Tree) and isinstance(lark_tree, Tree):
-            if rd_tree.data != lark_tree.data:
-                return False, f"{path}: Tree data mismatch: {rd_tree.data} vs {lark_tree.data}"
-
-            if len(rd_tree.children) != len(lark_tree.children):
-                return False, f"{path}: Child count mismatch: {len(rd_tree.children)} vs {len(lark_tree.children)}"
-
-            for i, (rd_child, lark_child) in enumerate(zip(rd_tree.children, lark_tree.children)):
-                match, err = self._trees_match(rd_child, lark_child, f"{path}/{rd_tree.data}[{i}]")
-                if not match:
-                    return False, err
-
-            return True, ""
-
-        # Type mismatch
-        return False, f"{path}: Type mismatch: {type(rd_tree).__name__} vs {type(lark_tree).__name__}"
+        pass  # No initialization needed for RD-only mode
 
     def parse(self, start: str, code: str) -> Tuple[bool, Optional[str]]:
         """Parse using the requested start symbol, returning (ok, error_message)."""
         label = f"start_{start}"
         use_indenter = (start == "indented")
 
-        # RD-only mode (default)
-        if not self.compare_lark:
-            try:
-                rd_tree = parse_rd(code, use_indenter=use_indenter)
-                rd_tree = Prune().transform(rd_tree)
-                rd_tree = lower(rd_tree)
-                return True, None
-            except (ParseError, LexError) as exc:
-                return False, f"{label} (RD): {exc}"
-            except Exception as exc:
-                return False, f"{label} (RD): {exc}"
-
-        # Lark comparison mode
-        parser = self.parsers[start]
-
-        # Parse with Lark
-        try:
-            lark_tree = parser.parse(code)
-        except Exception as exc:  # pragma: no cover - defensive
-            return False, f"{label} (Lark): {exc}"
-
-        # Compare with RD
         try:
             rd_tree = parse_rd(code, use_indenter=use_indenter)
-            # Apply same transformations as Lark
             rd_tree = Prune().transform(rd_tree)
             rd_tree = lower(rd_tree)
-
-            # Also apply transformations to Lark tree for fair comparison
-            lark_tree_transformed = Prune().transform(lark_tree)
-            lark_tree_transformed = lower(lark_tree_transformed)
-
-            # Compare trees
-            match, error = self._trees_match(rd_tree, lark_tree_transformed)
-            if not match:
-                return False, f"{label} (RD vs Lark): AST mismatch: {error}"
-
+            return True, None
         except (ParseError, LexError) as exc:
             return False, f"{label} (RD): {exc}"
         except Exception as exc:
             return False, f"{label} (RD): {exc}"
-
-        return True, None
 
 # ---------------------------------------------------------------------------
 # Case builders
@@ -1719,7 +1604,6 @@ class SanitySuite:
         self.filters = list(filters) if filters else []
         self._parsers: Optional[ParserBundle] = None
         self._case_runner: Optional[CaseRunner] = None
-        self.ast_parser = runner
         self.cases = self._build_cases()
 
     @property
@@ -1791,7 +1675,17 @@ class SanitySuite:
         return "\n".join(lines), failed
 
     def _parse_ast(self, source: str):
-        return self.ast_parser.parse_to_ast(source, GRAMMAR_TEXT)
+        # AST scenarios still use Lark temporarily (RD parser has known gaps with
+        # amp-lambda transforms, hooks, and decorators). These 6 AST tests will be fixed
+        # when RD parser implements those features. For now, keep using Lark here.
+        #
+        # Failing tests: lambda-infer-zipwith, lambda-hole-desugar, lambda-dot-mix-error,
+        #                hook-inline-body, decorator-ast-def, decorated-fn-ast
+        #
+        # All grammar/parser and runtime scenarios pass with RD parser.
+        sys.path.insert(0, str(BASE_DIR / "lark.old"))
+        from parse_auto import parse_to_ast
+        return parse_to_ast(source, GRAMMAR_TEXT)
 
     def _run_ast_scenarios(self) -> Tuple[List[str], int, int]:
         lines: List[str] = []

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, List, Optional
 
-from lark import Tree
+from ..tree import Tree
 from ..tree import Node
 
 from ..runtime import DecoratorConfigured, Frame, ShkDecorator, ShkFn, ShkNull, ShkValue, ShakarRuntimeError, ShakarTypeError

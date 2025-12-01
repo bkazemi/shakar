@@ -13,7 +13,7 @@ Structure:
 """
 
 from typing import Optional, List, Any, Callable
-from lark import Tree, Token
+from .tree import Tree, Token
 
 from .token_types import TT, Tok
 

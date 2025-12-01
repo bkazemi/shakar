@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 from typing import Callable, List, Optional
 
-from lark import Tree, Token
+from ..tree import Tree, Token
 
 from ..runtime import Frame, ShkFn, ShkNull, ShkValue, ShakarRuntimeError, ShakarTypeError
 from ..tree import Node, is_token, is_tree, tree_label
