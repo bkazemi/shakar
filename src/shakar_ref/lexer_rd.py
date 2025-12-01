@@ -66,6 +66,62 @@ class Lexer:
         'is': TT.IS,
     }
 
+    # Operator mapping: longest matches first to handle prefixes correctly
+    OPERATORS = [
+        # Three-character operators
+        ('//=', TT.FLOORDIVEQ),
+        ('**=', TT.POWEQ),
+
+        # Two-character operators
+        ('==', TT.EQ),
+        ('!=', TT.NEQ),
+        ('<=', TT.LTE),
+        ('>=', TT.GTE),
+        ('&&', TT.AND),
+        ('||', TT.OR),
+        (':=', TT.WALRUS),
+        ('.=', TT.APPLYASSIGN),
+        ('+=', TT.PLUSEQ),
+        ('-=', TT.MINUSEQ),
+        ('*=', TT.STAREQ),
+        ('/=', TT.SLASHEQ),
+        ('//', TT.FLOORDIV),
+        ('**', TT.POW),
+        ('%=', TT.MODEQ),
+        ('++', TT.INCR),
+        ('--', TT.DECR),
+        ('??', TT.NULLISH),
+        ('+>', TT.DEEPMERGE),
+
+        # Single-character operators
+        ('+', TT.PLUS),
+        ('-', TT.MINUS),
+        ('*', TT.STAR),
+        ('/', TT.SLASH),
+        ('%', TT.MOD),
+        ('^', TT.CARET),
+        ('<', TT.LT),
+        ('>', TT.GT),
+        ('!', TT.NEG),
+        ('=', TT.ASSIGN),
+        ('(', TT.LPAR),
+        (')', TT.RPAR),
+        ('[', TT.LSQB),
+        (']', TT.RSQB),
+        ('{', TT.LBRACE),
+        ('}', TT.RBRACE),
+        ('.', TT.DOT),
+        (',', TT.COMMA),
+        (':', TT.COLON),
+        (';', TT.SEMI),
+        ('?', TT.QMARK),
+        ('@', TT.AT),
+        ('$', TT.DOLLAR),
+        ('`', TT.BACKQUOTE),
+        ('&', TT.AMP),
+        ('|', TT.PIPE),
+    ]
+
     def __init__(self, source: str, track_indentation: bool = False):
         self.source = source
         self.pos = 0
@@ -215,7 +271,6 @@ class Lexer:
         """Scan string literal: "..." or '...'"""
         quote = self.advance()
         start_line = self.line
-        start_col = self.column - 1
         value = quote  # Keep opening quote
 
         while self.pos < len(self.source) and self.peek() != quote:
@@ -233,57 +288,60 @@ class Lexer:
         value += self.advance()  # Closing quote
         self.emit(TT.STRING, value)
 
+    def scan_quoted_content(self, quote: str, allow_escapes: bool = False) -> str:
+        """Helper to scan content between quotes"""
+        content = ''
+        while self.pos < len(self.source) and self.peek() != quote:
+            if allow_escapes and self.peek() == '\\':
+                content += self.advance()
+                if self.pos < len(self.source):
+                    content += self.advance()
+            else:
+                content += self.advance()
+        return content
+
     def scan_raw_string(self):
         """Scan raw string: raw"..." or raw'...' or raw#"..."#"""
-        # 'raw' keyword already consumed, build full token including 'raw' prefix
-        # Check for hash-delimited raw string
+        # 'raw' keyword already consumed
         if self.peek() == '#':
-            hash_char = self.advance()  # consume #
-            quote = self.advance()  # " or '
+            # Hash-delimited raw string: raw#"..."#
+            self.advance()  # consume #
+            quote = self.advance()
             content = ''
 
             # Scan until we find quote followed by #
             while self.pos < len(self.source):
-                if self.peek() == quote and self.pos + 1 < len(self.source) and self.source[self.pos + 1] == '#':
-                    self.advance()  # consume quote
-                    self.advance()  # consume #
-                    # Emit full raw#"..."# token value
-                    full_value = 'raw#' + quote + content + quote + '#'
+                if self.peek() == quote and self.peek(1) == '#':
+                    self.advance(2)  # consume quote and #
+                    full_value = f'raw#{quote}{content}{quote}#'
                     self.emit(TT.RAW_HASH_STRING, full_value)
                     return
                 content += self.advance()
 
             raise LexError(f"Unterminated hash raw string at line {self.line}")
         else:
-            # Regular raw string
+            # Regular raw string: raw"..." or raw'...'
             quote = self.advance()
-            content = ''
-
-            while self.pos < len(self.source) and self.peek() != quote:
-                content += self.advance()
+            content = self.scan_quoted_content(quote)
 
             if self.pos >= len(self.source):
                 raise LexError(f"Unterminated raw string at line {self.line}")
 
             self.advance()  # Closing quote
-            # Emit full raw"..." token value
-            full_value = 'raw' + quote + content + quote
+            full_value = f'raw{quote}{content}{quote}'
             self.emit(TT.RAW_STRING, full_value)
 
     def scan_shell_string(self):
         """Scan shell string: sh"..." or sh'...'"""
         # 'sh' keyword already consumed
         quote = self.advance()
-        value = ''
-
-        while self.pos < len(self.source) and self.peek() != quote:
-            value += self.advance()
+        content = self.scan_quoted_content(quote)
 
         if self.pos >= len(self.source):
             raise LexError(f"Unterminated shell string at line {self.line}")
 
         self.advance()  # Closing quote
-        self.emit(TT.SHELL_STRING, value)
+        self.emit(TT.SHELL_STRING, content)
 
     def scan_number(self):
         """Scan number literal"""
@@ -323,160 +381,14 @@ class Lexer:
 
     def scan_operator(self):
         """Scan operators and punctuation"""
+        for op_str, op_type in self.OPERATORS:
+            if self.source.startswith(op_str, self.pos):
+                self.advance(len(op_str))
+                self.emit(op_type, op_str)
+                return
+
         ch = self.peek()
-
-        # Two-character operators
-        two_char = ch + self.peek(1)
-
-        if two_char == '==':
-            self.advance(); self.advance()
-            self.emit(TT.EQ, '==')
-        elif two_char == '!=':
-            self.advance(); self.advance()
-            self.emit(TT.NEQ, '!=')
-        elif two_char == '<=':
-            self.advance(); self.advance()
-            self.emit(TT.LTE, '<=')
-        elif two_char == '>=':
-            self.advance(); self.advance()
-            self.emit(TT.GTE, '>=')
-        elif two_char == '&&':
-            self.advance(); self.advance()
-            self.emit(TT.AND, two_char)
-        elif two_char == '||':
-            self.advance(); self.advance()
-            self.emit(TT.OR, two_char)
-        elif two_char == ':=':
-            self.advance(); self.advance()
-            self.emit(TT.WALRUS, ':=')
-        elif two_char == '.=':
-            self.advance(); self.advance()
-            self.emit(TT.APPLYASSIGN, '.=')
-        elif two_char == '+=':
-            self.advance(); self.advance()
-            self.emit(TT.PLUSEQ, '+=')
-        elif two_char == '-=':
-            self.advance(); self.advance()
-            self.emit(TT.MINUSEQ, '-=')
-        elif two_char == '*=':
-            self.advance(); self.advance()
-            self.emit(TT.STAREQ, '*=')
-        elif two_char == '/=':
-            self.advance(); self.advance()
-            self.emit(TT.SLASHEQ, '/=')
-        elif two_char == '//':
-            self.advance(); self.advance()
-            # Check for //=
-            if self.peek() == '=':
-                self.advance()
-                self.emit(TT.FLOORDIVEQ, '//=')
-            else:
-                self.emit(TT.FLOORDIV, '//')
-        elif two_char == '**':
-            self.advance(); self.advance()
-            # Check for **=
-            if self.peek() == '=':
-                self.advance()
-                self.emit(TT.POWEQ, '**=')
-            else:
-                self.emit(TT.POW, '**')
-        elif two_char == '%=':
-            self.advance(); self.advance()
-            self.emit(TT.MODEQ, '%=')
-        elif two_char == '++':
-            self.advance(); self.advance()
-            self.emit(TT.INCR, '++')
-        elif two_char == '--':
-            self.advance(); self.advance()
-            self.emit(TT.DECR, '--')
-        elif two_char == '??':
-            self.advance(); self.advance()
-            self.emit(TT.NULLISH, '??')
-        elif two_char == '+>':
-            self.advance(); self.advance()
-            self.emit(TT.DEEPMERGE, '+>')
-
-        # Single-character operators
-        elif ch == '+':
-            self.advance()
-            self.emit(TT.PLUS, '+')
-        elif ch == '-':
-            self.advance()
-            self.emit(TT.MINUS, '-')
-        elif ch == '*':
-            self.advance()
-            self.emit(TT.STAR, '*')
-        elif ch == '/':
-            self.advance()
-            self.emit(TT.SLASH, '/')
-        elif ch == '%':
-            self.advance()
-            self.emit(TT.MOD, '%')
-        elif ch == '^':
-            self.advance()
-            self.emit(TT.CARET, '^')
-        elif ch == '<':
-            self.advance()
-            self.emit(TT.LT, '<')
-        elif ch == '>':
-            self.advance()
-            self.emit(TT.GT, '>')
-        elif ch == '!':
-            self.advance()
-            self.emit(TT.NEG, '!')
-        elif ch == '=':
-            self.advance()
-            self.emit(TT.ASSIGN, '=')
-        elif ch == '(':
-            self.advance()
-            self.emit(TT.LPAR, '(')
-        elif ch == ')':
-            self.advance()
-            self.emit(TT.RPAR, ')')
-        elif ch == '[':
-            self.advance()
-            self.emit(TT.LSQB, '[')
-        elif ch == ']':
-            self.advance()
-            self.emit(TT.RSQB, ']')
-        elif ch == '{':
-            self.advance()
-            self.emit(TT.LBRACE, '{')
-        elif ch == '}':
-            self.advance()
-            self.emit(TT.RBRACE, '}')
-        elif ch == '.':
-            self.advance()
-            self.emit(TT.DOT, '.')
-        elif ch == ',':
-            self.advance()
-            self.emit(TT.COMMA, ',')
-        elif ch == ':':
-            self.advance()
-            self.emit(TT.COLON, ':')
-        elif ch == ';':
-            self.advance()
-            self.emit(TT.SEMI, ';')
-        elif ch == '?':
-            self.advance()
-            self.emit(TT.QMARK, '?')
-        elif ch == '@':
-            self.advance()
-            self.emit(TT.AT, '@')
-        elif ch == '$':
-            self.advance()
-            self.emit(TT.DOLLAR, '$')
-        elif ch == '`':
-            self.advance()
-            self.emit(TT.BACKQUOTE, '`')
-        elif ch == '&':
-            self.advance()
-            self.emit(TT.AMP, '&')
-        elif ch == '|':
-            self.advance()
-            self.emit(TT.PIPE, '|')
-        else:
-            raise LexError(f"Unexpected character '{ch}' at line {self.line}, col {self.column}")
+        raise LexError(f"Unexpected character '{ch}' at line {self.line}, col {self.column}")
 
     # ========================================================================
     # Utilities
@@ -489,12 +401,17 @@ class Lexer:
             return self.source[idx]
         return '\0'
 
-    def advance(self) -> str:
-        """Consume current character"""
-        ch = self.source[self.pos] if self.pos < len(self.source) else '\0'
-        self.pos += 1
-        self.column += 1
-        return ch
+    def advance(self, n: int = 1) -> str:
+        """Consume n characters and return them as a string"""
+        if n < 0:
+            raise ValueError(f"advance() requires n >= 0, got {n}")
+        result = ''
+        for _ in range(n):
+            ch = self.source[self.pos] if self.pos < len(self.source) else '\0'
+            result += ch
+            self.pos += 1
+            self.column += 1
+        return result
 
     def match_keyword(self, keyword: str) -> bool:
         """Check if next characters match keyword"""
@@ -524,18 +441,6 @@ class Lexer:
         """Skip comment until end of line"""
         while self.peek() not in ('\n', '\r', '\0'):
             self.advance()
-
-    def unescape(self, ch: str) -> str:
-        """Convert escape sequence to character"""
-        escape_map = {
-            'n': '\n',
-            'r': '\r',
-            't': '\t',
-            '\\': '\\',
-            '"': '"',
-            "'": "'",
-        }
-        return escape_map.get(ch, ch)
 
     def emit(self, token_type: TT, value):
         """Emit a token"""
