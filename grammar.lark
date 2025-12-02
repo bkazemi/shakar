@@ -112,19 +112,17 @@ cmpop: EQ | NEQ | LT | LTE | GT | GTE
      | NEG IN        // !in
 
 # ===== No-Comma (NC) expressions: forbid top-level CCC at select sites =====
-expr_nc: catchbase_nc
-       | catchbase_nc catchhead expr_nc -> catchexpr
-
-?catchbase_nc: anonymous_fn
-             | anonymous_fn_auto
-             | ternaryexpr_nc
-ternaryexpr_nc: orexpr_nc ( "?" expr ":" ternaryexpr_nc )?
-orexpr_nc: andexpr_nc ( OR andexpr_nc )*
-andexpr_nc: bindexpr_nc ( AND bindexpr_nc )*
-bindexpr_nc: walrusexpr_nc | lvalue ".=" bindexpr_nc
-walrusexpr_nc: nullishexpr_nc | IDENT ":=" expr_nc
-nullishexpr_nc: compareexpr_nc ( "??" compareexpr_nc )*
-compareexpr_nc: addexpr ( cmpop addexpr )*
+# NC tier now aliases to full expressions; CCC is permitted everywhere and
+# comma semantics are disambiguated in the parser via context.
+expr_nc: expr
+?catchbase_nc: catchbase
+ternaryexpr_nc: ternaryexpr
+orexpr_nc: orexpr
+andexpr_nc: andexpr
+bindexpr_nc: bindexpr
+walrusexpr_nc: walrusexpr
+nullishexpr_nc: nullishexpr
+compareexpr_nc: compareexpr
 
 addexpr: mulexpr ( addop mulexpr )*
 addop: DEEPMERGE | CARET | PLUS | MINUS
@@ -321,7 +319,7 @@ dictcomp: "{" expr ":" expr comphead ifclause? "}"
 pattern: IDENT | "(" pattern_list ")"
 pattern_list: pattern "," pattern ("," pattern)*
 
-!assignstmt: lvalue "=" expr_nc
+!assignstmt: lvalue "=" expr
 
 throwstmt: THROW expr?
 
@@ -353,7 +351,7 @@ fnstmt: decoratorlist? FN IDENT "(" paramlist? ")" ":" (inlinebody | indentblock
 anonymous_fn: FN "(" paramlist? ")" ":" (inlinebody | indentblock)
 anonymous_fn_auto: FN "(" "(" ")" ")" ":" (inlinebody | indentblock)
 
-compound_assign: lvalue (PLUSEQ | MINUSEQ | STAREQ | SLASHEQ | FLOORDIVEQ | MODEQ | POWEQ) expr_nc
+compound_assign: lvalue (PLUSEQ | MINUSEQ | STAREQ | SLASHEQ | FLOORDIVEQ | MODEQ | POWEQ) expr
 fanoutblock: expr fanblock
 fanblock: "{" fanclause (fanclause_sep fanclause)* fanclause_sep? "}"
 fanclause_sep: _NL+ | SEMI | ","
