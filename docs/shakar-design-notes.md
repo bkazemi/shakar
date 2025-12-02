@@ -285,6 +285,7 @@ assert ix == [0,1] and vals == [11,12]
   - Leg form (after commas): optional `and|or`, optional comparator, then `Expr`. Carry-forward comparator allowed when joiner absent or `and`; after `or`, comparator required. Joiner is sticky (`and` by default) until changed by `, or`/`, and`.
   - Leaving chain: any `and|or` without a comma leaves chain mode and resumes normal boolean parsing.
   - Desugar: expand left→right to `S op_i Expr_i` joined by current sticky joiner; apply normal precedence (`and` tighter than `or`).
+  - **Disambiguation**: Commas disambiguate via lookahead (`, or`/`, and`/`, <cmpop>` → CCC) and context. Without explicit markers, bare `, <value>` is treated as a separator in function arguments, array literals, and destructure packs. Parentheses reset context and allow CCC: `f((x == 5, < 10))` passes a single CCC result; `[1, (a > 0, < 10)]` is a 2-element array.
   - Parentheses nest CCCs without affecting subject/eval rules.
   - **Selectors in comparisons**: with backtick selector literals, `S == \`Sel\`` ⇒ any(); `S != \`Sel\`` ⇒ all not-in; `S <op> \`Sel\`` for `< <= > >=` ⇒ all(), reducing to `min/max(Sel)` with openness respected (e.g., ``a < `1:<5` `` ⇒ `a < 1`; ``a >= `lo, hi` `` ⇒ `a >= max(lo, hi)`).
   - **Examples**:

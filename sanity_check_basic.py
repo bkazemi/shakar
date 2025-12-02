@@ -33,6 +33,7 @@ from shakar_ref.runtime import (
     ShkNumber,
     ShkString,
     ShkBool,
+    ShkArray,
     ShakarArityError,
     ShakarAssertionError,
     ShakarRuntimeError,
@@ -1571,6 +1572,18 @@ runtime_scenario(lambda: _rt("postfix-decr-basic", 'a := 5; a--; a', ("number", 
 runtime_scenario(lambda: _rt("prefix-incr-basic", 'a := 5; ++a; a', ("number", 6), None))
 runtime_scenario(lambda: _rt("prefix-decr-basic", 'a := 5; --a; a', ("number", 4), None))
 
+# CCC disambiguation tests
+runtime_scenario(lambda: _rt("ccc-function-args", 'fn f(a, b, c): a + b + c; f(1, 2, 3)', ("number", 6), None))
+runtime_scenario(lambda: _rt("ccc-array-elements", 'a := [1, 2, 3]; a[0] + a[1] + a[2]', ("number", 6), None))
+runtime_scenario(lambda: _rt("ccc-array-with-parens", 'a := [(5 == 5, == 5)]; a[0]', ("bool", True), None))
+runtime_scenario(lambda: _rt("ccc-destructure-pack", 'a, b := 10, 20; a + b', ("number", 30), None))
+runtime_scenario(lambda: _rt("ccc-statement-allowed", 'x := 5; assert x == 5, < 10; x', ("number", 5), None))
+
+# CCC in comprehensions - parser and evaluator now support it
+runtime_scenario(lambda: _rt("ccc-comprehension-filter", 'data := [1, 5, 10]; [x for x in data if x == 1, < 6]', ("array", [1.0]), None))
+runtime_scenario(lambda: _rt("ccc-comprehension-explicit", 'data := [1, 5, 10]; [x for x in data if x > 0, and < 8]', ("array", [1.0, 5.0]), None))
+runtime_scenario(lambda: _rt("ccc-comprehension-or", 'data := [1, 5, 10]; [x for x in data if x == 1, or == 10]', ("array", [1.0, 10.0]), None))
+
 # ---------------------------------------------------------------------------
 # Suite execution
 # ---------------------------------------------------------------------------
@@ -1770,6 +1783,13 @@ class SanitySuite:
             if rendered != expected:
                 return f"expected {expected!r}, got {rendered!r}"
             return None
+        if kind == "array":
+            if not isinstance(value, ShkArray):
+                return f"expected ShkArray, got {type(value).__name__}"
+            actual_items = [item.value if hasattr(item, 'value') else item for item in value.items]
+            if actual_items != expected:
+                return f"expected {expected!r}, got {actual_items!r}"
+            return None
         return f"unknown expectation kind {kind}"
 
     def _pass_line(self, name: str, value: object) -> str:
@@ -1781,6 +1801,9 @@ class SanitySuite:
             desc = "produced null"
         elif isinstance(value, ShkCommand):
             desc = f"produced sh<{value.render()}>"
+        elif isinstance(value, ShkArray):
+            items = [item.value if hasattr(item, 'value') else item for item in value.items]
+            desc = f"produced {items!r}"
         else:
             desc = f"produced {value}"
         return f"[PASS] {name}: {desc}"

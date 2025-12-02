@@ -13,9 +13,17 @@ Structure:
 """
 
 from typing import Optional, List, Any, Callable
+from enum import Enum
 from .tree import Tree, Token
 
 from .token_types import TT, Tok
+
+class ParseContext(Enum):
+    """Track parsing context to disambiguate comma usage"""
+    NORMAL = 0  # Default: CCC allowed
+    FUNCTION_ARGS = 1  # Inside f(...): commas are arg separators
+    ARRAY_ELEMENTS = 2  # Inside [...]: commas are element separators
+    DESTRUCTURE_PACK = 3  # Inside destructure RHS pack: commas are value separators
 
 # ============================================================================
 # Parser
@@ -58,6 +66,7 @@ class Parser:
         self.in_inline_body = False  # Track if we're in inlinebody context
         self.use_indenter = use_indenter  # Track indentation mode
         self.paren_depth = 0  # Track parenthesis nesting depth
+        self.parse_context = ParseContext.NORMAL  # Track parsing context for comma disambiguation
 
     # ========================================================================
     # Token Navigation
@@ -74,7 +83,7 @@ class Parser:
         """Consume current token and move to next"""
         prev = self.current
 
-        # Track paren depth
+        # Track paren depth for layout token skipping
         if prev.type == TT.LPAR:
             self.paren_depth += 1
         elif prev.type == TT.RPAR:
@@ -1212,37 +1221,99 @@ class Parser:
         op_tree = Tree('cmpop', op_tokens)
         children = [left, op_tree, right]
 
-        # Check for comma-chained comparisons
-        if self.match(TT.COMMA):
-            # CCC chain
+        # Check for comma-chained comparisons (only if comma is CCC)
+        if self.comma_is_ccc():
+            # CCC chain - consume the comma
+            self.match(TT.COMMA)
             while True:
-                # Check for and/or
-                is_or = self.match(TT.OR)
-                is_and = self.match(TT.AND)
+                # Check for and/or and capture as token
+                or_token = None
+                and_token = None
+                if self.check(TT.OR):
+                    self.advance()
+                    or_token = Token('OR', 'or')
+                elif self.check(TT.AND):
+                    self.advance()
+                    and_token = Token('AND', 'and')
 
                 # Parse next leg
                 leg_op_tokens = self.parse_compare_op() if self.is_compare_op() else None
                 leg_value = self.parse_add_expr()
 
-                if is_or:
+                if or_token:
+                    leg_parts = [or_token]
                     if leg_op_tokens:
                         leg_op = Tree('cmpop', leg_op_tokens)
-                        children.append(Tree('ccc_or_leg', [leg_op, leg_value]))
+                        leg_parts.extend([leg_op, leg_value])
                     else:
-                        children.append(Tree('ccc_or_leg', [leg_value]))
+                        leg_parts.append(leg_value)
+                    children.append(Tree('ccc_or_leg', leg_parts))
                 else:
+                    if and_token:
+                        leg_parts = [and_token]
+                    else:
+                        leg_parts = []
                     if leg_op_tokens:
                         leg_op = Tree('cmpop', leg_op_tokens)
-                        children.append(Tree('ccc_and_leg', [leg_op, leg_value]))
+                        leg_parts.extend([leg_op, leg_value])
                     else:
-                        children.append(Tree('ccc_and_leg', [leg_value]))
+                        leg_parts.append(leg_value)
+                    children.append(Tree('ccc_and_leg', leg_parts))
 
-                if not self.match(TT.COMMA):
+                # Check if next comma is also CCC
+                if not self.comma_is_ccc():
                     break
+                self.match(TT.COMMA)  # consume it
 
             return Tree('compareexpr', children)
 
         return Tree('compareexpr', [left, op_tree, right])
+
+    def comma_is_ccc(self) -> bool:
+        """
+        Check if comma at current position starts a CCC leg vs being a separator.
+
+        CCC is allowed when:
+        - Context is NORMAL (not in function args, array elements, or destructure pack)
+        - Followed by explicit CCC markers: `, or` / `, and` / `, <cmpop>`
+        - OR followed by bare addexpr in NORMAL context (implicit AND leg)
+        """
+        if not self.check(TT.COMMA):
+            return False
+
+        # Peek at token after comma
+        next_tok = self.peek(1)
+
+        # `, or` → definitely CCC OR leg
+        if next_tok.type == TT.OR:
+            return True
+
+        # `, and` → definitely CCC AND leg (explicit)
+        if next_tok.type == TT.AND:
+            return True
+
+        # Check if followed by comparison operator (`, <cmpop>` → implicit AND)
+        # We need to peek past the comma to check
+        saved_pos = self.pos
+        saved_current = self.current
+        self.advance()  # skip comma
+        is_cmp = self.is_compare_op()
+        self.pos = saved_pos
+        self.current = saved_current
+
+        if is_cmp:
+            return True  # `, <cmpop>` → CCC implicit AND
+
+        # At this point: `, <addexpr>` (bare value, no cmpop)
+        # This is ambiguous - use context to decide:
+        # - In separator contexts (args/array/pack): NOT CCC
+        # - In normal context: IS CCC (implicit AND with bare addexpr)
+        if self.parse_context in (ParseContext.FUNCTION_ARGS,
+                                   ParseContext.ARRAY_ELEMENTS,
+                                   ParseContext.DESTRUCTURE_PACK):
+            return False  # Comma is a separator
+
+        return True  # Default: allow CCC in normal context
 
     def is_compare_op(self) -> bool:
         """Check if current token is a comparison operator"""
@@ -1655,9 +1726,15 @@ class Parser:
 
         # Parenthesized expression
         if self.match(TT.LPAR):
-            expr = self.parse_expr()
-            self.expect(TT.RPAR)
-            return Tree('group_expr', [expr])
+            # Reset context: parens allow CCC (grouping indicates single value)
+            saved_context = self.parse_context
+            self.parse_context = ParseContext.NORMAL
+            try:
+                expr = self.parse_expr()
+                self.expect(TT.RPAR)
+                return Tree('group_expr', [expr])
+            finally:
+                self.parse_context = saved_context
 
         # Array literal
         if self.match(TT.LSQB):
@@ -1668,32 +1745,38 @@ class Parser:
                 self.advance()
                 return Tree('array', [])
 
-            first_elem = self.parse_expr()
+            # Set context: commas in arrays are element separators, not CCC
+            saved_context = self.parse_context
+            self.parse_context = ParseContext.ARRAY_ELEMENTS
+            try:
+                first_elem = self.parse_expr()
 
-            if self.check(TT.FOR, TT.OVER):
-                comphead = self.parse_comphead()
-                ifclause = self.parse_ifclause_opt()
+                if self.check(TT.FOR, TT.OVER):
+                    comphead = self.parse_comphead()
+                    ifclause = self.parse_ifclause_opt()
+                    self.expect(TT.RSQB)
+                    children = [first_elem, comphead]
+                    if ifclause:
+                        children.append(ifclause)
+                    return Tree('listcomp', children)
+
+                elements = [first_elem]
+
+                # Skip layout tokens
+                self.skip_layout_tokens()
+                while True:
+                    if not self.match(TT.COMMA):
+                        break
+                    self.skip_layout_tokens()
+                    if self.check(TT.RSQB, TT.EOF):
+                        break
+                    elements.append(self.parse_expr())
+                    self.skip_layout_tokens()
+
                 self.expect(TT.RSQB)
-                children = [first_elem, comphead]
-                if ifclause:
-                    children.append(ifclause)
-                return Tree('listcomp', children)
-
-            elements = [first_elem]
-
-            # Skip layout tokens
-            self.skip_layout_tokens()
-            while True:
-                if not self.match(TT.COMMA):
-                    break
-                self.skip_layout_tokens()
-                if self.check(TT.RSQB, TT.EOF):
-                    break
-                elements.append(self.parse_expr())
-                self.skip_layout_tokens()
-
-            self.expect(TT.RSQB)
-            return Tree('array', elements)
+                return Tree('array', elements)
+            finally:
+                self.parse_context = saved_context
 
         # Object literal
         if self.match(TT.LBRACE):
@@ -1873,23 +1956,41 @@ class Parser:
         return Tree('binderlist', items)
 
     def parse_overspec(self) -> Tree:
+        """Parse comprehension spec: iterable expression and optional binders"""
         children: List[Any] = []
 
-        if self.match(TT.LSQB):
-            binder_list = self.parse_binderlist()
-            self.expect(TT.RSQB)
-            iter_expr = self.parse_expr()
-            children.append(binder_list)
-            children.append(iter_expr)
-            return Tree('overspec', children)
+        # Reset context: comprehension iterable allows CCC
+        saved_context = self.parse_context
+        self.parse_context = ParseContext.NORMAL
+        try:
+            if self.match(TT.LSQB):
+                # for[x, y] iterable
+                binder_list = self.parse_binderlist()
+                self.expect(TT.RSQB)
+                iter_expr = self.parse_expr()
+                children.append(binder_list)
+                children.append(iter_expr)
+                return Tree('overspec', children)
 
-        iter_expr = self.parse_expr()
-        children.append(iter_expr)
-        if self.check(TT.IDENT) and getattr(self.current, "value", "") == "bind":
-            self.advance()
-            pattern = self.parse_pattern()
-            children.append(pattern)
-        return Tree('overspec', children)
+            # Check for common pattern: IDENT in expr (e.g., for x in data)
+            if self.check(TT.IDENT) and self.peek(1).type == TT.IN:
+                pattern = self.parse_pattern()
+                self.expect(TT.IN)
+                iter_expr = self.parse_expr()
+                children.append(iter_expr)
+                children.append(pattern)
+                return Tree('overspec', children)
+
+            # Otherwise: expr [bind pattern]
+            iter_expr = self.parse_expr()
+            children.append(iter_expr)
+            if self.check(TT.IDENT) and getattr(self.current, "value", "") == "bind":
+                self.advance()
+                pattern = self.parse_pattern()
+                children.append(pattern)
+            return Tree('overspec', children)
+        finally:
+            self.parse_context = saved_context
 
     def parse_comphead(self) -> Tree:
         if self.check(TT.FOR):
@@ -1903,11 +2004,19 @@ class Parser:
         raise ParseError("Expected comprehension head", self.current)
 
     def parse_ifclause_opt(self) -> Optional[Tree]:
+        """Parse optional if-clause in comprehensions"""
         if not self.check(TT.IF):
             return None
         self.advance()
-        cond = self.parse_expr()
-        return Tree('ifclause', [Token('IF', 'if'), cond])
+
+        # Reset context: if-clause condition allows CCC
+        saved_context = self.parse_context
+        self.parse_context = ParseContext.NORMAL
+        try:
+            cond = self.parse_expr()
+            return Tree('ifclause', [Token('IF', 'if'), cond])
+        finally:
+            self.parse_context = saved_context
 
     def parse_arg_list(self) -> Optional[List[Tree]]:
         """
@@ -1917,26 +2026,32 @@ class Parser:
         if self.check(TT.RPAR):
             return None  # Empty arg list
 
-        argitems = []
+        # Set context: commas in function args are separators, not CCC
+        saved_context = self.parse_context
+        self.parse_context = ParseContext.FUNCTION_ARGS
+        try:
+            argitems = []
 
-        while not self.check(TT.RPAR, TT.EOF):
-            # Named argument: name: value
-            if self.check(TT.IDENT) and self.peek(1).type == TT.COLON:
-                name = self.advance()
-                self.advance()  # :
-                value = self.parse_expr()
-                arg_tree = Tree('namedarg', [Token('IDENT', name.value), value])
-            else:
-                expr = self.parse_expr()
-                arg_tree = Tree('arg', [expr])
+            while not self.check(TT.RPAR, TT.EOF):
+                # Named argument: name: value
+                if self.check(TT.IDENT) and self.peek(1).type == TT.COLON:
+                    name = self.advance()
+                    self.advance()  # :
+                    value = self.parse_expr()
+                    arg_tree = Tree('namedarg', [Token('IDENT', name.value), value])
+                else:
+                    expr = self.parse_expr()
+                    arg_tree = Tree('arg', [expr])
 
-            argitems.append(Tree('argitem', [arg_tree]))
+                argitems.append(Tree('argitem', [arg_tree]))
 
-            if not self.match(TT.COMMA):
-                break
+                if not self.match(TT.COMMA):
+                    break
 
-        # Return argitems directly (let caller wrap if needed)
-        return argitems
+            # Return argitems directly (let caller wrap if needed)
+            return argitems
+        finally:
+            self.parse_context = saved_context
 
     def parse_await_arm_list(self, kind_tok: Tok) -> List[Tree]:
         if getattr(kind_tok, "type", None) not in {TT.ANY, TT.ALL}:
@@ -2302,17 +2417,23 @@ class Parser:
 
     def parse_destructure_rhs(self) -> Tree:
         """Parse destructuring RHS: expr or expr, expr, ..."""
-        first_expr = self.parse_expr()
+        # Set context: commas in destructure pack are separators, not CCC
+        saved_context = self.parse_context
+        self.parse_context = ParseContext.DESTRUCTURE_PACK
+        try:
+            first_expr = self.parse_expr()
 
-        # Check if there are more expressions (pack)
-        if self.check(TT.COMMA):
-            exprs = [first_expr]
-            while self.match(TT.COMMA):
-                exprs.append(self.parse_expr())
-            return Tree('pack', exprs)
+            # Check if there are more expressions (pack)
+            if self.check(TT.COMMA):
+                exprs = [first_expr]
+                while self.match(TT.COMMA):
+                    exprs.append(self.parse_expr())
+                return Tree('pack', exprs)
 
-        # Single expression
-        return first_expr
+            # Single expression
+            return first_expr
+        finally:
+            self.parse_context = saved_context
 
     def parse_destructure_pattern(self) -> Tree:
         """Parse destructuring pattern for assignments"""
