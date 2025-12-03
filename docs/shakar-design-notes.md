@@ -543,6 +543,7 @@ u := makeUser() and .isValid()
 ### Function forms
 
 - `fn(params?): body` is an expression producing a callable value. Bodies match named `fn` syntax (inline or indented). Zero-arg IIFE sugar: `fn(()): body` desugars to `(fn(): body)()`. Expression bodies execute on call, not on literal creation. Lambdas with `&` covered below.
+- **Type contracts**: Parameters may specify schemas using `param ~ Schema` syntax. Return values may specify schemas using `fn(params) ~ ReturnSchema:` syntax. Both desugar to runtime assertions. See the Structural Match section for details.
 
 ### Decorators
 
@@ -964,12 +965,32 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
     |: log("ignored")
   ```
 - **Structural match JIT**: compile schema literals for `~` into cached bytecode validators.
-- **Type contracts**: ✅ Implemented. Use `fn name(arg ~ Schema, ...)` syntax. Desugars to runtime asserts injected at function entry.
+- **Type contracts**: ✅ Implemented.
+  - **Parameter contracts**: Use `fn name(arg ~ Schema, ...)` syntax. Desugars to runtime asserts injected at function entry.
+  - **Return contracts**: Use `fn name(args...) ~ ReturnSchema:` syntax. Validates return value matches schema at runtime.
   ```shakar
+  # Parameter contracts
   fn process(id ~ Int, user ~ UserSchema):
     # Auto-injected: assert id ~ Int
     # Auto-injected: assert user ~ UserSchema
     ...
+
+  # Return contracts
+  fn divide(a ~ Int, b ~ Int) ~ Float:
+    a / b  # Validates return value ~ Float
+
+  # Combined parameter and return contracts
+  fn safe_divide(a ~ Int, b ~ Int) ~ Union(Float, Nil):
+    if b == 0:
+      nil
+    else:
+      a / b
+
+  # Works with inline bodies
+  fn inc(x ~ Int) ~ Int: x + 1
+
+  # Works with anonymous functions
+  square := fn(x ~ Int) ~ Int: x * x
   ```
 - **Optional fields**: ✅ Implemented. Use `key?: Schema` syntax or `Optional(Schema)` function for optional object fields in schemas.
 - **Union types**: ✅ Implemented. Use `Union(Schema1, Schema2, ...)` to allow multiple type alternatives. Future: `Type1 | Type2` syntax (requires parser context disambiguation).

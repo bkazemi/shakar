@@ -139,6 +139,7 @@ class ShkFn:
     frame: 'Frame'                   # Closure frame
     decorators: Optional[Tuple[DecoratorConfigured, ...]] = None
     kind: str = "fn"
+    return_contract: Optional[Node] = None  # AST node for return type contract
     def __repr__(self) -> str:
         body_label = getattr(self.body, 'data', type(self.body).__name__)
         label = "amp-fn" if self.kind == "amp" else self.kind

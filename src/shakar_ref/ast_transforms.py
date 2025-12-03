@@ -666,24 +666,32 @@ class Prune(Transformer):
 
     def fnstmt(self, c):
         """
-        Normalize function statements to fndef, preserving optional decorators.
+        Normalize function statements to fndef, preserving optional decorators and return contracts.
         """
         name = None
         params = None
         body = None
+        return_contract = None
         decorators = None
 
         for node in c:
-            if is_tree(node) and tree_label(node) == "decorator_list":
-                decorators = node
-                continue
+            if is_tree(node):
+                label = tree_label(node)
+                if label == "decorator_list":
+                    decorators = node
+                    continue
+                elif label == "paramlist":
+                    params = node
+                    continue
+                elif label in {"inlinebody", "indentblock"}:
+                    body = node
+                    continue
+                elif label == "return_contract":
+                    return_contract = node
+                    continue
 
             if is_token(node) and getattr(node, "type", "") == "IDENT" and name is None:
                 name = node
-            elif is_tree(node) and tree_label(node) == "paramlist":
-                params = node
-            elif is_tree(node) and tree_label(node) in {"inlinebody", "indentblock"}:
-                body = node
 
         children: List[Node] = []
 
@@ -693,6 +701,8 @@ class Prune(Transformer):
             children.append(params)
         if body is not None:
             children.append(body)
+        if return_contract is not None:
+            children.append(return_contract)
         if decorators is not None:
             children.append(decorators)
 

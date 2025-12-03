@@ -1654,6 +1654,35 @@ runtime_scenario(lambda: _rt("union-contract-invalid", """fn process(value ~ Uni
     value
 process(true)""", None, ShakarAssertionError))
 
+# Return type contracts
+runtime_scenario(lambda: _rt("return-contract-basic", """fn double(x ~ Int) ~ Int:
+    x * 2
+double(5)""", ("number", 10), None))
+runtime_scenario(lambda: _rt("return-contract-union", """fn safe_divide(a ~ Int, b ~ Int) ~ Union(Float, Nil):
+    if b == 0:
+        nil
+    else:
+        a / b
+safe_divide(10, 2)""", ("number", 5.0), None))
+runtime_scenario(lambda: _rt("return-contract-union-nil", """fn safe_divide(a ~ Int, b ~ Int) ~ Union(Float, Nil):
+    if b == 0:
+        nil
+    else:
+        a / b
+safe_divide(10, 0)""", ("null", None), None))
+runtime_scenario(lambda: _rt("return-contract-inline", """fn inc(x ~ Int) ~ Int: x + 1
+inc(5)""", ("number", 6), None))
+runtime_scenario(lambda: _rt("return-contract-anon", """square := fn(x ~ Int) ~ Int: x * x
+square(4)""", ("number", 16), None))
+runtime_scenario(lambda: _rt("return-contract-object", """PersonSchema := {name: Str, age: Int}
+fn make_person(name ~ Str, age ~ Int) ~ PersonSchema:
+    {name: name, age: age}
+p := make_person("Bob", 30)
+p.age""", ("number", 30), None))
+runtime_scenario(lambda: _rt("return-contract-fail", """fn bad_return(x ~ Int) ~ Str:
+    x * 2
+bad_return(5)""", None, ShakarTypeError))
+
 # ---------------------------------------------------------------------------
 # Suite execution
 # ---------------------------------------------------------------------------

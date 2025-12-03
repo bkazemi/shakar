@@ -769,15 +769,25 @@ class Parser:
         params = self.parse_param_list()
         self.expect(TT.RPAR)
 
+        # Optional return contract: ~ Schema
+        return_contract = None
+        if self.match(TT.TILDE):
+            return_contract = self.parse_expr()
+
         self.expect(TT.COLON)
         body = self.parse_body()
 
-        # fnstmt structure: [name, params, body] or [name, params, body, decorator_list]
+        # fnstmt structure: [name, params, body, return_contract?, decorator_list?]
+        children = [Token('IDENT', name.value), params, body]
+
+        if return_contract is not None:
+            children.append(Tree('return_contract', [return_contract]))
+
         if decorators:
             decorator_list = Tree('decorator_list', decorators)
-            return Tree('fnstmt', [Token('IDENT', name.value), params, body, decorator_list])
+            children.append(decorator_list)
 
-        return Tree('fnstmt', [Token('IDENT', name.value), params, body])
+        return Tree('fnstmt', children)
 
     def parse_await_stmt(self) -> Tree:
         """
@@ -2529,6 +2539,12 @@ class Parser:
         else:
             params = self.parse_param_list() if not self.check(TT.RPAR) else Tree('paramlist', [])
         self.expect(TT.RPAR)
+
+        # Optional return contract: ~ Schema
+        return_contract = None
+        if self.match(TT.TILDE):
+            return_contract = self.parse_expr()
+
         self.expect(TT.COLON)
         if self.check(TT.LBRACE):
             lookahead = self.peek(1)
@@ -2555,6 +2571,10 @@ class Parser:
         if paramlist_node is not None:
             anon_children.append(paramlist_node)
         anon_children.append(body)
+
+        if return_contract is not None:
+            anon_children.append(Tree('return_contract', [return_contract]))
+
         anon = Tree('anonfn', anon_children)
 
         if auto_invoke:

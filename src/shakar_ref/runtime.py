@@ -172,6 +172,23 @@ def call_builtin_method(recv: ShkValue, name: str, args: List[ShkValue], frame: 
 
     raise ShakarMethodNotFound(recv, name)
 
+def _validate_return_contract(fn: ShkFn, result: ShkValue, callee_frame: 'Frame') -> ShkValue:
+    """Validate return value against function's return contract if present"""
+    if fn.return_contract is None:
+        return result
+
+    from .evaluator import eval_node  # local import to avoid cycle
+    from .eval.match import match_structure
+
+    # Evaluate the contract expression in the function's closure scope
+    contract_value = eval_node(fn.return_contract, callee_frame)
+
+    # Check if result matches the contract
+    if not match_structure(result, contract_value):
+        raise ShakarTypeError(f"Return value does not match contract: expected {contract_value}, got {result}")
+
+    return result
+
 def call_shkfn(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue], caller_frame: 'Frame') -> ShkValue:
     """
     Subjectful call semantics:
@@ -202,9 +219,11 @@ def _call_shkfn_raw(fn: ShkFn, positional: List[ShkValue], subject: Optional[Shk
         callee_frame.mark_function_frame()
 
         try:
-            return _ensure_shk_value(eval_node(fn.body, callee_frame))
+            result = _ensure_shk_value(eval_node(fn.body, callee_frame))
         except ShakarReturnSignal as signal:
-            return signal.value
+            result = signal.value
+
+        return _validate_return_contract(fn, result, callee_frame)
 
     callee_frame = Frame(parent=fn.frame, dot=subject)
 
@@ -217,9 +236,11 @@ def _call_shkfn_raw(fn: ShkFn, positional: List[ShkValue], subject: Optional[Shk
     callee_frame.mark_function_frame()
 
     try:
-        return _ensure_shk_value(eval_node(fn.body, callee_frame))
+        result = _ensure_shk_value(eval_node(fn.body, callee_frame))
     except ShakarReturnSignal as signal:
-        return signal.value
+        result = signal.value
+
+    return _validate_return_contract(fn, result, callee_frame)
 
 def _call_shkfn_with_decorators(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue], caller_frame: 'Frame') -> ShkValue:
     chain = fn.decorators or ()

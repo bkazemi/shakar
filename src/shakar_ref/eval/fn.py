@@ -72,15 +72,20 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
     name = _expect_ident_token(children[0], "Function name")
     params_node = None
     body_node = None
+    return_contract_node = None
     decorators_node = None
 
     for node in children[1:]:
-        if params_node is None and is_tree(node) and tree_label(node) == 'paramlist':
-            params_node = node
-        elif body_node is None and is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
-            body_node = node
-        elif decorators_node is None and is_tree(node) and tree_label(node) == 'decorator_list':
-            decorators_node = node
+        if is_tree(node):
+            label = tree_label(node)
+            if params_node is None and label == 'paramlist':
+                params_node = node
+            elif body_node is None and label in {'inlinebody', 'indentblock'}:
+                body_node = node
+            elif return_contract_node is None and label == 'return_contract':
+                return_contract_node = node
+            elif decorators_node is None and label == 'decorator_list':
+                decorators_node = node
 
     if body_node is None:
         body_node = Tree('inlinebody', [])
@@ -88,8 +93,15 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
     params = extract_param_names(params_node, context="function definition")
     contracts = extract_param_contracts(params_node)
 
+    # Extract return contract expression if present
+    return_contract_expr = None
+    if return_contract_node is not None:
+        contract_children = tree_children(return_contract_node)
+        if contract_children:
+            return_contract_expr = contract_children[0]
+
     final_body = _inject_contract_assertions(body_node, contracts) if contracts else body_node
-    fn_value = ShkFn(params=params, body=final_body, frame=Frame(parent=frame, dot=None))
+    fn_value = ShkFn(params=params, body=final_body, frame=Frame(parent=frame, dot=None), return_contract=return_contract_expr)
 
     if decorators_node is not None:
         instances = evaluate_decorator_list(decorators_node, frame, eval_func)
@@ -156,19 +168,32 @@ def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
 def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
     params_node = None
     body_node = None
+    return_contract_node = None
 
     for node in children:
         if is_tree(node) and tree_label(node) == 'paramlist':
             params_node = node
         elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
             body_node = node
+        elif is_tree(node) and tree_label(node) == 'return_contract':
+            return_contract_node = node
 
     if body_node is None:
         body_node = Tree('inlinebody', [])
 
     params = extract_param_names(params_node, context="anonymous function")
+    contracts = extract_param_contracts(params_node)
 
-    return ShkFn(params=params, body=body_node, frame=Frame(parent=frame, dot=None))
+    # Extract return contract expression if present
+    return_contract_expr = None
+    if return_contract_node is not None:
+        contract_children = tree_children(return_contract_node)
+        if contract_children:
+            return_contract_expr = contract_children[0]
+
+    final_body = _inject_contract_assertions(body_node, contracts) if contracts else body_node
+
+    return ShkFn(params=params, body=final_body, frame=Frame(parent=frame, dot=None), return_contract=return_contract_expr)
 
 def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
     if len(n.children) == 1:
