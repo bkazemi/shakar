@@ -120,6 +120,7 @@ class Lexer:
         ('`', TT.BACKQUOTE),
         ('&', TT.AMP),
         ('|', TT.PIPE),
+        ('~', TT.TILDE),
     ]
 
     def __init__(self, source: str, track_indentation: bool = False):

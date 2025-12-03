@@ -76,6 +76,9 @@ class TT(Enum):
     OR = auto()
     NEG = auto()  # !
 
+    # Structural match
+    TILDE = auto()  # ~
+
     # Assignment
     ASSIGN = auto()  # =
     WALRUS = auto()  # :=

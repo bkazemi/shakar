@@ -50,6 +50,14 @@ class ShkCommand:
     def __repr__(self) -> str:
         return f"sh<{self.render()}>"
 
+@dataclass(frozen=True)
+class ShkType:
+    """Runtime type representation for structural matching."""
+    name: str
+    mapped_type: type
+    def __repr__(self) -> str:
+        return f"<type {self.name}>"
+
 @dataclass
 class ShkObject:
     slots: Dict[str, 'ShkValue']
@@ -186,6 +194,7 @@ ShkValue: TypeAlias = (
     | BoundMethod
     | BuiltinMethod
     | StdlibFunction
+    | ShkType
 )
 
 DotValue: TypeAlias = Optional[ShkValue]
@@ -200,9 +209,11 @@ class Frame:
         self._active_error: Optional[ShakarRuntimeError] = None
         self.source: Optional[str]
 
-        if parent is None and Builtins.stdlib_functions:
+        if parent is None:
             for name, std in Builtins.stdlib_functions.items():
                 self.vars[name] = std
+            for name, typ in Builtins.type_constants.items():
+                self.vars[name] = typ
 
         if source is not None:
             self.source = source
@@ -358,6 +369,7 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     BoundMethod,
     BuiltinMethod,
     StdlibFunction,
+    ShkType,
 )
 
 def is_shk_value(value: ShkValue | Node) -> TypeGuard[ShkValue]:
@@ -383,3 +395,4 @@ class Builtins:
     object_methods: MethodRegistry = {}
     command_methods: MethodRegistry = {}
     stdlib_functions: Dict[str, StdlibFunction] = {}
+    type_constants: Dict[str, 'ShkType'] = {}

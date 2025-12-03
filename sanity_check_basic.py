@@ -1584,6 +1584,47 @@ runtime_scenario(lambda: _rt("ccc-comprehension-filter", 'data := [1, 5, 10]; [x
 runtime_scenario(lambda: _rt("ccc-comprehension-explicit", 'data := [1, 5, 10]; [x for x in data if x > 0, and < 8]', ("array", [1.0, 5.0]), None))
 runtime_scenario(lambda: _rt("ccc-comprehension-or", 'data := [1, 5, 10]; [x for x in data if x == 1, or == 10]', ("array", [1.0, 10.0]), None))
 
+# Structural match (~) operator
+runtime_scenario(lambda: _rt("struct-match-type-int", '5 ~ Int', ("bool", True), None))
+runtime_scenario(lambda: _rt("struct-match-type-str", '"hello" ~ Str', ("bool", True), None))
+runtime_scenario(lambda: _rt("struct-match-type-bool", 'true ~ Bool', ("bool", True), None))
+runtime_scenario(lambda: _rt("struct-match-type-array", '[1, 2] ~ Array', ("bool", True), None))
+runtime_scenario(lambda: _rt("struct-match-type-object", '{a: 1} ~ Object', ("bool", True), None))
+runtime_scenario(lambda: _rt("struct-match-object-subset", 'obj := {a: 1, b: 2, c: 3}; obj ~ {a: Int}', ("bool", True), None))
+runtime_scenario(lambda: _rt("struct-match-object-multi", 'obj := {a: 1, b: 2}; obj ~ {a: Int, b: Int}', ("bool", True), None))
+runtime_scenario(lambda: _rt("struct-match-object-missing", '{a: 1} ~ {a: Int, b: Int}', ("bool", False), None))
+runtime_scenario(lambda: _rt("struct-match-nested", 'u := {name: "Alice", profile: {role: "admin"}}; u ~ {profile: {role: Str}}', ("bool", True), None))
+runtime_scenario(lambda: _rt("struct-match-value", '5 ~ 5', ("bool", True), None))
+
+# Type contracts in function parameters
+runtime_scenario(lambda: _rt("contract-int-valid", """fn add(a ~ Int, b ~ Int):
+    a + b
+add(1, 2)""", ("number", 3), None))
+runtime_scenario(lambda: _rt("contract-str-valid", """fn greet(name ~ Str):
+    "Hello, " + name
+greet("Bob")""", ("string", "Hello, Bob"), None))
+runtime_scenario(lambda: _rt("contract-object-valid", """fn getname(u ~ {name: Str}):
+    u.name
+getname({name: "Alice", age: 30})""", ("string", "Alice"), None))
+runtime_scenario(lambda: _rt("contract-int-invalid", """fn add(a ~ Int):
+    a
+add("wrong")""", None, ShakarAssertionError))
+runtime_scenario(lambda: _rt("contract-object-invalid", """fn f(u ~ {x: Int}):
+    u
+f({y: 1})""", None, ShakarAssertionError))
+
+# Ensure unary ~ is rejected (only binary ~ is supported)
+runtime_scenario(lambda: _rt("unary-tilde-rejected", '~5', None, ParseError))
+
+# Inline functions with contracts should work correctly
+runtime_scenario(lambda: _rt("contract-inline-fn", 'fn inc(x ~ Int): x + 1; inc(5)', ("number", 6), None))
+runtime_scenario(lambda: _rt("contract-inline-fn-invalid", 'fn inc(x ~ Int): x + 1; inc("bad")', None, ShakarAssertionError))
+runtime_scenario(lambda: _rt("contract-inline-fn-defer", """fn test(x ~ Int):
+    defer: x + 1
+    x * 2
+test(5)""", ("number", 10), None))
+runtime_scenario(lambda: _rt("contract-inline-multiple", 'fn add(a ~ Int, b ~ Int): a + b; add(3, 4)', ("number", 7), None))
+
 # ---------------------------------------------------------------------------
 # Suite execution
 # ---------------------------------------------------------------------------

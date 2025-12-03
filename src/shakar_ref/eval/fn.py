@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
-from ..tree import Tree
+from ..tree import Tree, Token
 from ..tree import Node
 
 from ..runtime import DecoratorConfigured, Frame, ShkDecorator, ShkFn, ShkNull, ShkValue, ShakarRuntimeError, ShakarTypeError
-from ..tree import is_tree, tree_children, tree_label
+from ..tree import is_tree, tree_children, tree_label, child_by_label
 from .common import expect_ident_token as _expect_ident_token, ident_token_value as _ident_token_value
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
@@ -18,17 +18,52 @@ def extract_param_names(params_node: Optional[Node], context: str="parameter lis
     names: List[str] = []
 
     for p in tree_children(params_node):
-        name = _ident_token_value(p)
+        if getattr(p, "type", None) == 'COMMA':
+            continue
 
+        name = _ident_token_value(p)
         if name is not None:
             names.append(name)
             continue
-        if getattr(p, "type", None) == 'COMMA':
-            continue
+
+        if is_tree(p) and tree_label(p) == 'param':
+            children = tree_children(p)
+            if children:
+                param_name = _ident_token_value(children[0])
+                if param_name is not None:
+                    names.append(param_name)
+                    continue
 
         raise ShakarRuntimeError(f"Unsupported parameter node in {context}: {p}")
 
     return names
+
+def extract_param_contracts(params_node: Optional[Node]) -> Dict[str, Node]:
+    """Extract parameter contracts from function definition"""
+    if params_node is None:
+        return {}
+
+    contracts: Dict[str, Node] = {}
+
+    for p in tree_children(params_node):
+        if not is_tree(p) or tree_label(p) != 'param':
+            continue
+
+        children = tree_children(p)
+        if len(children) < 2:
+            continue
+
+        param_name = _ident_token_value(children[0])
+        if param_name is None:
+            continue
+
+        contract_node = child_by_label(p, 'contract')
+        if contract_node is not None:
+            contract_children = tree_children(contract_node)
+            if contract_children:
+                contracts[param_name] = contract_children[0]
+
+    return contracts
 
 def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not children:
@@ -51,7 +86,10 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
         body_node = Tree('inlinebody', [])
 
     params = extract_param_names(params_node, context="function definition")
-    fn_value = ShkFn(params=params, body=body_node, frame=Frame(parent=frame, dot=None))
+    contracts = extract_param_contracts(params_node)
+
+    final_body = _inject_contract_assertions(body_node, contracts) if contracts else body_node
+    fn_value = ShkFn(params=params, body=final_body, frame=Frame(parent=frame, dot=None))
 
     if decorators_node is not None:
         instances = evaluate_decorator_list(decorators_node, frame, eval_func)
@@ -61,6 +99,36 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
     frame.define(name, fn_value)
 
     return ShkNull()
+
+def _inject_contract_assertions(body: Node, contracts: Dict[str, Node]) -> Node:
+    """Inject assert statements for parameter contracts at the start of the function body"""
+    if not contracts:
+        return body
+
+    assertions: List[Node] = []
+    for param_name, contract_expr in contracts.items():
+        assertion = Tree('assert', [
+            Tree('compare', [
+                Token('IDENT', param_name),
+                Tree('cmpop', [Token('TILDE', '~')]),
+                contract_expr
+            ])
+        ])
+        assertions.append(assertion)
+
+    body_label = tree_label(body)
+
+    # For inline bodies, we need to convert to an indentblock to preserve semantics
+    # because inlinebody only evaluates the first child
+    if body_label == 'inlinebody':
+        body_children = tree_children(body)
+        new_children = assertions + list(body_children)
+        return Tree('indentblock', new_children)
+
+    # For indentblock, just prepend assertions
+    body_children = tree_children(body)
+    new_children = assertions + list(body_children)
+    return Tree(body_label, new_children)
 
 def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
     if not children:

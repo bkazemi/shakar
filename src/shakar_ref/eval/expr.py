@@ -374,6 +374,9 @@ def _compare_values(op: str, lhs: ShkValue, rhs: ShkValue) -> bool:
             return _contains(rhs, lhs)
         case 'not in' | '!in':
             return not _contains(rhs, lhs)
+        case '~':
+            from .match import match_structure
+            return match_structure(lhs, rhs)
         case _:
             raise ShakarRuntimeError(f"Unknown comparator {op}")
 

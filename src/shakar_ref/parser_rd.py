@@ -1314,7 +1314,7 @@ class Parser:
 
     def is_compare_op(self) -> bool:
         """Check if current token is a comparison operator"""
-        if self.check(TT.EQ, TT.NEQ, TT.LT, TT.LTE, TT.GT, TT.GTE, TT.IS, TT.IN):
+        if self.check(TT.EQ, TT.NEQ, TT.LT, TT.LTE, TT.GT, TT.GTE, TT.IS, TT.IN, TT.TILDE):
             return True
         if self.check(TT.NOT) and self.peek(1).type == TT.IN:
             return True
@@ -1324,7 +1324,7 @@ class Parser:
 
     def parse_compare_op(self) -> List[Token]:
         """Parse comparison operator - returns list of tokens for compound ops"""
-        if self.check(TT.EQ, TT.NEQ, TT.LT, TT.LTE, TT.GT, TT.GTE):
+        if self.check(TT.EQ, TT.NEQ, TT.LT, TT.LTE, TT.GT, TT.GTE, TT.TILDE):
             op = self.advance()
             return [Token(op.type.name, op.value)]
 
@@ -1902,18 +1902,27 @@ class Parser:
         return Tree('fieldfan', [Token('DOT', '.'), fieldlist])
 
     def parse_param_list(self) -> Tree:
-        """Parse function parameter list"""
+        """Parse function parameter list with optional contracts"""
         params = []
 
         while not self.check(TT.RPAR, TT.EOF):
             param = self.expect(TT.IDENT)
+
+            # Optional contract: ~ expr
+            contract = None
+            if self.match(TT.TILDE):
+                contract = self.parse_expr()
 
             # Optional default value
             default = None
             if self.match(TT.ASSIGN):
                 default = self.parse_expr()
 
-            if default:
+            if contract and default:
+                params.append(Tree('param', [Token('IDENT', param.value), Tree('contract', [contract]), default]))
+            elif contract:
+                params.append(Tree('param', [Token('IDENT', param.value), Tree('contract', [contract])]))
+            elif default:
                 params.append(Tree('param', [Token('IDENT', param.value), default]))
             else:
                 params.append(Token('IDENT', param.value))

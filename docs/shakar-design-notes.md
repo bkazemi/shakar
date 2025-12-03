@@ -252,7 +252,7 @@ assert ix == [0,1] and vals == [11,12]
 - Associativity: binary operators are left-associative unless noted.
 - Order (high → low):
   1) Postfix: member `.`, call `()`, index `[]`
-  2) Unary: `-x`, `not x`/`!x`, `~x` (gated), `$x`
+  2) Unary: `-x`, `not x`/`!x`, `$x`
   3) Power: `x ** y` (right-assoc)
   4) Multiplicative: `*`, `/`, `//`, `%`
   5) Additive / concat: `+`, `-`, `+>` (deep object merge)
@@ -276,7 +276,8 @@ assert ix == [0,1] and vals == [11,12]
 ### Bitwise (via `std/bit`)
 
 - Symbolic bitwise operators are gated by `bitwise_symbols`. Use `bit.and`, `bit.or`, `bit.xor`, `bit.not`, `bit.shl`, `bit.shr` otherwise.
-- When gated on, tokens `& | ^ << >> ~` use usual precedence; one-line guards still reserve `|/|:` only after the first `:` at bracket-depth 0. Errors on non-int operands.
+- When gated on, tokens `& | ^ << >>` use usual precedence; one-line guards still reserve `|/|:` only after the first `:` at bracket-depth 0. Errors on non-int operands.
+- Note: Unary bitwise NOT (`~`) is NOT supported even when `bitwise_symbols` is enabled. Use `bit.not(x)` for bitwise negation.
 
 ### Comparison & identity (CCC)
 
@@ -673,7 +674,7 @@ u := makeUser() and .isValid()
 - Auto-paren guard heads with `:`; warn if missing.
 - Lists stay tight: no blank lines between sibling bullets; collapse 3+ blank lines to one; one blank line after headings; trailing spaces removed; formatter emits bullets with `-`.
 - Await any/all body size: prefer inline body only for single simple stmt; otherwise use block.
-- Feature gate note: numeric bitwise operators `& | ^ << >> ~` and compounds gated by `bitwise_symbols`; set/map algebra `^` always enabled.
+- Feature gate note: numeric bitwise operators `& | ^ << >>` and compounds gated by `bitwise_symbols`; set/map algebra `^` always enabled. Unary bitwise NOT (`~`) is NOT supported; use `bit.not(x)`.
 
 ---
 
@@ -704,7 +705,7 @@ MulOp           ::= "*" | "/" | "%" ;
 
 UnaryExpr       ::= UnaryPrefixOp UnaryExpr | PostfixExpr ;
 PowExpr         ::= UnaryExpr ( "**" PowExpr )? ;
-UnaryPrefixOp   ::= "-" | "not" | "!" | "$" | "~" | "++" | "--" | "await" ;
+UnaryPrefixOp   ::= "-" | "not" | "!" | "$" | "++" | "--" | "await" ;
 
 PostfixExpr     ::= Primary ( Postfix )* ( PostfixIncr )?
                   | "." ( IDENT | "(" ArgList? ")" | "[" SelectorList ("," "default" ":" Expr)? "]" ) ( Postfix )* ( PostfixIncr )? ;
