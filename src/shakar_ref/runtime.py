@@ -9,7 +9,7 @@ from .types import (
     ShkSelector, SelectorIndex, SelectorSlice, SelectorPart,
     ShkFn, ShkDecorator, DecoratorConfigured, DecoratorContinuation,
     BoundMethod, BuiltinMethod, Descriptor, StdlibFunction, DeferEntry,
-    ShkValue, DotValue, Frame, ShkType,
+    ShkValue, DotValue, Frame, ShkType, ShkOptional,
     ShakarRuntimeError, ShakarTypeError, ShakarArityError, ShakarKeyError,
     ShakarIndexError, ShakarMethodNotFound, CommandError, ShakarAssertionError,
     ShakarReturnSignal, ShakarBreakSignal, ShakarContinueSignal,

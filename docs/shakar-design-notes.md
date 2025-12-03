@@ -234,12 +234,28 @@ assert ix == [0,1] and vals == [11,12]
   - If RHS is a type (e.g., `Str`, `Int`), check `type(LHS) == RHS`.
   - If RHS is a Selector, check `LHS in RHS`.
   - If RHS is an Object, LHS must be an Object and each RHS key must exist with `LHS[K] ~ RHS[K]`.
+    - **Optional fields**: If RHS value is `Optional(Schema)`, missing key is allowed. If present, must match inner schema.
   - Otherwise use value equality `LHS == RHS`.
 - **Goal**: schema validation for JSON-like structures.
-- **Example**:
+- **Optional field syntax**: `key?: Schema` desugars to `key: Optional(Schema)`.
+- **Examples**:
   ```shakar
-  UserSchema := { name: Str, age: `18:120`, role: "admin" }
+  UserSchema := {
+    name: Str,
+    age: `18:120`,
+    role: "admin"
+  }
   if payload ~ UserSchema: process(payload)
+
+  # Optional fields
+  ApiResponse := {
+    status: Int,
+    data?: Object,
+    error?: Str
+  }
+  {} ~ {age?: Int}              # true (missing optional is OK)
+  {age: 30} ~ {age?: Int}       # true (present and valid)
+  {age: "bad"} ~ {age?: Int}    # false (present but wrong type)
   ```
 
 ---
@@ -933,11 +949,13 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
     |: log("ignored")
   ```
 - **Structural match JIT**: compile schema literals for `~` into cached bytecode validators.
-- **Type contracts** leveraging `~` in signatures/binders: `fn name(arg ~ Schema, ...)` desugars to runtime asserts.
+- **Type contracts**: ✅ Implemented. Use `fn name(arg ~ Schema, ...)` syntax. Desugars to runtime asserts injected at function entry.
   ```shakar
   fn process(id ~ Int, user ~ UserSchema):
-    assert id ~ Int
-    assert user ~ UserSchema
+    # Auto-injected: assert id ~ Int
+    # Auto-injected: assert user ~ UserSchema
+    ...
   ```
+- **Optional fields**: ✅ Implemented. Use `key?: Schema` syntax or `Optional(Schema)` function for optional object fields in schemas.
 - **Conditional apply-assign `.?=`**: assign only if RHS (evaluated with old LHS as `.`) is non-nil; today use `=<LHS> ??(.transform()) ?? .` or `<LHS> .= ??(.transform()) ?? .`.
 - **Keyword aliases**, **autocall nullary methods**, **copy-update `with` sugar**, **pipes `|>`**, **nested/multi-source comprehensions**, **word range aliases `to`/`until`**, **until loops**, **sticky subject `%expr`** (anchor stays sticky; selectors/`.=`/statement-subject tails still win).

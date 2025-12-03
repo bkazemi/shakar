@@ -58,6 +58,13 @@ class ShkType:
     def __repr__(self) -> str:
         return f"<type {self.name}>"
 
+@dataclass(frozen=True)
+class ShkOptional:
+    """Optional field wrapper for structural matching schemas."""
+    inner: 'ShkValue'
+    def __repr__(self) -> str:
+        return f"Optional({self.inner!r})"
+
 @dataclass
 class ShkObject:
     slots: Dict[str, 'ShkValue']
@@ -195,6 +202,7 @@ ShkValue: TypeAlias = (
     | BuiltinMethod
     | StdlibFunction
     | ShkType
+    | ShkOptional
 )
 
 DotValue: TypeAlias = Optional[ShkValue]
@@ -370,6 +378,7 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     BuiltinMethod,
     StdlibFunction,
     ShkType,
+    ShkOptional,
 )
 
 def is_shk_value(value: ShkValue | Node) -> TypeGuard[ShkValue]:

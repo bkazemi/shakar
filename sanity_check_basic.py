@@ -1625,6 +1625,18 @@ runtime_scenario(lambda: _rt("contract-inline-fn-defer", """fn test(x ~ Int):
 test(5)""", ("number", 10), None))
 runtime_scenario(lambda: _rt("contract-inline-multiple", 'fn add(a ~ Int, b ~ Int): a + b; add(3, 4)', ("number", 7), None))
 
+# Optional fields with Optional() function
+runtime_scenario(lambda: _rt("optional-fn-missing-ok", '{} ~ {a: Optional(Int)}', ("bool", True), None))
+runtime_scenario(lambda: _rt("optional-fn-present-valid", '{a: 1} ~ {a: Optional(Int)}', ("bool", True), None))
+runtime_scenario(lambda: _rt("optional-fn-present-invalid", '{a: "no"} ~ {a: Optional(Int)}', ("bool", False), None))
+
+# Optional fields with key?: syntax
+runtime_scenario(lambda: _rt("optional-syntax-missing-ok", '{} ~ {a?: Int}', ("bool", True), None))
+runtime_scenario(lambda: _rt("optional-syntax-present-valid", '{a: 1, b: 2} ~ {a: Int, b?: Int}', ("bool", True), None))
+runtime_scenario(lambda: _rt("optional-syntax-present-invalid", '{a: "bad"} ~ {a?: Int}', ("bool", False), None))
+runtime_scenario(lambda: _rt("optional-syntax-mixed", '{name: "Alice"} ~ {name: Str, age?: Int}', ("bool", True), None))
+runtime_scenario(lambda: _rt("optional-syntax-required-missing", '{age: 30} ~ {name: Str, age?: Int}', ("bool", False), None))
+
 # ---------------------------------------------------------------------------
 # Suite execution
 # ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@ Implements recursive structural matching as specified:
 """
 
 from ..types import (
-    ShkValue, ShkObject, ShkType, ShkSelector, ShkNumber,
+    ShkValue, ShkObject, ShkType, ShkSelector, ShkNumber, ShkOptional,
 )
 
 
@@ -38,11 +38,21 @@ def match_structure(lhs: ShkValue, rhs: ShkValue) -> bool:
             return False
 
         for key in rhs.slots:
-            if key not in lhs.slots:
-                return False
+            schema_value = rhs.slots[key]
 
-            if not match_structure(lhs.slots[key], rhs.slots[key]):
-                return False
+            # Handle optional fields
+            if isinstance(schema_value, ShkOptional):
+                if key not in lhs.slots:
+                    continue  # Missing optional key is OK
+                # Key present, check inner schema
+                if not match_structure(lhs.slots[key], schema_value.inner):
+                    return False
+            else:
+                # Non-optional field: must exist
+                if key not in lhs.slots:
+                    return False
+                if not match_structure(lhs.slots[key], schema_value):
+                    return False
 
         return True
 

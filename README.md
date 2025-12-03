@@ -167,6 +167,9 @@ user.{name, email} .= ??(.trim().lower()) ?? "unknown"
 # Nested defaults with a selector and default key
 cfg["db", default: {}]["host"] .= .trim() ?? "localhost"
 
+# Destructure directly from a selector list
+key, val := arr[0,1]  # binds arr[0] -> key, arr[1] -> val and returns the selected slice
+
 # CCC with selector literals
 assert 4 < `5:10`, != `7, 8`
 ```

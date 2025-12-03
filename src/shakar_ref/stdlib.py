@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import List
 
-from .runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, ShkValue, ShakarTypeError, ShkObject
+from .runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, ShkValue, ShakarTypeError, ShkObject, ShkOptional
 from .runtime import ShakarRuntimeError
 from .eval.helpers import is_truthy
 
@@ -125,3 +125,10 @@ def _iter_coerce(value: ShkValue):
             yield v
     else:
         raise ShakarTypeError("all/any expects iterable or multiple args")
+
+@register_stdlib("Optional")
+def std_optional(_frame, args: List[ShkValue]) -> ShkOptional:
+    """Wrap a schema value to mark it as optional in structural matching."""
+    if len(args) != 1:
+        raise ShakarTypeError("Optional() expects exactly one argument")
+    return ShkOptional(args[0])

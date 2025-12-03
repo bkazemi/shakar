@@ -2321,10 +2321,13 @@ class Parser:
                     body = Tree('inlinebody', [expr])
                 return Tree('obj_method', [Token('IDENT', name.value), params, body])
 
-            # Field: name: value
+            # Field: name: value or name?: value (optional)
+            is_optional = self.match(TT.QMARK)
             self.expect(TT.COLON)
             value = self.parse_expr()
             key = Tree('key_ident', [Token('IDENT', name.value)])
+            if is_optional:
+                return Tree('obj_field_optional', [key, value])
             return Tree('obj_field', [key, value])
 
         # String key
