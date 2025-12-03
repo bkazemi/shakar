@@ -1078,10 +1078,10 @@ class Parser:
             then_expr = self.parse_expr()
             self.expect(TT.COLON)
             else_expr = self.parse_ternary_expr()  # Right associative
-            return Tree('ternaryexpr', [expr, then_expr, else_expr])
+            return Tree('ternary', [expr, then_expr, else_expr])
 
-        # No ternary, wrap and return
-        return Tree('ternaryexpr', [expr])
+        # No ternary, return unwrapped
+        return expr
 
     def parse_or_expr(self) -> Tree:
         """Parse logical OR: expr || expr"""
@@ -1207,8 +1207,8 @@ class Parser:
 
         # Check for comparison operator
         if not self.is_compare_op():
-            # No comparison, just wrap and return
-            return Tree('compareexpr', [left])
+            # No comparison, return unwrapped
+            return left
 
         # Parse CCC
         op_tokens = self.parse_compare_op()
@@ -1262,9 +1262,9 @@ class Parser:
                     break
                 self.match(TT.COMMA)  # consume it
 
-            return Tree('compareexpr', children)
+            return Tree('compare', children)
 
-        return Tree('compareexpr', [left, op_tree, right])
+        return Tree('compare', [left, op_tree, right])
 
     def comma_is_ccc(self) -> bool:
         """
@@ -1367,11 +1367,11 @@ class Parser:
         if not ops_and_operands:
             return left
 
-        # Build addexpr with left-associative structure
+        # Build add with left-associative structure
         for op, right in ops_and_operands:
             # Wrap operator in addop tree
             op_tree = Tree('addop', [Token(op.type.name, op.value)])
-            left = Tree('addexpr', [left, op_tree, right])
+            left = Tree('add', [left, op_tree, right])
 
         return left
 
@@ -1391,7 +1391,7 @@ class Parser:
         for op, right in ops_and_operands:
             # Wrap operator in mulop tree
             op_tree = Tree('mulop', [Token(op.type.name, op.value)])
-            left = Tree('mulexpr', [left, op_tree, right])
+            left = Tree('mul', [left, op_tree, right])
 
         return left
 
@@ -1401,9 +1401,9 @@ class Parser:
 
         if self.match(TT.POW):
             exp = self.parse_pow_expr()  # Right associative
-            return Tree('powexpr', [base, Token('POW', '**'), exp])
+            return Tree('pow', [base, Token('POW', '**'), exp])
 
-        # Just wrap in powexpr even if no operator
+        # No power operator, return unwrapped
         return base
 
     def parse_unary_expr(self) -> Tree:
@@ -1430,17 +1430,17 @@ class Parser:
         # $ (no anchor)
         if self.match(TT.DOLLAR):
             expr = self.parse_unary_expr()
-            return Tree('unaryexpr', [Tree('no_anchor', [expr])])
+            return Tree('no_anchor', [expr])
 
         # Unary prefix operators
         if self.check(TT.MINUS, TT.NOT, TT.NEG, TT.INCR, TT.DECR):
             op = self.advance()
             expr = self.parse_unary_expr()
             op_tree = Tree('unaryprefixop', [Token(op.type.name, op.value)])
-            return Tree('unaryexpr', [op_tree, expr])
+            return Tree('unary', [op_tree, expr])
 
-        # No unary operator, wrap postfix in unaryexpr
-        return Tree('unaryexpr', [self.parse_postfix_expr()])
+        # No unary operator, return unwrapped
+        return self.parse_postfix_expr()
 
     def parse_postfix_expr(self) -> Tree:
         """

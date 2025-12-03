@@ -772,45 +772,11 @@ class Prune(Transformer):
     def arglistnamedmixed(self, c):
         return Tree("args", c)
 
-    # ---- precedence wrapper flattening (legacy Lark parity) ----
-    def _keep_or_flatten(self, name, children, alias=None):
-        return children[0] if len(children) == 1 else Tree(alias or name, children)
 
-    def ternaryexpr(self, c):
-        return self._keep_or_flatten("ternaryexpr", c, "ternary")
-
-    def orexpr(self, c):
-        return self._keep_or_flatten("orexpr", c, "or")
-
-    def andexpr(self, c):
-        return self._keep_or_flatten("andexpr", c, "and")
-
-    def bindexpr(self, c):
-        filtered = [item for item in c if not (is_token(item) and getattr(item, "type", None) == "APPLYASSIGN")]
-        return self._keep_or_flatten("bindexpr", filtered, "bind")
-
-    def walrusexpr(self, c):
-        return self._keep_or_flatten("walrusexpr", c, "walrus")
-
-    def nullishexpr(self, c):
-        return self._keep_or_flatten("nullishexpr", c, "nullish")
-
-    def compareexpr(self, c):
+    def compare(self, c):
+        """Flatten CCC leg wrappers in comparison chains"""
         c = list(self._flatten_ccc_parts(c))
-        return self._keep_or_flatten("compareexpr", c, "compare")
-
-    def addexpr(self, c):
-        return self._keep_or_flatten("addexpr", c, "add")
-
-    def mulexpr(self, c):
-        return self._keep_or_flatten("mulexpr", c, "mul")
-
-    def powexpr(self, c):
-        return self._keep_or_flatten("powexpr", c, "pow")
-
-    def unaryexpr(self, c):
-        return self._keep_or_flatten("unaryexpr", c, "unary")
-
+        return Tree("compare", c)
 
     def _flatten_ccc_parts(self, items):
         for item in items:
