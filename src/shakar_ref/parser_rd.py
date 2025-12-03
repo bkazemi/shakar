@@ -79,34 +79,43 @@ class Parser:
             return self.tokens[idx]
         return Tok(TT.EOF, None, 0, 0)
 
-    def advance(self) -> Tok:
-        """Consume current token and move to next"""
-        prev = self.current
+    def advance(self, count: int = 1) -> Tok:
+        """Consume `count` tokens (default 1) and return the last one."""
+        if count < 1:
+            raise ValueError("advance() requires count >= 1")
 
-        # Track paren depth for layout token skipping
-        if prev.type == TT.LPAR:
-            self.paren_depth += 1
-        elif prev.type == TT.RPAR:
-            self.paren_depth -= 1
+        def _advance_once() -> Tok:
+            prev = self.current
 
-        self.pos += 1
-        if self.pos < len(self.tokens):
-            self.current = self.tokens[self.pos]
-        else:
-            self.current = Tok(TT.EOF, None, 0, 0)
+            # Track paren depth for layout token skipping
+            if prev.type == TT.LPAR:
+                self.paren_depth += 1
+            elif prev.type == TT.RPAR:
+                self.paren_depth -= 1
 
-        # Skip newlines and layout tokens when inside parentheses
-        if self.paren_depth > 0:
-            skip_types = (TT.NEWLINE, TT.INDENT, TT.DEDENT) if self.use_indenter else (TT.NEWLINE,)
-            while self.current.type in skip_types:
-                self.pos += 1
-                if self.pos < len(self.tokens):
-                    self.current = self.tokens[self.pos]
-                else:
-                    self.current = Tok(TT.EOF, None, 0, 0)
-                    break
+            self.pos += 1
+            if self.pos < len(self.tokens):
+                self.current = self.tokens[self.pos]
+            else:
+                self.current = Tok(TT.EOF, None, 0, 0)
 
-        return prev
+            # Skip newlines and layout tokens when inside parentheses
+            if self.paren_depth > 0:
+                skip_types = (TT.NEWLINE, TT.INDENT, TT.DEDENT) if self.use_indenter else (TT.NEWLINE,)
+                while self.current.type in skip_types:
+                    self.pos += 1
+                    if self.pos < len(self.tokens):
+                        self.current = self.tokens[self.pos]
+                    else:
+                        self.current = Tok(TT.EOF, None, 0, 0)
+                        break
+
+            return prev
+
+        last = _advance_once()
+        for _ in range(count - 1):
+            last = _advance_once()
+        return last
 
     def check(self, *types: TT) -> bool:
         """Check if current token matches any of the given types"""
@@ -228,8 +237,7 @@ class Parser:
             return self.parse_return_stmt()
         if self.check(TT.QMARK) and self.peek(1).type == TT.IDENT and self.peek(1).value == 'ret':
             # ?ret expr - returnif statement
-            self.advance()  # consume ?
-            self.advance()  # consume 'ret'
+            self.advance(2)  # consume "? ret"
             value = self.parse_expr()
             return Tree('returnif', [value])
         if self.check(TT.BREAK):
@@ -414,8 +422,8 @@ class Parser:
             # Check if there are more identifiers (destructuring pattern)
             while self.check(TT.COMMA):
                 if self.peek(1).type == TT.IDENT:
-                    self.advance()  # consume comma
-                    idents.append(self.advance())  # consume ident
+                    ident_tok = self.advance(2)  # consume ',' then ident
+                    idents.append(ident_tok)
                 else:
                     break
 
@@ -987,8 +995,7 @@ class Parser:
             if self.check(TT.CATCH):
                 self.advance()
             else:
-                self.advance()  # @
-                self.advance()  # @
+                self.advance(2)  # consume '@@'
 
             # Optional type filter: (Type1, Type2)
             types: List[Token] = []
@@ -1040,8 +1047,7 @@ class Parser:
         if self.check(TT.CATCH):
             self.advance()
         else:
-            self.advance()
-            self.advance()
+            self.advance(2)  # consume '@@'
 
         types: List[Token] = []
         if self.match(TT.LPAR):
@@ -1171,8 +1177,8 @@ class Parser:
         """Parse walrus: x := expr"""
         # Check for walrus pattern: IDENT :=
         if self.check(TT.IDENT) and self.peek(1).type == TT.WALRUS:
-            name = self.advance()
-            self.advance()  # :=
+            name = self.current
+            self.advance(2)  # consume IDENT and :=
             # Parse the RHS
             value = self.parse_catch_expr()  # allow catch expressions in walrus RHS
             return Tree('walrus', [Token('IDENT', name.value), value])
@@ -2041,8 +2047,8 @@ class Parser:
             while not self.check(TT.RPAR, TT.EOF):
                 # Named argument: name: value
                 if self.check(TT.IDENT) and self.peek(1).type == TT.COLON:
-                    name = self.advance()
-                    self.advance()  # :
+                    name = self.current
+                    self.advance(2)  # consume IDENT and ':'
                     value = self.parse_expr()
                     arg_tree = Tree('namedarg', [Token('IDENT', name.value), value])
                 else:

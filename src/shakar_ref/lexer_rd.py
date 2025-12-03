@@ -258,8 +258,7 @@ class Lexer:
     def scan_newline(self):
         """Scan newline character"""
         if self.peek() == '\r' and self.peek(1) == '\n':
-            self.advance()  # \r
-            self.advance()  # \n
+            self.advance(2)  # consume CRLF
         else:
             self.advance()
 
