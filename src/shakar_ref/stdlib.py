@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import List
 
-from .runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, ShkValue, ShakarTypeError, ShkObject, ShkOptional
+from .runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, ShkValue, ShakarTypeError, ShkObject, ShkOptional, ShkUnion
 from .runtime import ShakarRuntimeError
 from .eval.helpers import is_truthy
 
@@ -132,3 +132,10 @@ def std_optional(_frame, args: List[ShkValue]) -> ShkOptional:
     if len(args) != 1:
         raise ShakarTypeError("Optional() expects exactly one argument")
     return ShkOptional(args[0])
+
+@register_stdlib("Union")
+def std_union(_frame, args: List[ShkValue]) -> ShkUnion:
+    """Create a union type that matches any of the provided alternatives."""
+    if len(args) == 0:
+        raise ShakarTypeError("Union() requires at least one type alternative")
+    return ShkUnion(tuple(args))

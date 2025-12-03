@@ -65,6 +65,14 @@ class ShkOptional:
     def __repr__(self) -> str:
         return f"Optional({self.inner!r})"
 
+@dataclass(frozen=True)
+class ShkUnion:
+    """Union type for structural matching - matches any of the alternatives."""
+    alternatives: Tuple['ShkValue', ...]
+    def __repr__(self) -> str:
+        alts = ", ".join(repr(a) for a in self.alternatives)
+        return f"Union({alts})"
+
 @dataclass
 class ShkObject:
     slots: Dict[str, 'ShkValue']
@@ -203,6 +211,7 @@ ShkValue: TypeAlias = (
     | StdlibFunction
     | ShkType
     | ShkOptional
+    | ShkUnion
 )
 
 DotValue: TypeAlias = Optional[ShkValue]
@@ -379,6 +388,7 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     StdlibFunction,
     ShkType,
     ShkOptional,
+    ShkUnion,
 )
 
 def is_shk_value(value: ShkValue | Node) -> TypeGuard[ShkValue]:

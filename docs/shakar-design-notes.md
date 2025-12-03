@@ -231,6 +231,7 @@ assert ix == [0,1] and vals == [11,12]
 
 - **Syntax**: `Value ~ Schema` (comparison-tier precedence).
 - **Semantics**: recursive per RHS node:
+  - If RHS is a **Union**, check if LHS matches any alternative: `Union(T1, T2, ...)` succeeds if `LHS ~ T1` or `LHS ~ T2` or ...
   - If RHS is a type (e.g., `Str`, `Int`), check `type(LHS) == RHS`.
   - If RHS is a Selector, check `LHS in RHS`.
   - If RHS is an Object, LHS must be an Object and each RHS key must exist with `LHS[K] ~ RHS[K]`.
@@ -238,6 +239,7 @@ assert ix == [0,1] and vals == [11,12]
   - Otherwise use value equality `LHS == RHS`.
 - **Goal**: schema validation for JSON-like structures.
 - **Optional field syntax**: `key?: Schema` desugars to `key: Optional(Schema)`.
+- **Union types**: `Union(Schema1, Schema2, ...)` matches if value satisfies any alternative.
 - **Examples**:
   ```shakar
   UserSchema := {
@@ -256,6 +258,19 @@ assert ix == [0,1] and vals == [11,12]
   {} ~ {age?: Int}              # true (missing optional is OK)
   {age: 30} ~ {age?: Int}       # true (present and valid)
   {age: "bad"} ~ {age?: Int}    # false (present but wrong type)
+
+  # Union types
+  5 ~ Union(Int, Str)           # true (Int alternative matches)
+  "hi" ~ Union(Int, Str)        # true (Str alternative matches)
+  true ~ Union(Int, Str)        # false (no alternative matches)
+
+  # Nullable pattern
+  result ~ Union(Int, Nil)      # allows Int or nil
+
+  # Complex schemas
+  {id: 1} ~ {id: Union(Int, Str)}          # true
+  {id: "abc"} ~ {id: Union(Int, Str)}      # true
+  {name: "Alice", age?: Union(Int, Str)}   # combines optional and union
   ```
 
 ---
@@ -957,5 +972,6 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
     ...
   ```
 - **Optional fields**: ✅ Implemented. Use `key?: Schema` syntax or `Optional(Schema)` function for optional object fields in schemas.
+- **Union types**: ✅ Implemented. Use `Union(Schema1, Schema2, ...)` to allow multiple type alternatives. Future: `Type1 | Type2` syntax (requires parser context disambiguation).
 - **Conditional apply-assign `.?=`**: assign only if RHS (evaluated with old LHS as `.`) is non-nil; today use `=<LHS> ??(.transform()) ?? .` or `<LHS> .= ??(.transform()) ?? .`.
 - **Keyword aliases**, **autocall nullary methods**, **copy-update `with` sugar**, **pipes `|>`**, **nested/multi-source comprehensions**, **word range aliases `to`/`until`**, **until loops**, **sticky subject `%expr`** (anchor stays sticky; selectors/`.=`/statement-subject tails still win).

@@ -9,7 +9,7 @@ Implements recursive structural matching as specified:
 """
 
 from ..types import (
-    ShkValue, ShkObject, ShkType, ShkSelector, ShkNumber, ShkOptional,
+    ShkValue, ShkObject, ShkType, ShkSelector, ShkNumber, ShkOptional, ShkUnion,
 )
 
 
@@ -18,11 +18,15 @@ def match_structure(lhs: ShkValue, rhs: ShkValue) -> bool:
     Structural match: lhs ~ rhs
 
     Rules:
-    1. If rhs is ShkObject, check object structure (subset match)
-    2. If rhs is ShkType, check type membership
-    3. If rhs is ShkSelector, check membership
-    4. Otherwise, check value equality
+    1. If rhs is ShkUnion, check if lhs matches any alternative
+    2. If rhs is ShkObject, check object structure (subset match)
+    3. If rhs is ShkType, check type membership
+    4. If rhs is ShkSelector, check membership
+    5. Otherwise, check value equality
     """
+    if isinstance(rhs, ShkUnion):
+        return any(match_structure(lhs, alt) for alt in rhs.alternatives)
+
     if isinstance(rhs, ShkType):
         return isinstance(lhs, rhs.mapped_type)
 

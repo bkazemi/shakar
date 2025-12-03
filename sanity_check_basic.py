@@ -1637,6 +1637,23 @@ runtime_scenario(lambda: _rt("optional-syntax-present-invalid", '{a: "bad"} ~ {a
 runtime_scenario(lambda: _rt("optional-syntax-mixed", '{name: "Alice"} ~ {name: Str, age?: Int}', ("bool", True), None))
 runtime_scenario(lambda: _rt("optional-syntax-required-missing", '{age: 30} ~ {name: Str, age?: Int}', ("bool", False), None))
 
+# Union types
+runtime_scenario(lambda: _rt("union-basic-int", '5 ~ Union(Int, Str)', ("bool", True), None))
+runtime_scenario(lambda: _rt("union-basic-str", '"hi" ~ Union(Int, Str)', ("bool", True), None))
+runtime_scenario(lambda: _rt("union-basic-fail", 'true ~ Union(Int, Str)', ("bool", False), None))
+runtime_scenario(lambda: _rt("union-with-nil", 'nil ~ Union(Int, Nil)', ("bool", True), None))
+runtime_scenario(lambda: _rt("union-reassign", 'Schema := Union(Int, Str); x := 5; x = "hello"; x ~ Schema', ("bool", True), None))
+runtime_scenario(lambda: _rt("union-in-object", '{age: 30} ~ {age: Union(Int, Str)}', ("bool", True), None))
+runtime_scenario(lambda: _rt("union-in-object-str", '{age: "30"} ~ {age: Union(Int, Str)}', ("bool", True), None))
+runtime_scenario(lambda: _rt("union-in-object-fail", '{age: true} ~ {age: Union(Int, Str)}', ("bool", False), None))
+runtime_scenario(lambda: _rt("union-with-optional", '{name: "Alice"} ~ {name: Str, age?: Union(Int, Str)}', ("bool", True), None))
+runtime_scenario(lambda: _rt("union-contract-valid", """fn process(value ~ Union(Int, Str)):
+    value
+process(42)""", ("number", 42), None))
+runtime_scenario(lambda: _rt("union-contract-invalid", """fn process(value ~ Union(Int, Str)):
+    value
+process(true)""", None, ShakarAssertionError))
+
 # ---------------------------------------------------------------------------
 # Suite execution
 # ---------------------------------------------------------------------------
