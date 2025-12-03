@@ -308,14 +308,12 @@ class Parser:
                 lvalue = self._expr_to_lvalue(expr)
                 self.advance()  # =
                 rhs = self.parse_nullish_expr()
-                rhs_nc = Tree('expr_nc', [rhs])
-                base_stmt = Tree('assignstmt', [lvalue, Token('EQUAL', '='), rhs_nc])
+                base_stmt = Tree('assignstmt', [lvalue, Token('EQUAL', '='), rhs])
             else:
                 lvalue = self._expr_to_lvalue(expr)
                 op = self.advance()
                 rhs = self.parse_nullish_expr()
-                rhs_nc = Tree('expr_nc', [rhs])
-                base_stmt = Tree('compound_assign', [lvalue, Token(op.type.name, op.value), rhs_nc])
+                base_stmt = Tree('compound_assign', [lvalue, Token(op.type.name, op.value), rhs])
 
         # Postfix if/unless wraps the base statement
         if self.check(TT.IF):
@@ -1175,10 +1173,9 @@ class Parser:
         if self.check(TT.IDENT) and self.peek(1).type == TT.WALRUS:
             name = self.advance()
             self.advance()  # :=
-            # Parse the RHS - wrapping in expr_nc to match Lark
+            # Parse the RHS
             value = self.parse_catch_expr()  # allow catch expressions in walrus RHS
-            value_nc = Tree('expr_nc', [value])
-            return Tree('walrus', [Token('IDENT', name.value), value_nc])
+            return Tree('walrus', [Token('IDENT', name.value), value])
 
         # No walrus, just return nullish level
         return self.parse_nullish_expr()

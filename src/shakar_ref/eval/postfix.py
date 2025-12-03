@@ -80,7 +80,7 @@ def _eval_postfix_guard(
     run_on_truthy: bool,
 ) -> ShkValue:
     walrus_name = None
-    walrus_node = find_tree_by_label(stmt_node, {"walrus", "walrus_nc"})
+    walrus_node = find_tree_by_label(stmt_node, {"walrus"})
     if walrus_node is not None:
         walrus_name = _walrus_target_name(walrus_node)
 

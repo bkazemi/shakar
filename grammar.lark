@@ -92,7 +92,7 @@ ternaryexpr: orexpr ( "?" expr ":" ternaryexpr )?
 orexpr: andexpr ( OR andexpr )*
 andexpr: bindexpr ( AND bindexpr )*
 bindexpr: walrusexpr | lvalue APPLYASSIGN bindexpr
-walrus_rhs: expr_nc | catchexpr
+walrus_rhs: expr | catchexpr
 walrusexpr: nullishexpr | IDENT ":=" walrus_rhs
 
 nullishexpr: compareexpr ( NULLISH compareexpr )*
@@ -110,19 +110,6 @@ cmpop: EQ | NEQ | LT | LTE | GT | GTE
      | IS            // is
      | IN            // in
      | NEG IN        // !in
-
-# ===== No-Comma (NC) expressions: forbid top-level CCC at select sites =====
-# NC tier now aliases to full expressions; CCC is permitted everywhere and
-# comma semantics are disambiguated in the parser via context.
-expr_nc: expr
-?catchbase_nc: catchbase
-ternaryexpr_nc: ternaryexpr
-orexpr_nc: orexpr
-andexpr_nc: andexpr
-bindexpr_nc: bindexpr
-walrusexpr_nc: walrusexpr
-nullishexpr_nc: nullishexpr
-compareexpr_nc: compareexpr
 
 addexpr: mulexpr ( addop mulexpr )*
 addop: DEEPMERGE | CARET | PLUS | MINUS
@@ -390,7 +377,7 @@ obj_body: obj_block_body
 
 obj_block_body: _NL INDENT (stmtlist? _NL+)* stmtlist? DEDENT -> indentblock
 
-keyexpr: compareexpr_nc
+keyexpr: compareexpr
 
 !returnstmt: RETURN (destrhs | expr)?
 

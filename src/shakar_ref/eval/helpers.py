@@ -30,7 +30,7 @@ def retargets_anchor(node: Node) -> bool:
     if is_tree(node):
         label = tree_label(node)
 
-        if label in {'expr', 'expr_nc', 'compareexpr', 'unaryexpr', 'ternaryexpr'} and node.children:
+        if label in {'expr', 'compareexpr', 'unaryexpr', 'ternaryexpr'} and node.children:
             return retargets_anchor(node.children[0])
 
         return label not in {
@@ -40,7 +40,6 @@ def retargets_anchor(node: Node) -> bool:
             'no_anchor',
             'literal',
             'bind',
-            'bind_nc',
         }
     return True
 

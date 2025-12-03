@@ -178,7 +178,7 @@ def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
             if len(n.children) == 1:
                 return eval_node(n.children[0], frame)
             return eval_program(n.children, frame, eval_node)
-        case 'literal' | 'primary' | 'expr' | 'expr_nc':
+        case 'literal' | 'primary' | 'expr':
             if len(n.children) == 1:
                 return eval_node(n.children[0], frame)
 
@@ -189,12 +189,12 @@ def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
             return ShkArray([eval_node(c, frame) for c in n.children])
         case 'object':
             return eval_object(n, frame, eval_node)
-        case 'unary' | 'unary_nc':
+        case 'unary':
             op, rhs_node = n.children
             return eval_unary(op, rhs_node, frame, eval_node)
-        case 'pow' | 'pow_nc':
+        case 'pow':
             return eval_infix(n.children, frame, eval_node, right_assoc_ops={'**', 'POW'})
-        case 'mul' | 'mul_nc' | 'add' | 'add_nc':
+        case 'mul' | 'add':
             return eval_infix(n.children, frame, eval_node)
         case 'explicit_chain':
             head, *ops = n.children
@@ -253,9 +253,9 @@ def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
             args = eval_args_node(args_node, frame, eval_node)
             cal = frame.get('')  # unreachable in practice
             return call_value(cal, args, frame, eval_node)
-        case 'and' | 'or' | 'and_nc' | 'or_nc':
+        case 'and' | 'or':
             return eval_logical(d, n.children, frame, eval_node)
-        case 'walrus' | 'walrus_nc':
+        case 'walrus':
             return eval_walrus(n.children, frame, eval_node)
         case 'returnstmt':
             return eval_return_stmt(n.children, frame, eval_func=eval_node)
@@ -283,11 +283,11 @@ def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
             return eval_defer_stmt(n.children, frame, eval_node)
         case 'assert':
             return eval_assert(n.children, frame, eval_func=eval_node)
-        case 'bind' | 'bind_nc':
+        case 'bind':
             return eval_apply_assign(n.children, frame, eval_node, apply_op, evaluate_index_operand)
         case 'subject':
             return get_subject(frame)
-        case 'keyexpr' | 'keyexpr_nc':
+        case 'keyexpr':
             return eval_node(n.children[0], frame) if n.children else ShkNull()
         case 'destructure':
             # plain destructure must not create new names; walrus form does.
@@ -363,7 +363,6 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     'anonfn': lambda n, frame: eval_anonymous_fn(n.children, frame),
     'await_value': lambda n, frame: eval_await_value(n, frame, eval_node),
     'compare': lambda n, frame: eval_compare(n.children, frame, eval_node),
-    'compare_nc': lambda n, frame: eval_compare(n.children, frame, eval_node),
     'nullish': lambda n, frame: eval_nullish(n.children, frame, eval_node),
     'nullsafe': lambda n, frame: eval_nullsafe(n, frame, eval_node),
     'breakstmt': lambda _, frame: _eval_break_stmt(frame),

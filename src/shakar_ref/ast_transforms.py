@@ -811,41 +811,6 @@ class Prune(Transformer):
     def unaryexpr(self, c):
         return self._keep_or_flatten("unaryexpr", c, "unary")
 
-    # No-comparison variants
-    def ternaryexpr_nc(self, c):
-        return self._keep_or_flatten("ternaryexpr_nc", c, "ternary_nc")
-
-    def orexpr_nc(self, c):
-        return self._keep_or_flatten("orexpr_nc", c, "or_nc")
-
-    def andexpr_nc(self, c):
-        return self._keep_or_flatten("andexpr_nc", c, "and_nc")
-
-    def bindexpr_nc(self, c):
-        filtered = [item for item in c if not (is_token(item) and getattr(item, "type", None) == "APPLYASSIGN")]
-        return self._keep_or_flatten("bindexpr_nc", filtered, "bind_nc")
-
-    def walrusexpr_nc(self, c):
-        return self._keep_or_flatten("walrusexpr_nc", c, "walrus_nc")
-
-    def nullishexpr_nc(self, c):
-        return self._keep_or_flatten("nullishexpr_nc", c, "nullish_nc")
-
-    def compareexpr_nc(self, c):
-        c = list(self._flatten_ccc_parts(c))
-        return self._keep_or_flatten("compareexpr_nc", c, "compare_nc")
-
-    def addexpr_nc(self, c):
-        return self._keep_or_flatten("addexpr_nc", c, "add_nc")
-
-    def mulexpr_nc(self, c):
-        return self._keep_or_flatten("mulexpr_nc", c, "mul_nc")
-
-    def powexpr_nc(self, c):
-        return self._keep_or_flatten("powexpr_nc", c, "pow_nc")
-
-    def unaryexpr_nc(self, c):
-        return self._keep_or_flatten("unaryexpr_nc", c, "unary_nc")
 
     def _flatten_ccc_parts(self, items):
         for item in items:

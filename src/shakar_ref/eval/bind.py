@@ -240,7 +240,7 @@ def resolve_assignable_node(
                 evaluate_index_operand=evaluate_index_operand,
             )
 
-        if label in {"expr", "expr_nc"} and current.children:
+        if label == "expr" and current.children:
             return resolve_assignable_node(
                 current.children[0],
                 frame,
