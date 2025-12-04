@@ -5,7 +5,9 @@ from ..tree import Token
 
 from ..runtime import Frame, ShkValue, ShakarRuntimeError
 from ..tree import Node, Tree, child_by_label, is_tree, tree_children, tree_label
-from .bind import RebindContext
+from .bind import FanContext, RebindContext
+from .selector import evaluate_selectorlist, SelectorIndex, SelectorSlice, _selector_slice_to_slice, _normalize_index_position
+from ..runtime import ShkArray
 from .mutation import get_field_value, set_field_value, index_value, set_index_value
 from .expr import apply_binary_operator
 
@@ -94,30 +96,39 @@ def _eval_clause(
         raise ShakarRuntimeError("Empty fanout path")
 
     target_obj, final_seg = _walk_to_parent(base_val, segments, frame, eval_func, apply_op)
-    final_label = tree_label(final_seg)
-
     op_label = tree_label(op_node)
+    targets = _iter_targets(target_obj)
 
     if op_label == "fanop_assign":
         new_val = eval_func(rhs_node, frame)
-        _store(target_obj, final_seg, new_val, frame, evaluate_index_operand, eval_func)
+        for tgt in targets:
+            _store_target(tgt, final_seg, new_val, frame, evaluate_index_operand, eval_func)
         return
 
     if op_label == "fanop_apply":
-        old_val = _read(target_obj, final_seg, frame, evaluate_index_operand, eval_func)
-        rhs_frame = Frame(parent=frame, dot=old_val)
-        new_val = eval_func(rhs_node, rhs_frame)
-        _store(target_obj, final_seg, new_val, frame, evaluate_index_operand, eval_func)
+        for tgt in targets:
+            base = tgt.value if isinstance(tgt, RebindContext) else tgt
+            old_val = _read(base, final_seg, frame, evaluate_index_operand, eval_func)
+            rhs_frame = Frame(parent=frame, dot=old_val)
+            new_val = eval_func(rhs_node, rhs_frame)
+            _store_target(tgt, final_seg, new_val, frame, evaluate_index_operand, eval_func)
         return
 
     op_symbol = _COMPOUND_MAP.get(op_label)
     if op_symbol is None:
         raise ShakarRuntimeError(f"Unsupported fanout operator {op_label}")
 
-    old_val = _read(target_obj, final_seg, frame, evaluate_index_operand, eval_func)
     rhs_val = eval_func(rhs_node, frame)
-    new_val = apply_binary_operator(op_symbol, old_val, rhs_val)
-    _store(target_obj, final_seg, new_val, frame, evaluate_index_operand, eval_func)
+    for tgt in targets:
+        base = tgt.value if isinstance(tgt, RebindContext) else tgt
+        old_val = _read(base, final_seg, frame, evaluate_index_operand, eval_func)
+        new_val = apply_binary_operator(op_symbol, old_val, rhs_val)
+        _store_target(tgt, final_seg, new_val, frame, evaluate_index_operand, eval_func)
+
+def _iter_targets(target_obj: ShkValue | FanContext) -> List[ShkValue | RebindContext]:
+    if isinstance(target_obj, FanContext):
+        return list(target_obj.contexts)
+    return [target_obj]
 
 def _fan_segments(path_node: Node) -> List[Tree]:
     return [seg for seg in tree_children(path_node) if is_tree(seg)]
@@ -125,12 +136,85 @@ def _fan_segments(path_node: Node) -> List[Tree]:
 def _walk_to_parent(base_val: ShkValue, segments: List[Tree], frame: Frame, eval_func, apply_op) -> tuple[ShkValue, Tree]:
     current = base_val
 
-    for seg in segments[:-1]:
+    for idx, seg in enumerate(segments[:-1]):
+        prev = current
         current = apply_op(current, seg, frame, eval_func)
+
+        # When an intermediate *multi* selector returns an array, broadcast subsequent ops across its elements.
+        if (
+            isinstance(current, ShkArray)
+            and idx < len(segments) - 1
+            and _segment_is_multi_selector(seg)
+            and isinstance(prev, ShkArray)
+        ):
+            current = _fan_context_from_selector(prev, seg, frame, eval_func)
+
         if isinstance(current, RebindContext):
             current = current.value
 
     return current, segments[-1]
+
+def _segment_is_multi_selector(seg: Tree) -> bool:
+    """Return True if selector list contains a slice or multiple selectors."""
+    selectorlist = child_by_label(seg, "selectorlist")
+    if selectorlist is None:
+        return False
+    selectors = [ch for ch in tree_children(selectorlist) if is_tree(ch)]
+    if len(selectors) > 1:
+        return True
+    if not selectors:
+        return False
+    # single selector: check if it is a slice selector
+    sel = selectors[0]
+    return any(is_tree(grand) and tree_label(grand) == "slicesel" for grand in tree_children(sel))
+
+
+def _fan_context_from_selector(arr: ShkArray, seg: Tree, frame: Frame, eval_func) -> FanContext:
+    """Build FanContext targeting the original array elements selected by seg."""
+    selectorlist = child_by_label(seg, "selectorlist")
+    if selectorlist is None:
+        raise ShakarRuntimeError("Malformed selector in fanout path")
+
+    parts = evaluate_selectorlist(selectorlist, frame, eval_func, clamp=True)
+    indices: list[int] = []
+    length = len(arr.items)
+
+    for part in parts:
+        if isinstance(part, SelectorIndex):
+            idx_raw = part.value
+            if not hasattr(idx_raw, "value"):
+                raise ShakarRuntimeError("Selector index must be numeric")
+            idx = int(idx_raw.value)
+            idx = _normalize_index_position(idx, length)
+            if idx < 0 or idx >= length:
+                raise ShakarRuntimeError("Array index out of bounds")
+            indices.append(idx)
+        elif isinstance(part, SelectorSlice):
+            py_slice = _selector_slice_to_slice(part, length)
+            indices.extend(range(*py_slice.indices(length)))
+        else:
+            raise ShakarRuntimeError("Unsupported selector part in fanout")
+
+    contexts: list[RebindContext] = []
+
+    for i in indices:
+        def _setter_factory(pos: int):
+            def setter(new_val: ShkValue) -> None:
+                if pos >= len(arr.items):
+                    raise ShakarRuntimeError("Fanout slice target vanished")
+                arr.items[pos] = new_val
+            return setter
+        contexts.append(RebindContext(arr.items[i], _setter_factory(i)))
+
+    return FanContext(contexts)
+
+def _store_target(target: ShkValue | RebindContext, final_seg: Tree, value: ShkValue, frame: Frame, evaluate_index_operand, eval_func) -> None:
+    if isinstance(target, RebindContext):
+        # Apply store to the underlying value, then write back via setter to keep container in sync.
+        _store(target.value, final_seg, value, frame, evaluate_index_operand, eval_func)
+        target.setter(target.value)
+        return
+    _store(target, final_seg, value, frame, evaluate_index_operand, eval_func)
 
 def _read(target: ShkValue, final_seg: Tree, frame: Frame, evaluate_index_operand, eval_func) -> ShkValue:
     match tree_label(final_seg):

@@ -765,13 +765,52 @@ class Parser:
             # Parse fanclause: .field = expr
             self.expect(TT.DOT)
 
-            # Parse fanpath (field chain)
-            fields = []
-            fields.append(self.expect(TT.IDENT))
-            while self.match(TT.DOT):
-                fields.append(self.expect(TT.IDENT))
+            # Parse fanpath: IDENT or [selectorlist] segments, dot-separated
+            segs: List[Tree] = []
 
-            fanpath = Tree('fanpath', [Tree('field', [Token('IDENT', f.value)]) for f in fields])
+            # First segment (required)
+            if self.check(TT.IDENT):
+                segs.append(Tree('field', [Token('IDENT', self.advance().value)]))
+            elif self.match(TT.LSQB):
+                selectors = self.parse_selector_list()
+                self.expect(TT.RSQB)
+                segs.append(Tree('lv_index', [
+                    Token('LSQB', '['),
+                    Tree('selectorlist', selectors),
+                    Token('RSQB', ']'),
+                ]))
+            else:
+                raise ParseError("Expected identifier or [selector] in fanout path", self.current)
+
+            # Subsequent segments: allow either a dot+segment or a bare [selector] segment
+            while True:
+                if self.match(TT.DOT):
+                    if self.check(TT.IDENT):
+                        segs.append(Tree('field', [Token('IDENT', self.advance().value)]))
+                    elif self.match(TT.LSQB):
+                        selectors = self.parse_selector_list()
+                        self.expect(TT.RSQB)
+                        segs.append(Tree('lv_index', [
+                            Token('LSQB', '['),
+                            Tree('selectorlist', selectors),
+                            Token('RSQB', ']'),
+                        ]))
+                    else:
+                        raise ParseError("Expected identifier or [selector] after '.' in fanout path", self.current)
+                elif self.check(TT.LSQB):
+                    # Adjacent selector segment without a dot (e.g., .rows[1].v)
+                    self.advance()  # consume '['
+                    selectors = self.parse_selector_list()
+                    self.expect(TT.RSQB)
+                    segs.append(Tree('lv_index', [
+                        Token('LSQB', '['),
+                        Tree('selectorlist', selectors),
+                        Token('RSQB', ']'),
+                    ]))
+                else:
+                    break
+
+            fanpath = Tree('fanpath', segs)
 
             # Parse assignment operator
             if self.check(TT.ASSIGN):

@@ -406,6 +406,13 @@ assert ix == [0,1] and vals == [11,12]
     state.name .= .trim()  # RHS sees old state.name as `.`
     ```
   - Semantics: `.` anchors to `state`; each clause starts with `.` and uses `=/.=/+= -= *= /= //= %= **=`; `.=` RHS sees the old field value as `.` then resets `.` to the base for the next clause. Clauses run top→down; base eval once; missing/duplicate fields error; result unused (statement-only).
+  - Selector fanout (subtle!): path segments may include index selectors and slices. If a selector yields multiple elements (e.g., `.rows[1:3]`), the clause broadcasts to each selected element, preserving left→right order. Example:
+    ```shakar
+    state := {rows: [{v:1}, {v:3}, {v:5}]}
+    state{ .rows[1:3].v = 0 }   # rows -> [{v:1},{v:0},{v:0}]
+    state{ .rows[1][0].v += 5 } # works through nested indices
+    ```
+    Broadcasting only happens when the selector produces multiple targets (slice or multi-selector); single-index selectors behave as a single target. Duplicate target detection still applies on the resolved targets.
 - **Fanout value + call auto-spread**:
   ```shakar
   values = state.{a, b, c}      # [state.a, state.b, state.c]
