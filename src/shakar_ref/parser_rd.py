@@ -2409,6 +2409,15 @@ class Parser:
         # Try to parse an expression, see if : follows
         depth = 0
         while idx < len(self.tokens):
+            if self._lookahead_check(idx, TT.BACKQUOTE):
+                # Skip selector literal contents so internal ':' doesn't count as slice delimiter
+                _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+                while idx < len(self.tokens) and not self._lookahead_check(idx, TT.BACKQUOTE):
+                    _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+                # Consume closing backtick if present
+                if idx < len(self.tokens):
+                    _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+                continue
             if self._lookahead_check(idx, TT.LPAR, TT.LSQB, TT.LBRACE):
                 depth += 1
                 _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
