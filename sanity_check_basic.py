@@ -774,6 +774,7 @@ runtime_scenario(lambda: _rt("compound-assign-floordiv", 'a := 9; a //= 2; a', (
 runtime_scenario(lambda: _rt("fanout-block-basic", 'state := {cur: 1, next: 2, x: 0}; state{ .cur = .next; .x += 5 }; state.cur + state.x', ("number", 7), None))
 runtime_scenario(lambda: _rt("fieldfan-chain-assign", 'state := {a: {c: 0}, b: {c: 1}}; state.{a, b}.c = 5; state.a.c + state.b.c', ("number", 10), None))
 runtime_scenario(lambda: _rt("fieldfan-chain-apply", 'state := {a: {c: 1}, b: {c: 3}}; state.{a, b}.c .= . + 1; state.a.c + state.b.c', ("number", 6), None))
+runtime_scenario(lambda: _rt("selector-assign-broadcast", 'arr := [0, 1]; o := {a: arr}; o.a[0,1] = 2; o.a[0] + o.a[1]', ("number", 4), None))
 runtime_scenario(lambda: _rt("fieldfan-chain-apply-return", 'state := {a: {c: 1}, b: {c: 3}}; result := state.{a, b}.c .= . + 1; result[0] + result[1]', ("number", 6), None))
 runtime_scenario(lambda: _rt("fanout-block-slice-selector", "state := {rows: [{v: 1}, {v: 3}, {v: 5}]}; state{ .rows[1:3].v = 0 }; state.rows[0].v + state.rows[1].v + state.rows[2].v", ("number", 1), None))
 runtime_scenario(lambda: _rt("fanout-block-bracketed", "state := {rows: [{v: 1}, {v: 3}, {v: 5}]}; state{ .rows[1].v += 4; .rows[0] = {v: state.rows[0].v + 2} }; state.rows[0].v + state.rows[1].v", ("number", 10), None))

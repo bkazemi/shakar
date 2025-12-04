@@ -15,6 +15,8 @@ from ..runtime import (
     ShkNumber,
     ShkObject,
     ShkSelector,
+    SelectorIndex,
+    SelectorSlice,
     ShkString,
     ShkValue,
     ShakarIndexError,
@@ -23,7 +25,12 @@ from ..runtime import (
     ShakarTypeError,
     call_shkfn,
 )
-from .selector import clone_selector_parts, apply_selectors_to_value
+from .selector import (
+    clone_selector_parts,
+    apply_selectors_to_value,
+    _selector_index_to_int,
+    _selector_slice_to_slice,
+)
 
 def set_field_value(recv: ShkValue, name: str, value: ShkValue, frame: Frame, *, create: bool) -> ShkValue:
     """Assign `recv.name = value`, honoring descriptors and creation semantics."""
@@ -54,11 +61,14 @@ def set_index_value(recv: ShkValue, index: ShkValue, value: ShkValue, frame: Fra
         case ShkArray(items=items):
             if isinstance(index, ShkNumber):
                 idx = int(index.value)
-            else:
-                raise ShakarTypeError("Array index must be an integer")
+                items[idx] = value
+                return value
 
-            items[idx] = value
-            return value
+            if isinstance(index, ShkSelector):
+                _assign_selector_into_array(items, index, value)
+                return value
+
+            raise ShakarTypeError("Array index must be an integer or selector")
         case ShkObject(slots=slots):
             # objects store arbitrary keys; normalize to string for consistency.
             key = _normalize_index_key(index)
@@ -77,6 +87,30 @@ def set_index_value(recv: ShkValue, index: ShkValue, value: ShkValue, frame: Fra
             return value
         case _:
             raise ShakarTypeError("Unsupported index assignment target")
+
+
+def _assign_selector_into_array(items: list[ShkValue], selector: ShkSelector, value: ShkValue) -> None:
+    """Broadcast assignment of `value` across indices/slices specified by selector."""
+    length = len(items)
+
+    for part in selector.parts:
+        if isinstance(part, SelectorIndex):
+            idx = _selector_index_to_int(part.value)
+            pos = idx + length if idx < 0 else idx
+
+            if pos < 0 or pos >= length:
+                raise ShakarIndexError("Array index out of bounds")
+
+            items[pos] = value
+            continue
+
+        if isinstance(part, SelectorSlice):
+            slice_obj = _selector_slice_to_slice(part, length)
+            for pos in range(*slice_obj.indices(length)):
+                items[pos] = value
+            continue
+
+        raise ShakarTypeError("Unsupported selector component for array assignment")
 
 def index_value(recv: ShkValue, idx: ShkValue, frame: Frame, default_thunk: Optional[Callable[[], ShkValue]]=None) -> ShkValue:
     """Read `recv[idx]`, supporting selectors, descriptors, and builtins."""
