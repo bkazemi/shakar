@@ -975,13 +975,13 @@ class Parser:
             while tok.type == TT.NEWLINE:
                 tok, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
 
-            # Check for | or ||
-            if tok.type in {TT.OR, TT.PIPE}:
+            # Check for |
+            if tok.type == TT.PIPE:
                 # Consume the newlines and pipe for real
                 while self.match(TT.NEWLINE):
                     pass
 
-                if self.match(TT.OR) or self.match(TT.PIPE):
+                if self.match(TT.PIPE):
                     if self.check(TT.COLON):  # |: for else
                         self.advance()
                         else_body = self.parse_body()
