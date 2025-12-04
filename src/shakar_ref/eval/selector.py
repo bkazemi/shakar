@@ -171,6 +171,8 @@ def _selector_slice_from_sliceitem(node: Tree, frame: Frame, eval_fn: EvalFunc) 
     stop_val = _coerce_selector_number(stop_value, allow_none=True)
     step_val = _coerce_selector_number(_eval_selector_atom(step_node, frame, eval_fn), allow_none=True)
 
+    _validate_slice_signs(start_val, stop_val)
+
     return SelectorSlice(start=start_val, stop=stop_val, step=step_val, clamp=False, exclusive_stop=exclusive)
 
 def _selector_slice_from_slicesel(node: Tree, frame: Frame, eval_fn: EvalFunc, clamp: bool) -> SelectorSlice:
@@ -184,6 +186,8 @@ def _selector_slice_from_slicesel(node: Tree, frame: Frame, eval_fn: EvalFunc, c
     stop_val = _coerce_selector_number(_eval_optional_expr(stop_node, frame, eval_fn), allow_none=True)
     step_val = _coerce_selector_number(_eval_optional_expr(step_node, frame, eval_fn), allow_none=True)
     # slicesel originates from runtime selector expressions `xs[start:stop:step]`.
+
+    _validate_slice_signs(start_val, stop_val)
 
     return SelectorSlice(start=start_val, stop=stop_val, step=step_val, clamp=clamp, exclusive_stop=True)
 
@@ -255,6 +259,14 @@ def _eval_seloptstop(node: Optional[Tree], frame: Frame, eval_fn: EvalFunc) -> t
     value = _eval_selector_atom(selatom, frame, eval_fn)
 
     return value, exclusive
+
+def _validate_slice_signs(start: Optional[int], stop: Optional[int]) -> None:
+    """Reject slices with negative start and positive stop (ambiguous semantics)."""
+    if start is None or stop is None:
+        return
+
+    if start < 0 and stop >= 0:
+        raise ShakarRuntimeError("Slice cannot have negative start with positive stop")
 
 def _coerce_selector_number(value: Optional[ShkValue], allow_none: bool = False) -> Optional[int]:
     if value is None or isinstance(value, ShkNull):

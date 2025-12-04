@@ -190,8 +190,11 @@ assert ix == [0,1] and vals == [11,12]
   a[i:j]         # half-open i <= k < j
   a[i:j:step]    # step != 0; negative step for reverse
   a[:j]; a[i:]; a[:]   # clamp to [0:len]
+  a[0:-1]        # positive start, negative stop allowed
+  a[-3:-1]       # both negative allowed
+  a[-1:2]        # ERROR: negative start with positive stop disallowed
   ```
-  Negative indices allowed; no auto-reverse when `i > j`. Indexing `a[i]` throws OOB; slices clamp; inverted positive-step yields `[]`. Strict slicing: `slice!(a, i, j, step?)` throws on any OOB.
+  Negative indices allowed; no auto-reverse when `i > j`. Indexing `a[i]` throws OOB; slices clamp; inverted positive-step yields `[]`. Slice restriction: negative start with positive stop is an error (ambiguous semantics). Positive start with negative stop is valid (e.g., `arr[0:-1]` for "all but last"). Strict slicing: `slice!(a, i, j, step?)` throws on any OOB.
 - **Selector lists** (multiple selectors inside `[]`): concatenation of each selector’s result, in order. Index selectors throw on OOB; slice selectors clamp. LHS restriction: selector lists and slices are expression-only in v0.1 (no LHS assignment).
 - **Selector literals in comparisons**: see Comparison & Identity for CCC handling.
 - **Examples**:
