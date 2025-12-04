@@ -23,9 +23,9 @@ line := "name=  Ada "
 =line.split("=").last().trim().title()  # still assigns back to `line`
 
 =(user).profile.contact.name.trim()  # only when you absolutely mean to rewrite `user`
-
-Statement-subjects always begin the statement. The plain form (`=name<tail>`) already lets you walk fields or selectors—`=user.profile.email.trim()` writes back to `user.profile.email`. Grouping only exists so you can keep a different identifier as the destination while visiting another branch; `=(user)` says “no matter how deep this tail goes, the write still lands on `user`.” Use that escape hatch sparingly.
 ```
+
+Statement-subjects always begin the statement. The plain form (`=name<tail>`) already lets you walk fields or selectors - `=user.profile.email.trim()` writes back to `user.profile.email`. Grouping only exists so you can keep a different identifier as the destination while visiting another branch; `=(user)` says "no matter how deep this tail goes, the write still lands on `user`." Use that escape hatch sparingly.
 
 Apply-assign `.=` does the same thing at expression level: inside the right-hand side, `.` is the old value of the left-hand side and the result is written back in place, while also yielding the updated value:
 
@@ -44,6 +44,7 @@ Both forms are built on the same implicit-subject rules, which makes “update t
 
 - Assignment fan-out: `=user.{name, email}.trim()` and `user.{first, last} .= .title()` walk a single base and apply the tail to each listed field (identifiers only on the LHS).
 - Value fan-out: `user.{fullName(), email}` collects multiple projections from one base into an array and auto-spreads in positional calls: `send(user.{fullName(), email})` ⇒ `send(user.fullName(), user.email)`. Duplicate paths error; named args never auto-spread (wrap to pass as one argument).
+- Fieldfan chaining: `state.{a, b}.c = 5` and `state.{a, b}.nested .= .update()` let you navigate fields after the fanout, updating each target independently.
 - Fan-out block statement: `state{ .cur = .next; .x += 1; .name .= .trim() }` anchors `.` to `state`, runs clauses top→down, and errors on duplicate targets. Supports selector broadcasting: `state{ .rows[1:3].v = 0 }` applies the update to each selected element.
 - `while` loops support inline or indented bodies and honor `break`/`continue`.
 
@@ -171,7 +172,7 @@ cfg["db", default: {}]["host"] .= .trim() ?? "localhost"
 key, val := arr[0,1]  # binds arr[0] -> key, arr[1] -> val and returns the selected slice
 
 # CCC with selector literals
-assert 4 < `5:10`, != `7, 8`
+assert 4 < `5:{someNum}`, != `7, 8`
 ```
 
 Selector literals use backticks and have precise semantics for ranges, lists, and membership; the design notes cover the details.

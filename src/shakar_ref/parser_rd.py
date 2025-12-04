@@ -754,6 +754,7 @@ class Parser:
         """
         self.expect(TT.LBRACE)
         clauses = []
+        clause_count = 0
 
         while not self.check(TT.RBRACE, TT.EOF):
             # Skip newlines and separators
@@ -847,9 +848,31 @@ class Parser:
             value = self.parse_expr()
 
             clauses.append(Tree('fanclause', [Token('DOT', '.'), fanpath, fanop, value]))
+            clause_count += 1
 
         self.expect(TT.RBRACE)
+        # If only one clause, ensure it contains a multi-selector to justify block form
+        if clause_count == 1:
+            single_clause_fanpath = clauses[0].children[1]
+            if not self._fanpath_has_multiselector(single_clause_fanpath):
+                raise ParseError("Single-clause fanout requires a selector producing multiple targets", self.current)
         return Tree('fanblock', clauses)
+
+    def _fanpath_has_multiselector(self, fanpath: Tree) -> bool:
+        """Detect slice or multi-index selector in fanpath segments."""
+        for seg in fanpath.children:
+            if isinstance(seg, Tree) and seg.data == 'lv_index':
+                selectorlist = next((ch for ch in seg.children if isinstance(ch, Tree) and ch.data == 'selectorlist'), None)
+                if selectorlist is None:
+                    continue
+                selectors = [ch for ch in selectorlist.children if isinstance(ch, Tree)]
+                if len(selectors) > 1:
+                    return True
+                if selectors:
+                    sel = selectors[0]
+                    if any(isinstance(grand, Tree) and grand.data == 'slicesel' for grand in sel.children):
+                        return True
+        return False
 
     def parse_fn_stmt(self) -> Tree:
         """

@@ -326,10 +326,29 @@ def apply_numeric_delta(ref: RebindContext, delta: int) -> tuple[ShkValue, ShkVa
 def build_fieldfan_context(owner: ShkValue, fan_node: Tree, frame: Frame) -> FanContext:
     """Construct a fan context for `.={a,b}` nodes so updates reach every slot."""
     fieldlist_node = child_by_label(fan_node, "fieldlist")
-    if fieldlist_node is None:
+    valuefan_list = child_by_label(fan_node, "valuefan_list")
+
+    if fieldlist_node is None and valuefan_list is None:
         raise ShakarRuntimeError("Malformed field fan")
 
-    names = [tok.value for tok in tree_children(fieldlist_node) if is_token(tok) and token_kind(tok) == "IDENT"]
+    if fieldlist_node is not None:
+        names = [tok.value for tok in tree_children(fieldlist_node) if is_token(tok) and token_kind(tok) == "IDENT"]
+    else:
+        # valuefan_list form (from valuefan normalization in lvalues)
+        names = []
+        for item in tree_children(valuefan_list):
+            # valuefan_item -> child may be IDENT token
+            if is_tree(item) and tree_label(item) == "valuefan_item":
+                for ch in tree_children(item):
+                    if is_token(ch) and token_kind(ch) == "IDENT":
+                        names.append(ch.value)
+                    else:
+                        raise ShakarRuntimeError("Field fan only supports identifier entries")
+            elif is_token(item) and token_kind(item) == "IDENT":
+                names.append(item.value)
+            else:
+                raise ShakarRuntimeError("Field fan only supports identifier entries")
+
     if not names:
         raise ShakarRuntimeError("Field fan requires at least one identifier")
 
@@ -427,6 +446,14 @@ def apply_assign(
     for op in ops[:-1]:
         target = apply_op(target, op, frame, eval_func)
 
+    # FanContext: apply the final op across all contexts
+    if isinstance(target, FanContext):
+        final_op = ops[-1]
+        _apply_over_fancontext(target, final_op, rhs_node, frame, evaluate_index_operand, eval_func)
+        # Apply-assign produces potentially different values per target, return array
+        # (contrast with assign_lvalue which assigns same value to all, returns that value)
+        return ShkArray([ctx.value for ctx in target.contexts])
+
     final_op = ops[-1]
     label = tree_label(final_op)
     match label:
@@ -469,6 +496,66 @@ def apply_assign(
 
     raise ShakarRuntimeError("Unsupported apply-assign target")
 
+
+def _apply_over_fancontext(
+    fan: FanContext,
+    final_op: Tree,
+    rhs_node: Tree,
+    frame: Frame,
+    evaluate_index_operand: IndexEvalFunc,
+    eval_func: EvalFunc,
+) -> None:
+    """Apply-assign (`.=`) across all contexts in a FanContext."""
+    label = tree_label(final_op)
+
+    for ctx in fan.contexts:
+        base = ctx.value
+        match label:
+            case "field" | "fieldsel":
+                field_name = expect_ident_token(final_op.children[0], "Field assignment")
+                old_val = get_field_value(base, field_name, frame)
+                rhs_frame = Frame(parent=frame, dot=old_val)
+                new_val = eval_func(rhs_node, rhs_frame)
+                set_field_value(base, field_name, new_val, frame, create=False)
+                ctx.value = new_val
+            case "lv_index":
+                idx_val = evaluate_index_operand(final_op, frame, eval_func)
+                old_val = index_value(base, idx_val, frame)
+                rhs_frame = Frame(parent=frame, dot=old_val)
+                new_val = eval_func(rhs_node, rhs_frame)
+                set_index_value(base, idx_val, new_val, frame)
+                ctx.value = new_val
+            case _:
+                raise ShakarRuntimeError("Unsupported fan-out apply-assign target")
+
+
+def _assign_over_fancontext(
+    fan: FanContext,
+    final_op: Tree,
+    value: ShkValue,
+    frame: Frame,
+    evaluate_index_operand: IndexEvalFunc,
+    eval_func: EvalFunc,
+    create: bool,
+) -> None:
+    """Assign `value` to each target held in FanContext using final_op."""
+    label = tree_label(final_op)
+
+    for ctx in fan.contexts:
+        base = ctx.value
+        match label:
+            case "field" | "fieldsel":
+                field_name = expect_ident_token(final_op.children[0], "Field assignment")
+                set_field_value(base, field_name, value, frame, create=create)
+            case "lv_index":
+                idx_val = evaluate_index_operand(final_op, frame, eval_func)
+                set_index_value(base, idx_val, value, frame)
+            case _:
+                raise ShakarRuntimeError("Unsupported fan-out assignment target")
+
+        ctx.value = base
+
+
 def assign_lvalue(
     node: Node,
     value: ShkValue,
@@ -498,6 +585,13 @@ def assign_lvalue(
 
     for op in ops[:-1]:
         target = apply_op(target, op, frame, eval_func)
+
+    # FanContext means we have fanned-out receivers; delegate assignment per receiver.
+    if isinstance(target, FanContext):
+        final_op = ops[-1]
+        _assign_over_fancontext(target, final_op, value, frame, evaluate_index_operand, eval_func, create)
+        return value
+
     final_op = ops[-1]
 
     label = tree_label(final_op)

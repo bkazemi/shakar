@@ -382,14 +382,18 @@ assert ix == [0,1] and vals == [11,12]
     =user.{name, email}.trim()
     user.{first, last} .= .title()
     =user.address.{city, street}.title()
+    state.{a, b}.c = 5              # fieldfan chaining
+    state.{a, b}.c .= . + 1         # fieldfan chain with apply-assign
     ```
   - Desugar:
     ```shakar
     =user.name.trim(); =user.email.trim()
     user.first .= .title(); user.last .= .title()
     =user.address.city.title(); =user.address.street.title()
+    state.a.c = 5; state.b.c = 5
+    state.a.c .= . + 1; state.b.c .= . + 1
     ```
-  - Rules: only after a path; left-to-right order; duplicates are errors; missing fields error; `.=` RHS uses per-field old value; chain rebinds can fan out and yield list of updated values.
+  - Rules: only after a path; left-to-right order; duplicates are errors; missing fields error; `.=` RHS uses per-field old value; chain rebinds can fan out and yield list of updated values. Fieldfan may appear mid-chain with further field/index access after the fanout; each fanned target is independently traversed for subsequent segments.
 - **Fanout block statement**:
   - Surface:
     ```shakar
@@ -413,6 +417,8 @@ assert ix == [0,1] and vals == [11,12]
     state{ .rows[1][0].v += 5 } # works through nested indices
     ```
     Broadcasting only happens when the selector produces multiple targets (slice or multi-selector); single-index selectors behave as a single target. Duplicate target detection still applies on the resolved targets.
+  - Single-clause fanout: permitted even with a single clause *only* when that clause contains an explicit multi-selector (e.g., `.rows[1:5]`); single-target paths like `.rows = 1` should use a direct assignment instead.
+  - Mode guidance: In a prospective “strict” mode, bare-path selector broadcasts (e.g., `state.rows[1:3].v = 0`) would be rejected unless wrapped in braces (`state{ .rows[1:3].v = 0 }` or `state.{rows[1:3].v} = 0`). In normal mode, tooling/lints should warn on such bare-path selector broadcasts and recommend the braced form for clarity.
 - **Fanout value + call auto-spread**:
   ```shakar
   values = state.{a, b, c}      # [state.a, state.b, state.c]
