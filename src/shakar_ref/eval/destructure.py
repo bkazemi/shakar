@@ -6,7 +6,7 @@ from typing import Callable, Iterable, Optional
 
 from ..tree import Token
 
-from ..runtime import Frame, ShkArray, ShkNull, ShkValue, ShakarRuntimeError
+from ..runtime import Frame, ShkArray, ShkNull, ShkValue, ShakarRuntimeError, ShakarAssertionError
 from ..utils import (
     is_sequence_value,
     sequence_items,
@@ -85,6 +85,22 @@ def assign_pattern(
     ident = _ident_token_value(target)
 
     if ident is not None:
+        # Check for contract: pattern(IDENT, contract(expr))
+        contract_node = None
+        if len(pattern.children) > 1 and tree_label(pattern.children[1]) == "contract":
+            contract_node = pattern.children[1]
+
+        # Validate contract before binding
+        if contract_node is not None:
+            from .match import match_structure
+            contract_children = tree_children(contract_node)
+            if contract_children:
+                contract_expr = contract_children[0]
+                contract_value = eval_fn(contract_expr, frame)
+                if not match_structure(value, contract_value):
+                    raise ShakarAssertionError(f"Destructure contract failed: {ident} ~ {contract_value}, got {value}")
+
+        # Bind the value
         if create:
             frame.define(ident, value)
         else:

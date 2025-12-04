@@ -79,6 +79,37 @@ class Parser:
             return self.tokens[idx]
         return Tok(TT.EOF, None, 0, 0)
 
+    def _lookahead_advance(self, idx: int, paren_depth: int) -> tuple[Tok, int, int]:
+        """
+        Lookahead-safe token advance that doesn't mutate parser state.
+        Returns (current_token, new_idx, new_paren_depth).
+        Does NOT skip layout tokens - lookahead needs to see all tokens.
+        """
+        if idx >= len(self.tokens):
+            return (Tok(TT.EOF, None, 0, 0), idx, paren_depth)
+
+        tok = self.tokens[idx]
+        new_idx = idx + 1
+        new_paren_depth = paren_depth
+
+        # Update paren depth tracking
+        if tok.type == TT.LPAR:
+            new_paren_depth += 1
+        elif tok.type == TT.RPAR:
+            new_paren_depth -= 1
+
+        return (tok, new_idx, new_paren_depth)
+
+    def _lookahead_peek(self, idx: int) -> Tok:
+        """Peek at token at idx without advancing (stateless)"""
+        if idx >= len(self.tokens):
+            return Tok(TT.EOF, None, 0, 0)
+        return self.tokens[idx]
+
+    def _lookahead_check(self, idx: int, *types: TT) -> bool:
+        """Check if token at idx matches any of the given types (stateless)"""
+        return self._lookahead_peek(idx).type in types
+
     def advance(self, count: int = 1) -> Tok:
         """Consume `count` tokens (default 1) and return the last one."""
         if count < 1:
@@ -256,6 +287,28 @@ class Parser:
         # Guard chains (inline if-else)
         # expr : body | expr : body |: else
         expr_start = self.pos
+
+        # Lookahead for destructuring with contracts
+        # Scan ahead to detect pattern: "ident [~ contract] (, ident [~ contract])* (:=|=)"
+        if self.check(TT.IDENT) and self._is_destructure_with_contracts():
+            # Parse pattern(s) using general parse_pattern() to support nested patterns
+            patterns = [self.parse_pattern()]
+
+            while self.match(TT.COMMA):
+                patterns.append(self.parse_pattern())
+
+            # Always wrap in pattern_list for evaluator consistency
+            pattern_node = Tree('pattern_list', patterns)
+
+            if self.match(TT.ASSIGN):
+                rhs = self.parse_destructure_rhs()
+                return Tree('destructure', [pattern_node, rhs])
+            elif self.match(TT.WALRUS):
+                rhs = self.parse_destructure_rhs()
+                return Tree('destructure_walrus', [pattern_node, rhs])
+            else:
+                raise ParseError(f"Expected = or := after pattern", self.current)
+
         expr = self.parse_expr()
 
         # Check for destructuring: a, b, c = ... or a, b, c := ...
@@ -415,39 +468,55 @@ class Parser:
 
         # Check if it's "for x in expr" or "for x, y in expr" (with destructuring)
         if self.check(TT.IDENT):
-            # Try to parse pattern list for destructuring
-            saved_pos = self.pos
-            idents = [self.advance()]
+            # Lookahead to check if this is for-in
+            idx = self.pos
+            paren_depth = 0
+            ident_values = []
 
-            # Check if there are more identifiers (destructuring pattern)
-            while self.check(TT.COMMA):
-                if self.peek(1).type == TT.IDENT:
-                    ident_tok = self.advance(2)  # consume ',' then ident
-                    idents.append(ident_tok)
-                else:
-                    break
+            # Collect identifiers using lookahead
+            tok, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+            if tok.type == TT.IDENT:
+                ident_values.append(tok.value)
 
-            # Now check if IN follows
-            if self.check(TT.IN):
-                self.advance()  # consume IN
-                iterable = self.parse_expr()
-                self.expect(TT.COLON)
-                body = self.parse_body()
+                # Check for more identifiers
+                while idx < len(self.tokens):
+                    tok, new_idx, new_paren = self._lookahead_advance(idx, paren_depth)
+                    if tok.type == TT.COMMA:
+                        idx, paren_depth = new_idx, new_paren
+                        tok, new_idx, new_paren = self._lookahead_advance(idx, paren_depth)
+                        if tok.type == TT.IDENT:
+                            ident_values.append(tok.value)
+                            idx, paren_depth = new_idx, new_paren
+                        else:
+                            break
+                    else:
+                        break
 
-                # Build pattern
-                if len(idents) == 1:
-                    # Simple pattern: for x in expr
-                    pattern = Tree('pattern', [Token('IDENT', idents[0].value)])
-                else:
-                    # Destructuring pattern: for k, v in expr
-                    pattern_items = [Token('IDENT', id.value) for id in idents]
-                    pattern = Tree('pattern_list_inline', pattern_items)
+                # Check if IN follows
+                tok, _, _ = self._lookahead_advance(idx, paren_depth)
+                if tok.type == TT.IN:
+                    # Confirmed for-in, now consume tokens for real
+                    idents = []
+                    for _ in ident_values:
+                        idents.append(self.advance())
+                        if self.check(TT.COMMA):
+                            self.advance()
 
-                return Tree('forin', [Token('FOR', 'for'), pattern, Token('IN', 'in'), iterable, body])
+                    self.expect(TT.IN)
+                    iterable = self.parse_expr()
+                    self.expect(TT.COLON)
+                    body = self.parse_body()
 
-            # Not a forin, restore position and parse as forsubject
-            self.pos = saved_pos
-            self.current = self.tokens[saved_pos]
+                    # Build pattern
+                    if len(idents) == 1:
+                        # Simple pattern: for x in expr
+                        pattern = Tree('pattern', [Token('IDENT', idents[0].value)])
+                    else:
+                        # Destructuring pattern: for k, v in expr
+                        pattern_items = [Token('IDENT', id.value) for id in idents]
+                        pattern = Tree('pattern_list_inline', pattern_items)
+
+                    return Tree('forin', [Token('FOR', 'for'), pattern, Token('IN', 'in'), iterable, body])
 
         # Subjectful for: for expr: body
         iterable = self.parse_expr()
@@ -897,28 +966,35 @@ class Parser:
 
         # Parse additional branches (allow newlines before | or |:)
         while True:
-            # Skip newlines and check for continuation
-            saved_pos = self.pos
-            saved_current = self.current
-            while self.match(TT.NEWLINE):
-                pass
+            # Lookahead: skip newlines and check for continuation
+            idx = self.pos
+            paren_depth = 0
 
-            if self.match(TT.OR) or self.match(TT.PIPE):  # | or || for guard chain
-                if self.check(TT.COLON):  # |: for else
-                    self.advance()
-                    else_body = self.parse_body()
-                    branches.append(else_body)
-                    break
+            # Skip newlines
+            tok, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+            while tok.type == TT.NEWLINE:
+                tok, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
 
-                # Another conditional branch
-                cond = self.parse_expr()
-                self.expect(TT.COLON)
-                body = self.parse_body()
-                branches.append(Tree('guardbranch', [cond, body]))
+            # Check for | or ||
+            if tok.type in {TT.OR, TT.PIPE}:
+                # Consume the newlines and pipe for real
+                while self.match(TT.NEWLINE):
+                    pass
+
+                if self.match(TT.OR) or self.match(TT.PIPE):
+                    if self.check(TT.COLON):  # |: for else
+                        self.advance()
+                        else_body = self.parse_body()
+                        branches.append(else_body)
+                        break
+
+                    # Another conditional branch
+                    cond = self.parse_expr()
+                    self.expect(TT.COLON)
+                    body = self.parse_body()
+                    branches.append(Tree('guardbranch', [cond, body]))
             else:
-                # No continuation, restore position and exit
-                self.pos = saved_pos
-                self.current = saved_current
+                # No continuation, exit without consuming tokens
                 break
 
         return Tree('onelineguard', branches)
@@ -1306,13 +1382,9 @@ class Parser:
             return True
 
         # Check if followed by comparison operator (`, <cmpop>` → implicit AND)
-        # We need to peek past the comma to check
-        saved_pos = self.pos
-        saved_current = self.current
-        self.advance()  # skip comma
-        is_cmp = self.is_compare_op()
-        self.pos = saved_pos
-        self.current = saved_current
+        # Lookahead past the comma
+        _, idx, _ = self._lookahead_advance(self.pos, 0)  # skip comma
+        is_cmp = idx < len(self.tokens) and self._is_compare_op_at(idx)
 
         if is_cmp:
             return True  # `, <cmpop>` → CCC implicit AND
@@ -1328,15 +1400,22 @@ class Parser:
 
         return True  # Default: allow CCC in normal context
 
-    def is_compare_op(self) -> bool:
-        """Check if current token is a comparison operator"""
-        if self.check(TT.EQ, TT.NEQ, TT.LT, TT.LTE, TT.GT, TT.GTE, TT.IS, TT.IN, TT.TILDE):
+    def _is_compare_op_at(self, idx: int) -> bool:
+        """Check if token at idx is a comparison operator (stateless helper)"""
+        if idx >= len(self.tokens):
+            return False
+        tok = self.tokens[idx]
+        if tok.type in {TT.EQ, TT.NEQ, TT.LT, TT.LTE, TT.GT, TT.GTE, TT.IS, TT.IN, TT.TILDE}:
             return True
-        if self.check(TT.NOT) and self.peek(1).type == TT.IN:
+        if tok.type == TT.NOT and idx + 1 < len(self.tokens) and self.tokens[idx + 1].type == TT.IN:
             return True
-        if self.check(TT.NEG) and self.peek(1).type in (TT.IS, TT.IN):
+        if tok.type == TT.NEG and idx + 1 < len(self.tokens) and self.tokens[idx + 1].type in {TT.IS, TT.IN}:
             return True
         return False
+
+    def is_compare_op(self) -> bool:
+        """Check if current token is a comparison operator"""
+        return self._is_compare_op_at(self.pos)
 
     def parse_compare_op(self) -> List[Token]:
         """Parse comparison operator - returns list of tokens for compound ops"""
@@ -1796,6 +1875,7 @@ class Parser:
             # Try dict comprehension detection
             saved_pos = self.pos
             saved_current = self.current
+            saved_paren_depth = self.paren_depth
 
             try:
                 first_key = self.parse_expr()
@@ -1815,6 +1895,7 @@ class Parser:
 
             # reset cursor if not dictcomp
             self.pos = saved_pos
+            self.paren_depth = saved_paren_depth
             self.current = saved_current
 
             items = []
@@ -1951,7 +2032,16 @@ class Parser:
     def parse_pattern(self) -> Tree:
         if self.check(TT.IDENT):
             tok = self.advance()
-            return Tree('pattern', [Token('IDENT', tok.value)])
+            # Check for contract: ident ~ expr
+            contract = None
+            if self.match(TT.TILDE):
+                # Parse contract at comparison level to avoid consuming walrus/comma
+                contract = self.parse_compare_expr()
+
+            if contract is not None:
+                return Tree('pattern', [Token('IDENT', tok.value), Tree('contract', [contract])])
+            else:
+                return Tree('pattern', [Token('IDENT', tok.value)])
 
         if self.match(TT.LPAR):
             items = [self.parse_pattern()]
@@ -2185,29 +2275,25 @@ class Parser:
 
     def is_slice_selector_literal(self) -> bool:
         """Check if next tokens form a slice selector in literal context"""
-        saved_pos = self.pos
+        idx = self.pos
+        paren_depth = 0
 
         # Skip initial atom if present
-        if self.check(TT.LBRACE, TT.IDENT, TT.NUMBER):
-            if self.match(TT.LBRACE):
-                # Skip to matching }
-                depth = 1
-                while depth > 0 and self.pos < len(self.tokens):
-                    if self.check(TT.LBRACE):
-                        depth += 1
-                    elif self.check(TT.RBRACE):
-                        depth -= 1
-                    self.advance()
-            else:
-                self.advance()
+        if self._lookahead_check(idx, TT.LBRACE):
+            # Skip to matching }
+            _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+            depth = 1
+            while depth > 0 and idx < len(self.tokens):
+                if self._lookahead_check(idx, TT.LBRACE):
+                    depth += 1
+                elif self._lookahead_check(idx, TT.RBRACE):
+                    depth -= 1
+                _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+        elif self._lookahead_check(idx, TT.IDENT, TT.NUMBER):
+            _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
 
         # Check if colon follows
-        result = self.check(TT.COLON)
-
-        # Restore position
-        self.pos = saved_pos
-        self.current = self.tokens[saved_pos]
-        return result
+        return self._lookahead_check(idx, TT.COLON)
 
     def parse_slice_selector_literal(self) -> Tree:
         """Parse slice in selector literal: {start}:{stop} or 1:10:2"""
@@ -2255,32 +2341,29 @@ class Parser:
         """Check if next tokens form a slice selector"""
         # Look for : that's not part of ternary or other constructs
         # Simple heuristic: if we see : before any binary operator
-        saved_pos = self.pos
+        idx = self.pos
+        paren_depth = 0
 
         # Try to parse an expression, see if : follows
         depth = 0
-        while self.pos < len(self.tokens):
-            if self.check(TT.LPAR, TT.LSQB, TT.LBRACE):
+        while idx < len(self.tokens):
+            if self._lookahead_check(idx, TT.LPAR, TT.LSQB, TT.LBRACE):
                 depth += 1
-                self.advance()
-            elif self.check(TT.RPAR, TT.RSQB, TT.RBRACE):
+                _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+            elif self._lookahead_check(idx, TT.RPAR, TT.RSQB, TT.RBRACE):
                 if depth == 0:
                     break
                 depth -= 1
-                self.advance()
-            elif depth == 0 and self.check(TT.COLON):
+                _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+            elif depth == 0 and self._lookahead_check(idx, TT.COLON):
                 # Found a colon - this is a slice
-                self.pos = saved_pos
-                self.current = self.tokens[saved_pos]
                 return True
-            elif depth == 0 and self.check(TT.COMMA):
+            elif depth == 0 and self._lookahead_check(idx, TT.COMMA):
                 break
             else:
-                self.advance()
+                _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
 
-        # Not a slice - restore position
-        self.pos = saved_pos
-        self.current = self.tokens[saved_pos]
+        # Not a slice
         return False
 
     def parse_slice_selector(self) -> Tree:
@@ -2461,15 +2544,72 @@ class Parser:
             self.parse_context = saved_context
 
     def parse_destructure_pattern(self) -> Tree:
-        """Parse destructuring pattern for assignments"""
-        # Simple for now: x, y, z
+        """Parse destructuring pattern for assignments: ident [~ contract] (, ident [~ contract])*"""
         items = []
-        items.append(self.expect(TT.IDENT))
+        items.append(self._parse_pattern_item())
 
         while self.match(TT.COMMA):
-            items.append(self.expect(TT.IDENT))
+            items.append(self._parse_pattern_item())
 
-        return Tree('pattern', [Token('IDENT', t.value) for t in items])
+        return Tree('patternlist', items)
+
+    def _parse_pattern_item(self) -> Tree:
+        """Parse a single pattern item: IDENT [~ contract]"""
+        ident = self.expect(TT.IDENT)
+        contract = None
+        if self.match(TT.TILDE):
+            # Parse contract at comparison level to avoid consuming walrus/comma
+            contract = self.parse_compare_expr()
+
+        if contract is not None:
+            return Tree('pattern', [Token('IDENT', ident.value), Tree('contract', [contract])])
+        else:
+            return Tree('pattern', [Token('IDENT', ident.value)])
+
+    def _is_destructure_with_contracts(self) -> bool:
+        """
+        Lookahead to detect destructure patterns with contracts.
+        Returns True if current position looks like: ident [~ contract] (, ident [~ contract])* (:=|=)
+        Must have at least one comma to distinguish from simple assignment.
+        Uses stateless lookahead helper - does not mutate parser state.
+        """
+        idx = self.pos
+        paren_depth = 0
+        start_idx = idx
+
+        # Must start with IDENT
+        if not self._lookahead_check(idx, TT.IDENT):
+            return False
+        _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+
+        # Optional contract: ~ <anything until comma/assign>
+        if self._lookahead_check(idx, TT.TILDE):
+            _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+
+            # Skip contract expression by counting bracket depth
+            depth = 0
+            while idx < len(self.tokens):
+                tok = self._lookahead_peek(idx)
+                if depth == 0 and tok.type in {TT.COMMA, TT.WALRUS, TT.ASSIGN}:
+                    break
+                if tok.type in {TT.LPAR, TT.LBRACE, TT.LSQB}:
+                    depth += 1
+                elif tok.type in {TT.RPAR, TT.RBRACE, TT.RSQB}:
+                    depth -= 1
+                    if depth < 0:
+                        return False  # Unbalanced
+                elif tok.type in {TT.NEWLINE, TT.SEMI, TT.EOF}:
+                    return False  # Hit statement boundary
+                _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+
+        # Only match if we actually saw a contract (consumed more than just the ident)
+        has_contract = start_idx + 1 < idx
+
+        if has_contract:
+            # Contract present: match single or multi-pattern with contract
+            return self._lookahead_check(idx, TT.COMMA, TT.WALRUS, TT.ASSIGN)
+
+        return False
 
     def parse_fan_items(self) -> List[Tree]:
         """Parse fan items: {field1, field2} or {chain1, chain2}"""

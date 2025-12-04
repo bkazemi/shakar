@@ -1683,6 +1683,51 @@ runtime_scenario(lambda: _rt("return-contract-fail", """fn bad_return(x ~ Int) ~
     x * 2
 bad_return(5)""", None, ShakarTypeError))
 
+# Destructure contracts
+runtime_scenario(lambda: _rt("destructure-contract-single", """a ~ Int := 42
+a""", ("number", 42), None))
+runtime_scenario(lambda: _rt("destructure-nested", """a, (b, (c, d)) := [1, [2, [3, 4]]]
+a + b + c + d""", ("number", 10), None))
+runtime_scenario(lambda: _rt("destructure-mixed-contract-nested", """a ~ Int, (b, c) := [10, [20, 30]]
+a + b + c""", ("number", 60), None))
+runtime_scenario(lambda: _rt("destructure-contract-basic", """a ~ Int, b ~ Str := 10, "hello"
+a""", ("number", 10), None))
+runtime_scenario(lambda: _rt("destructure-contract-partial", """x ~ Int, y, z ~ Int := 5, "mid", 15
+z - x""", ("number", 10), None))
+runtime_scenario(lambda: _rt("destructure-contract-broadcast", """m ~ Int, n ~ Int := 42
+m + n""", ("number", 84), None))
+runtime_scenario(lambda: _rt("destructure-contract-array", """id ~ Int, name ~ Str := [100, "Alice"]
+id""", ("number", 100), None))
+runtime_scenario(lambda: _rt("destructure-contract-fail", """a ~ Int, b ~ Str := 10, 20
+a""", None, ShakarAssertionError))
+
+# Lookahead paren_depth leak tests - ensure layout parsing works after lookahead with parens
+runtime_scenario(lambda: _rt("lookahead-destructure-paren", """a ~ (Int), b := 10, 20
+x := 1
+y := 2
+x + y""", ("number", 3), None))
+runtime_scenario(lambda: _rt("lookahead-forin-paren", """sum := 0
+for x in [1, 2, 3]:
+    sum = sum + x
+sum""", ("number", 6), None))
+runtime_scenario(lambda: _rt("lookahead-guard-continue", """x := 5
+x > 3:
+    print("big")
+| x > 0:
+    print("small")
+y := 42
+y""", ("number", 42), None))
+runtime_scenario(lambda: _rt("lookahead-ccc-paren", """a, b := (1 > 0), (2 > 1)
+x := 99
+x""", ("number", 99), None))
+runtime_scenario(lambda: _rt("lookahead-dictcomp-paren", """d := {x: x * 2 for x in [1, 2, 3]}
+y := 42
+y""", ("number", 42), None))
+runtime_scenario(lambda: _rt("lookahead-slice-literal", """arr := [10, 20, 30, 40]
+s := arr`1:3`
+z := 100
+z""", ("number", 100), None))
+
 # ---------------------------------------------------------------------------
 # Suite execution
 # ---------------------------------------------------------------------------
