@@ -92,7 +92,11 @@ def _extract_loop_iter_and_body(children: List[Node]) -> tuple[Optional[Node], O
     return iter_expr, body_node
 
 def _extract_clause(node: Tree, label: str) -> tuple[Optional[Node], Node]:
-    nodes = [child for child in tree_children(node) if not is_token(child)]
+    # Include condition tokens but skip keywords like ELIF, ELSE, COLON
+    nodes = [
+        child for child in tree_children(node)
+        if not is_token(child) or _token_kind(child) not in {"ELIF", "ELSE", "COLON"}
+    ]
 
     if label == "else":
         if not nodes:
@@ -286,6 +290,8 @@ def eval_if_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
     for child in children:
         if is_token(child):
+            if cond_node is None and _token_kind(child) not in {"IF", "COLON"}:
+                cond_node = child
             continue
 
         label = tree_label(child)
