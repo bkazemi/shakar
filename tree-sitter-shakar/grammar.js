@@ -36,56 +36,39 @@ module.exports = grammar({
 
   conflicts: $ => [
     [$.assignment_statement, $.expression_statement],
+    [$.pack_expression, $.return_statement],
+    [$.implicit_head, $.subject_expression],
+    [$.walrus_tuple_pattern, $.primary_expression],
+    [$.walrus_tuple_pattern, $.pattern],
+    [$.walrus_tuple_pattern, $.primary_expression, $.pattern],
     [$.postfix_expression, $.lvalue],
     [$.object_literal, $.block],
-    [$.pattern, $.tuple_pattern],
+    [$.brace_block, $.object_literal],
     [$.primary_expression, $.lvalue],
     [$.primary_expression, $.pattern],
     [$.for_statement, $.primary_expression],
     [$.primary_expression, $.object_item],
-    [$.return_statement, $.primary_expression],
-    [$.return_statement, $.list_comprehension],
-    [$.return_statement, $.set_comprehension],
     [$.return_statement],
     [$.using_statement, $.primary_expression],
-    [$.await_guard_chain, $.primary_expression],
     [$.await_guard_chain, $.await_target],
     [$.await_target, $.primary_expression],
     [$.await_guard_chain, $.await_target, $.primary_expression],
     [$.await_any_statement, $.await_any_expression],
     [$.await_all_statement, $.await_all_expression],
-    [$.inline_body, $.block],
-    [$.brace_block, $.object_literal],
-    [$.inline_body, $.dict_comprehension],
-    [$.inline_body, $.object_item],
     [$.await_arm, $.primary_expression],
     [$.dbg_statement, $.primary_expression],
     [$.dbg_statement],
     [$.throw_statement],
     [$.slice_selector],
     [$.break_statement],
-    [$.break_statement, $.terminator],
     [$.continue_statement],
-    [$.continue_statement, $.terminator],
-    [$.field_fan, $.value_fan],
     [$.field_fan, $.value_fan_item],
-    [$.binder_pattern, $.pattern],
-    [$.statement_block],
-    [$.guard_statement],
     [$.guard_chain],
-    [$.expression_statement, $.catch_statement, $.inline_body, $.catch_expression],
-    [$.expression_statement, $.catch_statement, $.catch_expression],
     [$.destructure_statement, $.pack_expression],
     [$.destructure_statement],
     [$.assert_statement],
     [$.defer_statement],
-    [$.fanout_block_statement],
-    [$.hook_statement],
-    [$.decorator_statement],
-    [$.catch_statement],
-    [$.if_statement],
     [$.pack_expression],
-    [$.function_statement],
   ],
 
   supertypes: $ => [
@@ -132,9 +115,9 @@ module.exports = grammar({
       $.comment
     ),
 
-    expression_statement: $ => prec.right(1, seq($._expression, optional($.terminator))),
+    expression_statement: $ => prec.dynamic(-1, prec.right(1, seq($._expression, optional($.terminator)))),
 
-    assignment_statement: $ => prec.right(2, seq(
+    assignment_statement: $ => prec.dynamic(1, prec.right(2, seq(
       field('target', $.lvalue),
       choice(
         '=',
@@ -155,14 +138,19 @@ module.exports = grammar({
       ),
       field('value', $._expression),
       optional($.terminator)
-    )),
+    ))),
 
     destructure_statement: $ => seq(
-      field('pattern', $.tuple_pattern),
+      field('pattern', choice(
+        $.tuple_pattern,
+        $.pattern_list
+      )),
       choice('=', ':='),
       field('value', choice($.pack_expression, $._expression)),
       optional($.terminator)
     ),
+
+    pattern_list: $ => commaSep2($.pattern),
 
     pack_expression: $ => seq(
       field('first', $._expression),
@@ -171,7 +159,7 @@ module.exports = grammar({
 
     return_statement: $ => prec.dynamic(1, seq(
       'return',
-      optional(field('value', $._expression)),
+      optional(field('value', choice($.pack_expression, $._expression))),
       optional($.terminator)
     )),
 
@@ -216,11 +204,11 @@ module.exports = grammar({
       optional($.terminator)
     ),
 
-    fanout_block_statement: $ => seq(
+    fanout_block_statement: $ => prec(2, seq(
       field('base', $._expression),
       field('fanout', $.fan_block),
       optional($.terminator)
-    ),
+    )),
 
     fan_block: $ => seq(
       '{',
@@ -278,10 +266,13 @@ module.exports = grammar({
       '(',
       optional($.parameter_list),
       ')',
+      optional($.return_contract),
       ':',
       field('body', $.block_or_inline),
       optional($.terminator)
     ),
+
+    return_contract: $ => seq('~', $.contract_type),
 
     catch_statement: $ => seq(
       field('subject', $._expression),
@@ -533,10 +524,15 @@ module.exports = grammar({
     )),
 
     walrus_expression: $ => prec.right(PREC.walrus, seq(
-      field('name', $.identifier),
+      field('name', choice(
+        $.identifier,
+        $.walrus_tuple_pattern
+      )),
       ':=',
       field('value', $._expression)
     )),
+
+    walrus_tuple_pattern: $ => commaSep1($.identifier),
 
     catch_expression: $ => prec.left(PREC.catch, seq(
       field('subject', $._expression),
@@ -583,7 +579,7 @@ module.exports = grammar({
       optional($.ccc_chain)
     )),
 
-    cmp_operator: _ => choice('==','!=','<=','>=','<','>','is','in','!is','not','!in'),
+    cmp_operator: _ => choice('==','!=','<=','>=','<','>','~','is','in','!is','not','!in'),
 
     ccc_chain: $ => prec.right(seq(
       alias(',', $.ccc_separator),
@@ -625,7 +621,7 @@ module.exports = grammar({
     ),
 
     unary_expression: $ => prec(PREC.unary, seq(
-      choice('+', '-', 'not', '!', '$', '~', '++', '--'),
+      choice('+', '-', 'not', '!', '$', '++', '--'),
       $._expression
     )),
 
@@ -644,20 +640,31 @@ module.exports = grammar({
       '(',
       optional($.parameter_list),
       ')',
+      optional($.return_contract),
       ':',
       field('body', $.block_or_inline)
     ),
 
-    postfix_expression: $ => prec.left(PREC.member, seq(
-      choice($.primary_expression, $.postfix_expression),
-      choice(
-        $.call_arguments,
-        $.field_expression,
-        $.index_expression,
-        $.field_fan,
-        $.value_fan
-      )
+    postfix_expression: $ => prec.left(PREC.member, choice(
+      seq(
+        choice($.primary_expression, $.postfix_expression, $.implicit_head),
+        choice(
+          $.call_arguments,
+          $.field_expression,
+          $.index_expression,
+          $.field_fan,
+          $.value_fan
+        )
+      ),
+      $.implicit_head
     )),
+
+    implicit_head: $ => choice(
+      seq('.', $.identifier),
+      seq('.', 'over'),
+      seq('.', '(', optional(commaSep1($._expression)), ')'),
+      seq('.', '[', commaSep1($.selector), optional(seq(',', $.default_selector)), ']')
+    ),
 
     call_expression: $ => $.postfix_expression,
 
@@ -706,11 +713,24 @@ module.exports = grammar({
     ),
 
     slice_selector: $ => seq(
-      optional($._expression),
+      optional($.selector_atom),
       ':',
-      optional($._expression),
-      optional(seq(':', optional($._expression)))
+      optional($.selector_stop),
+      optional(seq(':', optional($.selector_atom)))
     ),
+
+    selector_atom: $ => choice(
+      $.identifier,
+      $.number,
+      $.selector_interpolation
+    ),
+
+    selector_stop: $ => choice(
+      seq('<', $.selector_atom),
+      $.selector_atom
+    ),
+
+    selector_interpolation: $ => seq('{', $._expression, '}'),
 
     field_fan: $ => seq(
       '.',
@@ -811,7 +831,10 @@ module.exports = grammar({
       '}'
     ),
 
-    object_items: $ => commaSep1($.object_item),
+    object_items: $ => seq(
+      commaSep1($.object_item),
+      optional(',')
+    ),
 
     object_item: $ => choice(
       seq(field('key', $.identifier), ':', field('value', $._expression)),
@@ -822,7 +845,17 @@ module.exports = grammar({
       seq($.identifier, '(', optional($.parameter_list), ')', ':', field('body', $.block))
     ),
 
-    parameter_list: $ => commaSep1($.identifier),
+    parameter_list: $ => commaSep1($.parameter),
+
+    parameter: $ => seq($.identifier, optional($.parameter_contract)),
+
+    parameter_contract: $ => seq('~', $.contract_type),
+
+    contract_type: $ => choice(
+      $.identifier,
+      seq('(', $.contract_type, ')'),
+      seq($.identifier, '[', $.contract_type, ']')
+    ),
 
     decorator_list: $ => repeat1($.decorator_entry),
 
@@ -925,9 +958,11 @@ module.exports = grammar({
     ),
 
     pattern: $ => choice(
-      $.identifier,
-      $.tuple_pattern
+      seq($.identifier, optional($.pattern_contract)),
+      seq($.tuple_pattern, optional($.pattern_contract))
     ),
+
+    pattern_contract: $ => seq('~', $.contract_type),
 
     _pattern_atom: $ => choice($.identifier, $.tuple_pattern),
   },
@@ -935,4 +970,8 @@ module.exports = grammar({
 
 function commaSep1(rule) {
   return seq(rule, repeat(seq(',', rule)));
+}
+
+function commaSep2(rule) {
+  return seq(rule, ',', rule, repeat(seq(',', rule)));
 }

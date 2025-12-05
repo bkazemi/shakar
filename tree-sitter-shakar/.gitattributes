@@ -1,8 +1,8 @@
 * text eol=lf
 
-src/*.json linguist-generated
-src/parser.c linguist-generated
-src/tree_sitter/* linguist-generated
+src/*.json linguist-generated -diff
+src/parser.c linguist-generated -diff
+src/tree_sitter/* linguist-generated -diff
 
 bindings/** linguist-generated
 binding.gyp linguist-generated

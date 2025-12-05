@@ -49,6 +49,7 @@
 ;; Subject placeholder (implicit dot) — distinct capture, with a fallback delimiter color
 ((subject_expression ".") @shakar.subject @punctuation.delimiter)
 (subject_expression) @shakar.subject
+(implicit_head "." @punctuation.delimiter)
 (field_expression "." @punctuation.delimiter)
 (field_fan "." @punctuation.delimiter)
 (value_fan "." @punctuation.delimiter)
@@ -59,7 +60,7 @@
 
 ;; Identifiers inside selector literals (allow separate styling, e.g. italics)
 (selector_literal (selector (primary_expression (identifier) @shakar.selector)))
-(selector_literal (selector (slice_selector (primary_expression (identifier)) @shakar.selector)))
+(selector_literal (selector (slice_selector (selector_atom (identifier) @shakar.selector))))
 
 ;; Literals
 (string) @string
@@ -171,15 +172,22 @@
   (unary_expression "not" @operator)
   (unary_expression "!" @operator)
   (unary_expression "$" @operator)
-  (unary_expression "~" @operator)
   (unary_expression "++" @operator)
   (unary_expression "--" @operator)
 ]
 (range_expression "??" @keyword.operator)
 (fan_assignment_operator) @operator
+(fan_clause operator: (_) @operator)
 
 ;; Comparison operators (including CCC chains)
 (cmp_operator) @operator
+(ccc_or_leg (cmp_operator) @operator)
+(ccc_and_payload (cmp_operator) @operator)
+
+;; Contracts
+(pattern_contract "~" @operator)
+(return_contract "~" @operator)
+(parameter_contract "~" @operator)
 
 ;; Functions
 (lambda_expression "&" @function.macro)
