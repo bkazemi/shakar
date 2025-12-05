@@ -851,11 +851,13 @@ class Parser:
             clause_count += 1
 
         self.expect(TT.RBRACE)
-        # If only one clause, ensure it contains a multi-selector to justify block form
+        # Single-clause fanout: allow if it either fans to multiple targets *or*
+        # the RHS uses the implicit subject (e.g., state{ .cur = .next }).
         if clause_count == 1:
-            single_clause_fanpath = clauses[0].children[1]
-            if not self._fanpath_has_multiselector(single_clause_fanpath):
-                raise ParseError("Single-clause fanout requires a selector producing multiple targets", self.current)
+            fanpath = clauses[0].children[1]
+            value_expr = clauses[0].children[3]
+            if not (self._fanpath_has_multiselector(fanpath) or self._expr_uses_subject(value_expr)):
+                raise ParseError("Single-clause fanout requires a multi-selector or implicit-subject RHS", self.current)
         return Tree('fanblock', clauses)
 
     def _fanpath_has_multiselector(self, fanpath: Tree) -> bool:
@@ -872,6 +874,17 @@ class Parser:
                     sel = selectors[0]
                     if any(isinstance(grand, Tree) and grand.data == 'slicesel' for grand in sel.children):
                         return True
+        return False
+
+    def _expr_uses_subject(self, expr: Tree | Token) -> bool:
+        """Heuristic: detect use of implicit subject (`.`) inside an expression."""
+        stack = [expr]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, Tree):
+                if node.data in {"implicit_chain", "subject"}:
+                    return True
+                stack.extend(node.children)
         return False
 
     def parse_fn_stmt(self) -> Tree:

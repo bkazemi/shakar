@@ -420,7 +420,7 @@ assert ix == [0,1] and vals == [11,12]
     state{ .rows[1][0].v += 5 } # works through nested indices
     ```
     Broadcasting only happens when the selector produces multiple targets (slice or multi-selector); single-index selectors behave as a single target. Duplicate target detection still applies on the resolved targets.
-  - Single-clause fanout: permitted even with a single clause *only* when that clause contains an explicit multi-selector (e.g., `.rows[1:5]`); single-target paths like `.rows = 1` should use a direct assignment instead.
+  - Single-clause fanout: allowed when the clause either targets multiple elements (e.g., `.rows[1:5]`) **or** is an implicit-subject rewrite on both sides (e.g., `state{ .cur = .next }`). Prefer a plain assignment when the fanout block adds no clarity.
   - Mode guidance: In a prospective “strict” mode, bare-path selector broadcasts (e.g., `state.rows[1:3].v = 0`) would be rejected unless wrapped in braces (`state{ .rows[1:3].v = 0 }` or `state.{rows[1:3].v} = 0`). In normal mode, tooling/lints should warn on such bare-path selector broadcasts and recommend the braced form for clarity.
 - **Fanout value + call auto-spread**:
   ```shakar

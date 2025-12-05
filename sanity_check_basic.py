@@ -776,6 +776,8 @@ runtime_scenario(lambda: _rt("fieldfan-chain-assign", 'state := {a: {c: 0}, b: {
 runtime_scenario(lambda: _rt("fieldfan-chain-apply", 'state := {a: {c: 1}, b: {c: 3}}; state.{a, b}.c .= . + 1; state.a.c + state.b.c', ("number", 6), None))
 runtime_scenario(lambda: _rt("selector-assign-broadcast", 'arr := [0, 1]; o := {a: arr}; o.a[0,1] = 2; o.a[0] + o.a[1]', ("number", 4), None))
 runtime_scenario(lambda: _rt("selectorliteral-assign-broadcast", 'arr := [0, 1, 2]; arr[`0:1`] = 5; arr[0] + arr[1] + arr[2]', ("number", 12), None))
+runtime_scenario(lambda: _rt("fanout-single-clause-implicit", 'state := {cur: 1, next: 2}; state{ .cur = .next }; state.cur', ("number", 2), None))
+runtime_scenario(lambda: _rt("fanout-single-clause-literal-error", 'state := {a: 1}; state{ .a = 5 }', None, ParseError))
 runtime_scenario(lambda: _rt("slice-negative-start-positive-stop-error", 'arr := [0, 1, 2]; arr[-1:2]', None, ShakarRuntimeError))
 runtime_scenario(lambda: _rt("slice-positive-start-negative-stop", 'arr := [0, 1, 2, 3, 4]; result := arr[0:-1]; result[0] + result[3]', ("number", 3), None))
 runtime_scenario(lambda: _rt("slice-both-negative", 'arr := [0, 1, 2, 3, 4]; result := arr[-3:-1]; result[0] + result[1]', ("number", 5), None))
