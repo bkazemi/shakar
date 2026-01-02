@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Callable, List
 
 from ..runtime import Frame, ShkArray, ShkNumber, ShkValue, ShakarRuntimeError
-from ..tree import Node, Tree, Token, child_by_label, is_token, is_tree, tree_children, tree_label
+from ..tree import Node, Tree, Tok, child_by_label, is_token, is_tree, tree_children, tree_label
 
 from .common import expect_ident_token, token_kind, require_number
 from .destructure import assign_pattern as destructure_assign_pattern
@@ -314,9 +314,9 @@ def resolve_chain_assignment(
 def apply_numeric_delta(ref: RebindContext, delta: int) -> tuple[ShkValue, ShkValue]:
     """Increment/decrement the referenced numeric context and return (old, new)."""
     current = ref.value
-    require_number(current)
+    num = require_number(current)
 
-    new_val = ShkNumber(current.value + delta)
+    new_val = ShkNumber(num.value + delta)
 
     ref.setter(new_val)
     ref.value = new_val

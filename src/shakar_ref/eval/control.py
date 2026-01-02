@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Callable, Optional
-from ..tree import Token
+from ..tree import Tok
 
 from ..runtime import (
     Frame,
@@ -133,7 +133,7 @@ def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
 
     return ShkObject(slots)
 
-def _parse_catch_components(children: list[Node]) -> tuple[Node, Optional[Token], list[str], Tree]:
+def _parse_catch_components(children: list[Node]) -> tuple[Node, Optional[Tok], list[str], Tree]:
     """Split canonical catch nodes into try expression, binder token, type list, and handler."""
     if not children:
         raise ShakarRuntimeError("Malformed catch node")
@@ -165,7 +165,7 @@ def _parse_catch_components(children: list[Node]) -> tuple[Node, Optional[Token]
 def _run_catch_handler(
     handler: Tree,
     frame: Frame,
-    binder: Optional[Token],
+    binder: Optional[Tok],
     payload: ShkObject,
     original_exc: ShakarRuntimeError,
     allowed_types: list[str],

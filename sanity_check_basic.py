@@ -44,7 +44,7 @@ from shakar_ref.parser_rd import parse_source as parse_rd, ParseError
 from shakar_ref.lexer_rd import LexError, Lexer
 from shakar_ref.ast_transforms import Prune
 from shakar_ref.lower import lower
-from shakar_ref.tree import Tree, Token
+from shakar_ref.tree import Tree, Tok
 
 # Get KEYWORDS for test generation
 KEYWORDS = Lexer.KEYWORDS

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 """Helper routines for destructuring assignments and comprehensions."""
 
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Optional, Any
 
-from ..tree import Token
+from ..tree import Tok
+from ..token_types import TT
 
 from ..runtime import Frame, ShkArray, ShkNull, ShkValue, ShakarRuntimeError, ShakarAssertionError
 from ..utils import (
@@ -18,14 +19,14 @@ from ..tree import Node, Tree, tree_label, tree_children
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
 def _ident_token_value(node: Node) -> Optional[str]:
-    if isinstance(node, Token) and node.type == "IDENT":
+    if isinstance(node, Tok) and node.type == TT.IDENT:
         return str(node.value)
 
     return None
 
 def evaluate_destructure_rhs(
     eval_fn: EvalFunc,
-    rhs_node: Tree,
+    rhs_node: Node,
     frame: Frame,
     target_count: int,
     allow_broadcast: bool
@@ -153,8 +154,8 @@ def infer_implicit_binders(
     return names
 
 def apply_comp_binders(
-    assign_fn: Callable[[Tree, ShkValue, Frame], None],
-    binders: list[dict[str, ShkValue]],
+    assign_fn: Callable[[Node, ShkValue, Frame], None],
+    binders: list[dict[str, Any]],
     element: ShkValue,
     iter_frame: Frame,
     outer_frame: Frame

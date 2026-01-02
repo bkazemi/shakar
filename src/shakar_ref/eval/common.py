@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Callable, Iterable, List, Optional, TypeAlias
 
-from ..tree import Tree, Token
+from ..tree import Tree, Tok
+from ..token_types import TT
 
 from ..types import Frame, ShkBool, ShkNumber, ShkString, ShakarRuntimeError, ShakarTypeError, ShkValue, ShkNull
 from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
@@ -12,8 +13,8 @@ SourceSpan: TypeAlias = tuple[int, int] | tuple[None, None]
 def token_kind(node: Node) -> Optional[str]:
     if not is_token(node):
         return None
-    tok: Token = node
-    return str(tok.type)
+    tok: Tok = node
+    return tok.type.name if hasattr(tok.type, "name") else str(tok.type)
 
 def is_token_type(node: Node, kind: str) -> bool:
     return is_token(node) and token_kind(node) == kind
@@ -33,7 +34,7 @@ def ident_token_value(node: Node) -> Optional[str]:
     return None
 
 def is_literal_node(node: Node) -> bool:
-    return not isinstance(node, (Tree, Token))
+    return not isinstance(node, (Tree, Tok))
 
 def get_source_segment(node: Node, frame: Frame) -> Optional[str]:
     source = getattr(frame, 'source', None)
@@ -85,21 +86,22 @@ def node_source_span(node: Node) -> SourceSpan:
 
     return None, None
 
-def require_number(value: ShkNumber) -> None:
+def require_number(value: ShkValue) -> ShkNumber:
     if not isinstance(value, ShkNumber):
         raise ShakarTypeError("Expected number")
+    return value
 
-def token_number(token: Token, _: None) -> ShkNumber:
+def token_number(token: Tok, _: None) -> ShkNumber:
     return ShkNumber(float(token.value))
 
-def token_string(token: Token, _: None) -> ShkString:
+def token_string(token: Tok, _: None) -> ShkString:
     raw = token.value
-    token_type = getattr(token, "type", "")
+    token_type = token.type
 
-    if token_type == "RAW_HASH_STRING":
+    if token_type == TT.RAW_HASH_STRING:
         return ShkString(raw[5:-2])
 
-    if token_type == "RAW_STRING":
+    if token_type == TT.RAW_STRING:
         return ShkString(raw[4:-1])
 
     if len(raw) >= 2 and ((raw[0] == '"' and raw[-1] == '"') or (raw[0] == "'" and raw[-1] == "'")):

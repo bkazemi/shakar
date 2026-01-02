@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from typing import Callable, List, Optional
-from .tree import Token
+from .tree import Tok
+from .token_types import TT
 
 from .runtime import (
     Frame,
@@ -297,14 +298,14 @@ def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
         case _:
             raise ShakarRuntimeError(f"Unknown node: {d}")
 
-# ---------------- Tokens ----------------
+# ---------------- Toks ----------------
 
-def _eval_token(t: Token, frame: Frame) -> ShkValue:
+def _eval_token(t: Tok, frame: Frame) -> ShkValue:
     handler = _TOKEN_DISPATCH.get(t.type)
     if handler:
         return handler(t, frame)
 
-    if t.type in ('IDENT', 'ANY', 'ALL', 'OVER'):
+    if t.type in (TT.IDENT, TT.ANY, TT.ALL, TT.OVER):
         return frame.get(t.value)
 
     raise ShakarRuntimeError(f"Unhandled token {t.type}:{t.value}")
@@ -390,12 +391,12 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     'pack': lambda n, frame: ShkArray([eval_node(ch, frame) for ch in n.children]),
 }
 
-_TOKEN_DISPATCH: dict[str, Callable[[Token, Frame], ShkValue]] = {
-    'NUMBER': token_number,
-    'STRING': token_string,
-    'RAW_STRING': token_string,
-    'RAW_HASH_STRING': token_string,
-    'TRUE': lambda _, __: ShkBool(True),
-    'FALSE': lambda _, __: ShkBool(False),
-    'NIL': lambda _, __: ShkNull(),
+_TOKEN_DISPATCH: dict[TT, Callable[[Tok, Frame], ShkValue]] = {
+    TT.NUMBER: token_number,
+    TT.STRING: token_string,
+    TT.RAW_STRING: token_string,
+    TT.RAW_HASH_STRING: token_string,
+    TT.TRUE: lambda _, __: ShkBool(True),
+    TT.FALSE: lambda _, __: ShkBool(False),
+    TT.NIL: lambda _, __: ShkNull(),
 }

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Callable, Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional, TypedDict, cast
 
-from ..tree import Tree, Token
+from ..tree import Tree, Tok
+from ..token_types import TT
 
 from ..runtime import Frame, ShkArray, ShkNull, ShkNumber, ShkObject, ShkSelector, ShkString, ShkValue, ShakarBreakSignal, ShakarContinueSignal, ShakarRuntimeError, ShakarTypeError
 from ..tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label
@@ -16,16 +17,20 @@ from .selector import selector_iter_values
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
-def _parse_comphead(node: Tree) -> tuple[Tree, list[dict[str, ShkValue]]]:
+class BinderSpec(TypedDict):
+    pattern: Tree
+    hoist: bool
+
+def _parse_comphead(node: Tree) -> tuple[Tree, list[BinderSpec]]:
     overspec = child_by_label(node, "overspec")
     if overspec is None:
         raise ShakarRuntimeError("Malformed comprehension head")
 
     return _parse_overspec(overspec)
 
-def _parse_overspec(node: Tree) -> tuple[Tree, list[dict[str, ShkValue]]]:
+def _parse_overspec(node: Tree) -> tuple[Tree, list[BinderSpec]]:
     children = list(node.children)
-    binders: list[dict[str, ShkValue]] = []
+    binders: list[BinderSpec] = []
 
     if not children:
         raise ShakarRuntimeError("Malformed overspec")
@@ -114,7 +119,7 @@ def _extract_clause(node: Tree, label: str) -> tuple[Optional[Node], Node]:
 
     return cond_node, body_node
 
-def _coerce_loop_binder(node: Tree) -> dict[str, ShkValue]:
+def _coerce_loop_binder(node: Tree) -> BinderSpec:
     target = node
 
     if tree_label(target) == "binderpattern" and target.children:
@@ -251,7 +256,7 @@ def _prepare_comprehension(n: Tree, frame: Frame, head_nodes: list[Tree], eval_f
         )
 
         for name in implicit_names:
-            pattern = Tree("pattern", [Token("IDENT", name)])
+            pattern = Tree("pattern", [Tok(TT.IDENT, name, 0, 0)])
             binders.append({"pattern": pattern, "hoist": False})
 
     iter_val = eval_func(iter_expr_node, frame)

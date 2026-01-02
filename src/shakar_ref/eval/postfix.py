@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Callable, Iterable, List, Sequence
 
 from ..runtime import Frame, ShkNull, ShkValue, ShakarRuntimeError
-from ..tree import Node, Tree, Token, find_tree_by_label, is_token, tree_children
+from ..tree import Node, Tree, Tok, find_tree_by_label, is_token, tree_children
+from .common import token_kind
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 TruthyFunc = Callable[[ShkValue], bool]
@@ -39,7 +40,7 @@ def _split_postfix_children(children: Sequence[Node], keyword_tokens: Iterable[s
     semantic: List[Node] = []
 
     for ch in children:
-        if is_token(ch) and ch.type in keywords:
+        if is_token(ch) and token_kind(ch) in keywords:
             continue
 
         semantic.append(ch)

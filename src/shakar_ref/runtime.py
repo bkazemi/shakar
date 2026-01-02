@@ -17,6 +17,53 @@ from .types import (
     is_shk_value, _ensure_shk_value, StdlibFn
 )
 
+__all__ = [
+    "Frame",
+    "ShkNull",
+    "ShkNumber",
+    "ShkString",
+    "ShkBool",
+    "ShkArray",
+    "ShkObject",
+    "ShkCommand",
+    "ShkSelector",
+    "SelectorIndex",
+    "SelectorSlice",
+    "SelectorPart",
+    "ShkFn",
+    "ShkDecorator",
+    "DecoratorConfigured",
+    "DecoratorContinuation",
+    "BoundMethod",
+    "BuiltinMethod",
+    "Descriptor",
+    "StdlibFunction",
+    "DeferEntry",
+    "ShkValue",
+    "DotValue",
+    "ShkType",
+    "ShkOptional",
+    "ShkUnion",
+    "ShakarRuntimeError",
+    "ShakarTypeError",
+    "ShakarArityError",
+    "ShakarKeyError",
+    "ShakarIndexError",
+    "ShakarMethodNotFound",
+    "CommandError",
+    "ShakarAssertionError",
+    "ShakarReturnSignal",
+    "ShakarBreakSignal",
+    "ShakarContinueSignal",
+    "Method",
+    "MethodRegistry",
+    "Builtins",
+    "is_shk_value",
+    "_ensure_shk_value",
+    "StdlibFn",
+    "init_stdlib",
+]
+
 _STDLIB_INITIALIZED = False
 
 def init_stdlib() -> None:

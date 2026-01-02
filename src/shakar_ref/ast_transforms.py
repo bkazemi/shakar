@@ -9,8 +9,9 @@ from __future__ import annotations
 import sys
 from typing import Iterator, List, Optional, Tuple, TypeAlias
 
-from .tree import Tree, Token, Transformer, v_args
+from .tree import Tree, Tok, Transformer, v_args
 from .tree import Discard
+from .token_types import TT
 
 from .tree import (
     Node,
@@ -128,7 +129,7 @@ class ChainNormalize(Transformer):
 
 
 class Prune(Transformer):
-    _fragment_parser = None  # type: ignore
+    _fragment_parser: object | None = None
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -149,12 +150,12 @@ class Prune(Transformer):
         node = c[0]
 
         if is_token(node):
-            token_type = getattr(node, "type", "")
+            token_type = getattr(node, "type", None)
 
-            if token_type == "STRING":
+            if token_type in (TT.STRING, getattr(TT, "STRING", None)):
                 return self._transform_string_token(node)
 
-            if token_type == "SHELL_STRING":
+            if token_type == TT.SHELL_STRING:
                 return self._transform_shell_string_token(node)
         return node
 
@@ -175,7 +176,7 @@ class Prune(Transformer):
         # Wrap value in Optional() call
         # The correct AST structure is: explicit_chain(IDENT, call(args(...)))
         optional_call = Tree("explicit_chain", [
-            Token("IDENT", "Optional"),
+            Tok(TT.IDENT, "Optional"),
             Tree("call", [Tree("args", [value])])
         ])
         return Tree("obj_field", [key, optional_call])
@@ -184,7 +185,7 @@ class Prune(Transformer):
         return Discard
 
     # ---- string interpolation ----
-    def _transform_string_token(self, token: Token) -> Node:
+    def _transform_string_token(self, token: Tok) -> Node:
         raw = token.value
         if len(raw) < 2:
             return token
@@ -202,7 +203,7 @@ class Prune(Transformer):
         for kind, payload in segments:
             if kind == "text":
                 if payload:
-                    nodes.append(Token("STRING_TEXT", payload))
+                    nodes.append(Tok(TT.STRING, payload))
                 continue
 
             nodes.append(Tree("string_interp_expr", [payload]))
@@ -214,7 +215,7 @@ class Prune(Transformer):
             result.meta = meta
         return result
 
-    def _transform_shell_string_token(self, token: Token) -> Tree:
+    def _transform_shell_string_token(self, token: Tok) -> Tree:
         raw = token.value
 
         # Lexer currently emits the body without the leading sh""; accept both forms.
@@ -231,7 +232,7 @@ class Prune(Transformer):
         for kind, payload in segments:
             if kind == "text":
                 if payload:
-                    nodes.append(Token("STRING_TEXT", payload))
+                    nodes.append(Tok(TT.STRING, payload))
                 continue
 
             if kind == "expr":
@@ -251,10 +252,10 @@ class Prune(Transformer):
             result.meta = meta
         return result
 
-    def SHELL_STRING(self, token: Token) -> Tree:
+    def SHELL_STRING(self, token: Tok) -> Tree:
         return self._transform_shell_string_token(token)
 
-    def _split_interpolation_segments(self, text: str, token: Token) -> List[InterpolationSegment]:
+    def _split_interpolation_segments(self, text: str, token: Tok) -> List[InterpolationSegment]:
         parts: List[InterpolationSegment] = []
         literal: List[str] = []
         index = 0
@@ -298,7 +299,7 @@ class Prune(Transformer):
             parts.append(("text", "".join(literal)))
         return parts
 
-    def _split_shell_interpolation_segments(self, text: str, token: Token) -> List[InterpolationSegment]:
+    def _split_shell_interpolation_segments(self, text: str, token: Tok) -> List[InterpolationSegment]:
         parts: List[InterpolationSegment] = []
         literal: List[str] = []
         index = 0
@@ -343,7 +344,7 @@ class Prune(Transformer):
             parts.append(("text", "".join(literal)))
         return parts
 
-    def _extract_interpolation_expr(self, text: str, start: int, token: Token, raw_close: bool = False) -> Tuple[str, int]:
+    def _extract_interpolation_expr(self, text: str, start: int, token: Tok, raw_close: bool = False) -> Tuple[str, int]:
         depth = 1
         index = start
         length = len(text)
@@ -412,7 +413,7 @@ class Prune(Transformer):
         body = c[-1] if c else None
 
         for part in c:
-            if is_token(part) and getattr(part, "type", "") == "IDENT":
+            if is_token(part) and part.type == TT.IDENT:
                 name = part
                 break
         return Tree("obj_get", [name, body])
@@ -423,7 +424,7 @@ class Prune(Transformer):
         body = c[-1] if c else None
 
         for part in c:
-            if is_token(part) and getattr(part, "type", "") == "IDENT":
+            if is_token(part) and part.type == TT.IDENT:
                 if name is None:
                     name = part
                 elif param is None:
@@ -442,7 +443,7 @@ class Prune(Transformer):
         body = c[-1] if c else None
 
         for part in c[:-1]:
-            if is_token(part) and getattr(part, "type", "") == "IDENT":
+            if is_token(part) and part.type == TT.IDENT:
                 if name is None:
                     name = part
             elif is_tree(part) and tree_label(part) == "paramlist":
@@ -453,7 +454,7 @@ class Prune(Transformer):
         items = []
 
         for tok in c:
-            if is_token(tok) and getattr(tok, "type", "") == "IDENT":
+            if is_token(tok) and tok.type == TT.IDENT:
                 items.append(Tree("pattern", [tok]))
 
         if not items:
@@ -483,11 +484,11 @@ class Prune(Transformer):
         return Tree("setliteral", [])
 
     def setcomp(self, c):
-        items = [x for x in c if not (is_token(x) and getattr(x, "type", "") == "SET")]
+        items = [x for x in c if not (is_token(x) and x.type == TT.SET)]
         return Tree("setcomp", items)
 
     def array(self, c):
-        arr = [item for item in c if not (is_token(item) and getattr(item, "type", "") == "COMMA")]
+        arr = [item for item in c if not (is_token(item) and item.type == TT.COMMA)]
         return Tree("array", arr)
 
     def array_empty(self, _c):
@@ -514,23 +515,23 @@ class Prune(Transformer):
         return Tree("subjectassign_rhs", c)
 
     def implicit_subject_chain(self, c):
-        c = [x for x in c if not (is_token(x) and getattr(x, "type", "") == "DOT")]
+        c = [x for x in c if not (is_token(x) and x.type == TT.DOT)]
         return Tree("implicit_chain", c)
 
     def explicit_subject_chain(self, c):
-        c = [x for x in c if not (is_token(x) and getattr(x, "type", "") == "DOT")]
+        c = [x for x in c if not (is_token(x) and x.type == TT.DOT)]
         return Tree("explicit_chain", c)
 
     # Dot stripping
     def field(self, c):
-        ident_only = [tok for tok in c if getattr(tok, "type", None) == "IDENT"]
+        ident_only = [tok for tok in c if tok.type == TT.IDENT]
         return Tree("field", ident_only or c)
 
     def bind(self, c):
         kept = []
 
         for item in c:
-            if is_token(item) and getattr(item, "type", None) == "APPLYASSIGN":
+            if is_token(item) and item.type == TT.APPLYASSIGN:
                 continue
             kept.append(item)
         return Tree("bind", kept)
@@ -599,9 +600,9 @@ class Prune(Transformer):
 
         children: List[Node] = []
         if handle is not None:
-            children.append(Tree("using_handle", [Token("IDENT", handle)]))
+            children.append(Tree("using_handle", [Tok(TT.IDENT, handle)]))
         if binder is not None:
-            children.append(Tree("using_bind", [Token("IDENT", binder)]))
+            children.append(Tree("using_bind", [Tok(TT.IDENT, binder)]))
         children.append(expr)
         children.append(body)
         return Tree("usingstmt", children)
@@ -626,7 +627,7 @@ class Prune(Transformer):
             (
                 node
                 for node in c
-                if not (is_token(node) and getattr(node, "type", "") in {"AT", "_NL"})
+                if not (is_token(node) and node.type in {TT.AT, TT.NEWLINE})
             ),
             None,
         )
@@ -647,7 +648,7 @@ class Prune(Transformer):
         body = None
 
         for node in c:
-            if is_token(node) and getattr(node, "type", "") == "IDENT" and name is None:
+            if is_token(node) and node.type == TT.IDENT and name is None:
                 name = node
             elif is_tree(node) and tree_label(node) == "paramlist":
                 params = node
@@ -690,7 +691,7 @@ class Prune(Transformer):
                     return_contract = node
                     continue
 
-            if is_token(node) and getattr(node, "type", "") == "IDENT" and name is None:
+            if is_token(node) and node.type == TT.IDENT and name is None:
                 name = node
 
         children: List[Node] = []
@@ -710,7 +711,7 @@ class Prune(Transformer):
 
     def deferstmt(self, c: List[Node]) -> Tree:
         label = None
-        deps: List[Token] = []
+        deps: List[Tok] = []
         body_node = None
 
         for node in c:
@@ -726,16 +727,21 @@ class Prune(Transformer):
                     deps.extend(_collect_defer_after(node))
                     continue
                 if tag == "defer_block":
-                    block = self._transform_tree(node.children[0])
-                    body_node = Tree("deferblock", [block])
+                    transformed = self._transform_tree(node.children[0])
+                    if isinstance(transformed, Discard):
+                        continue
+                    body_node = Tree("deferblock", [transformed])
                     continue
-                body_node = self._transform_tree(node)
+                transformed = self._transform_tree(node)
+                if isinstance(transformed, Discard):
+                    continue
+                body_node = transformed
             else:
                 body_node = node
 
         children: List[Node] = []
         if label is not None:
-            children.append(Tree("deferlabel", [Token("IDENT", label)]))
+            children.append(Tree("deferlabel", [Tok(TT.IDENT, label)]))
         if body_node is not None:
             children.append(body_node)
         if deps:
@@ -746,7 +752,7 @@ class Prune(Transformer):
         exprs: List[Node] = []
 
         for node in c:
-            if is_token(node) and getattr(node, "type", "") == "RETURN":
+            if is_token(node) and node.type == TT.RETURN:
                 continue
             exprs.append(node)
         return Tree("returnstmt", exprs)
@@ -755,7 +761,7 @@ class Prune(Transformer):
         exprs: List[Node] = []
 
         for node in c:
-            if is_token(node) and getattr(node, "type", "") == "THROW":
+            if is_token(node) and node.type == TT.THROW:
                 continue
             exprs.append(node)
         return Tree("throwstmt", exprs)
@@ -765,7 +771,7 @@ class Prune(Transformer):
         children = []
 
         for node in c:
-            if is_token(node) and getattr(node, "type", "") == "CATCH":
+            if is_token(node) and node.type == TT.CATCH:
                 continue
             if is_tree(node) and tree_label(node) == "catchtypes" and len(node.children) == 0:
                 continue
@@ -774,11 +780,11 @@ class Prune(Transformer):
         return Tree("catchexpr", children)
 
     def catchtypes(self, c: List[Node]) -> Tree:
-        items = [item for item in c if not (is_token(item) and getattr(item, "type", "") == "COMMA")]
+        items = [item for item in c if not (is_token(item) and item.type == TT.COMMA)]
         return Tree("catchtypes", items)
 
     def catchassign(self, c: List[Node]) -> Tree:
-        items = [item for item in c if not (is_token(item) and getattr(item, "type", "") == "BIND")]
+        items = [item for item in c if not (is_token(item) and item.type == TT.BIND)]
         return Tree("catchassign", items)
 
     # tidy arg nodes for printing
@@ -877,20 +883,22 @@ def validate_hoisted_binders(tree: Tree) -> None:
         label = tree_label(n)
 
         if label == "binderlist":
-            pairs = []
+            pairs: list[tuple[str, bool]] = []
 
             for ch in tree_children(n):
                 if is_tree(ch) and tree_label(ch) == "binder":
                     name = _first_ident(ch)
+                    if name is None:
+                        continue
                     is_hoisted = any(
-                        is_token(tok) and getattr(tok, "type", "") == "PLUS"
+                        is_token(tok) and tok.type == TT.PLUS
                         for tok in tree_children(ch)
                         if is_token(tok)
                     )
                     pairs.append((name, is_hoisted))
 
             if pairs:
-                byname = {}
+                byname: dict[str, set[str]] = {}
 
                 for name, is_h in pairs:
                     base = name
@@ -914,13 +922,13 @@ def _strip_discard(node: Tree) -> Tree:
     return Tree(node.data, kept)
 
 
-def _collect_defer_after(node: Tree) -> List[Token]:
-    deps: List[Token] = []
+def _collect_defer_after(node: Tree) -> List[Tok]:
+    deps: List[Tok] = []
 
     for ch in tree_children(node):
         name = _first_ident(ch)
         if name:
-            deps.append(Token("IDENT", name))
+            deps.append(Tok(TT.IDENT, name))
 
     return deps
 
@@ -977,11 +985,13 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
         if not is_tree(node):
             return node
         label = tree_label(node)
+        if label is None:
+            return node
 
         if label == "holeexpr":
             name = f"_hole{len(holes)}"
             holes.append(name)
-            return Token("IDENT", name)
+            return Tok(TT.IDENT, name)
         cloned_children = [clone(child) for child in tree_children(node)]
         return Tree(label, cloned_children)
 
@@ -989,7 +999,7 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
 
     if not holes:
         return None
-    params = [Token("IDENT", name) for name in holes]
+    params = [Tok(TT.IDENT, name) for name in holes]
     paramlist = Tree("paramlist", params)
     return Tree("amp_lambda", [paramlist, cloned_chain])
 
@@ -1009,7 +1019,7 @@ def _infer_amp_lambda_params(node: Node) -> Node:
         if uses_subject or not names:
             node.children = [body]
         else:
-            params = [Token("IDENT", name) for name in names]
+            params = [Tok(TT.IDENT, name) for name in names]
             node.children = [Tree("paramlist", params), body]
         return node
     node.children = [_infer_amp_lambda_params(child) for child in tree_children(node)]
@@ -1056,7 +1066,7 @@ def _collect_lambda_free_names(node: Node) -> tuple[List[str], bool]:
                 walk(child, label)
             return
 
-        if is_token(n) and getattr(n, "type", None) == "IDENT":
+        if is_token(n) and n.type == TT.IDENT:
             if parent_label in {"field", "paramlist", "key_ident", "key_string"}:
                 return
             append(n.value)
@@ -1066,8 +1076,8 @@ def _collect_lambda_free_names(node: Node) -> tuple[List[str], bool]:
 
 
 def _get_ident_value(node: Node) -> Optional[str]:
-    if is_token(node) and getattr(node, "type", None) == "IDENT":
-        return node.value
+    if is_token(node) and node.type == TT.IDENT:
+        return str(node.value)
     return None
 
 
@@ -1088,7 +1098,7 @@ _CANONICAL_RENAMES = {
 
 _FLATTEN_SINGLE = {"expr"}
 
-_IGNORED_TOKEN_TYPES = {"SEMI", "_NL", "INDENT", "DEDENT"}
+_IGNORED_TOKEN_TYPES = {TT.SEMI, TT.NEWLINE, TT.INDENT, TT.DEDENT}
 
 
 def _canonicalize_ast(node: Node) -> Optional[Node]:
@@ -1098,6 +1108,9 @@ def _canonicalize_ast(node: Node) -> Optional[Node]:
     if not is_tree(node):
         return node
     label = tree_label(node)
+    if label is None:
+        return node
+
     renamed = _CANONICAL_RENAMES.get(label, label)
     new_children: List[Node] = []
 
@@ -1119,8 +1132,8 @@ def _first_ident(node: Node) -> Optional[str]:
     while queue:
         cur = queue.pop(0)
 
-        if is_token(cur) and getattr(cur, "type", "") == "IDENT":
-            return cur.value
+        if is_token(cur) and cur.type == TT.IDENT:
+            return str(cur.value)
 
         if is_tree(cur):
             queue.extend(tree_children(cur))
@@ -1130,6 +1143,8 @@ def _first_ident(node: Node) -> Optional[str]:
 # Light-touch AST normalization used by parse_to_ast in the legacy pipeline
 def canonicalize_root(tree: Tree) -> Tree:
     label = tree_label(tree)
+    if label is None:
+        return tree
 
     if label not in {"start_noindent", "start_indented"}:
         return tree

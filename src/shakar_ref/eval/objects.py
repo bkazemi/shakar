@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Callable, Iterable, List, Optional, Tuple
 
-from ..tree import Token
+from ..tree import Tok
+from ..token_types import TT
 
 from ..runtime import Descriptor, Frame, ShkFn, ShkObject, ShkString, ShkValue, ShakarRuntimeError
 from ..tree import Tree, child_by_label, is_token, is_tree, tree_children, tree_label
@@ -54,7 +55,7 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
             if len(cur.children) != 1:
                 break
             cur = cur.children[0]
-        return cur.value if isinstance(cur, Token) and cur.type == 'IDENT' else None
+        return cur.value if isinstance(cur, Tok) and cur.type == TT.IDENT else None
 
     def _maybe_method_signature(key_node: Optional[Tree]) -> Optional[Tuple[str, List[str]]]:
         if key_node is None or tree_label(key_node) != 'key_expr':
@@ -186,9 +187,15 @@ def eval_key(k: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue | str:
     if label is not None:
         match label:
             case 'key_ident':
-                t = k.children[0]; return t.value
+                t = k.children[0]
+                if isinstance(t, Tok) and t.type == TT.IDENT:
+                    return str(t.value)
+                return eval_func(k, frame)
             case 'key_string':
-                t = k.children[0]; s = t.value
+                t = k.children[0]
+                if not isinstance(t, Tok) or t.type != TT.STRING:
+                    return eval_func(k, frame)
+                s = str(t.value)
 
                 if len(s) >= 2 and ((s[0] == '"' and s[-1] == '"') or (s[0] == "'" and s[-1] == "'")):
                     s = s[1:-1]
@@ -197,7 +204,7 @@ def eval_key(k: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue | str:
                 v = eval_func(k.children[0], frame)
                 return v.value if isinstance(v, ShkString) else v
 
-    if is_token(k) and k.type in ('IDENT', 'STRING'):
-        return k.value.strip('"').strip("'")
+    if is_token(k) and k.type in {TT.IDENT, TT.STRING}:
+        return str(k.value).strip('"').strip("'")
 
     return eval_func(k, frame)

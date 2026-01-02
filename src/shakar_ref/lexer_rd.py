@@ -138,7 +138,7 @@ class Lexer:
         self.pending_dedents = 0
 
     # ========================================================================
-    # Main Tokenization
+    # Main Tokization
     # ========================================================================
 
     def tokenize(self) -> List[Tok]:
@@ -252,7 +252,7 @@ class Lexer:
                 raise LexError(f"Indentation mismatch at line {self.line}")
 
     # ========================================================================
-    # Token Scanners
+    # Tok Scanners
     # ========================================================================
 
     def scan_newline(self):

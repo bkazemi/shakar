@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Callable, Dict, List, Optional, Tuple
 
-from ..tree import Tree, Token
+from ..tree import Tree, Tok
 from ..tree import Node
+from ..token_types import TT
 
 from ..runtime import DecoratorConfigured, Frame, ShkDecorator, ShkFn, ShkNull, ShkValue, ShakarRuntimeError, ShakarTypeError
-from ..tree import is_tree, tree_children, tree_label, child_by_label
+from ..tree import is_tree, is_token, tree_children, tree_label, child_by_label
 from .common import expect_ident_token as _expect_ident_token, ident_token_value as _ident_token_value
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
@@ -18,7 +19,7 @@ def extract_param_names(params_node: Optional[Node], context: str="parameter lis
     names: List[str] = []
 
     for p in tree_children(params_node):
-        if getattr(p, "type", None) == 'COMMA':
+        if is_token(p) and p.type == TT.COMMA:
             continue
 
         name = _ident_token_value(p)
@@ -121,14 +122,17 @@ def _inject_contract_assertions(body: Node, contracts: Dict[str, Node]) -> Node:
     for param_name, contract_expr in contracts.items():
         assertion = Tree('assert', [
             Tree('compare', [
-                Token('IDENT', param_name),
-                Tree('cmpop', [Token('TILDE', '~')]),
+                Tok(TT.IDENT, param_name, 0, 0),
+                Tree('cmpop', [Tok(TT.TILDE, '~', 0, 0)]),
                 contract_expr
             ])
         ])
         assertions.append(assertion)
 
     body_label = tree_label(body)
+
+    if body_label is None:
+        raise ShakarRuntimeError("Malformed function body")
 
     # For inline bodies, we need to convert to an indentblock to preserve semantics
     # because inlinebody only evaluates the first child

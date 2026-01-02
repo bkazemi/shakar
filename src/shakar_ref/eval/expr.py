@@ -3,7 +3,8 @@ from __future__ import annotations
 import math
 from typing import Callable, Iterable, List, Optional, Set
 
-from ..tree import Token
+from ..tree import Tok
+from ..token_types import TT
 
 from ..runtime import (
     Frame,
@@ -44,7 +45,7 @@ def normalize_unary_op(op_node: Node, frame: Frame) -> Node | str:
 
 def eval_unary(op_node: Node, rhs_node: Tree, frame: Frame, eval_func: EvalFunc, apply_op_func=chain_apply_op) -> ShkValue:
     op_norm = normalize_unary_op(op_node, frame)
-    op_value = op_norm.value if isinstance(op_norm, Token) else op_norm
+    op_value = op_norm.value if isinstance(op_norm, Tok) else op_norm
 
     if op_value in ('++', '--'):
         from .bind import resolve_assignable_node, apply_numeric_delta
@@ -64,16 +65,16 @@ def eval_unary(op_node: Node, rhs_node: Tree, frame: Frame, eval_func: EvalFunc,
     rhs = eval_func(rhs_node, frame)
 
     match op_norm:
-        case Token(type='PLUS') | '+':
+        case Tok(type=TT.PLUS) | '+':
             raise ShakarRuntimeError("unary + not supported")
-        case Token(type='MINUS') | '-':
+        case Tok(type=TT.MINUS) | '-':
             rhs_num = _coerce_number(rhs)
             return ShkNumber(-rhs_num)
-        case Token(type='TILDE') | '~':
+        case Tok(type=TT.TILDE) | '~':
             raise ShakarRuntimeError("bitwise ~ not supported yet")
-        case Token(type='NOT') | 'not':
+        case Tok(type=TT.NOT) | 'not':
             return ShkBool(not is_truthy(rhs))
-        case Token(type='NEG') | '!':
+        case Tok(type=TT.NEG) | '!':
             return ShkBool(not is_truthy(rhs))
         case _:
             raise ShakarRuntimeError("Unsupported unary op")
@@ -108,8 +109,8 @@ def eval_infix(children: List[Tree], frame: Frame, eval_func: EvalFunc, right_as
         acc = vals[-1]
 
         for i in range(len(vals)-2, -1, -1):
-            lhs, rhs = vals[i], acc
-            require_number(lhs); require_number(rhs)
+            lhs = require_number(vals[i])
+            rhs = require_number(acc)
             acc = ShkNumber(lhs.value ** rhs.value)
         return acc
 
@@ -232,7 +233,7 @@ def eval_logical(kind: str, children: List[Tree], frame: Frame, eval_func: EvalF
         frame.dot = prev_dot
 
 def eval_nullish(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> ShkValue:
-    exprs = [child for child in children if not (isinstance(child, Token) and child.value == '??')]
+    exprs = [child for child in children if not (isinstance(child, Tok) and child.value == '??')]
 
     if not exprs:
         return ShkNull()
@@ -298,16 +299,16 @@ def _all_ops_in(children: List[Tree], allowed: Set[str]) -> bool:
     return all(as_op(children[i]) in allowed for i in range(1, len(children), 2))
 
 def as_op(x: Node) -> str:
-    if isinstance(x, Token):
+    if isinstance(x, Tok):
         return str(x.value)
 
     label = tree_label(x) if is_tree(x) else None
     if label is not None:
-        if label in ('addop', 'mulop', 'powop') and len(x.children) == 1 and isinstance(x.children[0], Token):
+        if label in ('addop', 'mulop', 'powop') and len(x.children) == 1 and isinstance(x.children[0], Tok):
             return str(x.children[0].value)
 
         if label == 'cmpop':
-            tokens: list[str] = [str(tok.value) for tok in x.children if isinstance(tok, Token)]
+            tokens: list[str] = [str(tok.value) for tok in x.children if isinstance(tok, Tok)]
             if not tokens:
                 raise ShakarRuntimeError("Empty comparison operator")
 
@@ -327,26 +328,33 @@ def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
                 return ShkArray(lhs.items + rhs.items)
             if isinstance(lhs, ShkString) or isinstance(rhs, ShkString):
                 return ShkString(stringify(lhs) + stringify(rhs))
-            require_number(lhs); require_number(rhs)
-            return ShkNumber(lhs.value + rhs.value)
+            lhs_num = require_number(lhs)
+            rhs_num = require_number(rhs)
+            return ShkNumber(lhs_num.value + rhs_num.value)
         case '-':
-            require_number(lhs); require_number(rhs)
-            return ShkNumber(lhs.value - rhs.value)
+            lhs_num = require_number(lhs)
+            rhs_num = require_number(rhs)
+            return ShkNumber(lhs_num.value - rhs_num.value)
         case '*':
-            require_number(lhs); require_number(rhs)
-            return ShkNumber(lhs.value * rhs.value)
+            lhs_num = require_number(lhs)
+            rhs_num = require_number(rhs)
+            return ShkNumber(lhs_num.value * rhs_num.value)
         case '/':
-            require_number(lhs); require_number(rhs)
-            return ShkNumber(lhs.value / rhs.value)
+            lhs_num = require_number(lhs)
+            rhs_num = require_number(rhs)
+            return ShkNumber(lhs_num.value / rhs_num.value)
         case '//':
-            require_number(lhs); require_number(rhs)
-            return ShkNumber(math.floor(lhs.value / rhs.value))
+            lhs_num = require_number(lhs)
+            rhs_num = require_number(rhs)
+            return ShkNumber(math.floor(lhs_num.value / rhs_num.value))
         case '%':
-            require_number(lhs); require_number(rhs)
-            return ShkNumber(lhs.value % rhs.value)
+            lhs_num = require_number(lhs)
+            rhs_num = require_number(rhs)
+            return ShkNumber(lhs_num.value % rhs_num.value)
         case '**':
-            require_number(lhs); require_number(rhs)
-            return ShkNumber(lhs.value ** rhs.value)
+            lhs_num = require_number(lhs)
+            rhs_num = require_number(rhs)
+            return ShkNumber(lhs_num.value ** rhs_num.value)
     raise ShakarRuntimeError(f"Unknown operator {op}")
 
 def _compare_values(op: str, lhs: ShkValue, rhs: ShkValue) -> bool:

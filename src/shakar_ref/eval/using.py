@@ -3,7 +3,8 @@ from __future__ import annotations
 from contextlib import nullcontext
 from typing import Callable, List, Optional
 
-from ..tree import Tree, Token
+from ..tree import Tree, Tok
+from ..token_types import TT
 
 from ..runtime import Frame, ShkFn, ShkNull, ShkValue, ShakarRuntimeError, ShakarTypeError
 from ..tree import Node, is_token, is_tree, tree_label
@@ -28,8 +29,8 @@ def _call_method(method: ShkValue, args: List[ShkValue], frame: Frame, eval_func
     return call_value(method, args, frame, eval_func)
 
 def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
-    handle_tok: Optional[Token] = None
-    binder_tok: Optional[Token] = None
+    handle_tok: Optional[Tok] = None
+    binder_tok: Optional[Tok] = None
     expr_node: Optional[Node] = None
     body_node: Optional[Tree] = None
 
@@ -58,7 +59,7 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     bind_name = None
     implicit_bind_name = None
 
-    if binder_tok is None and handle_tok is None and is_token(expr_node) and getattr(expr_node, "type", "") == "IDENT":
+    if binder_tok is None and handle_tok is None and is_token(expr_node) and expr_node.type == TT.IDENT:
         implicit_bind_name = expr_node.value
 
     if binder_tok is not None:

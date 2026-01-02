@@ -4,6 +4,7 @@ import asyncio
 import inspect
 from typing import Awaitable, Callable, Iterable, List, Optional, TypeVar, TypedDict
 
+from ..token_types import TT
 from ..runtime import Frame, ShkNull, ShkObject, ShkString, ShkValue, ShakarRuntimeError
 from ..tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label
 from .blocks import eval_body_node, run_body_with_subject, temporary_bindings
@@ -229,7 +230,7 @@ def _parse_bracketed_any_all(expr_node: Tree) -> Optional[tuple[str, list[AwaitA
 
     label_tok = None
     for ch in tree_children(array_node):
-        if is_token(ch) and ch.type in {'ANY', 'ALL', 'IDENT'}:
+        if is_token(ch) and ch.type in {TT.ANY, TT.ALL, TT.IDENT}:
             label_tok = ch
             break
 

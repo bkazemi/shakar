@@ -131,8 +131,8 @@ class Tok:
     """Token with position info"""
     type: TT
     value: Any
-    line: int
-    column: int
+    line: int = 0
+    column: int = 0
 
     def __repr__(self):
         return f"Tok({self.type.name}, {self.value!r}, {self.line}:{self.column})"

@@ -1,7 +1,8 @@
 from __future__ import annotations
 from typing import List, Optional
 
-from .tree import Tree, Token
+from .tree import Tree, Tok
+from .token_types import TT
 
 from .tree import Node, is_tree, tree_children, tree_label
 from .tree import is_token as is_token
@@ -71,7 +72,7 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
         if label == 'holeexpr':
             name = f"_hole{len(holes)}"
             holes.append(name)
-            return Token('IDENT', name)
+            return Tok(TT.IDENT, name, 0, 0)
 
         cloned_children: list[Node] = [clone(child) for child in tree_children(node)]
         cloned = Tree(label, cloned_children)
@@ -83,8 +84,8 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
     if not holes:
         return None
 
-    params = [Token('IDENT', name) for name in holes]
-    param_children: list[Token] = list(params)
+    params = [Tok(TT.IDENT, name, 0, 0) for name in holes]
+    param_children: list[Tok] = list(params)
     paramlist = Tree('paramlist', param_children)
     setattr(paramlist, "_meta", getattr(chain, "meta", None))
 

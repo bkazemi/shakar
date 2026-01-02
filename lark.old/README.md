@@ -11,15 +11,12 @@ This directory contains the legacy Lark-based parser (`parse_auto.py`) that has 
 
 ## Remaining Usage
 
-`parse_auto.py` is still used by:
-- `sanity_treecheck.py`: Tree validation tests that specifically validate Lark parsing behavior and invariants
-
-This is a specialized validation tool that tests parse tree structure, not a required dependency for the main codebase.
+None in the main runtime or sanity scripts. `parse_auto.py` is kept for reference only.
 
 ## Dependencies
 
-`parse_auto.py` requires the `lark` package. All other code in the project uses local `Tree`/`Token` implementations from `src/shakar_ref/tree.py`.
+`parse_auto.py` requires the `lark` package. All other code in the project uses local `Tree`/`Tok` implementations from `src/shakar_ref/tree.py`.
 
 ## Future
 
-`sanity_treecheck.py` could be rewritten to use the RD parser, at which point this directory and the Lark dependency can be removed entirely. However, since it's just a validation tool (not part of the main runtime), this is low priority.
+If `parse_auto.py` is no longer needed, this directory (and the `lark` dependency) can be removed entirely.

@@ -21,7 +21,8 @@ from ..runtime import (
 from ..utils import sequence_items
 from ..tree import (
     Node,
-    Token,
+    Tree,
+    Tok,
     tree_children,
     tree_label,
     child_by_label,
@@ -31,6 +32,7 @@ from ..tree import (
     is_tree,
     is_token,
 )
+from ..token_types import TT
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
@@ -143,6 +145,8 @@ def _selector_parts_from_selitem(node: Tree, frame: Frame, eval_fn: EvalFunc) ->
     if label == "indexitem":
         selatom = child_by_label(target, "selatom")
         value = _eval_selector_atom(selatom, frame, eval_fn)
+        if value is None:
+            raise ShakarRuntimeError("Selector index cannot be empty")
         return [SelectorIndex(value)]
 
     return []
@@ -246,7 +250,7 @@ def _eval_seloptstop(node: Optional[Tree], frame: Frame, eval_fn: EvalFunc) -> t
     exclusive = False
 
     # Check for LT token as first child (exclusive slice from RD parser)
-    if children and is_token(children[0]) and children[0].type == 'LT':
+    if children and is_token(children[0]) and children[0].type == TT.LT:
         exclusive = True
 
     # Also check source segment for backwards compatibility with Lark parser
@@ -257,6 +261,8 @@ def _eval_seloptstop(node: Optional[Tree], frame: Frame, eval_fn: EvalFunc) -> t
 
     selatom = child_by_label(node, "selatom")
     value = _eval_selector_atom(selatom, frame, eval_fn)
+    if value is None:
+        value = ShkNull()
 
     return value, exclusive
 

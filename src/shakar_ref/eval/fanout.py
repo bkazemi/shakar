@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import List
-from ..tree import Token
+from ..tree import Tok
 
 from ..runtime import Frame, ShkValue, ShakarRuntimeError
 from ..tree import Node, Tree, child_by_label, is_tree, tree_children, tree_label
@@ -238,8 +238,8 @@ def _store(target: ShkValue, final_seg: Tree, value: ShkValue, frame: Frame, eva
         case _:
             raise ShakarRuntimeError("Fanout block target must be a field or index")
 
-def _name(label: str | Token | None) -> str:
-    if isinstance(label, Token):
+def _name(label: str | Tok | None) -> str:
+    if isinstance(label, Tok):
         return str(label.value)
     return str(label) if label is not None else ""
 
@@ -251,7 +251,7 @@ def _seg_fingerprint(seg: Tree) -> str:
             buf.append(_name(tree_label(node)))
             for ch in tree_children(node):
                 walk(ch)
-        elif isinstance(node, Token):
+        elif isinstance(node, Tok):
             buf.append(node.value)
     walk(seg)
     return "|".join(buf)

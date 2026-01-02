@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from typing import Callable, List, Optional
-from ..tree import Token
+from ..tree import Tok
+from ..token_types import TT
 
 from ..runtime import (
     BoundMethod,
@@ -14,6 +15,7 @@ from ..runtime import (
     ShkArray,
     ShkSelector,
     SelectorIndex,
+    SelectorPart,
     ShkValue,
     ShakarArityError,
     ShakarMethodNotFound,
@@ -23,7 +25,7 @@ from ..runtime import (
     call_builtin_method,
     call_shkfn,
 )
-from ..tree import Node, Tree, Token, child_by_label, is_token, is_tree, tree_children, tree_label
+from ..tree import Node, Tree, Tok, child_by_label, is_token, is_tree, tree_children, tree_label
 from .bind import FanContext, RebindContext, apply_fan_op
 from .common import expect_ident_token as _expect_ident_token
 from .mutation import get_field_value, index_value, slice_value
@@ -195,7 +197,7 @@ def apply_op(recv: ShkValue | FanContext | RebindContext, op: Tree, frame: Frame
 
 def _get_field(recv: ShkValue, op: Tree, frame: Frame) -> ShkValue:
     # field nodes may carry a leading DOT token plus the identifier; pick the name token
-    tokens = [ch for ch in op.children if isinstance(ch, Token)]
+    tokens = [ch for ch in op.children if isinstance(ch, Tok)]
     tok = tokens[-1] if tokens else op.children[0]
     try:
         field_name = _expect_ident_token(tok, "Field access")
@@ -282,10 +284,10 @@ def _default_arg(node: Tree) -> Optional[Tree]:
     if selector_index is None:
         return None
 
-    skip_tokens = {"RSQB", "COMMA", "DEFAULT", "COLON"}
+    skip_tokens = {TT.RSQB, TT.COMMA, TT.COLON}
 
     for child in children[selector_index + 1:]:
-        if is_token(child) and getattr(child, "type", "") in skip_tokens:
+        if is_token(child) and child.type in skip_tokens:
             continue
 
         return child

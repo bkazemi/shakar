@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import Callable, Dict, List, Optional, Tuple, TypeVar, Union, TYPE_CHECKING
 from typing_extensions import Protocol, TypeAlias, TypeGuard
 from .tree import Node
+
+if TYPE_CHECKING:
+    from .eval.bind import RebindContext, FanContext
 
 # ---------- Value Model (only Sh* -> Shk*) ----------
 
@@ -193,27 +196,29 @@ class StdlibFunction:
     fn: StdlibFn
     arity: Optional[int] = None
 
-ShkValue: TypeAlias = (
-    ShkNull
-    | ShkNumber
-    | ShkString
-    | ShkBool
-    | ShkArray
-    | ShkObject
-    | ShkFn
-    | ShkDecorator
-    | DecoratorConfigured
-    | DecoratorContinuation
-    | Descriptor
-    | ShkSelector
-    | ShkCommand
-    | BoundMethod
-    | BuiltinMethod
-    | StdlibFunction
-    | ShkType
-    | ShkOptional
-    | ShkUnion
-)
+ShkValue: TypeAlias = Union[
+    ShkNull,
+    ShkNumber,
+    ShkString,
+    ShkBool,
+    ShkArray,
+    ShkObject,
+    ShkFn,
+    ShkDecorator,
+    DecoratorConfigured,
+    DecoratorContinuation,
+    Descriptor,
+    ShkSelector,
+    ShkCommand,
+    BoundMethod,
+    BuiltinMethod,
+    StdlibFunction,
+    ShkType,
+    ShkOptional,
+    ShkUnion,
+    "RebindContext",
+    "FanContext",
+]
 
 DotValue: TypeAlias = Optional[ShkValue]
 
