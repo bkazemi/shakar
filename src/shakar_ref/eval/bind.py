@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Callable, List
 
-from ..runtime import Frame, ShkArray, ShkNumber, ShkValue, ShakarRuntimeError
-from ..tree import Node, Tree, Tok, child_by_label, is_token, is_tree, tree_children, tree_label
+from ..runtime import Frame, ShkArray, ShkNumber, ShkValue, EvalResult, ShakarRuntimeError
+from ..tree import Node, Tree, Tok, child_by_label, is_token, is_tree, tree_children, tree_label, ident_value, token_kind
 
-from .common import expect_ident_token, token_kind, require_number
+from .common import expect_ident_token, require_number
 from .destructure import assign_pattern as destructure_assign_pattern
 from .mutation import get_field_value, set_field_value, index_value, set_index_value
 from .postfix import define_new_ident
@@ -55,7 +55,7 @@ class FanContext:
         return list(self.values)
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
-ApplyOpFunc = Callable[[ShkValue | FanContext | RebindContext, Tree, Frame, EvalFunc], ShkValue | FanContext | RebindContext]
+ApplyOpFunc = Callable[[EvalResult, Tree, Frame, EvalFunc], EvalResult]
 IndexEvalFunc = Callable[[Tree, Frame, EvalFunc], ShkValue]
 
 def assign_ident(name: str, value: ShkValue, frame: Frame, *, create: bool) -> ShkValue:
@@ -211,8 +211,8 @@ def resolve_assignable_node(
     while is_tree(current) and tree_label(current) in {"primary", "group", "group_expr"} and len(current.children) == 1:
         current = current.children[0]
 
-    if is_token(current) and token_kind(current) == "IDENT":
-        return make_ident_context(current.value, frame)
+    if name := ident_value(current):
+        return make_ident_context(name, frame)
 
     if is_tree(current):
         label = tree_label(current)
@@ -332,7 +332,7 @@ def build_fieldfan_context(owner: ShkValue, fan_node: Tree, frame: Frame) -> Fan
         raise ShakarRuntimeError("Malformed field fan")
 
     if fieldlist_node is not None:
-        names = [tok.value for tok in tree_children(fieldlist_node) if is_token(tok) and token_kind(tok) == "IDENT"]
+        names = [name for tok in tree_children(fieldlist_node) if (name := ident_value(tok))]
     else:
         # valuefan_list form (from valuefan normalization in lvalues)
         names = []
@@ -340,12 +340,12 @@ def build_fieldfan_context(owner: ShkValue, fan_node: Tree, frame: Frame) -> Fan
             # valuefan_item -> child may be IDENT token
             if is_tree(item) and tree_label(item) == "valuefan_item":
                 for ch in tree_children(item):
-                    if is_token(ch) and token_kind(ch) == "IDENT":
-                        names.append(ch.value)
+                    if name := ident_value(ch):
+                        names.append(name)
                     else:
                         raise ShakarRuntimeError("Field fan only supports identifier entries")
-            elif is_token(item) and token_kind(item) == "IDENT":
-                names.append(item.value)
+            elif name := ident_value(item):
+                names.append(name)
             else:
                 raise ShakarRuntimeError("Field fan only supports identifier entries")
 
@@ -428,11 +428,11 @@ def apply_assign(
     """Evaluate the `.= expr` apply-assign form (subject-aware updates)."""
     head, *ops = lvalue_node.children
 
-    if not ops and is_token(head) and token_kind(head) == "IDENT":
-        target = frame.get(head.value)
+    if not ops and (name := ident_value(head)):
+        target = frame.get(name)
         rhs_frame = Frame(parent=frame, dot=target)
         new_val = eval_func(rhs_node, rhs_frame)
-        assign_ident(head.value, new_val, frame, create=False)
+        assign_ident(name, new_val, frame, create=False)
         return new_val
 
     target = eval_func(head, frame)
@@ -478,7 +478,7 @@ def apply_assign(
             if fieldlist_node is None:
                 raise ShakarRuntimeError("Malformed field fan-out list")
 
-            names = [tok.value for tok in fieldlist_node.children if is_token(tok) and token_kind(tok) == "IDENT"]
+            names = [n for tok in fieldlist_node.children if (n := ident_value(tok))]
             if not names:
                 raise ShakarRuntimeError("Empty field fan-out list")
             if len(set(names)) != len(names):
@@ -575,8 +575,8 @@ def assign_lvalue(
 
     head, *ops = node.children
 
-    if not ops and is_token(head) and token_kind(head) == "IDENT":
-        return assign_ident(head.value, value, frame, create=create)
+    if not ops and (name := ident_value(head)):
+        return assign_ident(name, value, frame, create=create)
 
     target = eval_func(head, frame)
 
@@ -608,7 +608,7 @@ def assign_lvalue(
             if fieldlist_node is None:
                 raise ShakarRuntimeError("Malformed field fan-out list")
 
-            names = [tok.value for tok in tree_children(fieldlist_node) if is_token(tok) and token_kind(tok) == "IDENT"]
+            names = [n for tok in tree_children(fieldlist_node) if (n := ident_value(tok))]
             if not names:
                 raise ShakarRuntimeError("Empty field fan-out list")
             if len(set(names)) != len(names):
@@ -657,8 +657,8 @@ def read_lvalue(
 
     head, *ops = node.children
 
-    if not ops and is_token(head) and token_kind(head) == "IDENT":
-        return frame.get(head.value)
+    if not ops and (name := ident_value(head)):
+        return frame.get(name)
 
     target = eval_func(head, frame)
 
@@ -688,9 +688,10 @@ def resolve_rebind_lvalue(
     evaluate_index_operand: IndexEvalFunc,
 ) -> RebindContext | FanContext:
     """Turn a `rebind_lvalue` node into a concrete context for prefix rebinds."""
+    if name := ident_value(node):
+        return make_ident_context(name, frame)
+
     if is_token(node):
-        if token_kind(node) == "IDENT":
-            return make_ident_context(node.value, frame)
         raise ShakarRuntimeError("Malformed rebind target")
 
     if not is_tree(node):

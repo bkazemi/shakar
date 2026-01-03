@@ -118,6 +118,9 @@ class TT(Enum):
     # Pipe (for guard chains)
     PIPE = auto()  # |
 
+    # Binding
+    BIND = auto()  # ::
+
     # Special
     NEWLINE = auto()
     INDENT = auto()

@@ -9,6 +9,7 @@ from ..runtime import (
     BuiltinMethod,
     DecoratorConfigured,
     DecoratorContinuation,
+    EvalResult,
     Frame,
     ShkDecorator,
     ShkFn,
@@ -158,7 +159,7 @@ def apply_index_operation(recv: ShkValue, op: Tree, frame: Frame, eval_func: Eva
 
     return apply_selectors_to_value(recv, selectors)
 
-def apply_op(recv: ShkValue | FanContext | RebindContext, op: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue | RebindContext | FanContext:
+def apply_op(recv: EvalResult, op: Tree, frame: Frame, eval_func: EvalFunc) -> EvalResult:
     if isinstance(recv, FanContext):
         return apply_fan_op(recv, op, frame, apply_op=apply_op, eval_func=eval_func)
 
@@ -168,7 +169,7 @@ def apply_op(recv: ShkValue | FanContext | RebindContext, op: Tree, frame: Frame
         context = recv
         recv = context.value
 
-    op_handlers: dict[str, Callable[[], ShkValue | RebindContext | FanContext]] = {
+    op_handlers: dict[str, Callable[[], EvalResult]] = {
         'field': lambda: _get_field(recv, op, frame),
         'fieldsel': lambda: _get_field(recv, op, frame),
         'index': lambda: apply_index_operation(recv, op, frame, eval_func),

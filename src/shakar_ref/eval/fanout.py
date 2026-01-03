@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List
 from ..tree import Tok
 
-from ..runtime import Frame, ShkValue, ShakarRuntimeError
+from ..runtime import Frame, ShkValue, EvalResult, ShakarRuntimeError
 from ..tree import Node, Tree, child_by_label, is_tree, tree_children, tree_label
 from .bind import FanContext, RebindContext
 from .selector import evaluate_selectorlist, SelectorIndex, SelectorSlice, _selector_slice_to_slice, _normalize_index_position
@@ -125,7 +125,7 @@ def _eval_clause(
         new_val = apply_binary_operator(op_symbol, old_val, rhs_val)
         _store_target(tgt, final_seg, new_val, frame, evaluate_index_operand, eval_func)
 
-def _iter_targets(target_obj: ShkValue | FanContext) -> List[ShkValue | RebindContext]:
+def _iter_targets(target_obj: EvalResult) -> List[ShkValue | RebindContext]:
     if isinstance(target_obj, FanContext):
         return list(target_obj.contexts)
     return [target_obj]

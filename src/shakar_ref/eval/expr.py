@@ -90,7 +90,7 @@ def eval_infix(children: List[Tree], frame: Frame, eval_func: EvalFunc, right_as
             return False
 
         # Avoid clobbering anchor for plain identifiers in arithmetic chains so subjectful anchors survive (e.g., acc + .upper()).
-        if is_token(node) and token_kind(node) == "IDENT" and (next_op in arithmetic_ops or next_op is None):
+        if token_kind(node) == "IDENT" and (next_op in arithmetic_ops or next_op is None):
             return False
 
         return True

@@ -13,6 +13,7 @@ __all__ = [
     "is_tree", "is_token", "tree_label", "tree_children",
     "node_meta", "child_by_label", "child_by_labels",
     "first_child", "find_tree_by_label",
+    "ident_value", "token_kind",
 ]
 
 
@@ -163,4 +164,19 @@ def find_tree_by_label(node: Node, labels: Iterable[str]) -> Optional[Tree]:
         found = find_tree_by_label(child, lookup)
         if found is not None:
             return found
+    return None
+
+
+def token_kind(node: Node) -> Optional[str]:
+    """Return the token type name if node is a token, else None."""
+    if not is_token(node):
+        return None
+    tok: Tok = node
+    return tok.type.name if hasattr(tok.type, "name") else str(tok.type)
+
+
+def ident_value(node: Node) -> Optional[str]:
+    """Return identifier value if node is IDENT token, else None."""
+    if is_token(node) and node.type == TT.IDENT:
+        return str(node.value)
     return None

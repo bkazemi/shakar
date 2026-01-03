@@ -216,9 +216,10 @@ ShkValue: TypeAlias = Union[
     ShkType,
     ShkOptional,
     ShkUnion,
-    "RebindContext",
-    "FanContext",
 ]
+
+# Internal evaluator result type - includes assignment contexts
+EvalResult: TypeAlias = Union[ShkValue, "RebindContext", "FanContext"]
 
 DotValue: TypeAlias = Optional[ShkValue]
 

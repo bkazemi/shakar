@@ -136,9 +136,10 @@ def _coerce_loop_binder(node: Tree) -> BinderSpec:
     if tree_label(target) == "pattern":
         return {"pattern": target, "hoist": False}
 
-    if is_token(target) and _token_kind(target) == "IDENT":
+    if _token_kind(target) == "IDENT":
         pattern = Tree("pattern", [target])
         return {"pattern": pattern, "hoist": False}
+
     raise ShakarRuntimeError("Malformed binder pattern")
 
 def _pattern_requires_object_pair(pattern: Tree) -> bool:

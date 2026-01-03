@@ -7,14 +7,9 @@ from ..token_types import TT
 
 from ..types import Frame, ShkBool, ShkNumber, ShkString, ShakarRuntimeError, ShakarTypeError, ShkValue, ShkNull
 from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
+from ..tree import token_kind, ident_value
 
 SourceSpan: TypeAlias = tuple[int, int] | tuple[None, None]
-
-def token_kind(node: Node) -> Optional[str]:
-    if not is_token(node):
-        return None
-    tok: Tok = node
-    return tok.type.name if hasattr(tok.type, "name") else str(tok.type)
 
 def is_token_type(node: Node, kind: str) -> bool:
     return is_token(node) and token_kind(node) == kind
