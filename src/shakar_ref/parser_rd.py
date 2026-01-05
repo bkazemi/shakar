@@ -776,7 +776,8 @@ class Parser:
 
             # First segment (required)
             if self.check(TT.IDENT):
-                segs.append(Tree('field', [self._tok('IDENT', self.advance().value)]))
+                tok = self.advance()
+                segs.append(Tree('field', [self._tok('IDENT', tok.value, tok.line, tok.column)]))
             elif self.match(TT.LSQB):
                 selectors = self.parse_selector_list()
                 self.expect(TT.RSQB)
@@ -792,7 +793,8 @@ class Parser:
             while True:
                 if self.match(TT.DOT):
                     if self.check(TT.IDENT):
-                        segs.append(Tree('field', [self._tok('IDENT', self.advance().value)]))
+                        tok = self.advance()
+                        segs.append(Tree('field', [self._tok('IDENT', tok.value, tok.line, tok.column)]))
                     elif self.match(TT.LSQB):
                         selectors = self.parse_selector_list()
                         self.expect(TT.RSQB)
@@ -1636,7 +1638,7 @@ class Parser:
             # Standalone subject: just .
             if next_tok.type not in (TT.IDENT, TT.LPAR, TT.LSQB, TT.OVER):
                 dot = self.advance()
-                return Tree('subject', [self._tok('DOT', dot.value)])
+                return Tree('subject', [self._tok('DOT', dot.value, dot.line, dot.column)])
 
             # Implicit chain: .field, .(args), .[index], .over
             self.advance()  # consume .
@@ -1645,7 +1647,7 @@ class Parser:
             imphead = None
             if self.check(TT.IDENT, TT.OVER):
                 tok = self.advance()
-                imphead = Tree('field', [self._tok(tok.type.name, tok.value)])
+                imphead = Tree('field', [self._tok(tok.type.name, tok.value, tok.line, tok.column)])
             elif self.match(TT.LPAR):
                 args = self.parse_arg_list()
                 self.expect(TT.RPAR)
@@ -1677,7 +1679,7 @@ class Parser:
                 if self.match(TT.DOT):
                     if self.check(TT.IDENT, TT.OVER):
                         field = self.advance()
-                        postfix_ops.append(Tree('field', [self._tok(field.type.name, field.value)]))
+                        postfix_ops.append(Tree('field', [self._tok(field.type.name, field.value, field.line, field.column)]))
                     elif self.match(TT.LBRACE):
                         items = self.parse_fan_items()
                         self.expect(TT.RBRACE)
@@ -1732,7 +1734,7 @@ class Parser:
             if self.match(TT.DOT):
                 if self.check(TT.IDENT, TT.OVER):
                     field = self.advance()
-                    postfix_ops.append(Tree('field', [self._tok(field.type.name, field.value)]))
+                    postfix_ops.append(Tree('field', [self._tok(field.type.name, field.value, field.line, field.column)]))
                 elif self.match(TT.LBRACE):
                     # Fan syntax: .{field1, field2} or .{chain1, chain2}
                     items = self.parse_fan_items()
@@ -2038,7 +2040,7 @@ class Parser:
         while True:
             if self.match(TT.DOT):
                 field = self.expect(TT.IDENT)
-                children.append(Tree('field', [self._tok('IDENT', field.value)]))
+                children.append(Tree('field', [self._tok('IDENT', field.value, field.line, field.column)]))
             elif self.match(TT.LSQB):
                 selectors = self.parse_selector_list()
                 self.expect(TT.RSQB)
@@ -2722,7 +2724,7 @@ class Parser:
                         # Field access
                         if self.check(TT.IDENT):
                             field = self.advance()
-                            postfix_ops.append(Tree('field', [self._tok('IDENT', field.value)]))
+                            postfix_ops.append(Tree('field', [self._tok('IDENT', field.value, field.line, field.column)]))
                         else:
                             raise ParseError("Expected field name after '.'", self.current)
                     elif self.check(TT.LSQB):
