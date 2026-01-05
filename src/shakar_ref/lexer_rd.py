@@ -257,20 +257,22 @@ class Lexer:
 
     def scan_newline(self):
         """Scan newline character"""
+        start_line, start_col = self.line, self.column
+
         if self.peek() == '\r' and self.peek(1) == '\n':
             self.advance(2)  # consume CRLF
         else:
             self.advance()
 
-        self.emit(TT.NEWLINE, '\n')
+        self.emit(TT.NEWLINE, '\n', start_line=start_line, start_col=start_col)
         self.line += 1
         self.column = 1
         self.at_line_start = True
 
     def scan_string(self):
         """Scan string literal: "..." or '...'"""
+        start_line, start_col = self.line, self.column
         quote = self.advance()
-        start_line = self.line
         value = quote  # Keep opening quote
 
         while self.pos < len(self.source) and self.peek() != quote:
@@ -286,7 +288,7 @@ class Lexer:
             raise LexError(f"Unterminated string at line {start_line}")
 
         value += self.advance()  # Closing quote
-        self.emit(TT.STRING, value)
+        self.emit(TT.STRING, value, start_line=start_line, start_col=start_col)
 
     def scan_quoted_content(self, quote: str, allow_escapes: bool = False) -> str:
         """Helper to scan content between quotes"""
@@ -302,7 +304,9 @@ class Lexer:
 
     def scan_raw_string(self):
         """Scan raw string: raw"..." or raw'...' or raw#"..."#"""
-        # 'raw' keyword already consumed
+        # 'raw' keyword already consumed - start_col is 3 chars back
+        start_line, start_col = self.line, self.column - 3
+
         if self.peek() == '#':
             # Hash-delimited raw string: raw#"..."#
             self.advance()  # consume #
@@ -314,7 +318,7 @@ class Lexer:
                 if self.peek() == quote and self.peek(1) == '#':
                     self.advance(2)  # consume quote and #
                     full_value = f'raw#{quote}{content}{quote}#'
-                    self.emit(TT.RAW_HASH_STRING, full_value)
+                    self.emit(TT.RAW_HASH_STRING, full_value, start_line=start_line, start_col=start_col)
                     return
                 content += self.advance()
 
@@ -329,11 +333,12 @@ class Lexer:
 
             self.advance()  # Closing quote
             full_value = f'raw{quote}{content}{quote}'
-            self.emit(TT.RAW_STRING, full_value)
+            self.emit(TT.RAW_STRING, full_value, start_line=start_line, start_col=start_col)
 
     def scan_shell_string(self):
         """Scan shell string: sh"..." or sh'...'"""
-        # 'sh' keyword already consumed
+        # 'sh' keyword already consumed - start_col is 2 chars back
+        start_line, start_col = self.line, self.column - 2
         quote = self.advance()
         content = self.scan_quoted_content(quote)
 
@@ -341,10 +346,11 @@ class Lexer:
             raise LexError(f"Unterminated shell string at line {self.line}")
 
         self.advance()  # Closing quote
-        self.emit(TT.SHELL_STRING, content)
+        self.emit(TT.SHELL_STRING, content, start_line=start_line, start_col=start_col)
 
     def scan_number(self):
         """Scan number literal"""
+        start_line, start_col = self.line, self.column
         value = ''
 
         # Integer part
@@ -366,10 +372,11 @@ class Lexer:
                 value += self.advance()
 
         # Keep as string to match Lark
-        self.emit(TT.NUMBER, value)
+        self.emit(TT.NUMBER, value, start_line=start_line, start_col=start_col)
 
     def scan_identifier(self):
         """Scan identifier or keyword"""
+        start_line, start_col = self.line, self.column
         value = ''
 
         while self.peek().isalnum() or self.peek() == '_':
@@ -377,14 +384,16 @@ class Lexer:
 
         # Check if keyword
         token_type = self.KEYWORDS.get(value, TT.IDENT)
-        self.emit(token_type, value)
+        self.emit(token_type, value, start_line=start_line, start_col=start_col)
 
     def scan_operator(self):
         """Scan operators and punctuation"""
+        start_line, start_col = self.line, self.column
+
         for op_str, op_type in self.OPERATORS:
             if self.source.startswith(op_str, self.pos):
                 self.advance(len(op_str))
-                self.emit(op_type, op_str)
+                self.emit(op_type, op_str, start_line=start_line, start_col=start_col)
                 return
 
         ch = self.peek()
@@ -442,13 +451,16 @@ class Lexer:
         while self.peek() not in ('\n', '\r', '\0'):
             self.advance()
 
-    def emit(self, token_type: TT, value):
-        """Emit a token"""
+    def emit(self, token_type: TT, value, *, start_line: Optional[int] = None, start_col: Optional[int] = None):
+        """Emit a token with position info.
+
+        If start_line/start_col not provided, uses current position.
+        """
         tok = Tok(
             type=token_type,
             value=value,
-            line=self.line,
-            column=self.column
+            line=start_line if start_line is not None else self.line,
+            column=start_col if start_col is not None else self.column
         )
         self.tokens.append(tok)
 
