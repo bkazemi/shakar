@@ -9,6 +9,7 @@ from ..runtime import (
     Descriptor,
     Frame,
     ShkArray,
+    ShkBool,
     ShkCommand,
     ShkFn,
     ShkNull,
@@ -17,6 +18,7 @@ from ..runtime import (
     ShkSelector,
     SelectorIndex,
     SelectorSlice,
+    ShkPath,
     ShkRegex,
     ShkString,
     ShkValue,
@@ -230,6 +232,20 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
             if name in Builtins.command_methods:
                 return BuiltinMethod(name=name, subject=recv)
             raise ShakarTypeError(f"Command has no field '{name}'")
+        case ShkPath():
+            path = recv.as_path()
+            if name == "exists":
+                return ShkBool(path.exists())
+            if name == "name":
+                return ShkString(path.name)
+            if name == "size":
+                try:
+                    return ShkNumber(float(path.stat().st_size))
+                except OSError as exc:
+                    raise ShakarRuntimeError(f"Path stat failed: {exc}") from exc
+            if name in Builtins.path_methods:
+                return BuiltinMethod(name=name, subject=recv)
+            raise ShakarTypeError(f"Path has no field '{name}'")
         case ShkFn():
             raise ShakarTypeError("Function has no fields")
         case _:

@@ -191,6 +191,11 @@ class Lexer:
         if self.match_keyword('sh'):
             self.scan_shell_string()
             return
+        # Path strings
+        if self.peek() == 'p' and self.peek(1) in ('"', "'"):
+            self.advance()  # consume 'p'
+            self.scan_path_string()
+            return
         # Regex literals (r"..."/flags)
         if self.peek() == 'r' and self.peek(1) in ('"', "'"):
             self.scan_regex_literal()
@@ -352,6 +357,28 @@ class Lexer:
 
         self.advance()  # Closing quote
         self.emit(TT.SHELL_STRING, content, start_line=start_line, start_col=start_col)
+
+    def scan_path_string(self):
+        """Scan path string: p"..." or p'...'"""
+        # 'p' already consumed - start_col is 1 char back
+        start_line, start_col = self.line, self.column - 1
+        quote = self.advance()
+        value = quote  # keep opening quote
+
+        while self.pos < len(self.source) and self.peek() != quote:
+            if self.peek() == '\\':
+                value += self.advance()
+                if self.pos < len(self.source):
+                    value += self.advance()
+            else:
+                value += self.advance()
+
+        if self.pos >= len(self.source):
+            raise LexError(f"Unterminated path string at line {start_line}")
+
+        value += self.advance()  # Closing quote
+        full_value = f"p{value}"
+        self.emit(TT.PATH_STRING, full_value, start_line=start_line, start_col=start_col)
 
     def scan_regex_literal(self):
         """Scan regex literal: r"..." or r'...' with optional /flags."""

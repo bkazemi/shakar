@@ -72,14 +72,14 @@ from .eval.expr import (
     eval_nullsafe,
     eval_ternary,
 )
-from .eval.literals import eval_keyword_literal, eval_shell_string, eval_string_interp
+from .eval.literals import eval_keyword_literal, eval_path_interp, eval_shell_string, eval_string_interp
 from .eval.objects import eval_object, eval_key
 from .eval.fn import eval_fn_def, eval_decorator_def, eval_anonymous_fn, eval_amp_lambda, evaluate_decorator_list
 from .eval.using import eval_using_stmt
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
-from .eval.common import is_literal_node, token_number, token_regex, token_string, node_source_span
+from .eval.common import is_literal_node, token_number, token_path, token_regex, token_string, node_source_span
 from types import SimpleNamespace
 
 from .eval.bind import (
@@ -355,6 +355,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     'selectorliteral': lambda n, frame: eval_selectorliteral(n, frame, eval_node),
     'string_interp': lambda n, frame: eval_string_interp(n, frame, eval_node),
     'shell_string': lambda n, frame: eval_shell_string(n, frame, eval_node),
+    'path_interp': lambda n, frame: eval_path_interp(n, frame, eval_node),
     'group': _eval_group,
     'no_anchor': _eval_group,
     'ternary': lambda n, frame: eval_ternary(n, frame, eval_node),
@@ -396,6 +397,7 @@ _TOKEN_DISPATCH: dict[TT, Callable[[Tok, Frame], ShkValue]] = {
     TT.STRING: token_string,
     TT.RAW_STRING: token_string,
     TT.RAW_HASH_STRING: token_string,
+    TT.PATH_STRING: token_path,
     TT.REGEX: token_regex,
     TT.TRUE: lambda _, __: ShkBool(True),
     TT.FALSE: lambda _, __: ShkBool(False),

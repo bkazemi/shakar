@@ -30,6 +30,7 @@ COMMENT: "#" /[^\n\r]*/
 RAW_HASH_STRING.2: /raw#"(?:[^"]|"(?!#))*"#/
 RAW_STRING.2: /raw"(?:\\.|[^"\\])*"/ | /raw'(?:\\.|[^'\\])*'/
 SHELL_STRING.2: /sh"(?:\\.|[^"\\])*"/ | /sh'(?:\\.|[^'\\])*'/
+PATH_STRING.2: /p"(?:\\.|[^"\\])*"/ | /p'(?:\\.|[^'\\])*'/
 STRING: /"(?:\\.|[^"\\])*"/ | /'(?:\\.|[^'\\])*'/
 %import common.INT   -> INT
 %import common.WS_INLINE
@@ -166,7 +167,7 @@ FALSE: "false"
 ANY: "any"
 ALL: "all"
 
-literal: STRING | RAW_STRING | RAW_HASH_STRING | SHELL_STRING | NUMBER | NIL | TRUE | FALSE
+literal: STRING | RAW_STRING | RAW_HASH_STRING | SHELL_STRING | PATH_STRING | NUMBER | NIL | TRUE | FALSE
 selectorliteral: "`" sellist "`"
 sellist: selitem ("," selitem)*
 selitem: sliceitem | indexitem

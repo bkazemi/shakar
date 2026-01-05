@@ -155,6 +155,9 @@ class Prune(Transformer):
             if token_type in (TT.STRING, getattr(TT, "STRING", None)):
                 return self._transform_string_token(node)
 
+            if token_type == TT.PATH_STRING:
+                return self._transform_path_string_token(node)
+
             if token_type == TT.SHELL_STRING:
                 return self._transform_shell_string_token(node)
         return node
@@ -247,6 +250,39 @@ class Prune(Transformer):
 
         result = Tree("shell_string", nodes)
 
+        meta = getattr(token, "meta", None)
+        if meta is not None:
+            result.meta = meta
+        return result
+
+    def _transform_path_string_token(self, token: Tok) -> Node:
+        raw = token.value
+
+        if raw.startswith('p"') and raw.endswith('"'):
+            body = raw[2:-1]
+        elif raw.startswith("p'") and raw.endswith("'"):
+            body = raw[2:-1]
+        else:
+            body = raw
+
+        if "{" not in body:
+            return token
+
+        segments = self._split_interpolation_segments(body, token)
+        if not segments:
+            return token
+
+        nodes: List[Node] = []
+
+        for kind, payload in segments:
+            if kind == "text":
+                if payload:
+                    nodes.append(Tok(TT.STRING, payload))
+                continue
+
+            nodes.append(Tree("path_interp_expr", [payload]))
+
+        result = Tree("path_interp", nodes)
         meta = getattr(token, "meta", None)
         if meta is not None:
             result.meta = meta

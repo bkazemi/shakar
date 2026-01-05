@@ -67,6 +67,7 @@
 (raw_string) @string.special
 (raw_hash_string) @string.special
 (shell_string) @string.special
+(path_string) @string.special
 (number) @number
 
 ;; Comments

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from typing import Callable, Iterable, List, Optional, TypedDict, cast
+import glob
 
 from ..tree import Tree, Tok
 from ..token_types import TT
 
-from ..runtime import Frame, ShkArray, ShkNull, ShkNumber, ShkObject, ShkSelector, ShkString, ShkValue, ShakarBreakSignal, ShakarContinueSignal, ShakarRuntimeError, ShakarTypeError
+from ..runtime import Frame, ShkArray, ShkNull, ShkNumber, ShkObject, ShkPath, ShkSelector, ShkString, ShkValue, ShakarBreakSignal, ShakarContinueSignal, ShakarRuntimeError, ShakarTypeError
 from ..tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label
 from ..utils import normalize_object_key, value_in_list
 from .bind import assign_pattern_value
@@ -194,9 +195,39 @@ def _iter_indexed_entries(value: ShkValue, binder_count: int) -> list[tuple[ShkV
                     binders.append(sel)
 
                 entries.append((sel, binders[:binder_count]))
+        case ShkPath():
+            values = _iter_path_values(value)
+
+            for idx, item in enumerate(values):
+                binders = [ShkNumber(float(idx))]
+
+                if binder_count > 1:
+                    binders.append(item)
+
+                entries.append((item, binders[:binder_count]))
         case _:
             raise ShakarTypeError(f"Cannot use indexed loop on {type(value).__name__}")
     return entries
+
+def _path_has_wildcards(text: str) -> bool:
+    # Supports glob wildcards *, ?, and ** (recursive via glob.glob(..., recursive=True)).
+    return "*" in text or "?" in text
+
+def _iter_path_values(value: ShkPath) -> List[ShkValue]:
+    raw = str(value)
+    path = value.as_path()
+
+    if _path_has_wildcards(raw):
+        matches = glob.glob(raw, recursive=True)
+        return [ShkPath(match) for match in sorted(matches)]
+
+    if path.exists():
+        if path.is_dir():
+            entries = sorted(path.iterdir(), key=lambda p: p.name)
+            return [ShkPath(str(p)) for p in entries]
+        return [value]
+
+    return []
 
 def _iterable_values(value: ShkValue) -> list[ShkValue]:
     match value:
@@ -210,6 +241,8 @@ def _iterable_values(value: ShkValue) -> list[ShkValue]:
             return [ShkString(k) for k in slots.keys()]
         case ShkSelector():
             return selector_iter_values(value)
+        case ShkPath():
+            return _iter_path_values(value)
         case _:
             raise ShakarTypeError(f"Cannot iterate over {type(value).__name__}")
 

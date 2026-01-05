@@ -625,6 +625,7 @@ u := makeUser() and .isValid()
 ### Path Literals (`p"..."`)
 
 - **Syntax**: `p"/var/log/{name}"`. Creates a `Path` object. Supports interpolation.
+- **Safety**: filesystem APIs are **unsafe by default**. Path operations accept absolute/relative paths as-is, including `..` traversal. Do not pass untrusted input without your own validation.
 - **Operations**:
   - **Join**: `path / "subdir" / "file.txt"`.
   - **Globbing**: Iterating a path performs implicit globbing.

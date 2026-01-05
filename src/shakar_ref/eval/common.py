@@ -6,7 +6,7 @@ import re
 from ..tree import Tree, Tok
 from ..token_types import TT
 
-from ..types import Frame, ShkBool, ShkNumber, ShkString, ShkRegex, ShakarRuntimeError, ShakarTypeError, ShkValue, ShkNull
+from ..types import Frame, ShkBool, ShkNumber, ShkPath, ShkString, ShkRegex, ShakarRuntimeError, ShakarTypeError, ShkValue, ShkNull
 from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
 from ..tree import token_kind, ident_value
 
@@ -100,10 +100,11 @@ def token_string(token: Tok, _: None) -> ShkString:
     if token_type == TT.RAW_STRING:
         return ShkString(raw[4:-1])
 
-    if len(raw) >= 2 and ((raw[0] == '"' and raw[-1] == '"') or (raw[0] == "'" and raw[-1] == "'")):
-        raw = raw[1:-1]
+    return ShkString(strip_prefixed_quotes(str(raw), ""))
 
-    return ShkString(raw)
+def token_path(token: Tok, _: None) -> ShkPath:
+    # Path literals mirror string literal behavior: escapes are preserved.
+    return ShkPath(strip_prefixed_quotes(str(token.value), "p"))
 
 def _regex_flags(flags: str) -> tuple[int, bool]:
     py_flags = 0
@@ -144,6 +145,9 @@ def token_regex(token: Tok, _: None) -> ShkRegex:
     return ShkRegex(pattern=pattern, flags=flags, include_full=include_full, compiled=compiled)
 
 def stringify(value: Optional[ShkValue]) -> str:
+    if isinstance(value, ShkPath):
+        return str(value)
+
     if isinstance(value, ShkString):
         return value.value
 
@@ -157,6 +161,13 @@ def stringify(value: Optional[ShkValue]) -> str:
         return "nil"
 
     return str(value)
+
+def strip_prefixed_quotes(raw: str, prefix: str) -> str:
+    if raw.startswith(f'{prefix}"') and raw.endswith('"'):
+        return raw[len(prefix) + 1:-1]
+    if raw.startswith(f"{prefix}'") and raw.endswith("'"):
+        return raw[len(prefix) + 1:-1]
+    return raw
 
 def collect_free_identifiers(node: Node, callback: Callable[[str], None]) -> None:
     skip_nodes = {'field', 'fieldsel', 'fieldfan', 'fieldlist', 'key_ident', 'key_string'}

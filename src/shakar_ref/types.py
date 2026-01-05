@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import pathlib
 import re
 from typing import Callable, Dict, List, Optional, Tuple, TypeVar, Union, TYPE_CHECKING
 from typing_extensions import Protocol, TypeAlias, TypeGuard
@@ -63,6 +64,16 @@ class ShkCommand:
         return "".join(self.segments)
     def __repr__(self) -> str:
         return f"sh<{self.render()}>"
+
+@dataclass
+class ShkPath:
+    value: str
+    def as_path(self) -> pathlib.Path:
+        return pathlib.Path(self.value)
+    def __repr__(self) -> str:
+        return f'p"{self.value}"'
+    def __str__(self) -> str:
+        return self.value
 
 @dataclass(frozen=True)
 class ShkType:
@@ -222,6 +233,7 @@ ShkValue: TypeAlias = Union[
     Descriptor,
     ShkSelector,
     ShkCommand,
+    ShkPath,
     BoundMethod,
     BuiltinMethod,
     StdlibFunction,
@@ -403,6 +415,7 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     Descriptor,
     ShkSelector,
     ShkCommand,
+    ShkPath,
     BoundMethod,
     BuiltinMethod,
     StdlibFunction,
@@ -434,5 +447,6 @@ class Builtins:
     regex_methods: MethodRegistry = {}
     object_methods: MethodRegistry = {}
     command_methods: MethodRegistry = {}
+    path_methods: MethodRegistry = {}
     stdlib_functions: Dict[str, StdlibFunction] = {}
     type_constants: Dict[str, 'ShkType'] = {}

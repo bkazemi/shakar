@@ -1847,7 +1847,7 @@ class Parser:
         if self.match(TT.QMARK):
             return Tree('holeexpr', [])
 
-        if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING, TT.SHELL_STRING, TT.REGEX):
+        if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING, TT.SHELL_STRING, TT.PATH_STRING, TT.REGEX):
             tok = self.advance()
             # Wrap in 'literal' tree so Prune transformer can process string interpolation
             return Tree('literal', [self._tok(tok.type.name, tok.value)])

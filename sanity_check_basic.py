@@ -849,6 +849,11 @@ runtime_scenario(lambda: _rt("shell-string-raw-splice", 'flag := "-n 2"; file :=
 runtime_scenario(lambda: _rt("shell-run-stdout", 'msg := "hi"; res := (sh"printf {msg}").run(); res', ("string", "hi"), None))
 runtime_scenario(lambda: _rt("shell-run-code", '(sh"false").run()', None, CommandError))
 runtime_scenario(lambda: _rt("shell-run-catch-code", 'val := (sh"false").run() catch err: err.code', ("number", 1), None))
+runtime_scenario(lambda: _rt("path-literal-exists", 'p"README.md".exists', ("bool", True), None))
+runtime_scenario(lambda: _rt("path-join-exists", '(p"docs" / "shakar-design-notes.md").exists', ("bool", True), None))
+runtime_scenario(lambda: _rt("path-interp-read", 'name := "README.md"\n(p"{name}").read().len > 0', ("bool", True), None))
+runtime_scenario(lambda: _rt("path-glob-contains", 'names := [ .name over p"*.md" ]\n"README.md" in names', ("bool", True), None))
+runtime_scenario(lambda: _rt("path-glob-empty", '[ .name over p"__shakar_no_match__*.zzz" ].len == 0', ("bool", True), None))
 runtime_scenario(
     lambda: _rt(
         "listcomp-filter",

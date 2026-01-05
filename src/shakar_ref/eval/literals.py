@@ -5,7 +5,7 @@ from typing import Callable
 
 from ..tree import Tree
 
-from ..runtime import Frame, ShkArray, ShkBool, ShkCommand, ShkNull, ShkString, ShkValue, ShakarRuntimeError
+from ..runtime import Frame, ShkArray, ShkBool, ShkCommand, ShkNull, ShkPath, ShkString, ShkValue, ShakarRuntimeError
 from ..tree import node_meta, tree_children, tree_label, is_token
 from .common import stringify
 
@@ -78,6 +78,27 @@ def eval_shell_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkComma
 
         parts.append(rendered)
     return ShkCommand(parts)
+
+def eval_path_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkPath:
+    parts: list[str] = []
+
+    for part in tree_children(node):
+        if is_token(part):
+            parts.append(part.value)
+            continue
+
+        if tree_label(part) == 'path_interp_expr':
+            expr_node = part.children[0] if tree_children(part) else None
+            if expr_node is None:
+                raise ShakarRuntimeError("Empty interpolation expression")
+
+            value = eval_func(expr_node, frame)
+            parts.append(stringify(value))
+            continue
+
+        raise ShakarRuntimeError("Unexpected node in path interpolation literal")
+
+    return ShkPath("".join(parts))
 
 def _render_shell_safe(value: ShkValue) -> str:
     if isinstance(value, ShkArray):

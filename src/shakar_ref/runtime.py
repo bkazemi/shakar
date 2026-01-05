@@ -5,7 +5,7 @@ import subprocess
 from typing import Callable, Dict, List, Optional, Tuple
 from .tree import Node
 from .types import (
-    ShkNull, ShkNumber, ShkString, ShkRegex, ShkBool, ShkArray, ShkObject, ShkCommand,
+    ShkNull, ShkNumber, ShkString, ShkRegex, ShkBool, ShkArray, ShkObject, ShkCommand, ShkPath,
     ShkSelector, SelectorIndex, SelectorSlice, SelectorPart,
     ShkFn, ShkDecorator, DecoratorConfigured, DecoratorContinuation,
     BoundMethod, BuiltinMethod, Descriptor, StdlibFunction, DeferEntry,
@@ -27,6 +27,7 @@ __all__ = [
     "ShkArray",
     "ShkObject",
     "ShkCommand",
+    "ShkPath",
     "ShkSelector",
     "SelectorIndex",
     "SelectorSlice",
@@ -120,6 +121,9 @@ def register_object(name: str):
 
 def register_command(name: str):
     return register_method(Builtins.command_methods, name)
+
+def register_path(name: str):
+    return register_method(Builtins.path_methods, name)
 
 def register_stdlib(name: str, *, arity: Optional[int] = None):
     def dec(fn: StdlibFn):
@@ -254,6 +258,54 @@ def _regex_replace(_frame: Frame, recv: ShkRegex, args: List[ShkValue]) -> ShkSt
     repl = _regex_arg("replace", args[1])
     return ShkString(recv.compiled.sub(repl, text))
 
+def _path_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
+    if len(args) != expected:
+        raise ShakarArityError(f"path.{method} expects {expected} argument(s); got {len(args)}")
+
+def _path_arg_number(method: str, arg: ShkValue) -> int:
+    if isinstance(arg, ShkNumber):
+        if float(arg.value).is_integer():
+            return int(arg.value)
+        raise ShakarTypeError(f"path.{method} expects an integer mode")
+    raise ShakarTypeError(f"path.{method} expects a number mode")
+
+def _path_arg_string(method: str, arg: ShkValue) -> str:
+    if isinstance(arg, ShkString):
+        return arg.value
+    raise ShakarTypeError(f"path.{method} expects a string argument")
+
+@register_path("read")
+def _path_read(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkString:
+    _path_expect_arity("read", args, 0)
+    path = recv.as_path()
+    try:
+        content = path.read_text()
+    except OSError as exc:
+        raise ShakarRuntimeError(f"Path read failed: {exc}") from exc
+    return ShkString(content)
+
+@register_path("write")
+def _path_write(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNull:
+    _path_expect_arity("write", args, 1)
+    content = _path_arg_string("write", args[0])
+    path = recv.as_path()
+    try:
+        path.write_text(content)
+    except OSError as exc:
+        raise ShakarRuntimeError(f"Path write failed: {exc}") from exc
+    return ShkNull()
+
+@register_path("chmod")
+def _path_chmod(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNull:
+    _path_expect_arity("chmod", args, 1)
+    mode = _path_arg_number("chmod", args[0])
+    path = recv.as_path()
+    try:
+        path.chmod(mode)
+    except OSError as exc:
+        raise ShakarRuntimeError(f"Path chmod failed: {exc}") from exc
+    return ShkNull()
+
 def call_builtin_method(recv: ShkValue, name: str, args: List[ShkValue], frame: 'Frame') -> ShkValue:
     registry_by_type: Dict[type, MethodRegistry] = {
         ShkArray: Builtins.array_methods,
@@ -261,6 +313,7 @@ def call_builtin_method(recv: ShkValue, name: str, args: List[ShkValue], frame: 
         ShkRegex: Builtins.regex_methods,
         ShkObject: Builtins.object_methods,
         ShkCommand: Builtins.command_methods,
+        ShkPath: Builtins.path_methods,
     }
 
     registry = registry_by_type.get(type(recv))
@@ -408,6 +461,7 @@ TYPE_BOOL = ShkType("Bool", ShkBool)
 TYPE_ARRAY = ShkType("Array", ShkArray)
 TYPE_OBJECT = ShkType("Object", ShkObject)
 TYPE_NIL = ShkType("Nil", ShkNull)
+TYPE_PATH = ShkType("Path", ShkPath)
 
 Builtins.type_constants = {
     "Int": TYPE_INT,
@@ -417,4 +471,5 @@ Builtins.type_constants = {
     "Array": TYPE_ARRAY,
     "Object": TYPE_OBJECT,
     "Nil": TYPE_NIL,
+    "Path": TYPE_PATH,
 }

@@ -13,6 +13,7 @@ from ..runtime import (
     ShkNull,
     ShkNumber,
     ShkObject,
+    ShkPath,
     ShkValue,
     ShkSelector,
     ShkString,
@@ -352,6 +353,12 @@ def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
             rhs_num = require_number(rhs)
             return ShkNumber(lhs_num.value * rhs_num.value)
         case '/':
+            if isinstance(lhs, ShkPath):
+                if isinstance(rhs, ShkPath):
+                    return ShkPath(str(lhs.as_path() / rhs.as_path()))
+                if isinstance(rhs, ShkString):
+                    return ShkPath(str(lhs.as_path() / rhs.value))
+                raise ShakarTypeError("Path join expects a path or string on the right")
             lhs_num = require_number(lhs)
             rhs_num = require_number(rhs)
             return ShkNumber(lhs_num.value / rhs_num.value)

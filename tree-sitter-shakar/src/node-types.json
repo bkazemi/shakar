@@ -2245,6 +2245,11 @@
     }
   },
   {
+    "type": "path_string",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "pattern",
     "named": true,
     "fields": {},
@@ -2394,6 +2399,10 @@
         },
         {
           "type": "object_literal",
+          "named": true
+        },
+        {
+          "type": "path_string",
           "named": true
         },
         {

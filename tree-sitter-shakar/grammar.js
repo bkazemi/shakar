@@ -785,7 +785,7 @@ module.exports = grammar({
       $.call_expression
     )),
 
-    _literal: $ => choice($.string, $.raw_string, $.raw_hash_string, $.shell_string, $.regex, $.number, $.boolean, $.nil),
+    _literal: $ => choice($.string, $.raw_string, $.raw_hash_string, $.shell_string, $.path_string, $.regex, $.number, $.boolean, $.nil),
 
     string: _ => choice(
       token(seq('"', repeat(choice(/[^"\\\n]/, /\\./)), '"')),
@@ -803,6 +803,11 @@ module.exports = grammar({
     shell_string: _ => choice(
       token(seq('sh"', repeat(choice(/[^"\\\n]/, /\\./)), '"')),
       token(seq("sh'", repeat(choice(/[^'\\\n]/, /\\./)), "'"))
+    ),
+
+    path_string: _ => choice(
+      token(seq('p"', repeat(choice(/[^"\\\n]/, /\\./)), '"')),
+      token(seq("p'", repeat(choice(/[^'\\\n]/, /\\./)), "'"))
     ),
 
     regex: _ => choice(

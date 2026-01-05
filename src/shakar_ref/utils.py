@@ -12,6 +12,7 @@ from .types import (
     ShkBool,
     ShkArray,
     ShkObject,
+    ShkPath,
     ShkFn,
     ShkDecorator,
     Descriptor,
@@ -40,6 +41,8 @@ def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
             return len(items_a) == len(items_b) and all(shk_equals(a, b) for a, b in zip(items_a, items_b))
         case (ShkObject(slots=slots_a), ShkObject(slots=slots_b)):
             return slots_a.keys() == slots_b.keys() and all(shk_equals(slots_a[k], slots_b[k]) for k in slots_a)
+        case (ShkPath(value=a), ShkPath(value=b)):
+            return a == b
         case (ShkFn(), ShkFn()) | (ShkDecorator(), ShkDecorator()) | (DecoratorConfigured(), DecoratorConfigured()) | (DecoratorContinuation(), DecoratorContinuation()) | (Descriptor(), Descriptor()):
             return lhs is rhs
         case _:
