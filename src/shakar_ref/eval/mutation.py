@@ -17,6 +17,7 @@ from ..runtime import (
     ShkSelector,
     SelectorIndex,
     SelectorSlice,
+    ShkRegex,
     ShkString,
     ShkValue,
     ShakarIndexError,
@@ -219,6 +220,10 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
             if name in Builtins.string_methods:
                 return BuiltinMethod(name=name, subject=recv)
             raise ShakarTypeError(f"String has no field '{name}'")
+        case ShkRegex():
+            if name in Builtins.regex_methods:
+                return BuiltinMethod(name=name, subject=recv)
+            raise ShakarTypeError(f"Regex has no field '{name}'")
         case ShkNumber():
             raise ShakarTypeError(f"Number has no field '{name}'")
         case ShkCommand():

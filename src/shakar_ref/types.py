@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Callable, Dict, List, Optional, Tuple, TypeVar, Union, TYPE_CHECKING
 from typing_extensions import Protocol, TypeAlias, TypeGuard
 from .tree import Node
@@ -32,6 +33,16 @@ class ShkString:
     value: str
     def __repr__(self) -> str:
         return f'"{self.value}"'
+
+@dataclass
+class ShkRegex:
+    pattern: str
+    flags: str
+    include_full: bool
+    compiled: re.Pattern[str]
+    def __repr__(self) -> str:
+        suffix = f"/{self.flags}" if self.flags else ""
+        return f'r"{self.pattern}"{suffix}'
 
 @dataclass
 class ShkBool:
@@ -200,6 +211,7 @@ ShkValue: TypeAlias = Union[
     ShkNull,
     ShkNumber,
     ShkString,
+    ShkRegex,
     ShkBool,
     ShkArray,
     ShkObject,
@@ -380,6 +392,7 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     ShkNull,
     ShkNumber,
     ShkString,
+    ShkRegex,
     ShkBool,
     ShkArray,
     ShkObject,
@@ -418,6 +431,7 @@ MethodRegistry = Dict[str, Method[ShkValue]]
 class Builtins:
     array_methods: MethodRegistry = {}
     string_methods: MethodRegistry = {}
+    regex_methods: MethodRegistry = {}
     object_methods: MethodRegistry = {}
     command_methods: MethodRegistry = {}
     stdlib_functions: Dict[str, StdlibFunction] = {}

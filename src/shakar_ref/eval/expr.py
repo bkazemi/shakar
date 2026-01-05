@@ -16,10 +16,12 @@ from ..runtime import (
     ShkValue,
     ShkSelector,
     ShkString,
+    ShkRegex,
     ShakarKeyError,
     ShakarIndexError,
     ShakarRuntimeError,
     ShakarTypeError,
+    regex_match_value,
 )
 from ..tree import Node, Tree, is_tree, is_token, node_meta, tree_children, tree_label
 from ..utils import shk_equals
@@ -137,6 +139,16 @@ def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
 
     if len(children) == 1:
         return eval_func(children[0], frame)
+
+    if len(children) == 3 and tree_label(children[1]) == 'cmpop' and as_op(children[1]) == '~~':
+        lhs_node, _, rhs_node = children
+        lhs = eval_func(lhs_node, frame)
+        if retargets_anchor(lhs_node):
+            frame.dot = lhs
+        rhs = eval_func(rhs_node, frame)
+        if retargets_anchor(rhs_node):
+            frame.dot = rhs
+        return _regex_match(lhs, rhs)
 
     first_node = children[0]
     subject = eval_func(first_node, frame)
@@ -385,8 +397,17 @@ def _compare_values(op: str, lhs: ShkValue, rhs: ShkValue) -> bool:
         case '~':
             from .match import match_structure
             return match_structure(lhs, rhs)
+        case '~~':
+            return is_truthy(_regex_match(lhs, rhs))
         case _:
             raise ShakarRuntimeError(f"Unknown comparator {op}")
+
+def _regex_match(lhs: ShkValue, rhs: ShkValue) -> ShkValue:
+    if not isinstance(lhs, ShkString):
+        raise ShakarTypeError("Regex match expects a string on the left")
+    if not isinstance(rhs, ShkRegex):
+        raise ShakarTypeError("Regex match expects a regex on the right")
+    return regex_match_value(rhs, lhs.value)
 
 def _selector_values(selector: ShkSelector) -> List[ShkNumber]:
     values = selector_iter_values(selector)

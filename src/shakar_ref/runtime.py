@@ -5,7 +5,7 @@ import subprocess
 from typing import Callable, Dict, List, Optional, Tuple
 from .tree import Node
 from .types import (
-    ShkNull, ShkNumber, ShkString, ShkBool, ShkArray, ShkObject, ShkCommand,
+    ShkNull, ShkNumber, ShkString, ShkRegex, ShkBool, ShkArray, ShkObject, ShkCommand,
     ShkSelector, SelectorIndex, SelectorSlice, SelectorPart,
     ShkFn, ShkDecorator, DecoratorConfigured, DecoratorContinuation,
     BoundMethod, BuiltinMethod, Descriptor, StdlibFunction, DeferEntry,
@@ -22,6 +22,7 @@ __all__ = [
     "ShkNull",
     "ShkNumber",
     "ShkString",
+    "ShkRegex",
     "ShkBool",
     "ShkArray",
     "ShkObject",
@@ -111,6 +112,9 @@ def register_array(name: str):
 def register_string(name: str):
     return register_method(Builtins.string_methods, name)
 
+def register_regex(name: str):
+    return register_method(Builtins.regex_methods, name)
+
 def register_object(name: str):
     return register_method(Builtins.object_methods, name)
 
@@ -133,6 +137,16 @@ def _string_arg(method: str, arg: ShkValue) -> str:
         return arg.value
 
     raise ShakarTypeError(f"string.{method} expects a string argument")
+
+def _regex_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
+    if len(args) != expected:
+        raise ShakarArityError(f"regex.{method} expects {expected} argument(s); got {len(args)}")
+
+def _regex_arg(method: str, arg: ShkValue) -> str:
+    if isinstance(arg, ShkString):
+        return arg.value
+
+    raise ShakarTypeError(f"regex.{method} expects a string argument")
 
 @register_string("join")
 def _string_join(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkString:
@@ -204,10 +218,47 @@ def _command_run(_frame: Frame, recv: ShkCommand, args: List[ShkValue]) -> ShkVa
 
     return ShkString(result.stdout)
 
+def regex_match_value(regex: ShkRegex, text: str) -> ShkValue:
+    match = regex.compiled.search(text)
+    if match is None:
+        return ShkNull()
+
+    groups = list(match.groups())
+    if regex.include_full:
+        values = [match.group(0)] + groups
+    else:
+        values = groups if groups else [match.group(0)]
+
+    items: List[ShkValue] = [
+        ShkString(val) if val is not None else ShkNull()
+        for val in values
+    ]
+    return ShkArray(items)
+
+@register_regex("test")
+def _regex_test(_frame: Frame, recv: ShkRegex, args: List[ShkValue]) -> ShkBool:
+    _regex_expect_arity("test", args, 1)
+    text = _regex_arg("test", args[0])
+    return ShkBool(recv.compiled.search(text) is not None)
+
+@register_regex("match")
+def _regex_match(_frame: Frame, recv: ShkRegex, args: List[ShkValue]) -> ShkValue:
+    _regex_expect_arity("match", args, 1)
+    text = _regex_arg("match", args[0])
+    return regex_match_value(recv, text)
+
+@register_regex("replace")
+def _regex_replace(_frame: Frame, recv: ShkRegex, args: List[ShkValue]) -> ShkString:
+    _regex_expect_arity("replace", args, 2)
+    text = _regex_arg("replace", args[0])
+    repl = _regex_arg("replace", args[1])
+    return ShkString(recv.compiled.sub(repl, text))
+
 def call_builtin_method(recv: ShkValue, name: str, args: List[ShkValue], frame: 'Frame') -> ShkValue:
     registry_by_type: Dict[type, MethodRegistry] = {
         ShkArray: Builtins.array_methods,
         ShkString: Builtins.string_methods,
+        ShkRegex: Builtins.regex_methods,
         ShkObject: Builtins.object_methods,
         ShkCommand: Builtins.command_methods,
     }

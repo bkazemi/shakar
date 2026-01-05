@@ -17,6 +17,7 @@ class TT(Enum):
     RAW_STRING = auto()
     RAW_HASH_STRING = auto()
     SHELL_STRING = auto()
+    REGEX = auto()
     IDENT = auto()
 
     # Keywords
@@ -78,6 +79,7 @@ class TT(Enum):
 
     # Structural match
     TILDE = auto()  # ~
+    REGEXMATCH = auto()  # ~~
 
     # Assignment
     ASSIGN = auto()  # =

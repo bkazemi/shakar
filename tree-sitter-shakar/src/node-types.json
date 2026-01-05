@@ -2409,6 +2409,10 @@
           "named": true
         },
         {
+          "type": "regex",
+          "named": true
+        },
+        {
           "type": "selector_literal",
           "named": true
         },
@@ -2484,6 +2488,11 @@
         }
       ]
     }
+  },
+  {
+    "type": "regex",
+    "named": true,
+    "fields": {}
   },
   {
     "type": "return_contract",
@@ -3413,6 +3422,10 @@
   },
   {
     "type": "~",
+    "named": false
+  },
+  {
+    "type": "~~",
     "named": false
   }
 ]

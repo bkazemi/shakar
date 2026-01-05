@@ -579,7 +579,7 @@ module.exports = grammar({
       optional($.ccc_chain)
     )),
 
-    cmp_operator: _ => choice('==','!=','<=','>=','<','>','~','is','in','!is','not','!in'),
+    cmp_operator: _ => choice('==','!=','<=','>=','<','>','~','~~','is','in','!is','not','!in'),
 
     ccc_chain: $ => prec.right(seq(
       alias(',', $.ccc_separator),
@@ -785,7 +785,7 @@ module.exports = grammar({
       $.call_expression
     )),
 
-    _literal: $ => choice($.string, $.raw_string, $.raw_hash_string, $.shell_string, $.number, $.boolean, $.nil),
+    _literal: $ => choice($.string, $.raw_string, $.raw_hash_string, $.shell_string, $.regex, $.number, $.boolean, $.nil),
 
     string: _ => choice(
       token(seq('"', repeat(choice(/[^"\\\n]/, /\\./)), '"')),
@@ -803,6 +803,11 @@ module.exports = grammar({
     shell_string: _ => choice(
       token(seq('sh"', repeat(choice(/[^"\\\n]/, /\\./)), '"')),
       token(seq("sh'", repeat(choice(/[^'\\\n]/, /\\./)), "'"))
+    ),
+
+    regex: _ => choice(
+      token(seq('r"', repeat(choice(/[^"\\\n]/, /\\./)), '"', optional(seq('/', /[imsxf]+/)))),
+      token(seq("r'", repeat(choice(/[^'\\\n]/, /\\./)), "'", optional(seq('/', /[imsxf]+/))))
     ),
 
     number: _ => token(seq(

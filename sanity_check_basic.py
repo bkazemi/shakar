@@ -624,6 +624,49 @@ runtime_scenario(lambda: _rt("join-varargs", '"-".join("a", "b")', ("string", "a
 runtime_scenario(lambda: _rt("join-mixed", '"|".join("a", 1, true)', ("string", "a|1|true"), None))
 runtime_scenario(
     lambda: _rt(
+        "regex-match-captures",
+        """date := "2024-01-02"
+year, month, day := date ~~ r"(\\d{4})-(\\d{2})-(\\d{2})"
+[year, month, day]""",
+        ("array", ["2024", "01", "02"]),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "regex-match-full-flag",
+        """s := "ab"
+full, first := s ~~ r"(a)b"/f
+[full, first]""",
+        ("array", ["ab", "a"]),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "regex-invalid-flag",
+        'r"foo"/z',
+        None,
+        LexError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "regex-methods",
+        """rx := r"(\\d+)"
+ok := rx.test("a1")
+match := rx.match("b22")
+repl := rx.replace("c3", "x")
+if ok and match:
+  [match[0], repl]
+else:
+  ["", ""]""",
+        ("array", ["22", "cx"]),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "string-high",
         '"hello".high',
         ("number", 4),

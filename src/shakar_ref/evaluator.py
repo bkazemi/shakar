@@ -79,7 +79,7 @@ from .eval.using import eval_using_stmt
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
-from .eval.common import is_literal_node, token_number, token_string, node_source_span
+from .eval.common import is_literal_node, token_number, token_regex, token_string, node_source_span
 from types import SimpleNamespace
 
 from .eval.bind import (
@@ -396,6 +396,7 @@ _TOKEN_DISPATCH: dict[TT, Callable[[Tok, Frame], ShkValue]] = {
     TT.STRING: token_string,
     TT.RAW_STRING: token_string,
     TT.RAW_HASH_STRING: token_string,
+    TT.REGEX: token_regex,
     TT.TRUE: lambda _, __: ShkBool(True),
     TT.FALSE: lambda _, __: ShkBool(False),
     TT.NIL: lambda _, __: ShkNull(),

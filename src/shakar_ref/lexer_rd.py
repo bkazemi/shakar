@@ -73,6 +73,7 @@ class Lexer:
         ('**=', TT.POWEQ),
 
         # Two-character operators
+        ('~~', TT.REGEXMATCH),
         ('==', TT.EQ),
         ('!=', TT.NEQ),
         ('<=', TT.LTE),
@@ -189,6 +190,10 @@ class Lexer:
         # Shell strings
         if self.match_keyword('sh'):
             self.scan_shell_string()
+            return
+        # Regex literals (r"..."/flags)
+        if self.peek() == 'r' and self.peek(1) in ('"', "'"):
+            self.scan_regex_literal()
             return
 
         # Numbers
@@ -347,6 +352,40 @@ class Lexer:
 
         self.advance()  # Closing quote
         self.emit(TT.SHELL_STRING, content, start_line=start_line, start_col=start_col)
+
+    def scan_regex_literal(self):
+        """Scan regex literal: r"..." or r'...' with optional /flags."""
+        start_line, start_col = self.line, self.column
+        self.advance()  # consume 'r'
+        quote = self.advance()
+        pattern = ''
+
+        while self.pos < len(self.source) and self.peek() != quote:
+            if self.peek() in ('\n', '\r'):
+                raise LexError(f"Unterminated regex literal at line {start_line}")
+            if self.peek() == '\\':
+                pattern += self.advance()
+                if self.pos < len(self.source):
+                    pattern += self.advance()
+            else:
+                pattern += self.advance()
+
+        if self.pos >= len(self.source):
+            raise LexError(f"Unterminated regex literal at line {start_line}")
+
+        self.advance()  # Closing quote
+
+        flags = ''
+        if self.peek() == '/':
+            self.advance()  # consume /
+            if self.peek() not in ('i', 'm', 's', 'x', 'f'):
+                raise LexError(f"Unknown regex flag at line {self.line}")
+            while self.peek() in ('i', 'm', 's', 'x', 'f'):
+                flags += self.advance()
+            if self.peek().isalnum() or self.peek() == '_':
+                raise LexError(f"Unknown regex flag at line {self.line}")
+
+        self.emit(TT.REGEX, (pattern, flags), start_line=start_line, start_col=start_col)
 
     def scan_number(self):
         """Scan number literal"""

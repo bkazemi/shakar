@@ -337,6 +337,7 @@ assert ix == [0,1] and vals == [11,12]
 - Ordering `< <= > >=` defined for numbers and strings (lexicographic by normalized UTF-8 bytes); arrays/objects ordering ❓.
 - Identity: `is`, `is not`/`!is` check identity (same object/storage). For strings/views, identity = same `(base, off, len)` even if values equal. `!is` is a single token.
 - **Structural match** `~` shares the comparison tier; semantics in Structural match above.
+- **Regex match** `~~` shares the comparison tier; it returns `Array?` (captures) outside CCC and is truthiness-tested inside CCC (CCC result remains Bool; captures are discarded).
 
 ### Membership
 
@@ -601,7 +602,45 @@ u := makeUser() and .isValid()
 
 ### Regex helpers
 
-- Literal: `r"..."/imsx` (flags optional). Methods: `.test(str) -> Bool`, `.match(str) -> Match?`, `.replace(str, repl) -> Str`. Timeouts/engine selection are library concerns.
+- Literal: `r"..."/imsxf` (flags optional; `f` includes full match first). Methods: `.test(str) -> Bool`, `.match(str) -> Array?`, `.replace(str, repl) -> Str`.
+- **Regex match `~~`**:
+  - `Str ~~ Regex` returns `Array?` (truthy on match, `nil` on no match).
+  - **Capture behavior**:
+    - **Default**: iterates capturing groups `[g1, g2, ...]`. If no groups are defined, yields `[full_match]`.
+    - **`f`**: yields full match followed by groups: `[full, g1, g2, ...]`.
+  - **Destructuring**: a `nil` match follows normal broadcast rules (e.g., `a, b := nil` binds `nil` to both). Guard the match when absence is not acceptable.
+  - **Usage**:
+    ```shakar
+    # Happy path: destructured assignment
+    year, month, day := date ~~ r"(\d{4})-(\d{2})-(\d{2})"
+    
+    # Using /f to get full match
+    full, protocol, host := url ~~ r"(https?)://([^/]+)"/f
+
+    # Guarded form
+    if m := s ~~ r"(.)(.)":
+      g1, g2 := m
+    ```
+
+### Path Literals (`p"..."`)
+
+- **Syntax**: `p"/var/log/{name}"`. Creates a `Path` object. Supports interpolation.
+- **Operations**:
+  - **Join**: `path / "subdir" / "file.txt"`.
+  - **Globbing**: Iterating a path performs implicit globbing.
+    - If path contains wildcards (`*`, `?`, `**`), iterates matches.
+    - If directory, iterates children.
+  - **Methods**: `.exists`, `.read()`, `.write(content)`, `.chmod(mode)`.
+- **Example**:
+  ```shakar
+  log_dir := p"/var/logs"
+  # Subjectful loop with guard filtering
+  for log_dir / "*.log":
+      .name == "error.log": print(.read())
+  
+  # Comprehension style
+  errors := [ .read() over log_dir / "*.log" if .size > 0 ]
+  ```
 
 ---
 
@@ -1011,5 +1050,8 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
   ```
 - **Optional fields**: ✅ Implemented. Use `key?: Schema` syntax or `Optional(Schema)` function for optional object fields in schemas.
 - **Union types**: ✅ Implemented. Use `Union(Schema1, Schema2, ...)` to allow multiple type alternatives. Future: `Type1 | Type2` syntax (requires parser context disambiguation).
+- **Retry blocks**: `retry N: ...` keyword.
+  - **Syntax**: `retry 3, backoff: 100ms: ...`.
+  - **Justification**: Library functions cannot easily support transparent control flow (e.g., `return` inside the block returning from the *parent* function). A keyword enables robust I/O scripts without boilerplate loops.
 - **Conditional apply-assign `.?=`**: assign only if RHS (evaluated with old LHS as `.`) is non-nil; today use `=<LHS> ??(.transform()) ?? .` or `<LHS> .= ??(.transform()) ?? .`.
 - **Keyword aliases**, **autocall nullary methods**, **copy-update `with` sugar**, **pipes `|>`**, **nested/multi-source comprehensions**, **word range aliases `to`/`until`**, **until loops**, **sticky subject `%expr`** (anchor stays sticky; selectors/`.=`/statement-subject tails still win).

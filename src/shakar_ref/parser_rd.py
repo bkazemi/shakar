@@ -1486,7 +1486,7 @@ class Parser:
         if idx >= len(self.tokens):
             return False
         tok = self.tokens[idx]
-        if tok.type in {TT.EQ, TT.NEQ, TT.LT, TT.LTE, TT.GT, TT.GTE, TT.IS, TT.IN, TT.TILDE}:
+        if tok.type in {TT.EQ, TT.NEQ, TT.LT, TT.LTE, TT.GT, TT.GTE, TT.IS, TT.IN, TT.TILDE, TT.REGEXMATCH}:
             return True
         if tok.type == TT.NOT and idx + 1 < len(self.tokens) and self.tokens[idx + 1].type == TT.IN:
             return True
@@ -1500,7 +1500,7 @@ class Parser:
 
     def parse_compare_op(self) -> List[Tok]:
         """Parse comparison operator - returns list of tokens for compound ops"""
-        if self.check(TT.EQ, TT.NEQ, TT.LT, TT.LTE, TT.GT, TT.GTE, TT.TILDE):
+        if self.check(TT.EQ, TT.NEQ, TT.LT, TT.LTE, TT.GT, TT.GTE, TT.TILDE, TT.REGEXMATCH):
             op = self.advance()
             return [self._tok(op.type.name, op.value)]
 
@@ -1847,7 +1847,7 @@ class Parser:
         if self.match(TT.QMARK):
             return Tree('holeexpr', [])
 
-        if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING, TT.SHELL_STRING):
+        if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING, TT.SHELL_STRING, TT.REGEX):
             tok = self.advance()
             # Wrap in 'literal' tree so Prune transformer can process string interpolation
             return Tree('literal', [self._tok(tok.type.name, tok.value)])

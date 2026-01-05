@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from typing import Callable, Iterable, List, Optional, TypeAlias
+import re
 
 from ..tree import Tree, Tok
 from ..token_types import TT
 
-from ..types import Frame, ShkBool, ShkNumber, ShkString, ShakarRuntimeError, ShakarTypeError, ShkValue, ShkNull
+from ..types import Frame, ShkBool, ShkNumber, ShkString, ShkRegex, ShakarRuntimeError, ShakarTypeError, ShkValue, ShkNull
 from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
 from ..tree import token_kind, ident_value
 
@@ -103,6 +104,44 @@ def token_string(token: Tok, _: None) -> ShkString:
         raw = raw[1:-1]
 
     return ShkString(raw)
+
+def _regex_flags(flags: str) -> tuple[int, bool]:
+    py_flags = 0
+    include_full = False
+
+    for ch in flags:
+        match ch:
+            case 'i':
+                py_flags |= re.IGNORECASE
+            case 'm':
+                py_flags |= re.MULTILINE
+            case 's':
+                py_flags |= re.DOTALL
+            case 'x':
+                py_flags |= re.VERBOSE
+            case 'f':
+                include_full = True
+            case _:
+                raise ShakarTypeError(f"Unknown regex flag '{ch}'")
+
+    return py_flags, include_full
+
+def token_regex(token: Tok, _: None) -> ShkRegex:
+    value = token.value
+    if not isinstance(value, tuple) or len(value) != 2:
+        raise ShakarRuntimeError("Malformed regex literal")
+
+    pattern, flags = value
+    if not isinstance(pattern, str) or not isinstance(flags, str):
+        raise ShakarRuntimeError("Malformed regex literal")
+
+    py_flags, include_full = _regex_flags(flags)
+    try:
+        compiled = re.compile(pattern, py_flags)
+    except re.error as exc:
+        raise ShakarRuntimeError(f"Invalid regex: {exc}") from exc
+
+    return ShkRegex(pattern=pattern, flags=flags, include_full=include_full, compiled=compiled)
 
 def stringify(value: Optional[ShkValue]) -> str:
     if isinstance(value, ShkString):
