@@ -14,6 +14,7 @@ from ..runtime import (
     ShkDecorator,
     ShkFn,
     ShkArray,
+    ShkObject,
     ShkSelector,
     SelectorIndex,
     SelectorPart,
@@ -23,6 +24,7 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
     StdlibFunction,
+    _bind_decorator_params,
     call_builtin_method,
     call_shkfn,
 )
@@ -82,6 +84,19 @@ def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[Shk
             values.append(eval_func(value_expr, frame))
             continue
 
+        if _is_spread(node):
+            spread_expr = node.children[0] if is_tree(node) and node.children else None
+            if spread_expr is None:
+                raise ShakarRuntimeError("Malformed spread argument")
+            spread_val = eval_func(spread_expr, frame)
+            if isinstance(spread_val, ShkArray):
+                values.extend(spread_val.items)
+                continue
+            if isinstance(spread_val, ShkObject):
+                values.extend(spread_val.slots.values())
+                continue
+            raise ShakarRuntimeError("Spread argument must be an array or object value")
+
         if _is_raw_fieldfan(node):
             spread_val = eval_func(node, frame)
 
@@ -97,6 +112,9 @@ def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[Shk
 
 def _is_namedarg(node: Node) -> bool:
     return is_tree(node) and tree_label(node) == 'namedarg'
+
+def _is_spread(node: Node) -> bool:
+    return is_tree(node) and tree_label(node) == 'spread'
 
 def _is_raw_fieldfan(node: Node) -> bool:
     """Detect `Base.{a,b}` with no trailing ops so we can auto-flatten in call args."""
@@ -243,10 +261,9 @@ def call_value(cal: ShkValue, args: List[ShkValue], frame: Frame, eval_func: Eva
             return cal.invoke(args[0])
         case ShkDecorator():
             params = cal.params or []
-
-            if len(args) != len(params):
-                raise ShakarArityError(f"Decorator expects {len(params)} args; got {len(args)}")
-            return DecoratorConfigured(decorator=cal, args=list(args))
+            varargs = cal.vararg_indices or []
+            bound = _bind_decorator_params(params, varargs, args)
+            return DecoratorConfigured(decorator=cal, args=list(bound))
         case ShkFn():
             return call_shkfn(cal, args, subject=None, caller_frame=frame)
         case _:

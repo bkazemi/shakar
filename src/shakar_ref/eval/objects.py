@@ -5,9 +5,9 @@ from typing import Callable, Iterable, List, Optional, Tuple
 from ..tree import Tok
 from ..token_types import TT
 
-from ..runtime import Descriptor, Frame, ShkFn, ShkObject, ShkString, ShkValue, ShakarRuntimeError
+from ..runtime import Descriptor, Frame, ShkFn, ShkObject, ShkString, ShkValue, ShakarRuntimeError, ShakarTypeError
 from ..tree import Tree, child_by_label, is_token, is_tree, tree_children, tree_label
-from .common import expect_ident_token as _expect_ident_token
+from .common import expect_ident_token as _expect_ident_token, extract_param_names
 
 EvalFunc = Callable[[Tree, Frame], ShkValue]
 
@@ -26,24 +26,6 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
             slots[name] = existing
         else:
             slots[name] = Descriptor(getter=getter, setter=setter)
-
-    def _extract_params(params_node: Optional[Tree]) -> List[str]:
-        if params_node is None:
-            return []
-
-        names: List[str] = []
-        queue = list(tree_children(params_node))
-        while queue:
-            node = queue.pop(0)
-            ident = _unwrap_ident(node)
-
-            if ident is not None:
-                names.append(ident)
-                continue
-
-            if is_tree(node):
-                queue.extend(tree_children(node))
-        return names
 
     def _unwrap_ident(node: Tree) -> Optional[str]:
         cur = node
@@ -157,9 +139,18 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 if name_tok is None:
                     raise ShakarRuntimeError("Method missing name")
                 method_name = _expect_ident_token(name_tok, "Method name")
-                param_names = _extract_params(params_node)
-                method_fn = ShkFn(params=param_names, body=body, frame=Frame(parent=frame))
+                param_names, varargs = extract_param_names(params_node, context="method definition")
+                method_fn = ShkFn(params=param_names, body=body, frame=Frame(parent=frame), vararg_indices=varargs)
                 slots[method_name] = method_fn
+            case 'obj_spread':
+                spread_expr = item.children[0] if item.children else None
+                if spread_expr is None:
+                    raise ShakarRuntimeError("Object spread missing value")
+                spread_val = eval_func(spread_expr, frame)
+                if not isinstance(spread_val, ShkObject):
+                    raise ShakarTypeError("Object spread expects an object value")
+                for key, val in spread_val.slots.items():
+                    slots[key] = val
             case _:
                 raise ShakarRuntimeError(f"Unknown object item {item.data}")
 

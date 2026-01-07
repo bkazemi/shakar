@@ -72,7 +72,7 @@ from .eval.expr import (
     eval_nullsafe,
     eval_ternary,
 )
-from .eval.literals import eval_keyword_literal, eval_path_interp, eval_shell_string, eval_string_interp
+from .eval.literals import eval_array_literal, eval_keyword_literal, eval_path_interp, eval_shell_string, eval_string_interp
 from .eval.objects import eval_object, eval_key
 from .eval.fn import eval_fn_def, eval_decorator_def, eval_anonymous_fn, eval_amp_lambda, evaluate_decorator_list
 from .eval.using import eval_using_stmt
@@ -187,7 +187,7 @@ def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
                 return eval_keyword_literal(n)
             raise ShakarRuntimeError(f"Unsupported wrapper shape {d} with {len(n.children)} children")
         case 'array':
-            return ShkArray([eval_node(c, frame) for c in n.children])
+            return eval_array_literal(n, frame, eval_node)
         case 'object':
             return eval_object(n, frame, eval_node)
         case 'unary':
@@ -249,6 +249,8 @@ def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
             return val
         case 'implicit_chain':
             return _eval_implicit_chain(n.children, frame)
+        case 'spread':
+            raise ShakarRuntimeError("Spread operator is only valid in array/object literals and call arguments")
         case 'call':
             args_node = n.children[0] if n.children else None
             args = eval_args_node(args_node, frame, eval_node)

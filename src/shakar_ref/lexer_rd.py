@@ -71,6 +71,7 @@ class Lexer:
         # Three-character operators
         ('//=', TT.FLOORDIVEQ),
         ('**=', TT.POWEQ),
+        ('...', TT.SPREAD),
 
         # Two-character operators
         ('~~', TT.REGEXMATCH),

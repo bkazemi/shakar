@@ -354,6 +354,51 @@ def call_shkfn(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue
 
     return _call_shkfn_raw(fn, positional, subject, caller_frame)
 
+def _bind_params_with_spread(params: List[str], vararg_indices: List[int], positional: List[ShkValue], *, label: str) -> List[ShkValue]:
+    spread_set = set(vararg_indices)
+    non_spread_after = [0] * len(params)
+    count = 0
+
+    for idx in range(len(params) - 1, -1, -1):
+        non_spread_after[idx] = count
+        if idx not in spread_set:
+            count += 1
+
+    bound_values: List[ShkValue] = []
+    current_pos = 0
+    total_args = len(positional)
+
+    for idx, _name in enumerate(params):
+        if idx in spread_set:
+            needed_after = non_spread_after[idx]
+            available = total_args - current_pos
+            take = max(0, available - needed_after)
+            spread_vals = positional[current_pos:current_pos + take]
+            bound_values.append(ShkArray(list(spread_vals)))
+            current_pos += take
+            continue
+
+        if current_pos >= total_args:
+            raise ShakarArityError(f"{label} expects {len(params)} args; got {len(positional)}")
+        bound_values.append(positional[current_pos])
+        current_pos += 1
+
+    if current_pos < total_args:
+        raise ShakarArityError(f"too many arguments for {label.lower()} with {len(params)} parameters")
+
+    return bound_values
+
+def _bind_decorator_params(params: List[str], vararg_indices: List[int], args: List[ShkValue]) -> List[ShkValue]:
+    if not vararg_indices:
+        if len(args) != len(params):
+            raise ShakarArityError(f"Decorator expects {len(params)} args; got {len(args)}")
+        return list(args)
+
+    required = len(params) - len(vararg_indices)
+    if len(args) < required:
+        raise ShakarArityError(f"Decorator expects at least {required} args; got {len(args)}")
+    return _bind_params_with_spread(params, vararg_indices, list(args), label="Decorator")
+
 def _call_shkfn_raw(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue], caller_frame: 'Frame') -> ShkValue:
     _ = caller_frame
     from .evaluator import eval_node  # local import to avoid cycle
@@ -379,10 +424,19 @@ def _call_shkfn_raw(fn: ShkFn, positional: List[ShkValue], subject: Optional[Shk
 
     callee_frame = Frame(parent=fn.frame, dot=subject)
 
-    if len(positional) != len(fn.params):
-        raise ShakarArityError(f"Function expects {len(fn.params)} args; got {len(positional)}")
+    varargs = fn.vararg_indices or []
 
-    for name, val in zip(fn.params, positional):
+    if not varargs:
+        if len(positional) != len(fn.params):
+            raise ShakarArityError(f"Function expects {len(fn.params)} args; got {len(positional)}")
+        bound_values = positional
+    else:
+        required = len(fn.params) - len(varargs)
+        if len(positional) < required:
+            raise ShakarArityError(f"Function expects at least {required} args; got {len(positional)}")
+        bound_values = _bind_params_with_spread(fn.params, varargs, positional, label="Function")
+
+    for name, val in zip(fn.params, bound_values):
         callee_frame.define(name, val)
 
     callee_frame.mark_function_frame()

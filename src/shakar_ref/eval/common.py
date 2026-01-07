@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Iterable, List, Optional, TypeAlias
+from typing import Callable, Iterable, List, Optional, Tuple, TypeAlias
 import re
 
 from ..tree import Tree, Tok
@@ -28,6 +28,47 @@ def ident_token_value(node: Node) -> Optional[str]:
         return str(node.value)
 
     return None
+
+def extract_param_names(params_node: Optional[Node], context: str="parameter list") -> Tuple[List[str], List[int]]:
+    if params_node is None:
+        return [], []
+
+    names: List[str] = []
+    varargs: List[int] = []
+    param_index = 0
+
+    for p in tree_children(params_node):
+        if is_token(p) and token_kind(p) == "COMMA":
+            continue
+
+        if is_tree(p) and tree_label(p) == "param_spread":
+            children = tree_children(p)
+            if children:
+                param_name = ident_token_value(children[0])
+                if param_name is not None:
+                    names.append(param_name)
+                    varargs.append(param_index)
+                    param_index += 1
+                    continue
+
+        name = ident_token_value(p)
+        if name is not None:
+            names.append(name)
+            param_index += 1
+            continue
+
+        if is_tree(p) and tree_label(p) == "param":
+            children = tree_children(p)
+            if children:
+                param_name = ident_token_value(children[0])
+                if param_name is not None:
+                    names.append(param_name)
+                    param_index += 1
+                    continue
+
+        raise ShakarRuntimeError(f"Unsupported parameter node in {context}: {p}")
+
+    return names, varargs
 
 def is_literal_node(node: Node) -> bool:
     return not isinstance(node, (Tree, Tok))

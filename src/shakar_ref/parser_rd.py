@@ -1608,6 +1608,11 @@ class Parser:
             expr = self.parse_unary_expr()
             return Tree('no_anchor', [expr])
 
+        # Spread prefix
+        if self.match(TT.SPREAD):
+            expr = self.parse_unary_expr()
+            return Tree('spread', [expr])
+
         # Unary prefix operators
         if self.check(TT.MINUS, TT.NOT, TT.NEG, TT.INCR, TT.DECR):
             op = self.advance()
@@ -2081,9 +2086,11 @@ class Parser:
 
     def parse_param_list(self) -> Tree:
         """Parse function parameter list with optional contracts"""
-        params: list[Node] = []
+        params: List[Node] = []
 
         while not self.check(TT.RPAR, TT.EOF):
+            is_spread = self.match(TT.SPREAD)
+
             param = self.expect(TT.IDENT)
 
             # Optional contract: ~ expr
@@ -2096,6 +2103,9 @@ class Parser:
             if self.match(TT.ASSIGN):
                 default = self.parse_expr()
 
+            if is_spread and (contract or default):
+                raise ParseError("Spread parameter cannot have a contract or default", self.current)
+
             if contract and default:
                 params.append(Tree('param', [self._tok('IDENT', param.value), Tree('contract', [contract]), default]))
             elif contract:
@@ -2103,7 +2113,10 @@ class Parser:
             elif default:
                 params.append(Tree('param', [self._tok('IDENT', param.value), default]))
             else:
-                params.append(self._tok('IDENT', param.value))
+                if is_spread:
+                    params.append(Tree('param_spread', [self._tok('IDENT', param.value)]))
+                else:
+                    params.append(self._tok('IDENT', param.value))
 
             if not self.match(TT.COMMA):
                 break
@@ -2491,6 +2504,10 @@ class Parser:
 
     def parse_object_item(self) -> Tree:
         """Parse object item: key: value or method(params): body"""
+        if self.match(TT.SPREAD):
+            expr = self.parse_expr()
+            return Tree('obj_spread', [expr])
+
         # Field, method, getter, setter
         # Grammar allows: (IDENT | OVER) for field names
         if self.check(TT.IDENT, TT.OVER):

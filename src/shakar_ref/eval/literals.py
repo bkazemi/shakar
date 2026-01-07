@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import shlex
-from typing import Callable
+from typing import Callable, List
 
 from ..tree import Tree
 
-from ..runtime import Frame, ShkArray, ShkBool, ShkCommand, ShkNull, ShkPath, ShkString, ShkValue, ShakarRuntimeError
-from ..tree import node_meta, tree_children, tree_label, is_token
+from ..runtime import Frame, ShkArray, ShkBool, ShkCommand, ShkNull, ShkObject, ShkPath, ShkString, ShkValue, ShakarRuntimeError, ShakarTypeError
+from ..tree import node_meta, tree_children, tree_label, is_token, is_tree
+from .loops import _iterable_values
 from .common import stringify
 
 EvalFunc = Callable[[Tree, Frame], ShkValue]
@@ -32,8 +33,26 @@ def eval_keyword_literal(node: Tree) -> ShkValue:
 
     raise ShakarRuntimeError("Unknown literal")
 
+def eval_array_literal(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
+    items: List[ShkValue] = []
+
+    for child in tree_children(node):
+        if is_tree(child) and tree_label(child) == 'spread':
+            spread_expr = child.children[0] if child.children else None
+            if spread_expr is None:
+                raise ShakarRuntimeError("Malformed spread element")
+            spread_val = eval_func(spread_expr, frame)
+            if isinstance(spread_val, ShkObject):
+                raise ShakarTypeError("Cannot spread object into array literal")
+            items.extend(_iterable_values(spread_val))
+            continue
+
+        items.append(eval_func(child, frame))
+
+    return ShkArray(items)
+
 def eval_string_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkString:
-    parts: list[str] = []
+    parts: List[str] = []
 
     for part in tree_children(node):
         if is_token(part):
@@ -54,7 +73,7 @@ def eval_string_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkStri
     return ShkString("".join(parts))
 
 def eval_shell_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkCommand:
-    parts: list[str] = []
+    parts: List[str] = []
 
     for part in tree_children(node):
         if is_token(part):
@@ -80,7 +99,7 @@ def eval_shell_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkComma
     return ShkCommand(parts)
 
 def eval_path_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkPath:
-    parts: list[str] = []
+    parts: List[str] = []
 
     for part in tree_children(node):
         if is_token(part):

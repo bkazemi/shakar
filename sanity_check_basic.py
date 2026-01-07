@@ -834,6 +834,17 @@ runtime_scenario(lambda: _rt("fanout-value-array", 'state := {a: 1, b: 2}; arr :
 runtime_scenario(lambda: _rt("fanout-call-spread", 'state := {a: 1, b: 2}; fn add(x, y): x + y; add(state.{a, b})', ("number", 3), None))
 runtime_scenario(lambda: _rt("fanout-value-call-item", 'state := {a: fn():3, b: 2}; vals := state.{a(), b}; vals[0] + vals[1]', ("number", 5), None))
 runtime_scenario(lambda: _rt("fanout-named-arg-no-spread", 'state := {a: 1, b: 2}; fn wrap(x): x[1]; wrap(named: state.{a, b})', ("number", 2), None))
+runtime_scenario(lambda: _rt("spread-array-literal", 'arr := [1, ...[2, 3], 4]; arr[0] + arr[3]', ("number", 5), None))
+runtime_scenario(lambda: _rt("spread-object-literal", 'base := {a: 1}; obj := { ...base, b: 2, a: 3 }; obj.a + obj.b', ("number", 5), None))
+runtime_scenario(lambda: _rt("spread-call-array", 'fn add(a, b, c): a + b + c; add(...[1, 2, 3])', ("number", 6), None))
+runtime_scenario(lambda: _rt("spread-call-object", 'fn pair(a, b): a * 10 + b; pair(...{a: 1, b: 2})', ("number", 12), None))
+runtime_scenario(lambda: _rt("spread-params-multi", 'fn capture(a, ...mid, b, ...tail, c): [a, mid.len, b, tail.len, c]; res := capture(1, 2, 3, 4, 5, 6, 7); res[0] + res[1] + res[2] + res[3] + res[4]', ("number", 18), None))
+runtime_scenario(lambda: _rt("spread-object-dot-space", 'state := {config: {a: 1}, cfg: {}}; state{ .cfg = { ... .config } }; state.cfg.a', ("number", 1), None))
+runtime_scenario(lambda: _rt("spread-decorator-params", """decorator bump(...xs):
+  args[0] = args[0] + xs.len
+@bump(1, 2, 3)
+fn id(x): x
+id(10)""", ("number", 13), None))
 runtime_scenario(lambda: _rt("all-varargs", 'all(true, 1, "x")', ("bool", True), None))
 runtime_scenario(lambda: _rt("all-varargs-short", 'all(true, false, 1)', ("bool", False), None))
 runtime_scenario(lambda: _rt("all-iterable", 'all([true, 1, "x"])', ("bool", True), None))

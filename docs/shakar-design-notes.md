@@ -442,6 +442,20 @@ assert ix == [0,1] and vals == [11,12]
 - **Destructuring & broadcast**: `a, b := 1` broadcasts a single RHS value (evaluated once) to each LHS target when arity requires. LHS requires a pattern list for multiple targets (`a = 1, 2` is an error; use `a, b = 1, 2`). Nested patterns supported via parentheses: `a, (b, c) := [1, [2, 3]]` destructures nested arrays.
   - **Destructure contracts**: Per-identifier contracts supported via `ident ~ Schema` syntax. Example: `a ~ Int, b ~ Str := get_pair()` validates each value before binding. Contracts are optional and can be mixed: `id ~ Int, name, age := data`. Contracts can be combined with nested patterns: `a ~ Int, (b, c) := [10, [20, 30]]`.
 
+### Spread Operator `...`
+
+- **Syntax**: `...expr` (prefix).
+- **Contexts**:
+  - **Array literals**: `[1, ...others, 2]` expands `others` (iterable) into the array. Allowed at any position.
+  - **Object literals**: `{ ...base, key: val }` copies properties from `base` (shallow copy). Rightmost keys overwrite earlier ones.
+  - **Calls**:
+    - `...Array` expands to **positional** arguments: `f(1, ...[2, 3])` ⇒ `f(1, 2, 3)`.
+    - `...Object` expands to **named** arguments: `f(...{a: 1})` ⇒ `f(a: 1)`.
+  - **Parameters**: `fn f(a, ...middle, z): ...` collects variable arguments into array `middle`. Allowed at any position (greedy match for the rest, leaving enough for trailing required args).
+- **Interaction with `.`**: `...` is distinct from the anchor `.`. When spreading a field of the subject, prefer a space or grouping for visual separation: `{ ... .config }` or `{ ...(.config) }`. Avoid `....config`.
+- **Constraints**: Spreading an object into an array is a type error. Spreading an array into an object literal is a type error.
+- **Implementation status**: Named-arg spreading from objects in calls is specified here but **not implemented yet** in the reference runtime; object spreads in call positions currently behave positionally. This will be corrected when named-arg calls are fully implemented.
+
 ### Expression examples
 
 ```shakar

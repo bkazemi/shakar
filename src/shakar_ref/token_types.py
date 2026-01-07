@@ -124,6 +124,9 @@ class TT(Enum):
     # Binding
     BIND = auto()  # ::
 
+    # Spread
+    SPREAD = auto()  # ...
+
     # Special
     NEWLINE = auto()
     INDENT = auto()
