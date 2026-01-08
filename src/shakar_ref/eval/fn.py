@@ -12,6 +12,7 @@ from .common import expect_ident_token as _expect_ident_token, ident_token_value
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
+
 def extract_param_contracts(params_node: Optional[Node]) -> Dict[str, Node]:
     """Extract parameter contracts from function definition"""
     if params_node is None:
@@ -38,6 +39,7 @@ def extract_param_contracts(params_node: Optional[Node]) -> Dict[str, Node]:
                 contracts[param_name] = contract_children[0]
 
     return contracts
+
 
 def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not children:
@@ -92,6 +94,7 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
 
     return ShkNull()
 
+
 def _inject_contract_assertions(body: Node, contracts: Dict[str, Node]) -> Node:
     """Inject assert statements for parameter contracts at the start of the function body"""
     if not contracts:
@@ -125,6 +128,7 @@ def _inject_contract_assertions(body: Node, contracts: Dict[str, Node]) -> Node:
     new_children = assertions + list(body_children)
     return Tree(body_label, new_children)
 
+
 def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed decorator definition")
@@ -147,6 +151,7 @@ def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
     frame.define(name, decorator)
 
     return ShkNull()
+
 
 def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
     params_node = None
@@ -184,6 +189,7 @@ def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
         vararg_indices=varargs,
     )
 
+
 def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
     if len(n.children) == 1:
         return ShkFn(params=None, body=n.children[0], frame=Frame(parent=frame, dot=None), kind="amp")
@@ -194,6 +200,7 @@ def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
         return ShkFn(params=params, body=body, frame=Frame(parent=frame, dot=None), kind="amp", vararg_indices=varargs)
 
     raise ShakarRuntimeError("amp_lambda malformed")
+
 
 def evaluate_decorator_list(node: Tree, frame: Frame, eval_func: EvalFunc) -> List[DecoratorConfigured]:
     configured: List[DecoratorConfigured] = []
@@ -209,6 +216,7 @@ def evaluate_decorator_list(node: Tree, frame: Frame, eval_func: EvalFunc) -> Li
         configured.append(_coerce_decorator_instance(value))
 
     return configured
+
 
 def _coerce_decorator_instance(value: ShkValue) -> DecoratorConfigured:
     match value:

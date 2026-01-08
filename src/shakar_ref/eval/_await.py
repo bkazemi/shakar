@@ -12,11 +12,13 @@ from .common import token_kind as _token_kind
 
 EvalFunc = Callable[[Tree, Frame], ShkValue]
 
+
 class AwaitArm(TypedDict):
     label: str
     expr: Tree
     body: Optional[Tree]
 _T = TypeVar("_T")
+
 
 def _wrap_awaitable(value: Awaitable[ShkValue] | ShkValue) -> Awaitable[ShkValue]:
     if inspect.isawaitable(value):
@@ -29,6 +31,7 @@ def _wrap_awaitable(value: Awaitable[ShkValue] | ShkValue) -> Awaitable[ShkValue
 
     return _immediate()
 
+
 def _run_asyncio(coro: Awaitable[_T]) -> _T:
     try:
         asyncio.get_running_loop()
@@ -36,6 +39,7 @@ def _run_asyncio(coro: Awaitable[_T]) -> _T:
         return asyncio.run(coro)
 
     raise ShakarRuntimeError("await constructs cannot run inside an active event loop")
+
 
 async def _await_any_async(entries: list[tuple[AwaitArm, ShkValue]]) -> tuple[AwaitArm, ShkValue]:
     tasks: dict[asyncio.Task[ShkValue], AwaitArm] = {}
@@ -70,23 +74,28 @@ async def _await_any_async(entries: list[tuple[AwaitArm, ShkValue]]) -> tuple[Aw
 
     raise ShakarRuntimeError("await[any] arms did not produce a value")
 
+
 async def _await_all_async(entries: list[tuple[AwaitArm, ShkValue]]) -> list[tuple[AwaitArm, ShkValue]]:
     coros = [_wrap_awaitable(value) for _, value in entries]
     results = await asyncio.gather(*coros)
 
     return [(entries[i][0], results[i]) for i in range(len(entries))]
 
+
 def await_any_entries(entries: list[tuple[AwaitArm, ShkValue]]) -> tuple[AwaitArm, ShkValue]:
     return _run_asyncio(_await_any_async(entries))
 
+
 def await_all_entries(entries: list[tuple[AwaitArm, ShkValue]]) -> list[tuple[AwaitArm, ShkValue]]:
     return _run_asyncio(_await_all_async(entries))
+
 
 def resolve_await_result(value: ShkValue) -> ShkValue:
     if inspect.isawaitable(value):
         return _run_asyncio(_wrap_awaitable(value))
 
     return value
+
 
 def _collect_await_arms(list_node: Tree, prefix: str) -> list[AwaitArm]:
     arms: list[AwaitArm] = []
@@ -122,6 +131,7 @@ def _collect_await_arms(list_node: Tree, prefix: str) -> list[AwaitArm]:
 
     return arms
 
+
 def _extract_trailing_body(children: List[Node]) -> Optional[Tree]:
     seen_rpar = False
 
@@ -136,8 +146,10 @@ def _extract_trailing_body(children: List[Node]) -> Optional[Tree]:
 
     return None
 
+
 def _await_winner_object(label: str, value: ShkValue) -> ShkObject:
     return ShkObject({'winner': ShkString(label), 'value': value})
+
 
 def eval_await_value(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     for child in tree_children(n):
@@ -146,6 +158,7 @@ def eval_await_value(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             return resolve_await_result(value)
 
     raise ShakarRuntimeError("Malformed await expression")
+
 
 def eval_await_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     expr_node = None
@@ -214,6 +227,7 @@ def eval_await_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
     return ShkNull()
 
+
 def _parse_bracketed_any_all(expr_node: Tree) -> Optional[tuple[str, list[AwaitArm]]]:
     """Detects the sugar form `await [any](label: expr, ...) : body` produced as
     an explicit_chain of array(any|all) followed by a call."""
@@ -265,6 +279,7 @@ def _parse_bracketed_any_all(expr_node: Tree) -> Optional[tuple[str, list[AwaitA
 
     return (kind, arms) if arms else None
 
+
 def eval_await_any_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     arms_node = child_by_label(n, 'anyarmlist')
     if arms_node is None:
@@ -306,6 +321,7 @@ def eval_await_any_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         return run_body_with_subject(trailing_body, frame, winner_value, eval_func, bindings)
 
     return _await_winner_object(winner_arm['label'], winner_value)
+
 
 def eval_await_all_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     arms_node = child_by_label(n, 'allarmlist')

@@ -8,11 +8,13 @@ from .tree import Node, is_tree, tree_children, tree_label
 from .tree import is_token as is_token
 from .ast_transforms import _infer_amp_lambda_params
 
+
 def lower(ast: Node) -> Node:
     """Runtime lowering pass: hole desugaring + amp-lambda parameter inference."""
     ast = _desugar_call_holes(ast)
     ast = _infer_amp_lambda_params(ast)
     return ast
+
 
 def _desugar_call_holes(node: Node) -> Node:
     if is_token(node) or not is_tree(node):
@@ -35,6 +37,7 @@ def _desugar_call_holes(node: Node) -> Node:
             return replacement
 
     return candidate
+
 
 def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
     def _contains_hole(node: Node) -> bool:

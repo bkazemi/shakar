@@ -12,8 +12,10 @@ from ..tree import token_kind
 
 SourceSpan: TypeAlias = tuple[int, int] | tuple[None, None]
 
+
 def is_token_type(node: Node, kind: str) -> bool:
     return is_token(node) and token_kind(node) == kind
+
 
 def expect_ident_token(node: Node, context: str) -> str:
     if is_token(node) and token_kind(node) in {'IDENT', 'OVER'}:
@@ -23,11 +25,13 @@ def expect_ident_token(node: Node, context: str) -> str:
     val = getattr(node, 'value', None)
     raise ShakarRuntimeError(f"{context} must be an identifier (got {kind}:{val})")
 
+
 def ident_token_value(node: Node) -> Optional[str]:
     if is_token(node) and token_kind(node) in {'IDENT', 'OVER'}:
         return str(node.value)
 
     return None
+
 
 def extract_param_names(params_node: Optional[Node], context: str="parameter list") -> Tuple[List[str], List[int]]:
     if params_node is None:
@@ -70,8 +74,10 @@ def extract_param_names(params_node: Optional[Node], context: str="parameter lis
 
     return names, varargs
 
+
 def is_literal_node(node: Node) -> bool:
     return not isinstance(node, (Tree, Tok))
+
 
 def get_source_segment(node: Node, frame: Frame) -> Optional[str]:
     source = getattr(frame, 'source', None)
@@ -89,6 +95,7 @@ def get_source_segment(node: Node, frame: Frame) -> Optional[str]:
 
     return str(source[start:end])
 
+
 def render_expr(node: Node) -> str:
     if is_token(node):
         return str(node.value)
@@ -104,6 +111,7 @@ def render_expr(node: Node) -> str:
             parts.append(rendered)
 
     return " ".join(parts)
+
 
 def node_source_span(node: Node) -> SourceSpan:
     meta = node_meta(node)
@@ -123,13 +131,16 @@ def node_source_span(node: Node) -> SourceSpan:
 
     return None, None
 
+
 def require_number(value: ShkValue) -> ShkNumber:
     if not isinstance(value, ShkNumber):
         raise ShakarTypeError("Expected number")
     return value
 
+
 def token_number(token: Tok, _: None) -> ShkNumber:
     return ShkNumber(float(token.value))
+
 
 def token_string(token: Tok, _: None) -> ShkString:
     raw = token.value
@@ -143,9 +154,11 @@ def token_string(token: Tok, _: None) -> ShkString:
 
     return ShkString(strip_prefixed_quotes(str(raw), ""))
 
+
 def token_path(token: Tok, _: None) -> ShkPath:
     # Path literals mirror string literal behavior: escapes are preserved.
     return ShkPath(strip_prefixed_quotes(str(token.value), "p"))
+
 
 def _regex_flags(flags: str) -> tuple[int, bool]:
     py_flags = 0
@@ -168,6 +181,7 @@ def _regex_flags(flags: str) -> tuple[int, bool]:
 
     return py_flags, include_full
 
+
 def token_regex(token: Tok, _: None) -> ShkRegex:
     value = token.value
     if not isinstance(value, tuple) or len(value) != 2:
@@ -184,6 +198,7 @@ def token_regex(token: Tok, _: None) -> ShkRegex:
         raise ShakarRuntimeError(f"Invalid regex: {exc}") from exc
 
     return ShkRegex(pattern=pattern, flags=flags, include_full=include_full, compiled=compiled)
+
 
 def stringify(value: Optional[ShkValue]) -> str:
     if isinstance(value, ShkPath):
@@ -203,12 +218,14 @@ def stringify(value: Optional[ShkValue]) -> str:
 
     return str(value)
 
+
 def strip_prefixed_quotes(raw: str, prefix: str) -> str:
     if raw.startswith(f'{prefix}"') and raw.endswith('"'):
         return raw[len(prefix) + 1:-1]
     if raw.startswith(f"{prefix}'") and raw.endswith("'"):
         return raw[len(prefix) + 1:-1]
     return raw
+
 
 def collect_free_identifiers(node: Node, callback: Callable[[str], None]) -> None:
     skip_nodes = {'field', 'fieldsel', 'fieldfan', 'fieldlist', 'key_ident', 'key_string'}

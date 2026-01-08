@@ -11,6 +11,7 @@ from .common import expect_ident_token as _expect_ident_token, extract_param_nam
 
 EvalFunc = Callable[[Tree, Frame], ShkValue]
 
+
 def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
     """Build an object literal, installing descriptors/getters as needed."""
     slots: dict[str, ShkValue] = {}
@@ -171,6 +172,7 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
             if is_tree(child):
                 handle_item(child)
     return ShkObject(slots)
+
 
 def eval_key(k: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue | str:
     label = tree_label(k)

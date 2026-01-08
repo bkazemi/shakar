@@ -12,6 +12,7 @@ from .evaluator import eval_expr
 from .runtime import ShkValue
 from .runtime import Frame, init_stdlib
 
+
 def run(src: str, grammar_path: Optional[str]=None, use_indenter: Optional[bool]=None, grammar_variant: str="default") -> ShkValue:  # grammar_path/variant kept for CLI compatibility; ignored
     init_stdlib()
 
@@ -50,6 +51,7 @@ def run(src: str, grammar_path: Optional[str]=None, use_indenter: Optional[bool]
 
     return eval_expr(ast2, Frame(source=src), source=src)
 
+
 def _load_source(arg: Optional[str]) -> str:
     """
     Resolve CLI input into source text.
@@ -69,6 +71,7 @@ def _load_source(arg: Optional[str]) -> str:
         return candidate.read_text(encoding="utf-8")
 
     return arg
+
 
 def main() -> None:
     grammar_variant = "default"

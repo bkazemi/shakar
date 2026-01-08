@@ -9,6 +9,7 @@ from .common import token_kind
 EvalFunc = Callable[[Node, Frame], ShkValue]
 TruthyFunc = Callable[[ShkValue], bool]
 
+
 def define_new_ident(name: str, value: ShkValue, frame: Frame) -> ShkValue:
     """Introduce a new binding in the current scope; error if it already exists."""
     vars_dict = getattr(frame, "vars", None)
@@ -19,6 +20,7 @@ def define_new_ident(name: str, value: ShkValue, frame: Frame) -> ShkValue:
     frame.define(name, value)
 
     return value
+
 
 def _walrus_target_name(node: Node) -> str:
     children = tree_children(node)
@@ -35,6 +37,7 @@ def _walrus_target_name(node: Node) -> str:
 
     raise ShakarRuntimeError("Unsupported walrus target")
 
+
 def _split_postfix_children(children: Sequence[Node], keyword_tokens: Iterable[str]) -> tuple[Node, Node]:
     keywords = set(keyword_tokens)
     semantic: List[Node] = []
@@ -50,6 +53,7 @@ def _split_postfix_children(children: Sequence[Node], keyword_tokens: Iterable[s
 
     return semantic[0], semantic[1]
 
+
 def eval_postfix_if(
     children: Sequence[Node],
     frame: Frame,
@@ -59,6 +63,7 @@ def eval_postfix_if(
 ) -> ShkValue:
     stmt_node, cond_node = _split_postfix_children(children, {"IF"})
     return _eval_postfix_guard(stmt_node, cond_node, frame, eval_func, truthy_fn, run_on_truthy=True)
+
 
 def eval_postfix_unless(
     children: Sequence[Node],
@@ -70,6 +75,7 @@ def eval_postfix_unless(
     stmt_node, cond_node = _split_postfix_children(children, {"UNLESS"})
 
     return _eval_postfix_guard(stmt_node, cond_node, frame, eval_func, truthy_fn, run_on_truthy=False)
+
 
 def _eval_postfix_guard(
     stmt_node: Node,

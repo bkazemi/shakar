@@ -12,6 +12,7 @@ from .common import stringify
 
 EvalFunc = Callable[[Tree, Frame], ShkValue]
 
+
 def eval_keyword_literal(node: Tree) -> ShkValue:
     meta = node_meta(node)
     if meta is None:
@@ -33,6 +34,7 @@ def eval_keyword_literal(node: Tree) -> ShkValue:
 
     raise ShakarRuntimeError("Unknown literal")
 
+
 def eval_array_literal(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
     items: List[ShkValue] = []
 
@@ -50,6 +52,7 @@ def eval_array_literal(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArra
         items.append(eval_func(child, frame))
 
     return ShkArray(items)
+
 
 def eval_string_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkString:
     parts: List[str] = []
@@ -71,6 +74,7 @@ def eval_string_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkStri
         raise ShakarRuntimeError("Unexpected node in string interpolation literal")
 
     return ShkString("".join(parts))
+
 
 def eval_shell_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkCommand:
     parts: List[str] = []
@@ -98,6 +102,7 @@ def eval_shell_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkComma
         parts.append(rendered)
     return ShkCommand(parts)
 
+
 def eval_path_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkPath:
     parts: List[str] = []
 
@@ -119,15 +124,18 @@ def eval_path_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkPath:
 
     return ShkPath("".join(parts))
 
+
 def _render_shell_safe(value: ShkValue) -> str:
     if isinstance(value, ShkArray):
         return " ".join(_quote_shell_value(item) for item in value.items)
     return _quote_shell_value(value)
 
+
 def _render_shell_raw(value: ShkValue) -> str:
     if isinstance(value, ShkArray):
         return " ".join(stringify(item) for item in value.items)
     return stringify(value)
+
 
 def _quote_shell_value(value: ShkValue) -> str:
     rendered = stringify(value)

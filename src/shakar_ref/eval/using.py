@@ -17,6 +17,7 @@ from .mutation import get_field_value
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
+
 def _lookup_method(resource: ShkValue, names: List[str], frame: Frame) -> Optional[ShkValue]:
     for name in names:
         try:
@@ -25,8 +26,10 @@ def _lookup_method(resource: ShkValue, names: List[str], frame: Frame) -> Option
             continue
     return None
 
+
 def _call_method(method: ShkValue, args: List[ShkValue], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     return call_value(method, args, frame, eval_func)
+
 
 def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     handle_tok: Optional[Tok] = None

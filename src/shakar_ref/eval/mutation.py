@@ -35,6 +35,7 @@ from .selector import (
     _selector_slice_to_slice,
 )
 
+
 def set_field_value(recv: ShkValue, name: str, value: ShkValue, frame: Frame, *, create: bool) -> ShkValue:
     """Assign `recv.name = value`, honoring descriptors and creation semantics."""
     match recv:
@@ -57,6 +58,7 @@ def set_field_value(recv: ShkValue, name: str, value: ShkValue, frame: Frame, *,
             return value
         case _:
             raise ShakarTypeError(f"Cannot set field '{name}' on {type(recv).__name__}")
+
 
 def set_index_value(recv: ShkValue, index: ShkValue, value: ShkValue, frame: Frame) -> ShkValue:
     """Assign `recv[index] = value` for arrays/objects with minimal coercions."""
@@ -115,6 +117,7 @@ def _assign_selector_into_array(items: list[ShkValue], selector: ShkSelector, va
 
         raise ShakarTypeError("Unsupported selector component for array assignment")
 
+
 def index_value(recv: ShkValue, idx: ShkValue, frame: Frame, default_thunk: Optional[Callable[[], ShkValue]]=None) -> ShkValue:
     """Read `recv[idx]`, supporting selectors, descriptors, and builtins."""
     match recv:
@@ -171,6 +174,7 @@ def index_value(recv: ShkValue, idx: ShkValue, frame: Frame, default_thunk: Opti
                 f"Unsupported index operation on {type(recv).__name__} with {type(idx).__name__}"
             )
 
+
 def slice_value(recv: ShkValue, start: Optional[int], stop: Optional[int], step: Optional[int]) -> ShkValue:
     """Return a shallow slice of an array/string (selector extraction)."""
     s = slice(start, stop, step)
@@ -181,6 +185,7 @@ def slice_value(recv: ShkValue, start: Optional[int], stop: Optional[int], step:
             return ShkString(sval[s])
         case _:
             raise ShakarTypeError("Slice only supported on arrays/strings")
+
 
 def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
     """Fetch `recv.name`, resolving descriptors and builtin method sugar."""
@@ -250,6 +255,7 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
             raise ShakarTypeError("Function has no fields")
         case _:
             raise ShakarTypeError(f"Unsupported field access on {type(recv).__name__}")
+
 
 def _normalize_index_key(idx: ShkValue) -> str:
     """Map object index operands to canonical slot keys."""

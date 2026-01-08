@@ -26,6 +26,7 @@ from .helpers import current_function_frame as _current_function_frame, is_truth
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
+
 def eval_return_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if _current_function_frame(frame) is None:
         raise ShakarRuntimeError("return outside of a function")
@@ -33,6 +34,7 @@ def eval_return_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc) ->
     value = eval_func(children[0], frame) if children else ShkNull()
 
     raise ShakarReturnSignal(value)
+
 
 def eval_return_if(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if _current_function_frame(frame) is None:
@@ -47,6 +49,7 @@ def eval_return_if(children: list[Node], frame: Frame, eval_func: EvalFunc) -> S
 
     return ShkNull()
 
+
 def eval_throw_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if children:
         value = eval_func(children[0], frame)
@@ -56,11 +59,14 @@ def eval_throw_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc) -> 
         raise ShakarRuntimeError("throw outside of catch")
     raise current
 
+
 def eval_break_stmt(frame: Frame) -> ShkValue:
     raise ShakarBreakSignal()
 
+
 def eval_continue_stmt(frame: Frame) -> ShkValue:
     raise ShakarContinueSignal()
+
 
 def coerce_throw_value(value: ShkValue) -> ShakarRuntimeError:
     if isinstance(value, ShakarRuntimeError):
@@ -90,6 +96,7 @@ def coerce_throw_value(value: ShkValue) -> ShakarRuntimeError:
     err.shk_payload = value
     return err
 
+
 def eval_assert(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed assert statement")
@@ -106,6 +113,7 @@ def eval_assert(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
         message = _stringify(msg_val)
 
     raise ShakarAssertionError(message)
+
 
 def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
     """Expose exception metadata to catch handlers as a lightweight object."""
@@ -132,6 +140,7 @@ def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
         slots["data"] = data
 
     return ShkObject(slots)
+
 
 def _parse_catch_components(children: list[Node]) -> tuple[Node, Optional[Tok], list[str], Tree]:
     """Split canonical catch nodes into try expression, binder token, type list, and handler."""
@@ -161,6 +170,7 @@ def _parse_catch_components(children: list[Node]) -> tuple[Node, Optional[Tok], 
     handler = children[idx]
 
     return try_node, binder, type_names, handler
+
 
 def _run_catch_handler(
     handler: Tree,
@@ -212,6 +222,7 @@ def _run_catch_handler(
     finally:
         frame._active_error = prev_error
 
+
 def eval_catch_expr(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     try_node, binder, type_names, handler = _parse_catch_components(children)
 
@@ -220,6 +231,7 @@ def eval_catch_expr(children: list[Node], frame: Frame, eval_func: EvalFunc) -> 
     except ShakarRuntimeError as exc:
         payload = _build_error_payload(exc)
         return _run_catch_handler(handler, frame, binder, payload, exc, type_names, eval_func)
+
 
 def eval_catch_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     try_node, binder, type_names, body = _parse_catch_components(children)
@@ -231,6 +243,7 @@ def eval_catch_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc) -> 
         payload = _build_error_payload(exc)
         _run_catch_handler(body, frame, binder, payload, exc, type_names, eval_func)
         return ShkNull()
+
 
 def _assert_source_snippet(node: Node, frame: Frame) -> str:
     src: Optional[str] = getattr(frame, 'source', None)

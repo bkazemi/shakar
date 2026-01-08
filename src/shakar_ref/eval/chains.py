@@ -37,6 +37,7 @@ from .valuefan import eval_valuefan
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
+
 def eval_args_node(args_node: Tree | list[Tree] | None, frame: Frame, eval_func: EvalFunc) -> List[ShkValue]:
     def label(node: Node) -> Optional[str]:
         return tree_label(node)
@@ -71,6 +72,7 @@ def eval_args_node(args_node: Tree | list[Tree] | None, frame: Frame, eval_func:
         return _eval_args(res, frame, eval_func)
 
     return []
+
 
 def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[ShkValue]:
     values: List[ShkValue] = []
@@ -110,11 +112,14 @@ def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[Shk
 
     return values
 
+
 def _is_namedarg(node: Node) -> bool:
     return is_tree(node) and tree_label(node) == 'namedarg'
 
+
 def _is_spread(node: Node) -> bool:
     return is_tree(node) and tree_label(node) == 'spread'
+
 
 def _is_raw_fieldfan(node: Node) -> bool:
     """Detect `Base.{a,b}` with no trailing ops so we can auto-flatten in call args."""
@@ -125,6 +130,7 @@ def _is_raw_fieldfan(node: Node) -> bool:
     if not (bool(ops) and len(ops) == 1):
         return False
     return tree_label(ops[0]) in {'fieldfan', 'valuefan'}
+
 
 def evaluate_index_operand(index_node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkSelector | ShkValue:
     selectorlist = child_by_label(index_node, 'selectorlist')
@@ -140,6 +146,7 @@ def evaluate_index_operand(index_node: Tree, frame: Frame, eval_func: EvalFunc) 
     expr_node = _index_expr_from_children(index_node.children)
     return eval_func(expr_node, frame)
 
+
 def apply_slice(recv: ShkValue, arms: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     def arm_to_py(node: Node) -> Optional[int]:
         if tree_label(node) == 'emptyexpr':
@@ -153,6 +160,7 @@ def apply_slice(recv: ShkValue, arms: List[Node], frame: Frame, eval_func: EvalF
     start, stop, step = map(arm_to_py, arms)
 
     return slice_value(recv, start, stop, step)
+
 
 def apply_index_operation(recv: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     selectorlist = child_by_label(op, 'selectorlist')
@@ -176,6 +184,7 @@ def apply_index_operation(recv: ShkValue, op: Tree, frame: Frame, eval_func: Eva
         raise ShakarTypeError("Default index expects an object receiver")
 
     return apply_selectors_to_value(recv, selectors)
+
 
 def apply_op(recv: EvalResult, op: Tree, frame: Frame, eval_func: EvalFunc) -> EvalResult:
     if isinstance(recv, FanContext):
@@ -214,6 +223,7 @@ def apply_op(recv: EvalResult, op: Tree, frame: Frame, eval_func: EvalFunc) -> E
 
     return result
 
+
 def _get_field(recv: ShkValue, op: Tree, frame: Frame) -> ShkValue:
     # field nodes may carry a leading DOT token plus the identifier; pick the name token
     tokens = [ch for ch in op.children if isinstance(ch, Tok)]
@@ -225,6 +235,7 @@ def _get_field(recv: ShkValue, op: Tree, frame: Frame) -> ShkValue:
         span = (getattr(meta, 'line', None), getattr(meta, 'column', None)) if meta else (None, None)
         raise ShakarRuntimeError(f"{err.args[0]} at {span}") from None
     return get_field_value(recv, field_name, frame)
+
 
 def _call_method(recv: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     method_name = _expect_ident_token(op.children[0], "Method call")
@@ -241,9 +252,11 @@ def _call_method(recv: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc) ->
             return call_shkfn(cal, args, subject=recv, caller_frame=frame)
         raise
 
+
 def _valuefan(base: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     """Evaluate value fanout `base.{...}` to an array of values."""
     return eval_valuefan(base, op, frame, eval_func, apply_op)
+
 
 def call_value(cal: ShkValue, args: List[ShkValue], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     match cal:
@@ -269,6 +282,7 @@ def call_value(cal: ShkValue, args: List[ShkValue], frame: Frame, eval_func: Eva
         case _:
             raise ShakarTypeError(f"Cannot call value of type {type(cal).__name__}")
 
+
 def _index_expr_from_children(children: List[Node]) -> Tree:
     queue = list(children)
 
@@ -289,6 +303,7 @@ def _index_expr_from_children(children: List[Node]) -> Tree:
         return node
 
     raise ShakarRuntimeError("Malformed index expression")
+
 
 def _default_arg(node: Tree) -> Optional[Tree]:
     children = tree_children(node)
@@ -311,6 +326,7 @@ def _default_arg(node: Tree) -> Optional[Tree]:
         return child
 
     return None
+
 
 def _is_single_index_selector(selectors: List[SelectorPart]) -> bool:
     return len(selectors) == 1 and isinstance(selectors[0], SelectorIndex)

@@ -18,9 +18,11 @@ from .selector import selector_iter_values
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
+
 class BinderSpec(TypedDict):
     pattern: Tree
     hoist: bool
+
 
 def _parse_comphead(node: Tree) -> tuple[Tree, list[BinderSpec]]:
     overspec = child_by_label(node, "overspec")
@@ -28,6 +30,7 @@ def _parse_comphead(node: Tree) -> tuple[Tree, list[BinderSpec]]:
         raise ShakarRuntimeError("Malformed comprehension head")
 
     return _parse_overspec(overspec)
+
 
 def _parse_overspec(node: Tree) -> tuple[Tree, list[BinderSpec]]:
     children = list(node.children)
@@ -70,6 +73,7 @@ def _parse_overspec(node: Tree) -> tuple[Tree, list[BinderSpec]]:
 
     return iter_expr_node, binders
 
+
 def _extract_loop_iter_and_body(children: List[Node]) -> tuple[Optional[Node], Optional[Tree]]:
     iter_expr = None
     body_node = None
@@ -97,6 +101,7 @@ def _extract_loop_iter_and_body(children: List[Node]) -> tuple[Optional[Node], O
 
     return iter_expr, body_node
 
+
 def _extract_clause(node: Tree, label: str) -> tuple[Optional[Node], Node]:
     # Include condition tokens but skip keywords like ELIF, ELSE, COLON
     nodes = [
@@ -119,6 +124,7 @@ def _extract_clause(node: Tree, label: str) -> tuple[Optional[Node], Node]:
         raise ShakarRuntimeError("Malformed clause body")
 
     return cond_node, body_node
+
 
 def _coerce_loop_binder(node: Tree) -> BinderSpec:
     target = node
@@ -143,6 +149,7 @@ def _coerce_loop_binder(node: Tree) -> BinderSpec:
 
     raise ShakarRuntimeError("Malformed binder pattern")
 
+
 def _pattern_requires_object_pair(pattern: Tree) -> bool:
     if not is_tree(pattern):
         return False
@@ -152,6 +159,7 @@ def _pattern_requires_object_pair(pattern: Tree) -> bool:
         and sum(1 for elem in tree_children(child) if tree_label(elem) == "pattern") >= 2
         for child in tree_children(pattern)
     )
+
 
 def _iter_indexed_entries(value: ShkValue, binder_count: int) -> list[tuple[ShkValue, list[ShkValue]]]:
     if binder_count <= 0:
@@ -209,9 +217,11 @@ def _iter_indexed_entries(value: ShkValue, binder_count: int) -> list[tuple[ShkV
             raise ShakarTypeError(f"Cannot use indexed loop on {type(value).__name__}")
     return entries
 
+
 def _path_has_wildcards(text: str) -> bool:
     # Supports glob wildcards *, ?, and ** (recursive via glob.glob(..., recursive=True)).
     return "*" in text or "?" in text
+
 
 def _iter_path_values(value: ShkPath) -> List[ShkValue]:
     raw = str(value)
@@ -228,6 +238,7 @@ def _iter_path_values(value: ShkPath) -> List[ShkValue]:
         return [value]
 
     return []
+
 
 def _iterable_values(value: ShkValue) -> list[ShkValue]:
     match value:
@@ -246,6 +257,7 @@ def _iterable_values(value: ShkValue) -> list[ShkValue]:
         case _:
             raise ShakarTypeError(f"Cannot iterate over {type(value).__name__}")
 
+
 def _execute_loop_body(body_node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     label = tree_label(body_node) if is_tree(body_node) else None
 
@@ -256,6 +268,7 @@ def _execute_loop_body(body_node: Tree, frame: Frame, eval_func: EvalFunc) -> Sh
         return eval_indent_block(body_node, frame, eval_func, allow_loop_control=True)
 
     return eval_func(body_node, frame)
+
 
 def _apply_comp_binders_wrapper(binders: list[dict[str, ShkValue]], element: ShkValue, iter_frame: Frame, outer_frame: Frame, eval_func: EvalFunc) -> None:
     apply_comp_binders(
@@ -272,6 +285,7 @@ def _apply_comp_binders_wrapper(binders: list[dict[str, ShkValue]], element: Shk
         iter_frame,
         outer_frame,
     )
+
 
 def _prepare_comprehension(n: Tree, frame: Frame, head_nodes: list[Tree], eval_func: EvalFunc) -> tuple[Tree, list[dict[str, ShkValue]], Optional[Tree]]:
     comphead = child_by_label(n, "comphead")
@@ -297,6 +311,7 @@ def _prepare_comprehension(n: Tree, frame: Frame, head_nodes: list[Tree], eval_f
 
     return iter_val, binders, ifclause
 
+
 def _iterate_comprehension(n: Tree, frame: Frame, head_nodes: list[Tree], eval_func: EvalFunc) -> Iterable[tuple[ShkValue, Frame]]:
     iter_val, binders, ifclause = _prepare_comprehension(n, frame, head_nodes, eval_func)
     outer_dot = frame.dot
@@ -319,6 +334,7 @@ def _iterate_comprehension(n: Tree, frame: Frame, head_nodes: list[Tree], eval_f
             yield element, iter_frame
     finally:
         frame.dot = outer_dot
+
 
 def eval_if_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     children = tree_children(n)
@@ -361,6 +377,7 @@ def eval_if_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         return _execute_loop_body(else_body, frame, eval_func)
     return ShkNull()
 
+
 def eval_while_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     cond_node = None
     body_node = None
@@ -392,6 +409,7 @@ def eval_while_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         frame.dot = outer_dot
 
     return ShkNull()
+
 
 def eval_for_in(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     pattern_node = None
@@ -469,6 +487,7 @@ def eval_for_in(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         frame.dot = outer_dot
     return ShkNull()
 
+
 def eval_for_subject(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     iter_expr = None
     body_node = None
@@ -501,6 +520,7 @@ def eval_for_subject(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     finally:
         frame.dot = outer_dot
     return ShkNull()
+
 
 def eval_for_indexed(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if n is None:
@@ -551,8 +571,10 @@ def eval_for_indexed(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         frame.dot = outer_dot
     return ShkNull()
 
+
 def eval_for_map2(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     return eval_for_indexed(n, frame, eval_func)
+
 
 def eval_listcomp(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
     body = n.children[0] if n.children else None
@@ -562,6 +584,7 @@ def eval_listcomp(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
     items = [eval_func(body, iter_frame) for _, iter_frame in _iterate_comprehension(n, frame, [body], eval_func)]
 
     return ShkArray(items)
+
 
 def eval_setcomp(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
     body = n.children[0] if n.children else None
@@ -577,6 +600,7 @@ def eval_setcomp(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
 
     return ShkArray(items)
 
+
 def eval_setliteral(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
     items: list[ShkValue] = []
     for child in tree_children(n):
@@ -586,6 +610,7 @@ def eval_setliteral(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
             items.append(val)
 
     return ShkArray(items)
+
 
 def eval_dictcomp(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
     if len(n.children) < 3:

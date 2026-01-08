@@ -18,6 +18,7 @@ from .tree import Tree, Node
 
 from .token_types import TT, Tok
 
+
 class ParseContext(Enum):
     """Track parsing context to disambiguate comma usage"""
     NORMAL = 0  # Default: CCC allowed
@@ -29,6 +30,7 @@ class ParseContext(Enum):
 # Parser
 # ============================================================================
 
+
 class ParseError(Exception):
     """Parse error with position info"""
     def __init__(self, message: str, token: Optional[Tok] = None):
@@ -37,6 +39,7 @@ class ParseError(Exception):
         super().__init__(
             f"{message} at line {token.line}, col {token.column}" if token else message
         )
+
 
 class Parser:
     """
@@ -2872,6 +2875,7 @@ class Parser:
 # ============================================================================
 # Usage Example
 # ============================================================================
+
 
 def parse_source(source: str, use_indenter: bool = True) -> Tree:
     """

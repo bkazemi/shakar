@@ -68,6 +68,7 @@ __all__ = [
 
 _STDLIB_INITIALIZED = False
 
+
 def init_stdlib() -> None:
     """Load stdlib modules (idempotent) so register_stdlib hooks run."""
     global _STDLIB_INITIALIZED
@@ -83,6 +84,7 @@ def init_stdlib() -> None:
         except ModuleNotFoundError:
             continue
 
+
 def register_method(registry: MethodRegistry, name: str):
     def dec(fn: Callable[..., ShkValue]):
         registry[name] = fn
@@ -90,23 +92,30 @@ def register_method(registry: MethodRegistry, name: str):
 
     return dec
 
+
 def register_array(name: str):
     return register_method(Builtins.array_methods, name)
+
 
 def register_string(name: str):
     return register_method(Builtins.string_methods, name)
 
+
 def register_regex(name: str):
     return register_method(Builtins.regex_methods, name)
+
 
 def register_object(name: str):
     return register_method(Builtins.object_methods, name)
 
+
 def register_command(name: str):
     return register_method(Builtins.command_methods, name)
 
+
 def register_path(name: str):
     return register_method(Builtins.path_methods, name)
+
 
 def register_stdlib(name: str, *, arity: Optional[int] = None):
     def dec(fn: StdlibFn):
@@ -115,9 +124,11 @@ def register_stdlib(name: str, *, arity: Optional[int] = None):
 
     return dec
 
+
 def _string_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
     if len(args) != expected:
         raise ShakarArityError(f"string.{method} expects {expected} argument(s); got {len(args)}")
+
 
 def _string_arg(method: str, arg: ShkValue) -> str:
     if isinstance(arg, ShkString):
@@ -125,15 +136,18 @@ def _string_arg(method: str, arg: ShkValue) -> str:
 
     raise ShakarTypeError(f"string.{method} expects a string argument")
 
+
 def _regex_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
     if len(args) != expected:
         raise ShakarArityError(f"regex.{method} expects {expected} argument(s); got {len(args)}")
+
 
 def _regex_arg(method: str, arg: ShkValue) -> str:
     if isinstance(arg, ShkString):
         return arg.value
 
     raise ShakarTypeError(f"regex.{method} expects a string argument")
+
 
 @register_string("join")
 def _string_join(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkString:
@@ -151,11 +165,13 @@ def _string_join(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkStr
 
     return ShkString(recv.value.join(strings))
 
+
 @register_string("trim")
 def _string_trim(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkString:
     _string_expect_arity("trim", args, 0)
 
     return ShkString(recv.value.strip())
+
 
 @register_string("lower")
 def _string_lower(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkString:
@@ -163,11 +179,13 @@ def _string_lower(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkSt
 
     return ShkString(recv.value.lower())
 
+
 @register_string("upper")
 def _string_upper(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkString:
     _string_expect_arity("upper", args, 0)
 
     return ShkString(recv.value.upper())
+
 
 @register_string("hasPrefix")
 def _string_has_prefix(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkBool:
@@ -176,6 +194,7 @@ def _string_has_prefix(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> 
 
     return ShkBool(recv.value.startswith(prefix))
 
+
 @register_string("hasSuffix")
 def _string_has_suffix(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkBool:
     _string_expect_arity("hasSuffix", args, 1)
@@ -183,11 +202,13 @@ def _string_has_suffix(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> 
 
     return ShkBool(recv.value.endswith(suffix))
 
+
 @register_string("isAscii")
 def _string_is_ascii(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkBool:
     _string_expect_arity("isAscii", args, 0)
 
     return ShkBool(recv.value.isascii())
+
 
 @register_command("run")
 def _command_run(_frame: Frame, recv: ShkCommand, args: List[ShkValue]) -> ShkValue:
@@ -204,6 +225,7 @@ def _command_run(_frame: Frame, recv: ShkCommand, args: List[ShkValue]) -> ShkVa
         raise CommandError(cmd, result.returncode, result.stdout, result.stderr)
 
     return ShkString(result.stdout)
+
 
 def regex_match_value(regex: ShkRegex, text: str) -> ShkValue:
     match = regex.compiled.search(text)
@@ -222,17 +244,20 @@ def regex_match_value(regex: ShkRegex, text: str) -> ShkValue:
     ]
     return ShkArray(items)
 
+
 @register_regex("test")
 def _regex_test(_frame: Frame, recv: ShkRegex, args: List[ShkValue]) -> ShkBool:
     _regex_expect_arity("test", args, 1)
     text = _regex_arg("test", args[0])
     return ShkBool(recv.compiled.search(text) is not None)
 
+
 @register_regex("match")
 def _regex_match(_frame: Frame, recv: ShkRegex, args: List[ShkValue]) -> ShkValue:
     _regex_expect_arity("match", args, 1)
     text = _regex_arg("match", args[0])
     return regex_match_value(recv, text)
+
 
 @register_regex("replace")
 def _regex_replace(_frame: Frame, recv: ShkRegex, args: List[ShkValue]) -> ShkString:
@@ -241,9 +266,11 @@ def _regex_replace(_frame: Frame, recv: ShkRegex, args: List[ShkValue]) -> ShkSt
     repl = _regex_arg("replace", args[1])
     return ShkString(recv.compiled.sub(repl, text))
 
+
 def _path_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
     if len(args) != expected:
         raise ShakarArityError(f"path.{method} expects {expected} argument(s); got {len(args)}")
+
 
 def _path_arg_number(method: str, arg: ShkValue) -> int:
     if isinstance(arg, ShkNumber):
@@ -252,10 +279,12 @@ def _path_arg_number(method: str, arg: ShkValue) -> int:
         raise ShakarTypeError(f"path.{method} expects an integer mode")
     raise ShakarTypeError(f"path.{method} expects a number mode")
 
+
 def _path_arg_string(method: str, arg: ShkValue) -> str:
     if isinstance(arg, ShkString):
         return arg.value
     raise ShakarTypeError(f"path.{method} expects a string argument")
+
 
 @register_path("read")
 def _path_read(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkString:
@@ -266,6 +295,7 @@ def _path_read(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkString:
     except OSError as exc:
         raise ShakarRuntimeError(f"Path read failed: {exc}") from exc
     return ShkString(content)
+
 
 @register_path("write")
 def _path_write(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNull:
@@ -278,6 +308,7 @@ def _path_write(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNull:
         raise ShakarRuntimeError(f"Path write failed: {exc}") from exc
     return ShkNull()
 
+
 @register_path("chmod")
 def _path_chmod(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNull:
     _path_expect_arity("chmod", args, 1)
@@ -288,6 +319,7 @@ def _path_chmod(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNull:
     except OSError as exc:
         raise ShakarRuntimeError(f"Path chmod failed: {exc}") from exc
     return ShkNull()
+
 
 def call_builtin_method(recv: ShkValue, name: str, args: List[ShkValue], frame: 'Frame') -> ShkValue:
     registry_by_type: Dict[type, MethodRegistry] = {
@@ -307,6 +339,7 @@ def call_builtin_method(recv: ShkValue, name: str, args: List[ShkValue], frame: 
 
     raise ShakarMethodNotFound(recv, name)
 
+
 def _validate_return_contract(fn: ShkFn, result: ShkValue, callee_frame: 'Frame') -> ShkValue:
     """Validate return value against function's return contract if present"""
     if fn.return_contract is None:
@@ -324,6 +357,7 @@ def _validate_return_contract(fn: ShkFn, result: ShkValue, callee_frame: 'Frame'
 
     return result
 
+
 def call_shkfn(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue], caller_frame: 'Frame') -> ShkValue:
     """
     Subjectful call semantics:
@@ -336,6 +370,7 @@ def call_shkfn(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue
         return _call_shkfn_with_decorators(fn, positional, subject, caller_frame)
 
     return _call_shkfn_raw(fn, positional, subject, caller_frame)
+
 
 def _bind_params_with_spread(params: List[str], vararg_indices: List[int], positional: List[ShkValue], *, label: str) -> List[ShkValue]:
     spread_set = set(vararg_indices)
@@ -371,6 +406,7 @@ def _bind_params_with_spread(params: List[str], vararg_indices: List[int], posit
 
     return bound_values
 
+
 def _bind_decorator_params(params: List[str], vararg_indices: List[int], args: List[ShkValue]) -> List[ShkValue]:
     if not vararg_indices:
         if len(args) != len(params):
@@ -381,6 +417,7 @@ def _bind_decorator_params(params: List[str], vararg_indices: List[int], args: L
     if len(args) < required:
         raise ShakarArityError(f"Decorator expects at least {required} args; got {len(args)}")
     return _bind_params_with_spread(params, vararg_indices, list(args), label="Decorator")
+
 
 def _call_shkfn_raw(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue], caller_frame: 'Frame') -> ShkValue:
     _ = caller_frame
@@ -431,11 +468,13 @@ def _call_shkfn_raw(fn: ShkFn, positional: List[ShkValue], subject: Optional[Shk
 
     return _validate_return_contract(fn, result, callee_frame)
 
+
 def _call_shkfn_with_decorators(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue], caller_frame: 'Frame') -> ShkValue:
     chain = fn.decorators or ()
     args = ShkArray(list(positional))
 
     return _run_decorator_chain(fn, chain, 0, args, subject, caller_frame)
+
 
 def _run_decorator_chain(
     fn: ShkFn,
@@ -457,6 +496,7 @@ def _run_decorator_chain(
     inst = chain[index]
 
     return _execute_decorator_instance(inst, continuation, args_value, subject, caller_frame)
+
 
 def _execute_decorator_instance(
     inst: DecoratorConfigured,
@@ -483,6 +523,7 @@ def _execute_decorator_instance(
     updated_args_value = deco_frame.get('args')
 
     return continuation.invoke(updated_args_value)
+
 
 def _coerce_decorator_args(value: ShkValue) -> ShkArray:
     if isinstance(value, ShkArray):

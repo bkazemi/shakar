@@ -12,10 +12,12 @@ if TYPE_CHECKING:
 
 # ---------- Value Model (only Sh* -> Shk*) ----------
 
+
 @dataclass
 class ShkNull:
     def __repr__(self) -> str:
         return "null"
+
 
 @dataclass
 class ShkNumber:
@@ -29,11 +31,13 @@ class ShkNumber:
         v = float(self.value)
         return str(int(v)) if v.is_integer() else str(v)
 
+
 @dataclass
 class ShkString:
     value: str
     def __repr__(self) -> str:
         return f'"{self.value}"'
+
 
 @dataclass
 class ShkRegex:
@@ -45,17 +49,20 @@ class ShkRegex:
         suffix = f"/{self.flags}" if self.flags else ""
         return f'r"{self.pattern}"{suffix}'
 
+
 @dataclass
 class ShkBool:
     value: bool
     def __repr__(self) -> str:
         return "true" if self.value else "false"
 
+
 @dataclass
 class ShkArray:
     items: List['ShkValue']
     def __repr__(self) -> str:
         return "[" + ", ".join(repr(x) for x in self.items) + "]"
+
 
 @dataclass
 class ShkCommand:
@@ -64,6 +71,7 @@ class ShkCommand:
         return "".join(self.segments)
     def __repr__(self) -> str:
         return f"sh<{self.render()}>"
+
 
 @dataclass
 class ShkPath:
@@ -75,6 +83,7 @@ class ShkPath:
     def __str__(self) -> str:
         return self.value
 
+
 @dataclass(frozen=True)
 class ShkType:
     """Runtime type representation for structural matching."""
@@ -83,12 +92,14 @@ class ShkType:
     def __repr__(self) -> str:
         return f"<type {self.name}>"
 
+
 @dataclass(frozen=True)
 class ShkOptional:
     """Optional field wrapper for structural matching schemas."""
     inner: 'ShkValue'
     def __repr__(self) -> str:
         return f"Optional({self.inner!r})"
+
 
 @dataclass(frozen=True)
 class ShkUnion:
@@ -97,6 +108,7 @@ class ShkUnion:
     def __repr__(self) -> str:
         alts = ", ".join(repr(a) for a in self.alternatives)
         return f"Union({alts})"
+
 
 @dataclass
 class ShkObject:
@@ -109,9 +121,11 @@ class ShkObject:
 
         return "{ " + ", ".join(pairs) + " }"
 
+
 @dataclass
 class SelectorIndex:
     value: 'ShkValue'
+
 
 @dataclass
 class SelectorSlice:
@@ -122,6 +136,7 @@ class SelectorSlice:
     exclusive_stop: bool = False
 
 SelectorPart = Union[SelectorIndex, SelectorSlice]
+
 
 @dataclass
 class ShkSelector:
@@ -146,6 +161,7 @@ class ShkSelector:
 
         return "selector{" + ", ".join(descr) + "}"
 
+
 @dataclass
 class ShkDecorator:
     params: Optional[List[str]]
@@ -153,10 +169,12 @@ class ShkDecorator:
     frame: 'Frame'
     vararg_indices: Optional[List[int]] = None
 
+
 @dataclass
 class DecoratorConfigured:
     decorator: ShkDecorator
     args: List['ShkValue']
+
 
 @dataclass
 class ShkFn:
@@ -178,20 +196,24 @@ class ShkFn:
 
         return f"<{label} params={param_desc} body={body_label}>"
 
+
 @dataclass
 class BoundMethod:
     fn: ShkFn
     subject: 'ShkValue'
+
 
 @dataclass
 class BuiltinMethod:
     name: str
     subject: 'ShkValue'
 
+
 @dataclass
 class Descriptor:
     getter: Optional[ShkFn] = None
     setter: Optional[ShkFn] = None
+
 
 @dataclass
 class DecoratorContinuation:
@@ -206,6 +228,7 @@ class DecoratorContinuation:
         args = runtime._coerce_decorator_args(args_value)
         return runtime._run_decorator_chain(self.fn, self.decorators, self.index, args, self.subject, self.caller_frame)
 
+
 @dataclass
 class DeferEntry:
     """Scheduled defer thunk plus optional metadata for dependency ordering."""
@@ -214,6 +237,7 @@ class DeferEntry:
     deps: List[str] = field(default_factory=list)
 
 StdlibFn = Callable[['Frame', List['ShkValue']], 'ShkValue']
+
 
 @dataclass(frozen=True)
 class StdlibFunction:
@@ -248,6 +272,7 @@ ShkValue: TypeAlias = Union[
 EvalResult: TypeAlias = Union[ShkValue, "RebindContext", "FanContext"]
 
 DotValue: TypeAlias = Optional[ShkValue]
+
 
 class Frame:
     def __init__(self, parent: Optional['Frame']=None, dot: DotValue=None, source: Optional[str]=None):
@@ -321,6 +346,7 @@ class Frame:
 
 # ---------- Exceptions (keep Shakar* canonical) ----------
 
+
 class ShakarRuntimeError(Exception):
     shk_type: Optional[str]
     shk_data: Optional[ShkValue]
@@ -352,26 +378,32 @@ class ShakarRuntimeError(Exception):
 
         return f"{msg} (line {line}, col {col})"
 
+
 class ShakarTypeError(ShakarRuntimeError):
     pass
 
+
 class ShakarArityError(ShakarRuntimeError):
     pass
+
 
 class ShakarKeyError(ShakarRuntimeError):
     def __init__(self, key: str):
         super().__init__(f"Key '{key}' not found")
         self.key = key
 
+
 class ShakarIndexError(ShakarRuntimeError):
     def __init__(self, message: str = "Index out of bounds"):
         super().__init__(message)
+
 
 class ShakarMethodNotFound(ShakarRuntimeError):
     def __init__(self, recv: ShkValue, name: str):
         super().__init__(f"{type(recv).__name__} has no builtin method '{name}'")
         self.receiver = recv
         self.name = name
+
 
 class CommandError(ShakarRuntimeError):
     def __init__(self, cmd: str, code: int, stdout: str, stderr: str):
@@ -388,16 +420,20 @@ class CommandError(ShakarRuntimeError):
         })
         self.shk_type = "CommandError"
 
+
 class ShakarAssertionError(ShakarRuntimeError):
     pass
+
 
 class ShakarReturnSignal(Exception):
     """Internal control-flow exception used to implement `return`."""
     def __init__(self, value: ShkValue):
         self.value = value
 
+
 class ShakarBreakSignal(Exception):
     """Internal control flow for `break`."""
+
 
 class ShakarContinueSignal(Exception):
     """Internal control flow for `continue`."""
@@ -426,8 +462,10 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     ShkUnion,
 )
 
+
 def is_shk_value(value: ShkValue | Node) -> TypeGuard[ShkValue]:
     return isinstance(value, _SHK_VALUE_TYPES)
+
 
 def _ensure_shk_value(value: ShkValue | Node) -> ShkValue:
     if value is None:
@@ -438,10 +476,12 @@ def _ensure_shk_value(value: ShkValue | Node) -> ShkValue:
 
 R_contra = TypeVar("R_contra", bound="ShkValue", contravariant=True)
 
+
 class Method(Protocol[R_contra]):
     def __call__(self, frame: 'Frame', recv: R_contra, args: List['ShkValue']) -> 'ShkValue': ...
 
 MethodRegistry = Dict[str, Method[ShkValue]]
+
 
 class Builtins:
     array_methods: MethodRegistry = {}

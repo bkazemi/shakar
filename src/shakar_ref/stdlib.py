@@ -9,6 +9,7 @@ from .runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, Sh
 from .runtime import ShakarRuntimeError
 from .eval.helpers import is_truthy
 
+
 @register_stdlib("int")
 def std_int(_frame, args: List[ShkValue]) -> ShkNumber:
     if len(args) != 1:
@@ -30,6 +31,7 @@ def std_int(_frame, args: List[ShkValue]) -> ShkNumber:
 
     raise ShakarTypeError("int() expects number or numeric string")
 
+
 def _render(value):
     if isinstance(value, ShkString):
         return value.value
@@ -41,11 +43,13 @@ def _render(value):
         return "null"
     return str(value)
 
+
 @register_stdlib("print")
 def std_print(_frame, args: List[ShkValue]) -> ShkNull:
     rendered = [_render(arg) for arg in args]
     print(*rendered)
     return ShkNull()
+
 
 @register_stdlib("sleep")
 def std_sleep(_frame, args: List[ShkValue]):
@@ -63,6 +67,7 @@ def std_sleep(_frame, args: List[ShkValue]):
         return ShkNull()
 
     return _sleep_coro()
+
 
 @register_stdlib("error")
 def std_error(_frame, args: List[ShkValue]) -> ShkObject:
@@ -126,12 +131,14 @@ def _iter_coerce(value: ShkValue):
     else:
         raise ShakarTypeError("all/any expects iterable or multiple args")
 
+
 @register_stdlib("Optional")
 def std_optional(_frame, args: List[ShkValue]) -> ShkOptional:
     """Wrap a schema value to mark it as optional in structural matching."""
     if len(args) != 1:
         raise ShakarTypeError("Optional() expects exactly one argument")
     return ShkOptional(args[0])
+
 
 @register_stdlib("Union")
 def std_union(_frame, args: List[ShkValue]) -> ShkUnion:

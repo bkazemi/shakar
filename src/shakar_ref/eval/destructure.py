@@ -18,11 +18,13 @@ from ..tree import Node, Tree, tree_label, tree_children
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
+
 def _ident_token_value(node: Node) -> Optional[str]:
     if isinstance(node, Tok) and node.type == TT.IDENT:
         return str(node.value)
 
     return None
+
 
 def evaluate_destructure_rhs(
     eval_fn: EvalFunc,
@@ -68,6 +70,7 @@ def evaluate_destructure_rhs(
         raise ShakarRuntimeError("Destructure arity mismatch")
 
     return vals, result
+
 
 def assign_pattern(
     eval_fn: EvalFunc,
@@ -127,6 +130,7 @@ def assign_pattern(
 
     raise ShakarRuntimeError("Unsupported pattern element")
 
+
 def infer_implicit_binders(
     exprs: Iterable[Tree],
     ifclause: Optional[Tree],
@@ -152,6 +156,7 @@ def infer_implicit_binders(
         collect_fn(guard_expr, consider)
 
     return names
+
 
 def apply_comp_binders(
     assign_fn: Callable[[Node, ShkValue, Frame], None],
@@ -179,12 +184,14 @@ def apply_comp_binders(
         target_frame = outer_frame if binder.get("hoist") else iter_frame
         assign_fn(binder["pattern"], val, target_frame)
 
+
 def _name_exists(frame: Frame, name: str) -> bool:
     try:
         frame.get(name)
         return True
     except ShakarRuntimeError:
         return False
+
 
 def eval_destructure(
     node: Tree,

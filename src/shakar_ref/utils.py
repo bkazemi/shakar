@@ -20,12 +20,14 @@ from .types import (
     ShakarTypeError,
 )
 
+
 def value_in_list(seq: List[ShkValue], value: ShkValue) -> bool:
     for existing in seq:
         if shk_equals(existing, value):
             return True
 
     return False
+
 
 def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
     match (lhs, rhs):
@@ -48,13 +50,16 @@ def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
         case _:
             return False
 
+
 def is_sequence_value(value: ShkValue) -> bool:
     return isinstance(value, ShkArray)
+
 
 def sequence_items(value: ShkValue) -> List[ShkValue]:
     if isinstance(value, ShkArray):
         return list(value.items)
     raise ShakarTypeError("Expected ShkArray for sequence operations")
+
 
 def coerce_sequence(value: ShkValue, expected_len: Optional[int]) -> Optional[List[ShkValue]]:
     if not is_sequence_value(value):
@@ -67,17 +72,20 @@ def coerce_sequence(value: ShkValue, expected_len: Optional[int]) -> Optional[Li
 
     return items
 
+
 def fanout_values(value: ShkValue, count: int) -> List[ShkValue]:
     if isinstance(value, ShkArray) and len(value.items) == count:
         return list(value.items)
 
     return [value] * count
 
+
 def replicate_empty_sequence(value: ShkValue, count: int) -> List[ShkValue]:
     if isinstance(value, ShkArray) and len(value.items) == 0:
         return [ShkArray([]) for _ in range(count)]
 
     return [value] * count
+
 
 def normalize_object_key(value: ShkValue) -> str:
     match value:

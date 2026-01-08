@@ -116,6 +116,7 @@ def _maybe_attach_location(exc: ShakarRuntimeError, node: Node, frame: Frame) ->
 
 # ---------------- Public API ----------------
 
+
 def eval_expr(ast: Node, frame: Optional[Frame]=None, source: Optional[str]=None) -> ShkValue:
     init_stdlib()
 
@@ -134,6 +135,7 @@ def eval_expr(ast: Node, frame: Optional[Frame]=None, source: Optional[str]=None
         raise
 
 # ---------------- Core evaluator ----------------
+
 
 def eval_node(n: Node, frame: Frame) -> ShkValue:
     try:
@@ -287,6 +289,7 @@ def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
 
 # ---------------- Toks ----------------
 
+
 def _eval_token(t: Tok, frame: Frame) -> ShkValue:
     handler = _TOKEN_DISPATCH.get(t.type)
     if handler:
@@ -297,6 +300,7 @@ def _eval_token(t: Tok, frame: Frame) -> ShkValue:
 
     raise ShakarRuntimeError(f"Unhandled token {t.type}:{t.value}")
 
+
 def _eval_implicit_chain(ops: List[Tree], frame: Frame) -> ShkValue:
     """Evaluate `.foo().bar` style chains using the current subject anchor."""
     val = get_subject(frame)
@@ -306,11 +310,14 @@ def _eval_implicit_chain(ops: List[Tree], frame: Frame) -> ShkValue:
 
     return val
 
+
 def _eval_break_stmt(frame: Frame) -> ShkValue:
     raise ShakarBreakSignal()
 
+
 def _eval_continue_stmt(frame: Frame) -> ShkValue:
     raise ShakarContinueSignal()
+
 
 def _eval_formap1(n: Tree, frame: Frame) -> ShkValue:
     child = n.children[0] if n.children else None
@@ -321,6 +328,7 @@ def _eval_formap1(n: Tree, frame: Frame) -> ShkValue:
     return eval_for_indexed(child, frame, eval_node)
 
 # ---------------- Grouping / dispatch ----------------
+
 
 def _eval_group(n: Tree, frame: Frame) -> ShkValue:
     child = n.children[0] if n.children else None

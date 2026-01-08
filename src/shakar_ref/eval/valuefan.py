@@ -8,6 +8,7 @@ from ..tree import Node, is_tree, tree_children, tree_label
 from .bind import RebindContext
 from .mutation import get_field_value
 
+
 def eval_valuefan(base: ShkValue, fan_node: Tree, frame: Frame, eval_func, apply_op) -> ShkValue:
     """Evaluate value fanout `base.{...}` to an array; base is evaluated already."""
     items: List[ShkValue] = []
@@ -23,6 +24,7 @@ def eval_valuefan(base: ShkValue, fan_node: Tree, frame: Frame, eval_func, apply
         items.append(_eval_item(base, item, frame, eval_func, apply_op))
 
     return ShkArray(items)
+
 
 def _eval_item(base: ShkValue, item: Tree, frame: Frame, eval_func, apply_op) -> ShkValue:
     """Evaluate a single valuefan item, applying postfix ops starting from base.field."""
@@ -49,6 +51,7 @@ def _eval_item(base: ShkValue, item: Tree, frame: Frame, eval_func, apply_op) ->
     val_frame = Frame(parent=frame, dot=base)
     return eval_func(item, val_frame)
 
+
 def _iter_items(fan_node: Tree):
     for ch in tree_children(fan_node):
         label = tree_label(ch)
@@ -67,9 +70,11 @@ def _iter_items(fan_node: Tree):
         elif is_tree(ch) and label == "field":
             yield ch
 
+
 def _wrap_chain(chain: Tree) -> Tree:
     # valuefan_chain already a Tree; just return
     return chain
+
 
 def _fingerprint(item: Node) -> str | None:
     if not is_tree(item):
@@ -81,6 +86,7 @@ def _fingerprint(item: Node) -> str | None:
     if label in {"valuefan_chain", "identchain"}:
         return "|".join(_flatten_tokens(item))
     return None
+
 
 def _flatten_tokens(node: Node) -> List[str]:
     tokens: List[str] = []

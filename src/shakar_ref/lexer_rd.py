@@ -18,6 +18,7 @@ from .token_types import TT, Tok
 # Lexer Implementation
 # ============================================================================
 
+
 class Lexer:
     """
     Shakar lexer with indentation handling.
@@ -528,6 +529,7 @@ class Lexer:
         )
         self.tokens.append(tok)
 
+
 class LexError(Exception):
     """Lexical analysis error"""
     pass
@@ -535,6 +537,7 @@ class LexError(Exception):
 # ============================================================================
 # Testing
 # ============================================================================
+
 
 def tokenize(source: str, track_indentation: bool = False) -> List[Tok]:
     """Convenience function to tokenize source"""

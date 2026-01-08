@@ -21,6 +21,7 @@ from .helpers import is_truthy as _is_truthy
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
+
 def eval_program(children: List[Node], frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> ShkValue:
     """Run a stmt list under a fresh defer scope, returning last value."""
     result: ShkValue = ShkNull()
@@ -46,14 +47,17 @@ def eval_program(children: List[Node], frame: Frame, eval_func: EvalFunc, allow_
 
     return result
 
+
 def get_subject(frame: Frame) -> ShkValue:
     if frame.dot is None:
         raise ShakarRuntimeError("No subject available for '.'")
 
     return frame.dot
 
+
 def push_defer_scope(frame: Frame) -> None:
     frame.push_defer_frame()
+
 
 def pop_defer_scope(frame: Frame) -> None:
     entries = frame.pop_defer_frame()
@@ -63,6 +67,7 @@ def pop_defer_scope(frame: Frame) -> None:
 _DEFER_UNVISITED = 0
 _DEFER_VISITING = 1
 _DEFER_DONE = 2
+
 
 def _run_defer_entries(entries: List[DeferEntry]) -> None:
     if not entries:
@@ -98,6 +103,7 @@ def _run_defer_entries(entries: List[DeferEntry]) -> None:
     for idx in reversed(range(len(entries))):
         run_index(idx)
 
+
 def schedule_defer(frame: Frame, thunk: Callable[[], None], label: Optional[str]=None, deps: Optional[List[str]]=None) -> None:
     if not frame.has_defer_frame():
         raise ShakarRuntimeError("Cannot use defer outside of a block")
@@ -112,6 +118,7 @@ def schedule_defer(frame: Frame, thunk: Callable[[], None], label: Optional[str]
 
     defer_frame.append(entry)
 
+
 def eval_inline_body(node: Node, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> ShkValue:
     if tree_label(node) == 'inlinebody':
         for child in tree_children(node):
@@ -124,8 +131,10 @@ def eval_inline_body(node: Node, frame: Frame, eval_func: EvalFunc, allow_loop_c
 
     return eval_func(node, frame)
 
+
 def eval_indent_block(node: Tree, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> ShkValue:
     return eval_program(node.children, frame, eval_func, allow_loop_control=allow_loop_control)
+
 
 def eval_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     """Execute guard chains (`cond1, cond2: body`) in inline or indented form."""
@@ -162,6 +171,7 @@ def eval_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkVa
 
     return ShkNull()
 
+
 def eval_body_node(body_node: Node, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     label = tree_label(body_node) if is_tree(body_node) else None
 
@@ -173,6 +183,7 @@ def eval_body_node(body_node: Node, frame: Frame, eval_func: EvalFunc) -> ShkVal
 
     return eval_func(body_node, frame)
 
+
 def run_body_with_subject(body_node: Node, frame: Frame, subject_value: DotValue, eval_func: EvalFunc, extra_bindings: Optional[dict[str, ShkValue]]=None) -> ShkValue:
     if extra_bindings:
         with temporary_subject(frame, subject_value), temporary_bindings(frame, extra_bindings):
@@ -180,6 +191,7 @@ def run_body_with_subject(body_node: Node, frame: Frame, subject_value: DotValue
 
     with temporary_subject(frame, subject_value):
         return eval_body_node(body_node, frame, eval_func)
+
 
 @contextmanager
 def temporary_subject(frame: Frame, dot: DotValue) -> Iterator[None]:
@@ -190,6 +202,7 @@ def temporary_subject(frame: Frame, dot: DotValue) -> Iterator[None]:
         yield
     finally:
         frame.dot = prev
+
 
 @contextmanager
 def temporary_bindings(frame: Frame, bindings: dict[str, ShkValue]) -> Iterator[None]:
@@ -217,6 +230,7 @@ def temporary_bindings(frame: Frame, bindings: dict[str, ShkValue]) -> Iterator[
                 target.vars[name] = prev
             else:
                 target.vars.pop(name, None)
+
 
 def eval_defer_stmt(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not children:

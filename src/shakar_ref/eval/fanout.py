@@ -22,6 +22,7 @@ _COMPOUND_MAP = {
     "fanop_poweq": "**",
 }
 
+
 def eval_fanout_block(
     node: Tree,
     frame: Frame,
@@ -56,6 +57,7 @@ def eval_fanout_block(
 
     return base_val
 
+
 def _fan_key(clause: Tree) -> tuple[str, ...] | None:
     """Return a hashable key for field/index paths to dedup targets."""
     parts: list[str] = []
@@ -71,6 +73,7 @@ def _fan_key(clause: Tree) -> tuple[str, ...] | None:
                 else:
                     return None
     return tuple(parts) if parts else None
+
 
 def _eval_clause(
     base_val: ShkValue,
@@ -125,13 +128,16 @@ def _eval_clause(
         new_val = apply_binary_operator(op_symbol, old_val, rhs_val)
         _store_target(tgt, final_seg, new_val, frame, evaluate_index_operand, eval_func)
 
+
 def _iter_targets(target_obj: EvalResult) -> List[ShkValue | RebindContext]:
     if isinstance(target_obj, FanContext):
         return list(target_obj.contexts)
     return [target_obj]
 
+
 def _fan_segments(path_node: Node) -> List[Tree]:
     return [seg for seg in tree_children(path_node) if is_tree(seg)]
+
 
 def _walk_to_parent(base_val: ShkValue, segments: List[Tree], frame: Frame, eval_func, apply_op) -> tuple[ShkValue, Tree]:
     current = base_val
@@ -153,6 +159,7 @@ def _walk_to_parent(base_val: ShkValue, segments: List[Tree], frame: Frame, eval
             current = current.value
 
     return current, segments[-1]
+
 
 def _segment_is_multi_selector(seg: Tree) -> bool:
     """Return True if selector list contains a slice or multiple selectors."""
@@ -208,6 +215,7 @@ def _fan_context_from_selector(arr: ShkArray, seg: Tree, frame: Frame, eval_func
 
     return FanContext(contexts)
 
+
 def _store_target(target: ShkValue | RebindContext, final_seg: Tree, value: ShkValue, frame: Frame, evaluate_index_operand, eval_func) -> None:
     if isinstance(target, RebindContext):
         # Apply store to the underlying value, then write back via setter to keep container in sync.
@@ -215,6 +223,7 @@ def _store_target(target: ShkValue | RebindContext, final_seg: Tree, value: ShkV
         target.setter(target.value)
         return
     _store(target, final_seg, value, frame, evaluate_index_operand, eval_func)
+
 
 def _read(target: ShkValue, final_seg: Tree, frame: Frame, evaluate_index_operand, eval_func) -> ShkValue:
     match tree_label(final_seg):
@@ -227,6 +236,7 @@ def _read(target: ShkValue, final_seg: Tree, frame: Frame, evaluate_index_operan
         case _:
             raise ShakarRuntimeError("Fanout block target must be a field or index")
 
+
 def _store(target: ShkValue, final_seg: Tree, value: ShkValue, frame: Frame, evaluate_index_operand, eval_func) -> None:
     match tree_label(final_seg):
         case "field" | "fieldsel":
@@ -238,10 +248,12 @@ def _store(target: ShkValue, final_seg: Tree, value: ShkValue, frame: Frame, eva
         case _:
             raise ShakarRuntimeError("Fanout block target must be a field or index")
 
+
 def _name(label: str | Tok | None) -> str:
     if isinstance(label, Tok):
         return str(label.value)
     return str(label) if label is not None else ""
+
 
 def _seg_fingerprint(seg: Tree) -> str:
     # Rough, stable-enough textual fingerprint of an lv_index child tree.

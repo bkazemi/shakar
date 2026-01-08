@@ -20,11 +20,13 @@ from typing import Callable, List, Optional, Sequence, Tuple
 BASE_DIR = Path(__file__).resolve().parent
 SRC_DIR = (BASE_DIR / "src").resolve()
 
+
 def _ensure_src_on_path() -> None:
     if str(BASE_DIR) not in sys.path:
         sys.path.append(str(BASE_DIR))
     if str(SRC_DIR) not in sys.path:
         sys.path.append(str(SRC_DIR))
+
 
 def _load_shakar_modules():
     _ensure_src_on_path()
@@ -101,12 +103,14 @@ GRAMMAR_TEXT = GRAMMAR_PATH.read_text(encoding="utf-8")
 # Data containers
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class Case:
     """Parser sample used for grammar sanity checks."""
     name: str
     code: str
     start: str  # "noindent", "indented", or "both"
+
 
 @dataclass(frozen=True)
 class AstScenario:
@@ -116,6 +120,7 @@ class AstScenario:
     checker: Optional[Callable[[object], Optional[str]]]
     expected_exc: Optional[type]
 
+
 @dataclass(frozen=True)
 class RuntimeScenario:
     """Runs a source string end-to-end through the interpreter."""
@@ -124,11 +129,13 @@ class RuntimeScenario:
     expectation: Optional[Tuple[str, object]]
     expected_exc: Optional[type]
 
+
 @dataclass(frozen=True)
 class LimitResult:
     """Holds the sampled size plus an optional truncation note."""
     size: int
     note: Optional[str]
+
 
 @dataclass(frozen=True)
 class KeywordPlan:
@@ -141,6 +148,7 @@ class KeywordPlan:
 # ---------------------------------------------------------------------------
 # Limit computation helpers
 # ---------------------------------------------------------------------------
+
 
 def _limit_from_env(env_var: str, default: int, total: int, label: str) -> LimitResult:
     raw = os.getenv(env_var)
@@ -160,6 +168,7 @@ def _limit_from_env(env_var: str, default: int, total: int, label: str) -> Limit
         return LimitResult(size=total, note=None)
     note = f"[INFO] {label} truncated to {value}/{total} ({env_var}={raw}; use 'full' for complete set)"
     return LimitResult(size=value, note=note)
+
 
 def _keyword_sample(all_keywords: Sequence[str], default_limit: int) -> Tuple[List[str], List[str]]:
     words = sorted(all_keywords)
@@ -193,6 +202,7 @@ def _keyword_sample(all_keywords: Sequence[str], default_limit: int) -> Tuple[Li
     )
     return words[:limit], notes
 
+
 def build_keyword_plan() -> KeywordPlan:
     sample, notes = _keyword_sample(KEYWORDS.keys(), default_limit=12)
     variant_limit = _limit_from_env(
@@ -219,6 +229,7 @@ def build_keyword_plan() -> KeywordPlan:
 # ---------------------------------------------------------------------------
 # Parser management
 # ---------------------------------------------------------------------------
+
 
 class ParserBundle:
     """Simplified parser runner using RD parser only."""
@@ -255,14 +266,17 @@ KEYWORD_PREFIXES = ["my", "pre", "x"]
 
 CASE_BUILDERS: List[Callable[[KeywordPlan], List[Case]]] = []
 
+
 def case_builder(func: Callable[[KeywordPlan], List[Case]]) -> Callable[[KeywordPlan], List[Case]]:
     CASE_BUILDERS.append(func)
     return func
+
 
 def _identifier_variants(keyword: str, limit: int) -> List[str]:
     ids = [f"{keyword}{suffix}" for suffix in KEYWORD_SUFFIXES]
     ids += [f"{prefix}{keyword}" for prefix in KEYWORD_PREFIXES]
     return ids[:limit]
+
 
 @case_builder
 def build_keyword_cases(plan: KeywordPlan) -> List[Case]:
@@ -274,6 +288,7 @@ def build_keyword_cases(plan: KeywordPlan) -> List[Case]:
                 code = template.format(ident=ident)
                 cases.append(Case(name=f"ident-{kw}-{idx}", code=code, start="both"))
     return cases
+
 
 @case_builder
 def build_operator_cases(_: KeywordPlan) -> List[Case]:
@@ -293,10 +308,12 @@ def build_operator_cases(_: KeywordPlan) -> List[Case]:
     ]
     return [Case(name=f"op-{i}", code=src, start="both") for i, src in enumerate(samples)]
 
+
 @case_builder
 def build_postfix_if_cases(_: KeywordPlan) -> List[Case]:
     samples = ["1 if 0", "foo() if bar", "(a+b) if c", "x.y if z"]
     return [Case(name=f"postfixif-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
 
 @case_builder
 def build_await_cases(_: KeywordPlan) -> List[Case]:
@@ -307,6 +324,7 @@ def build_await_cases(_: KeywordPlan) -> List[Case]:
     ]
     return [Case(name=f"await-{i}", code=src, start="both") for i, src in enumerate(samples)]
 
+
 @case_builder
 def build_block_cases(_: KeywordPlan) -> List[Case]:
     samples = [
@@ -315,6 +333,7 @@ def build_block_cases(_: KeywordPlan) -> List[Case]:
         "if a:\n  if b:\n    c\n  else:\n    d\n",
     ]
     return [Case(name=f"block-{i}", code=src, start="indented") for i, src in enumerate(samples)]
+
 
 @case_builder
 def build_misc_cases(_: KeywordPlan) -> List[Case]:
@@ -325,12 +344,14 @@ def build_misc_cases(_: KeywordPlan) -> List[Case]:
     ]
     return [Case(name=f"misc-{i}", code=src, start="both") for i, src in enumerate(samples)]
 
+
 @case_builder
 def build_destructure_inline_cases(_: KeywordPlan) -> List[Case]:
     samples = [
         "if true: a, b := 1, 2",
     ]
     return [Case(name="inline-destructure-walrus", code=src, start="both") for src in samples]
+
 
 @case_builder
 def build_fn_cases(_: KeywordPlan) -> List[Case]:
@@ -339,6 +360,7 @@ def build_fn_cases(_: KeywordPlan) -> List[Case]:
         "fn greet(name): { dbg(name) }",
     ]
     return [Case(name=f"fn-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
 
 @case_builder
 def build_power_cases(_: KeywordPlan) -> List[Case]:
@@ -349,6 +371,7 @@ def build_power_cases(_: KeywordPlan) -> List[Case]:
     ]
     return [Case(name=f"power-{i}", code=src, start="both") for i, src in enumerate(samples)]
 
+
 @case_builder
 def build_unary_incr_cases(_: KeywordPlan) -> List[Case]:
     samples = [
@@ -357,6 +380,7 @@ def build_unary_incr_cases(_: KeywordPlan) -> List[Case]:
         "++(a.b)",
     ]
     return [Case(name=f"unary-incr-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
 
 @case_builder
 def build_postfix_incr_cases(_: KeywordPlan) -> List[Case]:
@@ -368,6 +392,7 @@ def build_postfix_incr_cases(_: KeywordPlan) -> List[Case]:
     ]
     return [Case(name=f"postfix-incr-{i}", code=src, start="both") for i, src in enumerate(samples)]
 
+
 @case_builder
 def build_valuefan_cases(_: KeywordPlan) -> List[Case]:
     samples = [
@@ -377,12 +402,14 @@ def build_valuefan_cases(_: KeywordPlan) -> List[Case]:
     ]
     return [Case(name=f"valuefan-{i}", code=src, start="both") for i, src in enumerate(samples)]
 
+
 @case_builder
 def build_dbg_cases(_: KeywordPlan) -> List[Case]:
     samples = [
         "dbg(x)",
     ]
     return [Case(name=f"dbg-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
 
 @case_builder
 def build_computed_key_cases(_: KeywordPlan) -> List[Case]:
@@ -391,6 +418,7 @@ def build_computed_key_cases(_: KeywordPlan) -> List[Case]:
         '{ (a + b): value }',
     ]
     return [Case(name=f"computed-key-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
 
 @case_builder
 def build_anon_fn_expr_cases(_: KeywordPlan) -> List[Case]:
@@ -401,6 +429,7 @@ def build_anon_fn_expr_cases(_: KeywordPlan) -> List[Case]:
     ]
     return [Case(name=f"anon-fn-expr-{i}", code=src, start="both") for i, src in enumerate(samples)]
 
+
 @case_builder
 def build_pattern_destructure_cases(_: KeywordPlan) -> List[Case]:
     samples = [
@@ -410,6 +439,7 @@ def build_pattern_destructure_cases(_: KeywordPlan) -> List[Case]:
     ]
     return [Case(name=f"pattern-destructure-{i}", code=src, start="both") for i, src in enumerate(samples)]
 
+
 @case_builder
 def build_deepmerge_cases(_: KeywordPlan) -> List[Case]:
     samples = [
@@ -418,6 +448,7 @@ def build_deepmerge_cases(_: KeywordPlan) -> List[Case]:
     ]
     return [Case(name=f"deepmerge-{i}", code=src, start="both") for i, src in enumerate(samples)]
 
+
 @case_builder
 def build_assignor_cases(_: KeywordPlan) -> List[Case]:
     samples = [
@@ -425,6 +456,7 @@ def build_assignor_cases(_: KeywordPlan) -> List[Case]:
         "obj.field or= fallback",
     ]
     return [Case(name=f"assignor-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
 
 @case_builder
 def build_slice_cases(_: KeywordPlan) -> List[Case]:
@@ -437,6 +469,7 @@ def build_slice_cases(_: KeywordPlan) -> List[Case]:
     ]
     return [Case(name=f"slice-{i}", code=src, start="both") for i, src in enumerate(samples)]
 
+
 @case_builder
 def build_comp_for_cases(_: KeywordPlan) -> List[Case]:
     samples = [
@@ -447,6 +480,7 @@ def build_comp_for_cases(_: KeywordPlan) -> List[Case]:
     ]
     return [Case(name=f"comp-for-{i}", code=src, start="both") for i, src in enumerate(samples)]
 
+
 @case_builder
 def build_nullsafe_cases(_: KeywordPlan) -> List[Case]:
     samples = [
@@ -455,6 +489,7 @@ def build_nullsafe_cases(_: KeywordPlan) -> List[Case]:
         "??(obj.field)",
     ]
     return [Case(name=f"nullsafe-{i}", code=src, start="both") for i, src in enumerate(samples)]
+
 
 @case_builder
 def build_postfix_unless_cases(_: KeywordPlan) -> List[Case]:
@@ -471,10 +506,12 @@ def build_postfix_unless_cases(_: KeywordPlan) -> List[Case]:
 AST_SCENARIOS: List[AstScenario] = []
 RUNTIME_SCENARIOS: List[RuntimeScenario] = []
 
+
 def runtime_scenario(func: Callable[[], RuntimeScenario]) -> None:
     RUNTIME_SCENARIOS.append(func())
 
 # AST check helpers
+
 
 def _check_zipwith(ast) -> Optional[str]:
     try:
@@ -493,6 +530,7 @@ def _check_zipwith(ast) -> Optional[str]:
         return f"unexpected params {params}"
     return None
 
+
 def _check_map(ast) -> Optional[str]:
     stmtlist = ast.children[0]
     chain = stmtlist.children[0]
@@ -506,6 +544,7 @@ def _check_map(ast) -> Optional[str]:
         return "subject lambda body altered"
     return None
 
+
 def _check_holes(ast) -> Optional[str]:
     stmtlist = ast.children[0]
     lam = stmtlist.children[0]
@@ -517,6 +556,7 @@ def _check_holes(ast) -> Optional[str]:
     if params != ["_hole0", "_hole1"]:
         return f"unexpected params {params}"
     return None
+
 
 def _check_hook_inline(ast) -> Optional[str]:
     stmtlist = ast.children[0]
@@ -533,6 +573,7 @@ def _check_hook_inline(ast) -> Optional[str]:
         return "hook body not inlinebody"
     return None
 
+
 def _check_decorator_def(ast) -> Optional[str]:
     stmtlist = ast.children[0]
     deco = stmtlist.children[0]
@@ -545,6 +586,7 @@ def _check_decorator_def(ast) -> Optional[str]:
     if body is None:
         return "decorator body missing"
     return None
+
 
 def _check_decorated_fn(ast) -> Optional[str]:
     stmtlist = ast.children[0]
@@ -570,6 +612,7 @@ fn hi(): 1""", _check_decorated_fn, None),
 ])
 
 # Runtime scenarios
+
 
 def _rt(name: str, source: str, expectation: Optional[Tuple[str, object]], expected_exc: Optional[type]) -> RuntimeScenario:
     return RuntimeScenario(name, source, expectation, expected_exc)
@@ -1849,6 +1892,7 @@ z""", ("number", 100), None))
 # Suite execution
 # ---------------------------------------------------------------------------
 
+
 class CaseRunner:
     """Runs parser-only cases across both start symbols and captures errors."""
     def __init__(self, parsers: ParserBundle):
@@ -1870,6 +1914,7 @@ class CaseRunner:
                 if message:
                     errors.append(message.replace("\n", "\\n"))
         return ok, errors
+
 
 class SanitySuite:
     """Coordinates parser, AST, and runtime checks then emits a text report."""
@@ -2073,6 +2118,7 @@ class SanitySuite:
 # Entrypoint
 # ---------------------------------------------------------------------------
 
+
 def _selected_filters(argv: Sequence[str]) -> List[str]:
     env = os.getenv("SANITY_FILTER")
     filters: List[str] = []
@@ -2081,6 +2127,7 @@ def _selected_filters(argv: Sequence[str]) -> List[str]:
     if argv:
         filters.extend(list(argv))
     return filters
+
 
 def run(argv: Sequence[str] = ()) -> Tuple[str, int]:
     plan = build_keyword_plan()
