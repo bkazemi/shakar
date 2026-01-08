@@ -181,6 +181,13 @@ class Parser:
             raise ParseError(msg, self.current)
         return self.advance()
 
+    def expect_seq(self, *types: TT) -> tuple[Tok, ...]:
+        """Consume a sequence of expected types and return their tokens"""
+        tokens: list[Tok] = []
+        for token_type in types:
+            tokens.append(self.expect(token_type))
+        return tuple(tokens)
+
     def skip_layout_tokens(self) -> None:
         """Skip NEWLINE and optionally INDENT/DEDENT tokens (when using indenter)"""
         if self.use_indenter:
@@ -596,8 +603,7 @@ class Parser:
 
         handle = None
         if self.match(TT.LSQB):
-            ident_tok = self.expect(TT.IDENT)
-            self.expect(TT.RSQB)
+            ident_tok, _ = self.expect_seq(TT.IDENT, TT.RSQB)
             handle = ident_tok
 
         resource = self.parse_expr()
@@ -788,9 +794,9 @@ class Parser:
 
         Grammar: hook: HOOK (STRING | RAW_STRING | RAW_HASH_STRING) ":" (inlinebody | indentblock)
         """
-        self.expect(TT.HOOK)
-        name = self.expect(TT.STRING)  # TODO: support RAW_STRING, RAW_HASH_STRING
-        self.expect(TT.COLON)
+        _, name, _ = self.expect_seq(
+            TT.HOOK, TT.STRING, TT.COLON
+        )  # TODO: support RAW_STRING, RAW_HASH_STRING
         body = self.parse_body()
 
         # Convert inlinebody to amp_lambda if it contains implicit chain
@@ -802,10 +808,7 @@ class Parser:
         Parse decorator declaration:
         decorator name(params): body
         """
-        self.expect(TT.DECORATOR)
-        name = self.expect(TT.IDENT)
-
-        self.expect(TT.LPAR)
+        _, name, _ = self.expect_seq(TT.DECORATOR, TT.IDENT, TT.LPAR)
         params = self.parse_param_list()
         self.expect(TT.RPAR)
 
@@ -1021,10 +1024,7 @@ class Parser:
             # decorator_entry: just the expression, no @ token
             decorators.append(Tree("decorator_entry", [decorator_expr]))
 
-        self.expect(TT.FN)
-        name = self.expect(TT.IDENT)
-
-        self.expect(TT.LPAR)
+        _, name, _ = self.expect_seq(TT.FN, TT.IDENT, TT.LPAR)
         params = self.parse_param_list()
         self.expect(TT.RPAR)
 
@@ -2827,9 +2827,7 @@ class Parser:
 
         if self.match(TT.SET):
             name = self.expect(TT.IDENT)
-            self.expect(TT.LPAR)
-            param = self.expect(TT.IDENT)
-            self.expect(TT.RPAR)
+            _, param, _ = self.expect_seq(TT.LPAR, TT.IDENT, TT.RPAR)
             self.expect(TT.COLON)
             # Check if inline expression or block body
             if self.check(TT.NEWLINE):
