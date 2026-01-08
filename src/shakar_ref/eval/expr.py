@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Callable, Iterable, List, Optional, Set
+from typing import Callable, List, Optional, Set
 
 from ..tree import Tok
 from ..token_types import TT
@@ -24,7 +24,7 @@ from ..runtime import (
     ShakarTypeError,
     regex_match_value,
 )
-from ..tree import Node, Tree, is_tree, is_token, node_meta, tree_children, tree_label
+from ..tree import Node, Tree, is_tree, node_meta, tree_children, tree_label
 from ..utils import shk_equals
 from .bind import FanContext, RebindContext
 from .chains import apply_op as chain_apply_op, evaluate_index_operand

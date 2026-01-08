@@ -11,9 +11,6 @@ Features:
 """
 
 from typing import List, Optional
-from dataclasses import dataclass
-from enum import Enum
-import re
 
 from .token_types import TT, Tok
 

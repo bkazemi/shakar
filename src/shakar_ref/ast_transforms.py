@@ -6,8 +6,7 @@ Lark parser so they can be used with the RD parser pipeline.
 
 from __future__ import annotations
 
-import sys
-from typing import Iterator, List, Optional, Tuple, TypeAlias
+from typing import List, Optional, Tuple, TypeAlias
 
 from .tree import Tree, Tok, Transformer, v_args
 from .tree import Discard
@@ -19,7 +18,6 @@ from .tree import (
     is_token,
     tree_label,
     tree_children,
-    node_meta,
 )
 from .parser_rd import parse_expr_fragment
 

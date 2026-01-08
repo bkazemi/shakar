@@ -12,7 +12,7 @@ Structure:
 - AST: Same tree structure as Lark output for compatibility
 """
 
-from typing import Optional, List, Any, Callable
+from typing import Optional, List, Any
 from enum import Enum
 from .tree import Tree, Node
 
@@ -310,7 +310,7 @@ class Parser:
                 rhs = self.parse_destructure_rhs()
                 return Tree('destructure_walrus', [pattern_node, rhs])
             else:
-                raise ParseError(f"Expected = or := after pattern", self.current)
+                raise ParseError("Expected = or := after pattern", self.current)
 
         expr = self.parse_expr()
 
@@ -333,7 +333,7 @@ class Parser:
                     rhs = self.parse_destructure_rhs()
                     return Tree('destructure_walrus', [pattern_list, rhs])
                 else:
-                    raise ParseError(f"Expected = or := after pattern list", self.current)
+                    raise ParseError("Expected = or := after pattern list", self.current)
 
         # Guard chain inline form
         if self.check(TT.COLON):
@@ -401,7 +401,7 @@ class Parser:
         Parse if statement:
         if expr: body [elif expr: body]* [else: body]
         """
-        if_tok = self.expect(TT.IF)
+        self.expect(TT.IF)
         cond = self.parse_expr()
         self.expect(TT.COLON)
         then_body = self.parse_body()
@@ -410,7 +410,7 @@ class Parser:
         else_clause = None
 
         while self.check(TT.ELIF):
-            elif_tok = self.advance()
+            self.advance()
             elif_cond = self.parse_expr()
             self.expect(TT.COLON)
             elif_body = self.parse_body()
@@ -430,7 +430,7 @@ class Parser:
 
     def parse_while_stmt(self) -> Tree:
         """Parse while loop: while expr: body"""
-        while_tok = self.expect(TT.WHILE)
+        self.expect(TT.WHILE)
         cond = self.parse_expr()
         self.expect(TT.COLON)
         body = self.parse_body()
@@ -445,7 +445,7 @@ class Parser:
         for[k, v] expr: body (formap2)
         for expr: body (forsubject - subjectful loop)
         """
-        for_tok = self.expect(TT.FOR)
+        self.expect(TT.FOR)
 
         # Check for indexed syntax: for[...] (pattern bindings)
         # Only consume [ if next token is IDENT or CARET (hoist marker)
@@ -822,34 +822,34 @@ class Parser:
 
             # Parse assignment operator
             if self.check(TT.ASSIGN):
-                op = self.advance()
+                self.advance()
                 fanop = Tree('fanop_assign', [])
             elif self.check(TT.APPLYASSIGN):
-                op = self.advance()
+                self.advance()
                 fanop = Tree('fanop_apply', [])
             elif self.check(TT.PLUSEQ):
-                op = self.advance()
+                self.advance()
                 fanop = Tree('fanop_pluseq', [])
             elif self.check(TT.MINUSEQ):
-                op = self.advance()
+                self.advance()
                 fanop = Tree('fanop_minuseq', [])
             elif self.check(TT.STAREQ):
-                op = self.advance()
+                self.advance()
                 fanop = Tree('fanop_stareq', [])
             elif self.check(TT.SLASHEQ):
-                op = self.advance()
+                self.advance()
                 fanop = Tree('fanop_slasheq', [])
             elif self.check(TT.FLOORDIVEQ):
-                op = self.advance()
+                self.advance()
                 fanop = Tree('fanop_floordiveq', [])
             elif self.check(TT.MODEQ):
-                op = self.advance()
+                self.advance()
                 fanop = Tree('fanop_modeq', [])
             elif self.check(TT.POWEQ):
-                op = self.advance()
+                self.advance()
                 fanop = Tree('fanop_poweq', [])
             else:
-                raise ParseError(f"Expected fanout assignment operator", self.current)
+                raise ParseError("Expected fanout assignment operator", self.current)
 
             # Parse value expression
             value = self.parse_expr()
@@ -978,7 +978,7 @@ class Parser:
 
     def parse_return_stmt(self) -> Tree:
         """Parse return statement: return [expr | pack]"""
-        ret_tok = self.expect(TT.RETURN)
+        self.expect(TT.RETURN)
 
         # Check if there's a value
         if self.check(TT.NEWLINE, TT.EOF, TT.SEMI, TT.RBRACE):
@@ -1594,7 +1594,7 @@ class Parser:
 
         # Await
         if self.check(TT.AWAIT):
-            await_tok = self.advance()
+            self.advance()
             # await expr or await (expr)
             if self.match(TT.LPAR):
                 expr = self.parse_expr()
@@ -1658,7 +1658,7 @@ class Parser:
                 self.expect(TT.RPAR)
                 imphead = Tree('call', args if args else [])
             elif self.check(TT.LSQB):
-                lsqb = self.advance()
+                self.advance()
                 selectors = self.parse_selector_list()
                 default = None
                 if self.match(TT.COMMA):
@@ -1668,7 +1668,7 @@ class Parser:
                         raise ParseError(f"Expected 'default' keyword, got '{default_tok.value}'", default_tok)
                     self.expect(TT.COLON)
                     default = self.parse_expr()
-                rsqb = self.expect(TT.RSQB)
+                self.expect(TT.RSQB)
                 children = [
                     self._tok('LSQB', '['),
                     Tree('selectorlist', selectors),
@@ -1696,14 +1696,14 @@ class Parser:
                     else:
                         raise ParseError("Expected field name after '.'", self.current)
                 elif self.check(TT.LSQB):
-                    lsqb = self.advance()
+                    self.advance()
                     selectors = self.parse_selector_list()
                     default = None
                     if self.match(TT.COMMA):
                         self.expect(TT.IDENT)
                         self.expect(TT.COLON)
                         default = self.parse_expr()
-                    rsqb = self.expect(TT.RSQB)
+                    self.expect(TT.RSQB)
                     children = [
                         self._tok('LSQB', '['),
                         Tree('selectorlist', selectors),
@@ -1754,7 +1754,7 @@ class Parser:
 
             # Indexing
             elif self.check(TT.LSQB):
-                lsqb = self.advance()
+                self.advance()
                 selectors = self.parse_selector_list()
 
                 # Check for default value
@@ -1767,7 +1767,7 @@ class Parser:
                     self.expect(TT.COLON)
                     default = self.parse_expr()
 
-                rsqb = self.expect(TT.RSQB)
+                self.expect(TT.RSQB)
 
                 # Build index tree: [ selectorlist ]
                 children = [

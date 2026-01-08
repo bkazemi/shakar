@@ -28,7 +28,7 @@ from ..runtime import (
     call_builtin_method,
     call_shkfn,
 )
-from ..tree import Node, Tree, Tok, child_by_label, is_token, is_tree, tree_children, tree_label
+from ..tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label
 from .bind import FanContext, RebindContext, apply_fan_op
 from .common import expect_ident_token as _expect_ident_token
 from .mutation import get_field_value, index_value, slice_value

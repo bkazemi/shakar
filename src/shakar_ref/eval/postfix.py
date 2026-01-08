@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Callable, Iterable, List, Sequence
 
 from ..runtime import Frame, ShkNull, ShkValue, ShakarRuntimeError
-from ..tree import Node, Tree, Tok, find_tree_by_label, is_token, tree_children
+from ..tree import Node, find_tree_by_label, is_token, tree_children
 from .common import token_kind
 
 EvalFunc = Callable[[Node, Frame], ShkValue]

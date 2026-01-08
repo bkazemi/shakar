@@ -4,7 +4,7 @@ from typing import List
 from ..tree import Tree
 
 from ..runtime import Frame, ShkArray, ShkValue, ShakarRuntimeError
-from ..tree import Node, Tree, is_tree, tree_children, tree_label
+from ..tree import Node, is_tree, tree_children, tree_label
 from .bind import RebindContext
 from .mutation import get_field_value
 

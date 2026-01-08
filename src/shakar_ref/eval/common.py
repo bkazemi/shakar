@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Iterable, List, Optional, Tuple, TypeAlias
+from typing import Callable, List, Optional, Tuple, TypeAlias
 import re
 
 from ..tree import Tree, Tok
@@ -8,7 +8,7 @@ from ..token_types import TT
 
 from ..types import Frame, ShkBool, ShkNumber, ShkPath, ShkString, ShkRegex, ShakarRuntimeError, ShakarTypeError, ShkValue, ShkNull
 from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
-from ..tree import token_kind, ident_value
+from ..tree import token_kind
 
 SourceSpan: TypeAlias = tuple[int, int] | tuple[None, None]
 

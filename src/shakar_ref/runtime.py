@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib
 import subprocess
 from typing import Callable, Dict, List, Optional, Tuple
-from .tree import Node
 from .types import (
     ShkNull, ShkNumber, ShkString, ShkRegex, ShkBool, ShkArray, ShkObject, ShkCommand, ShkPath,
     ShkSelector, SelectorIndex, SelectorSlice, SelectorPart,
@@ -83,22 +82,6 @@ def init_stdlib() -> None:
             return
         except ModuleNotFoundError:
             continue
-
-    stdlib_expect_arity: Dict[str, int] = {}
-
-    known_arity: Dict[Tuple[str, str], Tuple[str, int]] = {
-        ("array","map"):     ("exact", 1),
-        ("array","filter"):  ("exact", 1),
-        ("array","zipWith"): ("exact", 2),
-        ("string","len"):    ("exact", 0),
-        ("string","trim"):   ("exact", 0),
-        ("string","lower"):  ("exact", 0),
-        ("string","upper"):  ("exact", 0),
-        ("string","hasPrefix"): ("exact", 1),
-        ("string","hasSuffix"): ("exact", 1),
-        ("string","isAscii"): ("exact", 0),
-        ("object","items"):  ("exact", 0),
-    }
 
 def register_method(registry: MethodRegistry, name: str):
     def dec(fn: Callable[..., ShkValue]):

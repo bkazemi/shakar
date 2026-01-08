@@ -7,7 +7,7 @@ from ..tree import Node
 from ..token_types import TT
 
 from ..runtime import DecoratorConfigured, Frame, ShkDecorator, ShkFn, ShkNull, ShkValue, ShakarRuntimeError, ShakarTypeError
-from ..tree import is_tree, is_token, tree_children, tree_label, child_by_label
+from ..tree import is_tree, tree_children, tree_label, child_by_label
 from .common import expect_ident_token as _expect_ident_token, ident_token_value as _ident_token_value, extract_param_names
 
 EvalFunc = Callable[[Node, Frame], ShkValue]

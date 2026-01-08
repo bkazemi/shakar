@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Helper routines for destructuring assignments and comprehensions."""
+
+from __future__ import annotations
 
 from typing import Callable, Iterable, Optional, Any
 

@@ -13,20 +13,65 @@ from __future__ import annotations
 
 import os
 import sys
-import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 BASE_DIR = Path(__file__).resolve().parent
-if str(BASE_DIR) not in sys.path:
-    sys.path.append(str(BASE_DIR))
 SRC_DIR = (BASE_DIR / "src").resolve()
-if str(SRC_DIR) not in sys.path:
-    sys.path.append(str(SRC_DIR))
 
-from shakar_ref.runner import run as run_program
-from shakar_ref.runtime import (
+def _ensure_src_on_path() -> None:
+    if str(BASE_DIR) not in sys.path:
+        sys.path.append(str(BASE_DIR))
+    if str(SRC_DIR) not in sys.path:
+        sys.path.append(str(SRC_DIR))
+
+def _load_shakar_modules():
+    _ensure_src_on_path()
+
+    from shakar_ref.runner import run as run_program
+    from shakar_ref.runtime import (
+        CommandError,
+        ShkCommand,
+        ShkNull,
+        ShkNumber,
+        ShkString,
+        ShkBool,
+        ShkArray,
+        ShakarArityError,
+        ShakarAssertionError,
+        ShakarRuntimeError,
+        ShakarTypeError,
+    )
+    # RD parser only (Lark deprecated)
+    from shakar_ref.parser_rd import parse_source as parse_rd, ParseError
+    from shakar_ref.lexer_rd import LexError, Lexer
+    from shakar_ref.ast_transforms import Prune
+    from shakar_ref.lower import lower
+
+    return (
+        run_program,
+        CommandError,
+        ShkCommand,
+        ShkNull,
+        ShkNumber,
+        ShkString,
+        ShkBool,
+        ShkArray,
+        ShakarArityError,
+        ShakarAssertionError,
+        ShakarRuntimeError,
+        ShakarTypeError,
+        parse_rd,
+        ParseError,
+        LexError,
+        Lexer,
+        Prune,
+        lower,
+    )
+
+(
+    run_program,
     CommandError,
     ShkCommand,
     ShkNull,
@@ -38,13 +83,13 @@ from shakar_ref.runtime import (
     ShakarAssertionError,
     ShakarRuntimeError,
     ShakarTypeError,
-)
-# RD parser only (Lark deprecated)
-from shakar_ref.parser_rd import parse_source as parse_rd, ParseError
-from shakar_ref.lexer_rd import LexError, Lexer
-from shakar_ref.ast_transforms import Prune
-from shakar_ref.lower import lower
-from shakar_ref.tree import Tree, Tok
+    parse_rd,
+    ParseError,
+    LexError,
+    Lexer,
+    Prune,
+    lower,
+) = _load_shakar_modules()
 
 # Get KEYWORDS for test generation
 KEYWORDS = Lexer.KEYWORDS

@@ -22,7 +22,6 @@ from ..utils import sequence_items
 from ..tree import (
     Node,
     Tree,
-    Tok,
     tree_children,
     tree_label,
     child_by_label,

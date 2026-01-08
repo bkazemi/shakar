@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Callable, Iterable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from ..tree import Tok
 from ..token_types import TT
 
 from ..runtime import Descriptor, Frame, ShkFn, ShkObject, ShkString, ShkValue, ShakarRuntimeError, ShakarTypeError
-from ..tree import Tree, child_by_label, is_token, is_tree, tree_children, tree_label
+from ..tree import Tree, is_token, is_tree, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token, extract_param_names
 
 EvalFunc = Callable[[Tree, Frame], ShkValue]

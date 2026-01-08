@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from typing import Awaitable, Callable, Iterable, List, Optional, TypeVar, TypedDict
+from typing import Awaitable, Callable, List, Optional, TypeVar, TypedDict
 
 from ..token_types import TT
 from ..runtime import Frame, ShkNull, ShkObject, ShkString, ShkValue, ShakarRuntimeError

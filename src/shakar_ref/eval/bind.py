@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Callable, List
 
 from ..runtime import Frame, ShkArray, ShkNumber, ShkValue, EvalResult, ShakarRuntimeError
-from ..tree import Node, Tree, Tok, child_by_label, is_token, is_tree, tree_children, tree_label, ident_value, token_kind
+from ..tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label, ident_value
 
 from .common import expect_ident_token, require_number
 from .destructure import assign_pattern as destructure_assign_pattern

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from typing import Callable, List, Optional
-from .tree import Tok
-from .token_types import TT
+from types import SimpleNamespace
 
+from .token_types import TT
+from .tree import Node, Tree, Tok, is_token, is_tree, node_meta, tree_label
 from .runtime import (
     Frame,
     ShkArray,
@@ -13,16 +14,12 @@ from .runtime import (
     ShakarBreakSignal,
     ShakarContinueSignal,
     ShakarRuntimeError,
-    ShakarTypeError,
     init_stdlib,
 )
 
-from .tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label, node_meta
-
+from .eval.common import is_literal_node, token_number, token_path, token_regex, token_string, node_source_span
 from .eval.selector import eval_selectorliteral
-from .eval.mutation import set_field_value, set_index_value
 from .eval.control import (
-    coerce_throw_value,
     eval_assert,
     eval_return_if,
     eval_return_stmt,
@@ -43,7 +40,7 @@ from .eval.blocks import (
     get_subject,
 )
 
-from .eval.postfix import define_new_ident, eval_postfix_if as _postfix_eval_if, eval_postfix_unless as _postfix_eval_unless
+from .eval.postfix import eval_postfix_if as _postfix_eval_if, eval_postfix_unless as _postfix_eval_unless
 
 from .eval.loops import (
     eval_if_stmt,
@@ -73,35 +70,23 @@ from .eval.expr import (
     eval_ternary,
 )
 from .eval.literals import eval_array_literal, eval_keyword_literal, eval_path_interp, eval_shell_string, eval_string_interp
-from .eval.objects import eval_object, eval_key
-from .eval.fn import eval_fn_def, eval_decorator_def, eval_anonymous_fn, eval_amp_lambda, evaluate_decorator_list
+from .eval.objects import eval_object
+from .eval.fn import eval_fn_def, eval_decorator_def, eval_anonymous_fn, eval_amp_lambda
 from .eval.using import eval_using_stmt
-
-EvalFunc = Callable[[Node, Frame], ShkValue]
-
-from .eval.common import is_literal_node, token_number, token_path, token_regex, token_string, node_source_span
-from types import SimpleNamespace
 
 from .eval.bind import (
     FanContext,
     RebindContext,
-    assign_ident,
     eval_walrus,
     eval_assign_stmt,
     eval_compound_assign,
     eval_apply_assign,
     eval_rebind_primary,
-    assign_lvalue,
-    assign_pattern_value,
-    apply_assign,
-    apply_fan_op,
     apply_numeric_delta,
-    build_fieldfan_context,
-    read_lvalue,
-    resolve_assignable_node,
     resolve_chain_assignment,
-    resolve_rebind_lvalue,
 )
+
+EvalFunc = Callable[[Node, Frame], ShkValue]
 
 
 def _maybe_attach_location(exc: ShakarRuntimeError, node: Node, frame: Frame) -> None:

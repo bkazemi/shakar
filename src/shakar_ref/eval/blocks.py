@@ -15,7 +15,7 @@ from ..runtime import (
     ShakarContinueSignal,
     ShakarRuntimeError,
 )
-from ..tree import Node, Tree, Tok, is_token, is_tree, tree_children, tree_label
+from ..tree import Node, is_token, is_tree, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token, token_kind as _token_kind
 from .helpers import is_truthy as _is_truthy
 

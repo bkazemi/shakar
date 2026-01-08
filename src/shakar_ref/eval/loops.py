@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Callable, Iterable, List, Optional, TypedDict, cast
+from typing import Callable, Iterable, List, Optional, TypedDict
 import glob
 
 from ..tree import Tree, Tok
 from ..token_types import TT
 
 from ..runtime import Frame, ShkArray, ShkNull, ShkNumber, ShkObject, ShkPath, ShkSelector, ShkString, ShkValue, ShakarBreakSignal, ShakarContinueSignal, ShakarRuntimeError, ShakarTypeError
-from ..tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label
+from ..tree import Node, child_by_label, is_token, is_tree, tree_children, tree_label
 from ..utils import normalize_object_key, value_in_list
 from .bind import assign_pattern_value
 from .blocks import eval_indent_block, eval_inline_body
