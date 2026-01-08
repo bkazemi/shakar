@@ -22,10 +22,15 @@ from .helpers import is_truthy as _is_truthy
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
 
-def eval_program(children: List[Node], frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> ShkValue:
+def eval_program(
+    children: List[Node],
+    frame: Frame,
+    eval_func: EvalFunc,
+    allow_loop_control: bool = False,
+) -> ShkValue:
     """Run a stmt list under a fresh defer scope, returning last value."""
     result: ShkValue = ShkNull()
-    skip_tokens = {'SEMI', '_NL', 'INDENT', 'DEDENT'}
+    skip_tokens = {"SEMI", "_NL", "INDENT", "DEDENT"}
     push_defer_scope(frame)
 
     try:
@@ -63,6 +68,7 @@ def pop_defer_scope(frame: Frame) -> None:
     entries = frame.pop_defer_frame()
     if entries:
         _run_defer_entries(entries)
+
 
 _DEFER_UNVISITED = 0
 _DEFER_VISITING = 1
@@ -104,7 +110,12 @@ def _run_defer_entries(entries: List[DeferEntry]) -> None:
         run_index(idx)
 
 
-def schedule_defer(frame: Frame, thunk: Callable[[], None], label: Optional[str]=None, deps: Optional[List[str]]=None) -> None:
+def schedule_defer(
+    frame: Frame,
+    thunk: Callable[[], None],
+    label: Optional[str] = None,
+    deps: Optional[List[str]] = None,
+) -> None:
     if not frame.has_defer_frame():
         raise ShakarRuntimeError("Cannot use defer outside of a block")
 
@@ -119,11 +130,18 @@ def schedule_defer(frame: Frame, thunk: Callable[[], None], label: Optional[str]
     defer_frame.append(entry)
 
 
-def eval_inline_body(node: Node, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> ShkValue:
-    if tree_label(node) == 'inlinebody':
+def eval_inline_body(
+    node: Node, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool = False
+) -> ShkValue:
+    if tree_label(node) == "inlinebody":
         for child in tree_children(node):
-            if tree_label(child) == 'stmtlist':
-                return eval_program(child.children, frame, eval_func, allow_loop_control=allow_loop_control)
+            if tree_label(child) == "stmtlist":
+                return eval_program(
+                    child.children,
+                    frame,
+                    eval_func,
+                    allow_loop_control=allow_loop_control,
+                )
 
         if not tree_children(node):
             return ShkNull()
@@ -132,8 +150,12 @@ def eval_inline_body(node: Node, frame: Frame, eval_func: EvalFunc, allow_loop_c
     return eval_func(node, frame)
 
 
-def eval_indent_block(node: Tree, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool=False) -> ShkValue:
-    return eval_program(node.children, frame, eval_func, allow_loop_control=allow_loop_control)
+def eval_indent_block(
+    node: Tree, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool = False
+) -> ShkValue:
+    return eval_program(
+        node.children, frame, eval_func, allow_loop_control=allow_loop_control
+    )
 
 
 def eval_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
@@ -143,9 +165,9 @@ def eval_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkVa
 
     for child in children:
         data = tree_label(child)
-        if data == 'guardbranch':
+        if data == "guardbranch":
             branches.append(child)
-        elif data in {'inlinebody', 'indentblock'}:
+        elif data in {"inlinebody", "indentblock"}:
             else_body = child
 
     outer_dot = frame.dot
@@ -175,18 +197,26 @@ def eval_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkVa
 def eval_body_node(body_node: Node, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     label = tree_label(body_node) if is_tree(body_node) else None
 
-    if label == 'inlinebody':
+    if label == "inlinebody":
         return eval_inline_body(body_node, frame, eval_func)
 
-    if label == 'indentblock':
+    if label == "indentblock":
         return eval_indent_block(body_node, frame, eval_func)
 
     return eval_func(body_node, frame)
 
 
-def run_body_with_subject(body_node: Node, frame: Frame, subject_value: DotValue, eval_func: EvalFunc, extra_bindings: Optional[dict[str, ShkValue]]=None) -> ShkValue:
+def run_body_with_subject(
+    body_node: Node,
+    frame: Frame,
+    subject_value: DotValue,
+    eval_func: EvalFunc,
+    extra_bindings: Optional[dict[str, ShkValue]] = None,
+) -> ShkValue:
     if extra_bindings:
-        with temporary_subject(frame, subject_value), temporary_bindings(frame, extra_bindings):
+        with temporary_subject(frame, subject_value), temporary_bindings(
+            frame, extra_bindings
+        ):
             return eval_body_node(body_node, frame, eval_func)
 
     with temporary_subject(frame, subject_value):
@@ -232,14 +262,16 @@ def temporary_bindings(frame: Frame, bindings: dict[str, ShkValue]) -> Iterator[
                 target.vars.pop(name, None)
 
 
-def eval_defer_stmt(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_defer_stmt(
+    children: List[Node], frame: Frame, eval_func: EvalFunc
+) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed defer statement")
 
     idx = 0
     label = None
 
-    if is_tree(children[0]) and tree_label(children[0]) == 'deferlabel':
+    if is_tree(children[0]) and tree_label(children[0]) == "deferlabel":
         label = _expect_ident_token(children[0].children[0], "Defer label")
         idx += 1
 
@@ -253,7 +285,7 @@ def eval_defer_stmt(children: List[Node], frame: Frame, eval_func: EvalFunc) -> 
     if idx < len(children):
         deps_node = children[idx]
 
-        if is_tree(deps_node) and tree_label(deps_node) == 'deferdeps':
+        if is_tree(deps_node) and tree_label(deps_node) == "deferdeps":
             deps = [
                 _expect_ident_token(tok, "Defer dependency")
                 for tok in tree_children(deps_node)
@@ -264,21 +296,29 @@ def eval_defer_stmt(children: List[Node], frame: Frame, eval_func: EvalFunc) -> 
     if idx != len(children):
         raise ShakarRuntimeError("Unexpected defer statement shape")
 
-    body_kind = 'block' if is_tree(body_wrapper) and tree_label(body_wrapper) == 'deferblock' else 'call'
+    body_kind = (
+        "block"
+        if is_tree(body_wrapper) and tree_label(body_wrapper) == "deferblock"
+        else "call"
+    )
     payload = body_wrapper
 
-    if body_kind == 'block':
-        payload = body_wrapper.children[0] if is_tree(body_wrapper) and body_wrapper.children else Tree('inlinebody', [])
+    if body_kind == "block":
+        payload = (
+            body_wrapper.children[0]
+            if is_tree(body_wrapper) and body_wrapper.children
+            else Tree("inlinebody", [])
+        )
 
     saved_dot = frame.dot
-    source = getattr(frame, 'source', None)
+    source = getattr(frame, "source", None)
 
     def thunk() -> None:
         child_frame = Frame(parent=frame, dot=saved_dot, source=source)
         push_defer_scope(child_frame)
 
         try:
-            if body_kind == 'block':
+            if body_kind == "block":
                 eval_inline_body(payload, child_frame, eval_func)
             else:
                 eval_func(payload, child_frame)

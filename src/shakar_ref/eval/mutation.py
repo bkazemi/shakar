@@ -36,7 +36,9 @@ from .selector import (
 )
 
 
-def set_field_value(recv: ShkValue, name: str, value: ShkValue, frame: Frame, *, create: bool) -> ShkValue:
+def set_field_value(
+    recv: ShkValue, name: str, value: ShkValue, frame: Frame, *, create: bool
+) -> ShkValue:
     """Assign `recv.name = value`, honoring descriptors and creation semantics."""
     match recv:
         case ShkObject(slots=slots):
@@ -52,7 +54,9 @@ def set_field_value(recv: ShkValue, name: str, value: ShkValue, frame: Frame, *,
                 return value
 
             if slot is None and not create:
-                raise ShakarRuntimeError(f"Field '{name}' is undefined; use ':=' to create it")
+                raise ShakarRuntimeError(
+                    f"Field '{name}' is undefined; use ':=' to create it"
+                )
 
             slots[name] = value
             return value
@@ -60,7 +64,9 @@ def set_field_value(recv: ShkValue, name: str, value: ShkValue, frame: Frame, *,
             raise ShakarTypeError(f"Cannot set field '{name}' on {type(recv).__name__}")
 
 
-def set_index_value(recv: ShkValue, index: ShkValue, value: ShkValue, frame: Frame) -> ShkValue:
+def set_index_value(
+    recv: ShkValue, index: ShkValue, value: ShkValue, frame: Frame
+) -> ShkValue:
     """Assign `recv[index] = value` for arrays/objects with minimal coercions."""
     match recv:
         case ShkArray(items=items):
@@ -94,7 +100,9 @@ def set_index_value(recv: ShkValue, index: ShkValue, value: ShkValue, frame: Fra
             raise ShakarTypeError("Unsupported index assignment target")
 
 
-def _assign_selector_into_array(items: list[ShkValue], selector: ShkSelector, value: ShkValue) -> None:
+def _assign_selector_into_array(
+    items: list[ShkValue], selector: ShkSelector, value: ShkValue
+) -> None:
     """Broadcast assignment of `value` across indices/slices specified by selector."""
     length = len(items)
 
@@ -118,7 +126,12 @@ def _assign_selector_into_array(items: list[ShkValue], selector: ShkSelector, va
         raise ShakarTypeError("Unsupported selector component for array assignment")
 
 
-def index_value(recv: ShkValue, idx: ShkValue, frame: Frame, default_thunk: Optional[Callable[[], ShkValue]]=None) -> ShkValue:
+def index_value(
+    recv: ShkValue,
+    idx: ShkValue,
+    frame: Frame,
+    default_thunk: Optional[Callable[[], ShkValue]] = None,
+) -> ShkValue:
     """Read `recv[idx]`, supporting selectors, descriptors, and builtins."""
     match recv:
         case ShkArray(items=items):
@@ -175,7 +188,9 @@ def index_value(recv: ShkValue, idx: ShkValue, frame: Frame, default_thunk: Opti
             )
 
 
-def slice_value(recv: ShkValue, start: Optional[int], stop: Optional[int], step: Optional[int]) -> ShkValue:
+def slice_value(
+    recv: ShkValue, start: Optional[int], stop: Optional[int], step: Optional[int]
+) -> ShkValue:
     """Return a shallow slice of an array/string (selector extraction)."""
     s = slice(start, stop, step)
     match recv:

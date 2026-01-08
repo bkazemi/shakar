@@ -4,16 +4,52 @@ import importlib
 import subprocess
 from typing import Callable, Dict, List, Optional, Tuple
 from .types import (
-    ShkNull, ShkNumber, ShkString, ShkRegex, ShkBool, ShkArray, ShkObject, ShkCommand, ShkPath,
-    ShkSelector, SelectorIndex, SelectorSlice, SelectorPart,
-    ShkFn, ShkDecorator, DecoratorConfigured, DecoratorContinuation,
-    BoundMethod, BuiltinMethod, Descriptor, StdlibFunction, DeferEntry,
-    ShkValue, EvalResult, DotValue, Frame, ShkType, ShkOptional, ShkUnion,
-    ShakarRuntimeError, ShakarTypeError, ShakarArityError, ShakarKeyError,
-    ShakarIndexError, ShakarMethodNotFound, CommandError, ShakarAssertionError,
-    ShakarReturnSignal, ShakarBreakSignal, ShakarContinueSignal,
-    Method, MethodRegistry, Builtins,
-    is_shk_value, _ensure_shk_value, StdlibFn
+    ShkNull,
+    ShkNumber,
+    ShkString,
+    ShkRegex,
+    ShkBool,
+    ShkArray,
+    ShkObject,
+    ShkCommand,
+    ShkPath,
+    ShkSelector,
+    SelectorIndex,
+    SelectorSlice,
+    SelectorPart,
+    ShkFn,
+    ShkDecorator,
+    DecoratorConfigured,
+    DecoratorContinuation,
+    BoundMethod,
+    BuiltinMethod,
+    Descriptor,
+    StdlibFunction,
+    DeferEntry,
+    ShkValue,
+    EvalResult,
+    DotValue,
+    Frame,
+    ShkType,
+    ShkOptional,
+    ShkUnion,
+    ShakarRuntimeError,
+    ShakarTypeError,
+    ShakarArityError,
+    ShakarKeyError,
+    ShakarIndexError,
+    ShakarMethodNotFound,
+    CommandError,
+    ShakarAssertionError,
+    ShakarReturnSignal,
+    ShakarBreakSignal,
+    ShakarContinueSignal,
+    Method,
+    MethodRegistry,
+    Builtins,
+    is_shk_value,
+    _ensure_shk_value,
+    StdlibFn,
 )
 
 __all__ = [
@@ -127,7 +163,9 @@ def register_stdlib(name: str, *, arity: Optional[int] = None):
 
 def _string_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
     if len(args) != expected:
-        raise ShakarArityError(f"string.{method} expects {expected} argument(s); got {len(args)}")
+        raise ShakarArityError(
+            f"string.{method} expects {expected} argument(s); got {len(args)}"
+        )
 
 
 def _string_arg(method: str, arg: ShkValue) -> str:
@@ -139,7 +177,9 @@ def _string_arg(method: str, arg: ShkValue) -> str:
 
 def _regex_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
     if len(args) != expected:
-        raise ShakarArityError(f"regex.{method} expects {expected} argument(s); got {len(args)}")
+        raise ShakarArityError(
+            f"regex.{method} expects {expected} argument(s); got {len(args)}"
+        )
 
 
 def _regex_arg(method: str, arg: ShkValue) -> str:
@@ -158,6 +198,7 @@ def _string_join(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkStr
         items = args
 
     from .eval.common import stringify
+
     strings = []
 
     for item in items:
@@ -239,8 +280,7 @@ def regex_match_value(regex: ShkRegex, text: str) -> ShkValue:
         values = groups if groups else [match.group(0)]
 
     items: List[ShkValue] = [
-        ShkString(val) if val is not None else ShkNull()
-        for val in values
+        ShkString(val) if val is not None else ShkNull() for val in values
     ]
     return ShkArray(items)
 
@@ -269,7 +309,9 @@ def _regex_replace(_frame: Frame, recv: ShkRegex, args: List[ShkValue]) -> ShkSt
 
 def _path_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
     if len(args) != expected:
-        raise ShakarArityError(f"path.{method} expects {expected} argument(s); got {len(args)}")
+        raise ShakarArityError(
+            f"path.{method} expects {expected} argument(s); got {len(args)}"
+        )
 
 
 def _path_arg_number(method: str, arg: ShkValue) -> int:
@@ -321,7 +363,9 @@ def _path_chmod(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNull:
     return ShkNull()
 
 
-def call_builtin_method(recv: ShkValue, name: str, args: List[ShkValue], frame: 'Frame') -> ShkValue:
+def call_builtin_method(
+    recv: ShkValue, name: str, args: List[ShkValue], frame: "Frame"
+) -> ShkValue:
     registry_by_type: Dict[type, MethodRegistry] = {
         ShkArray: Builtins.array_methods,
         ShkString: Builtins.string_methods,
@@ -340,7 +384,9 @@ def call_builtin_method(recv: ShkValue, name: str, args: List[ShkValue], frame: 
     raise ShakarMethodNotFound(recv, name)
 
 
-def _validate_return_contract(fn: ShkFn, result: ShkValue, callee_frame: 'Frame') -> ShkValue:
+def _validate_return_contract(
+    fn: ShkFn, result: ShkValue, callee_frame: "Frame"
+) -> ShkValue:
     """Validate return value against function's return contract if present"""
     if fn.return_contract is None:
         return result
@@ -353,12 +399,19 @@ def _validate_return_contract(fn: ShkFn, result: ShkValue, callee_frame: 'Frame'
 
     # Check if result matches the contract
     if not match_structure(result, contract_value):
-        raise ShakarTypeError(f"Return value does not match contract: expected {contract_value}, got {result}")
+        raise ShakarTypeError(
+            f"Return value does not match contract: expected {contract_value}, got {result}"
+        )
 
     return result
 
 
-def call_shkfn(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue], caller_frame: 'Frame') -> ShkValue:
+def call_shkfn(
+    fn: ShkFn,
+    positional: List[ShkValue],
+    subject: Optional[ShkValue],
+    caller_frame: "Frame",
+) -> ShkValue:
     """
     Subjectful call semantics:
     - subject is available to callee as frame.dot
@@ -372,7 +425,13 @@ def call_shkfn(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue
     return _call_shkfn_raw(fn, positional, subject, caller_frame)
 
 
-def _bind_params_with_spread(params: List[str], vararg_indices: List[int], positional: List[ShkValue], *, label: str) -> List[ShkValue]:
+def _bind_params_with_spread(
+    params: List[str],
+    vararg_indices: List[int],
+    positional: List[ShkValue],
+    *,
+    label: str,
+) -> List[ShkValue]:
     spread_set = set(vararg_indices)
     non_spread_after = [0] * len(params)
     count = 0
@@ -391,46 +450,67 @@ def _bind_params_with_spread(params: List[str], vararg_indices: List[int], posit
             needed_after = non_spread_after[idx]
             available = total_args - current_pos
             take = max(0, available - needed_after)
-            spread_vals = positional[current_pos:current_pos + take]
+            spread_vals = positional[current_pos : current_pos + take]
             bound_values.append(ShkArray(list(spread_vals)))
             current_pos += take
             continue
 
         if current_pos >= total_args:
-            raise ShakarArityError(f"{label} expects {len(params)} args; got {len(positional)}")
+            raise ShakarArityError(
+                f"{label} expects {len(params)} args; got {len(positional)}"
+            )
         bound_values.append(positional[current_pos])
         current_pos += 1
 
     if current_pos < total_args:
-        raise ShakarArityError(f"too many arguments for {label.lower()} with {len(params)} parameters")
+        raise ShakarArityError(
+            f"too many arguments for {label.lower()} with {len(params)} parameters"
+        )
 
     return bound_values
 
 
-def _bind_decorator_params(params: List[str], vararg_indices: List[int], args: List[ShkValue]) -> List[ShkValue]:
+def _bind_decorator_params(
+    params: List[str], vararg_indices: List[int], args: List[ShkValue]
+) -> List[ShkValue]:
     if not vararg_indices:
         if len(args) != len(params):
-            raise ShakarArityError(f"Decorator expects {len(params)} args; got {len(args)}")
+            raise ShakarArityError(
+                f"Decorator expects {len(params)} args; got {len(args)}"
+            )
         return list(args)
 
     required = len(params) - len(vararg_indices)
     if len(args) < required:
-        raise ShakarArityError(f"Decorator expects at least {required} args; got {len(args)}")
-    return _bind_params_with_spread(params, vararg_indices, list(args), label="Decorator")
+        raise ShakarArityError(
+            f"Decorator expects at least {required} args; got {len(args)}"
+        )
+    return _bind_params_with_spread(
+        params, vararg_indices, list(args), label="Decorator"
+    )
 
 
-def _call_shkfn_raw(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue], caller_frame: 'Frame') -> ShkValue:
+def _call_shkfn_raw(
+    fn: ShkFn,
+    positional: List[ShkValue],
+    subject: Optional[ShkValue],
+    caller_frame: "Frame",
+) -> ShkValue:
     _ = caller_frame
     from .evaluator import eval_node  # local import to avoid cycle
 
     if fn.params is None:
         if subject is None:
             if not positional:
-                raise ShakarArityError("Subject-only amp_lambda expects a subject argument")
+                raise ShakarArityError(
+                    "Subject-only amp_lambda expects a subject argument"
+                )
             subject, *positional = positional
 
         if positional:
-            raise ShakarArityError(f"Subject-only amp_lambda does not take positional args; got {len(positional)} extra")
+            raise ShakarArityError(
+                f"Subject-only amp_lambda does not take positional args; got {len(positional)} extra"
+            )
 
         callee_frame = Frame(parent=fn.frame, dot=subject)
         callee_frame.mark_function_frame()
@@ -448,13 +528,19 @@ def _call_shkfn_raw(fn: ShkFn, positional: List[ShkValue], subject: Optional[Shk
 
     if not varargs:
         if len(positional) != len(fn.params):
-            raise ShakarArityError(f"Function expects {len(fn.params)} args; got {len(positional)}")
+            raise ShakarArityError(
+                f"Function expects {len(fn.params)} args; got {len(positional)}"
+            )
         bound_values = positional
     else:
         required = len(fn.params) - len(varargs)
         if len(positional) < required:
-            raise ShakarArityError(f"Function expects at least {required} args; got {len(positional)}")
-        bound_values = _bind_params_with_spread(fn.params, varargs, positional, label="Function")
+            raise ShakarArityError(
+                f"Function expects at least {required} args; got {len(positional)}"
+            )
+        bound_values = _bind_params_with_spread(
+            fn.params, varargs, positional, label="Function"
+        )
 
     for name, val in zip(fn.params, bound_values):
         callee_frame.define(name, val)
@@ -469,7 +555,12 @@ def _call_shkfn_raw(fn: ShkFn, positional: List[ShkValue], subject: Optional[Shk
     return _validate_return_contract(fn, result, callee_frame)
 
 
-def _call_shkfn_with_decorators(fn: ShkFn, positional: List[ShkValue], subject: Optional[ShkValue], caller_frame: 'Frame') -> ShkValue:
+def _call_shkfn_with_decorators(
+    fn: ShkFn,
+    positional: List[ShkValue],
+    subject: Optional[ShkValue],
+    caller_frame: "Frame",
+) -> ShkValue:
     chain = fn.decorators or ()
     args = ShkArray(list(positional))
 
@@ -482,7 +573,7 @@ def _run_decorator_chain(
     index: int,
     args_value: ShkArray,
     subject: Optional[ShkValue],
-    caller_frame: 'Frame',
+    caller_frame: "Frame",
 ) -> ShkValue:
     if index >= len(chain):
         return _call_shkfn_raw(fn, list(args_value.items), subject, caller_frame)
@@ -495,7 +586,9 @@ def _run_decorator_chain(
     )
     inst = chain[index]
 
-    return _execute_decorator_instance(inst, continuation, args_value, subject, caller_frame)
+    return _execute_decorator_instance(
+        inst, continuation, args_value, subject, caller_frame
+    )
 
 
 def _execute_decorator_instance(
@@ -503,24 +596,25 @@ def _execute_decorator_instance(
     continuation: DecoratorContinuation,
     args_value: ShkArray,
     subject: Optional[ShkValue],
-    caller_frame: 'Frame',
+    caller_frame: "Frame",
 ) -> ShkValue:
     from .evaluator import eval_node  # defer to avoid cycle
+
     deco_frame = Frame(parent=inst.decorator.frame, dot=subject)
     deco_frame.mark_function_frame()
     params = inst.decorator.params or []
 
     for name, val in zip(params, inst.args):
         deco_frame.define(name, val)
-    deco_frame.define('f', continuation)
-    deco_frame.define('args', args_value)
+    deco_frame.define("f", continuation)
+    deco_frame.define("args", args_value)
 
     try:
         eval_node(inst.decorator.body, deco_frame)
     except ShakarReturnSignal as signal:
         return signal.value
 
-    updated_args_value = deco_frame.get('args')
+    updated_args_value = deco_frame.get("args")
 
     return continuation.invoke(updated_args_value)
 
@@ -530,6 +624,7 @@ def _coerce_decorator_args(value: ShkValue) -> ShkArray:
         return value
 
     raise ShakarTypeError("Decorator args must be an array value")
+
 
 # Runtime type constants for structural matching
 TYPE_INT = ShkType("Int", ShkNumber)

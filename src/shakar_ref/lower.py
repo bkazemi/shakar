@@ -30,7 +30,7 @@ def _desugar_call_holes(node: Node) -> Node:
 
     candidate = node
 
-    if tree_label(candidate) == 'explicit_chain':
+    if tree_label(candidate) == "explicit_chain":
         replacement = _chain_to_lambda_if_holes(candidate)
 
         if replacement is not None:
@@ -44,7 +44,7 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
         if is_token(node) or not is_tree(node):
             return False
 
-        if tree_label(node) == 'holeexpr':
+        if tree_label(node) == "holeexpr":
             return True
         return any(_contains_hole(child) for child in tree_children(node))
 
@@ -58,12 +58,14 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
     hole_call_index = None
 
     for idx, op in enumerate(ops):
-        if tree_label(op) == 'call' and _contains_hole(op):
+        if tree_label(op) == "call" and _contains_hole(op):
             hole_call_index = idx
             break
 
     if hole_call_index is not None and hole_call_index + 1 < len(ops):
-        raise SyntaxError("Hole partials cannot be immediately invoked; assign or pass the partial before calling it")
+        raise SyntaxError(
+            "Hole partials cannot be immediately invoked; assign or pass the partial before calling it"
+        )
 
     def clone(node: Node) -> Node:
         if is_token(node) or not is_tree(node):
@@ -72,7 +74,7 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
         label = tree_label(node)
         if label is None:
             return node
-        if label == 'holeexpr':
+        if label == "holeexpr":
             name = f"_hole{len(holes)}"
             holes.append(name)
             return Tok(TT.IDENT, name, 0, 0)
@@ -89,10 +91,10 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
 
     params = [Tok(TT.IDENT, name, 0, 0) for name in holes]
     param_children: list[Tok] = list(params)
-    paramlist = Tree('paramlist', param_children)
+    paramlist = Tree("paramlist", param_children)
     setattr(paramlist, "_meta", getattr(chain, "meta", None))
 
     lambda_children: list[Node] = [paramlist, cloned_chain]
-    lam = Tree('amp_lambda', lambda_children)
+    lam = Tree("amp_lambda", lambda_children)
     setattr(lam, "_meta", getattr(chain, "meta", None))
     return lam

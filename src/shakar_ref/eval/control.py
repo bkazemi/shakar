@@ -20,14 +20,29 @@ from ..runtime import (
     ShakarTypeError,
 )
 from ..tree import Node, Tree, is_token, is_tree, tree_children, tree_label
-from .blocks import eval_inline_body, eval_indent_block, temporary_bindings, temporary_subject
-from .common import expect_ident_token, node_source_span as _node_source_span, render_expr as _render_expr, stringify as _stringify
-from .helpers import current_function_frame as _current_function_frame, is_truthy as _is_truthy
+from .blocks import (
+    eval_inline_body,
+    eval_indent_block,
+    temporary_bindings,
+    temporary_subject,
+)
+from .common import (
+    expect_ident_token,
+    node_source_span as _node_source_span,
+    render_expr as _render_expr,
+    stringify as _stringify,
+)
+from .helpers import (
+    current_function_frame as _current_function_frame,
+    is_truthy as _is_truthy,
+)
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
 
-def eval_return_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_return_stmt(
+    children: list[Node], frame: Frame, eval_func: EvalFunc
+) -> ShkValue:
     if _current_function_frame(frame) is None:
         raise ShakarRuntimeError("return outside of a function")
 
@@ -50,11 +65,13 @@ def eval_return_if(children: list[Node], frame: Frame, eval_func: EvalFunc) -> S
     return ShkNull()
 
 
-def eval_throw_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_throw_stmt(
+    children: list[Node], frame: Frame, eval_func: EvalFunc
+) -> ShkValue:
     if children:
         value = eval_func(children[0], frame)
         raise coerce_throw_value(value)
-    current = getattr(frame, '_active_error', None)
+    current = getattr(frame, "_active_error", None)
     if current is None:
         raise ShakarRuntimeError("throw outside of catch")
     raise current
@@ -73,19 +90,23 @@ def coerce_throw_value(value: ShkValue) -> ShakarRuntimeError:
         return value
 
     if isinstance(value, ShkObject):
-        slots = getattr(value, 'slots', {})
-        marker = slots.get('__error__')
+        slots = getattr(value, "slots", {})
+        marker = slots.get("__error__")
 
         if isinstance(marker, ShkBool) and marker.value:
-            type_slot = slots.get('type')
-            msg_slot = slots.get('message')
+            type_slot = slots.get("type")
+            msg_slot = slots.get("message")
 
-            if not isinstance(type_slot, ShkString) or not isinstance(msg_slot, ShkString):
-                raise ShakarTypeError("error() objects must have string type and message")
+            if not isinstance(type_slot, ShkString) or not isinstance(
+                msg_slot, ShkString
+            ):
+                raise ShakarTypeError(
+                    "error() objects must have string type and message"
+                )
 
             err = ShakarRuntimeError(msg_slot.value)
             err.shk_type = type_slot.value
-            err.shk_data = slots.get('data', ShkNull())
+            err.shk_data = slots.get("data", ShkNull())
             err.shk_payload = value
             return err
 
@@ -117,12 +138,12 @@ def eval_assert(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
 
 def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
     """Expose exception metadata to catch handlers as a lightweight object."""
-    payload = getattr(exc, 'shk_payload', None)
+    payload = getattr(exc, "shk_payload", None)
 
     if isinstance(payload, ShkObject):
         return payload
 
-    type_hint = getattr(exc, 'shk_type', None) or type(exc).__name__
+    type_hint = getattr(exc, "shk_type", None) or type(exc).__name__
 
     slots: dict[str, ShkValue] = {
         "message": ShkString(str(exc)),
@@ -135,14 +156,16 @@ def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
     if isinstance(exc, ShakarMethodNotFound):
         slots["method"] = ShkString(exc.name)
 
-    data = getattr(exc, 'shk_data', None)
+    data = getattr(exc, "shk_data", None)
     if data is not None:
         slots["data"] = data
 
     return ShkObject(slots)
 
 
-def _parse_catch_components(children: list[Node]) -> tuple[Node, Optional[Tok], list[str], Tree]:
+def _parse_catch_components(
+    children: list[Node],
+) -> tuple[Node, Optional[Tok], list[str], Tree]:
     """Split canonical catch nodes into try expression, binder token, type list, and handler."""
     if not children:
         raise ShakarRuntimeError("Malformed catch node")
@@ -157,10 +180,15 @@ def _parse_catch_components(children: list[Node]) -> tuple[Node, Optional[Tok], 
         binder = children[idx]
         idx += 1
 
-    if idx < len(children) and is_tree(children[idx]) and tree_label(children[idx]) == 'catchtypes':
+    if (
+        idx < len(children)
+        and is_tree(children[idx])
+        and tree_label(children[idx]) == "catchtypes"
+    ):
         type_names = [
             expect_ident_token(tok, "Catch type")
-            for tok in tree_children(children[idx]) if is_token(tok)
+            for tok in tree_children(children[idx])
+            if is_token(tok)
         ]
         idx += 1
 
@@ -185,7 +213,7 @@ def _run_catch_handler(
     payload_type = None
 
     if isinstance(payload, ShkObject):
-        slot = payload.slots.get('type') if hasattr(payload, 'slots') else None
+        slot = payload.slots.get("type") if hasattr(payload, "slots") else None
 
         if isinstance(slot, ShkString):
             payload_type = slot.value
@@ -201,16 +229,16 @@ def _run_catch_handler(
     def _exec_handler() -> ShkValue:
         label = tree_label(handler)
 
-        if label == 'inlinebody':
+        if label == "inlinebody":
             return eval_inline_body(handler, frame, eval_func)
 
-        if label == 'indentblock':
+        if label == "indentblock":
             return eval_indent_block(handler, frame, eval_func)
 
         return eval_func(handler, frame)
 
     # track the currently handled exception so a bare `throw` can rethrow it later
-    prev_error = getattr(frame, '_active_error', None)
+    prev_error = getattr(frame, "_active_error", None)
     frame._active_error = original_exc
 
     try:
@@ -223,17 +251,23 @@ def _run_catch_handler(
         frame._active_error = prev_error
 
 
-def eval_catch_expr(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_catch_expr(
+    children: list[Node], frame: Frame, eval_func: EvalFunc
+) -> ShkValue:
     try_node, binder, type_names, handler = _parse_catch_components(children)
 
     try:
         return eval_func(try_node, frame)
     except ShakarRuntimeError as exc:
         payload = _build_error_payload(exc)
-        return _run_catch_handler(handler, frame, binder, payload, exc, type_names, eval_func)
+        return _run_catch_handler(
+            handler, frame, binder, payload, exc, type_names, eval_func
+        )
 
 
-def eval_catch_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_catch_stmt(
+    children: list[Node], frame: Frame, eval_func: EvalFunc
+) -> ShkValue:
     try_node, binder, type_names, body = _parse_catch_components(children)
 
     try:
@@ -246,7 +280,7 @@ def eval_catch_stmt(children: list[Node], frame: Frame, eval_func: EvalFunc) -> 
 
 
 def _assert_source_snippet(node: Node, frame: Frame) -> str:
-    src: Optional[str] = getattr(frame, 'source', None)
+    src: Optional[str] = getattr(frame, "source", None)
 
     if src is not None:
         start, end = _node_source_span(node)

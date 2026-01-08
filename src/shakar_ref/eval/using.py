@@ -6,7 +6,14 @@ from typing import Callable, List, Optional
 from ..tree import Tree, Tok
 from ..token_types import TT
 
-from ..runtime import Frame, ShkFn, ShkNull, ShkValue, ShakarRuntimeError, ShakarTypeError
+from ..runtime import (
+    Frame,
+    ShkFn,
+    ShkNull,
+    ShkValue,
+    ShakarRuntimeError,
+    ShakarTypeError,
+)
 from ..tree import Node, is_token, is_tree, tree_label
 from .blocks import eval_indent_block, eval_inline_body, temporary_bindings
 from .chains import call_value
@@ -18,7 +25,9 @@ from .mutation import get_field_value
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
 
-def _lookup_method(resource: ShkValue, names: List[str], frame: Frame) -> Optional[ShkValue]:
+def _lookup_method(
+    resource: ShkValue, names: List[str], frame: Frame
+) -> Optional[ShkValue]:
     for name in names:
         try:
             return get_field_value(resource, name, frame)
@@ -27,7 +36,9 @@ def _lookup_method(resource: ShkValue, names: List[str], frame: Frame) -> Option
     return None
 
 
-def _call_method(method: ShkValue, args: List[ShkValue], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def _call_method(
+    method: ShkValue, args: List[ShkValue], frame: Frame, eval_func: EvalFunc
+) -> ShkValue:
     return call_value(method, args, frame, eval_func)
 
 
@@ -62,7 +73,12 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     bind_name = None
     implicit_bind_name = None
 
-    if binder_tok is None and handle_tok is None and is_token(expr_node) and expr_node.type == TT.IDENT:
+    if (
+        binder_tok is None
+        and handle_tok is None
+        and is_token(expr_node)
+        and expr_node.type == TT.IDENT
+    ):
         implicit_bind_name = expr_node.value
 
     if binder_tok is not None:
@@ -84,7 +100,11 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     err_value: Optional[ShkValue] = None
     result: ShkValue = ShkNull()
 
-    ctx = temporary_bindings(frame, {bind_name: value}) if bind_name is not None else nullcontext()
+    ctx = (
+        temporary_bindings(frame, {bind_name: value})
+        if bind_name is not None
+        else nullcontext()
+    )
 
     with ctx:
         try:
@@ -99,9 +119,12 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             if isinstance(e, ShakarRuntimeError):
                 err_value = _build_error_payload(e)
         finally:
-            exit_method = _lookup_method(resource, ["using_exit", "exit", "close"], frame)
+            exit_method = _lookup_method(
+                resource, ["using_exit", "exit", "close"], frame
+            )
 
             if exit_method is not None:
+
                 def _exit_args(method: ShkValue) -> List[ShkValue]:
                     if err_value is not None:
                         return [err_value]
@@ -110,10 +133,16 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
                     if isinstance(method, ShkFn):
                         target_fn = method
-                    if hasattr(method, "fn") and isinstance(getattr(method, "fn"), ShkFn):
+                    if hasattr(method, "fn") and isinstance(
+                        getattr(method, "fn"), ShkFn
+                    ):
                         target_fn = getattr(method, "fn")
 
-                    if target_fn is not None and target_fn.params is not None and len(target_fn.params) == 1:
+                    if (
+                        target_fn is not None
+                        and target_fn.params is not None
+                        and len(target_fn.params) == 1
+                    ):
                         return [ShkNull()]
                     return []
 

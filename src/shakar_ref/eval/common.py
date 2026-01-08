@@ -6,7 +6,18 @@ import re
 from ..tree import Tree, Tok
 from ..token_types import TT
 
-from ..types import Frame, ShkBool, ShkNumber, ShkPath, ShkString, ShkRegex, ShakarRuntimeError, ShakarTypeError, ShkValue, ShkNull
+from ..types import (
+    Frame,
+    ShkBool,
+    ShkNumber,
+    ShkPath,
+    ShkString,
+    ShkRegex,
+    ShakarRuntimeError,
+    ShakarTypeError,
+    ShkValue,
+    ShkNull,
+)
 from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
 from ..tree import token_kind
 
@@ -18,22 +29,24 @@ def is_token_type(node: Node, kind: str) -> bool:
 
 
 def expect_ident_token(node: Node, context: str) -> str:
-    if is_token(node) and token_kind(node) in {'IDENT', 'OVER'}:
+    if is_token(node) and token_kind(node) in {"IDENT", "OVER"}:
         return str(node.value)
 
     kind = token_kind(node)
-    val = getattr(node, 'value', None)
+    val = getattr(node, "value", None)
     raise ShakarRuntimeError(f"{context} must be an identifier (got {kind}:{val})")
 
 
 def ident_token_value(node: Node) -> Optional[str]:
-    if is_token(node) and token_kind(node) in {'IDENT', 'OVER'}:
+    if is_token(node) and token_kind(node) in {"IDENT", "OVER"}:
         return str(node.value)
 
     return None
 
 
-def extract_param_names(params_node: Optional[Node], context: str="parameter list") -> Tuple[List[str], List[int]]:
+def extract_param_names(
+    params_node: Optional[Node], context: str = "parameter list"
+) -> Tuple[List[str], List[int]]:
     if params_node is None:
         return [], []
 
@@ -80,7 +93,7 @@ def is_literal_node(node: Node) -> bool:
 
 
 def get_source_segment(node: Node, frame: Frame) -> Optional[str]:
-    source = getattr(frame, 'source', None)
+    source = getattr(frame, "source", None)
     if source is None:
         return None
 
@@ -115,8 +128,8 @@ def render_expr(node: Node) -> str:
 
 def node_source_span(node: Node) -> SourceSpan:
     meta = node_meta(node)
-    start = getattr(meta, 'start_pos', None)
-    end = getattr(meta, 'end_pos', None)
+    start = getattr(meta, "start_pos", None)
+    end = getattr(meta, "end_pos", None)
 
     if start is not None and end is not None:
         return start, end
@@ -166,15 +179,15 @@ def _regex_flags(flags: str) -> tuple[int, bool]:
 
     for ch in flags:
         match ch:
-            case 'i':
+            case "i":
                 py_flags |= re.IGNORECASE
-            case 'm':
+            case "m":
                 py_flags |= re.MULTILINE
-            case 's':
+            case "s":
                 py_flags |= re.DOTALL
-            case 'x':
+            case "x":
                 py_flags |= re.VERBOSE
-            case 'f':
+            case "f":
                 include_full = True
             case _:
                 raise ShakarTypeError(f"Unknown regex flag '{ch}'")
@@ -197,7 +210,9 @@ def token_regex(token: Tok, _: None) -> ShkRegex:
     except re.error as exc:
         raise ShakarRuntimeError(f"Invalid regex: {exc}") from exc
 
-    return ShkRegex(pattern=pattern, flags=flags, include_full=include_full, compiled=compiled)
+    return ShkRegex(
+        pattern=pattern, flags=flags, include_full=include_full, compiled=compiled
+    )
 
 
 def stringify(value: Optional[ShkValue]) -> str:
@@ -221,23 +236,30 @@ def stringify(value: Optional[ShkValue]) -> str:
 
 def strip_prefixed_quotes(raw: str, prefix: str) -> str:
     if raw.startswith(f'{prefix}"') and raw.endswith('"'):
-        return raw[len(prefix) + 1:-1]
+        return raw[len(prefix) + 1 : -1]
     if raw.startswith(f"{prefix}'") and raw.endswith("'"):
-        return raw[len(prefix) + 1:-1]
+        return raw[len(prefix) + 1 : -1]
     return raw
 
 
 def collect_free_identifiers(node: Node, callback: Callable[[str], None]) -> None:
-    skip_nodes = {'field', 'fieldsel', 'fieldfan', 'fieldlist', 'key_ident', 'key_string'}
+    skip_nodes = {
+        "field",
+        "fieldsel",
+        "fieldfan",
+        "fieldlist",
+        "key_ident",
+        "key_string",
+    }
 
     def walk(n: Node) -> None:
         if is_token(n):
-            if token_kind(n) == 'IDENT':
+            if token_kind(n) == "IDENT":
                 callback(n.value)
             return
 
         if is_tree(n):
-            if tree_label(n) == 'amp_lambda':
+            if tree_label(n) == "amp_lambda":
                 return
 
             if tree_label(n) in skip_nodes:

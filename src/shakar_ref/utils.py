@@ -40,12 +40,22 @@ def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
         case (ShkBool(value=a), ShkBool(value=b)):
             return a == b
         case (ShkArray(items=items_a), ShkArray(items=items_b)):
-            return len(items_a) == len(items_b) and all(shk_equals(a, b) for a, b in zip(items_a, items_b))
+            return len(items_a) == len(items_b) and all(
+                shk_equals(a, b) for a, b in zip(items_a, items_b)
+            )
         case (ShkObject(slots=slots_a), ShkObject(slots=slots_b)):
-            return slots_a.keys() == slots_b.keys() and all(shk_equals(slots_a[k], slots_b[k]) for k in slots_a)
+            return slots_a.keys() == slots_b.keys() and all(
+                shk_equals(slots_a[k], slots_b[k]) for k in slots_a
+            )
         case (ShkPath(value=a), ShkPath(value=b)):
             return a == b
-        case (ShkFn(), ShkFn()) | (ShkDecorator(), ShkDecorator()) | (DecoratorConfigured(), DecoratorConfigured()) | (DecoratorContinuation(), DecoratorContinuation()) | (Descriptor(), Descriptor()):
+        case (
+            (ShkFn(), ShkFn())
+            | (ShkDecorator(), ShkDecorator())
+            | (DecoratorConfigured(), DecoratorConfigured())
+            | (DecoratorContinuation(), DecoratorContinuation())
+            | (Descriptor(), Descriptor())
+        ):
             return lhs is rhs
         case _:
             return False
@@ -61,7 +71,9 @@ def sequence_items(value: ShkValue) -> List[ShkValue]:
     raise ShakarTypeError("Expected ShkArray for sequence operations")
 
 
-def coerce_sequence(value: ShkValue, expected_len: Optional[int]) -> Optional[List[ShkValue]]:
+def coerce_sequence(
+    value: ShkValue, expected_len: Optional[int]
+) -> Optional[List[ShkValue]]:
     if not is_sequence_value(value):
         return None
 
@@ -94,8 +106,10 @@ def normalize_object_key(value: ShkValue) -> str:
         case ShkNumber(value=num):
             return str(int(num)) if num.is_integer() else str(num)
         case ShkBool(value=b):
-            return 'true' if b else 'false'
+            return "true" if b else "false"
         case ShkNull():
-            return 'null'
+            return "null"
         case _:
-            raise ShakarTypeError("Object key must be a Shakar string, number, bool, or null")
+            raise ShakarTypeError(
+                "Object key must be a Shakar string, number, bool, or null"
+            )

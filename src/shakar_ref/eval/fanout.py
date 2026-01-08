@@ -6,7 +6,13 @@ from ..tree import Tok
 from ..runtime import Frame, ShkValue, EvalResult, ShakarRuntimeError
 from ..tree import Node, Tree, child_by_label, is_tree, tree_children, tree_label
 from .bind import FanContext, RebindContext
-from .selector import evaluate_selectorlist, SelectorIndex, SelectorSlice, _selector_slice_to_slice, _normalize_index_position
+from .selector import (
+    evaluate_selectorlist,
+    SelectorIndex,
+    SelectorSlice,
+    _selector_slice_to_slice,
+    _normalize_index_position,
+)
 from ..runtime import ShkArray
 from .mutation import get_field_value, set_field_value, index_value, set_index_value
 from .expr import apply_binary_operator
@@ -49,9 +55,13 @@ def eval_fanout_block(
             key = _fan_key(clause)
             if key is not None:
                 if key in seen_keys:
-                    raise ShakarRuntimeError("Fanout block cannot target the same path twice")
+                    raise ShakarRuntimeError(
+                        "Fanout block cannot target the same path twice"
+                    )
                 seen_keys.add(key)
-            _eval_clause(base_val, clause, frame, eval_func, apply_op, evaluate_index_operand)
+            _eval_clause(
+                base_val, clause, frame, eval_func, apply_op, evaluate_index_operand
+            )
     finally:
         frame.dot = saved_dot
 
@@ -87,8 +97,18 @@ def _eval_clause(
     if len(children) < 3:
         raise ShakarRuntimeError("Malformed fanout clause")
 
-    fanpath_node = next((ch for ch in children if is_tree(ch) and _name(tree_label(ch)) == "fanpath"), None)
-    op_node = next((ch for ch in children if is_tree(ch) and _name(tree_label(ch)).startswith("fanop_")), None)
+    fanpath_node = next(
+        (ch for ch in children if is_tree(ch) and _name(tree_label(ch)) == "fanpath"),
+        None,
+    )
+    op_node = next(
+        (
+            ch
+            for ch in children
+            if is_tree(ch) and _name(tree_label(ch)).startswith("fanop_")
+        ),
+        None,
+    )
     rhs_node = children[-1]
 
     if fanpath_node is None or op_node is None:
@@ -98,14 +118,18 @@ def _eval_clause(
     if not segments:
         raise ShakarRuntimeError("Empty fanout path")
 
-    target_obj, final_seg = _walk_to_parent(base_val, segments, frame, eval_func, apply_op)
+    target_obj, final_seg = _walk_to_parent(
+        base_val, segments, frame, eval_func, apply_op
+    )
     op_label = tree_label(op_node)
     targets = _iter_targets(target_obj)
 
     if op_label == "fanop_assign":
         new_val = eval_func(rhs_node, frame)
         for tgt in targets:
-            _store_target(tgt, final_seg, new_val, frame, evaluate_index_operand, eval_func)
+            _store_target(
+                tgt, final_seg, new_val, frame, evaluate_index_operand, eval_func
+            )
         return
 
     if op_label == "fanop_apply":
@@ -114,7 +138,9 @@ def _eval_clause(
             old_val = _read(base, final_seg, frame, evaluate_index_operand, eval_func)
             rhs_frame = Frame(parent=frame, dot=old_val)
             new_val = eval_func(rhs_node, rhs_frame)
-            _store_target(tgt, final_seg, new_val, frame, evaluate_index_operand, eval_func)
+            _store_target(
+                tgt, final_seg, new_val, frame, evaluate_index_operand, eval_func
+            )
         return
 
     op_symbol = _COMPOUND_MAP.get(op_label)
@@ -139,7 +165,9 @@ def _fan_segments(path_node: Node) -> List[Tree]:
     return [seg for seg in tree_children(path_node) if is_tree(seg)]
 
 
-def _walk_to_parent(base_val: ShkValue, segments: List[Tree], frame: Frame, eval_func, apply_op) -> tuple[ShkValue, Tree]:
+def _walk_to_parent(
+    base_val: ShkValue, segments: List[Tree], frame: Frame, eval_func, apply_op
+) -> tuple[ShkValue, Tree]:
     current = base_val
 
     for idx, seg in enumerate(segments[:-1]):
@@ -173,10 +201,15 @@ def _segment_is_multi_selector(seg: Tree) -> bool:
         return False
     # single selector: check if it is a slice selector
     sel = selectors[0]
-    return any(is_tree(grand) and tree_label(grand) == "slicesel" for grand in tree_children(sel))
+    return any(
+        is_tree(grand) and tree_label(grand) == "slicesel"
+        for grand in tree_children(sel)
+    )
 
 
-def _fan_context_from_selector(arr: ShkArray, seg: Tree, frame: Frame, eval_func) -> FanContext:
+def _fan_context_from_selector(
+    arr: ShkArray, seg: Tree, frame: Frame, eval_func
+) -> FanContext:
     """Build FanContext targeting the original array elements selected by seg."""
     selectorlist = child_by_label(seg, "selectorlist")
     if selectorlist is None:
@@ -205,18 +238,28 @@ def _fan_context_from_selector(arr: ShkArray, seg: Tree, frame: Frame, eval_func
     contexts: list[RebindContext] = []
 
     for i in indices:
+
         def _setter_factory(pos: int):
             def setter(new_val: ShkValue) -> None:
                 if pos >= len(arr.items):
                     raise ShakarRuntimeError("Fanout slice target vanished")
                 arr.items[pos] = new_val
+
             return setter
+
         contexts.append(RebindContext(arr.items[i], _setter_factory(i)))
 
     return FanContext(contexts)
 
 
-def _store_target(target: ShkValue | RebindContext, final_seg: Tree, value: ShkValue, frame: Frame, evaluate_index_operand, eval_func) -> None:
+def _store_target(
+    target: ShkValue | RebindContext,
+    final_seg: Tree,
+    value: ShkValue,
+    frame: Frame,
+    evaluate_index_operand,
+    eval_func,
+) -> None:
     if isinstance(target, RebindContext):
         # Apply store to the underlying value, then write back via setter to keep container in sync.
         _store(target.value, final_seg, value, frame, evaluate_index_operand, eval_func)
@@ -225,7 +268,9 @@ def _store_target(target: ShkValue | RebindContext, final_seg: Tree, value: ShkV
     _store(target, final_seg, value, frame, evaluate_index_operand, eval_func)
 
 
-def _read(target: ShkValue, final_seg: Tree, frame: Frame, evaluate_index_operand, eval_func) -> ShkValue:
+def _read(
+    target: ShkValue, final_seg: Tree, frame: Frame, evaluate_index_operand, eval_func
+) -> ShkValue:
     match tree_label(final_seg):
         case "field" | "fieldsel":
             name = final_seg.children[0].value
@@ -237,7 +282,14 @@ def _read(target: ShkValue, final_seg: Tree, frame: Frame, evaluate_index_operan
             raise ShakarRuntimeError("Fanout block target must be a field or index")
 
 
-def _store(target: ShkValue, final_seg: Tree, value: ShkValue, frame: Frame, evaluate_index_operand, eval_func) -> None:
+def _store(
+    target: ShkValue,
+    final_seg: Tree,
+    value: ShkValue,
+    frame: Frame,
+    evaluate_index_operand,
+    eval_func,
+) -> None:
     match tree_label(final_seg):
         case "field" | "fieldsel":
             name = final_seg.children[0].value
@@ -258,6 +310,7 @@ def _name(label: str | Tok | None) -> str:
 def _seg_fingerprint(seg: Tree) -> str:
     # Rough, stable-enough textual fingerprint of an lv_index child tree.
     buf: list[str] = []
+
     def walk(node: Node) -> None:
         if is_tree(node):
             buf.append(_name(tree_label(node)))
@@ -265,5 +318,6 @@ def _seg_fingerprint(seg: Tree) -> str:
                 walk(ch)
         elif isinstance(node, Tok):
             buf.append(node.value)
+
     walk(seg)
     return "|".join(buf)

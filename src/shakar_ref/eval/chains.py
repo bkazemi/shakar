@@ -28,7 +28,15 @@ from ..runtime import (
     call_builtin_method,
     call_shkfn,
 )
-from ..tree import Node, Tree, child_by_label, is_token, is_tree, tree_children, tree_label
+from ..tree import (
+    Node,
+    Tree,
+    child_by_label,
+    is_token,
+    is_tree,
+    tree_children,
+    tree_label,
+)
 from .bind import FanContext, RebindContext, apply_fan_op
 from .common import expect_ident_token as _expect_ident_token
 from .mutation import get_field_value, index_value, slice_value
@@ -38,7 +46,9 @@ from .valuefan import eval_valuefan
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
 
-def eval_args_node(args_node: Tree | list[Tree] | None, frame: Frame, eval_func: EvalFunc) -> List[ShkValue]:
+def eval_args_node(
+    args_node: Tree | list[Tree] | None, frame: Frame, eval_func: EvalFunc
+) -> List[ShkValue]:
     def label(node: Node) -> Optional[str]:
         return tree_label(node)
 
@@ -46,17 +56,17 @@ def eval_args_node(args_node: Tree | list[Tree] | None, frame: Frame, eval_func:
         if is_tree(node):
             tag = label(node)
 
-            if tag in {'args', 'arglist', 'arglistnamedmixed'}:
+            if tag in {"args", "arglist", "arglistnamedmixed"}:
                 out: List[Node] = []
 
                 for ch in node.children:
                     out.extend(flatten(ch))
                 return out
 
-            if tag in {'argitem', 'arg'} and node.children:
+            if tag in {"argitem", "arg"} and node.children:
                 return flatten(node.children[0])
 
-            if tag == 'namedarg' and node.children:
+            if tag == "namedarg" and node.children:
                 # Keep namedarg intact; handle spreading logic separately.
                 return [node]
 
@@ -103,7 +113,9 @@ def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[Shk
             spread_val = eval_func(node, frame)
 
             if not isinstance(spread_val, ShkArray):
-                raise ShakarRuntimeError("Fanout argument did not produce an array value")
+                raise ShakarRuntimeError(
+                    "Fanout argument did not produce an array value"
+                )
 
             values.extend(spread_val.items)
             continue
@@ -114,26 +126,28 @@ def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[Shk
 
 
 def _is_namedarg(node: Node) -> bool:
-    return is_tree(node) and tree_label(node) == 'namedarg'
+    return is_tree(node) and tree_label(node) == "namedarg"
 
 
 def _is_spread(node: Node) -> bool:
-    return is_tree(node) and tree_label(node) == 'spread'
+    return is_tree(node) and tree_label(node) == "spread"
 
 
 def _is_raw_fieldfan(node: Node) -> bool:
     """Detect `Base.{a,b}` with no trailing ops so we can auto-flatten in call args."""
-    if not is_tree(node) or tree_label(node) != 'explicit_chain':
+    if not is_tree(node) or tree_label(node) != "explicit_chain":
         return False
 
     ops = node.children[1:]
     if not (bool(ops) and len(ops) == 1):
         return False
-    return tree_label(ops[0]) in {'fieldfan', 'valuefan'}
+    return tree_label(ops[0]) in {"fieldfan", "valuefan"}
 
 
-def evaluate_index_operand(index_node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkSelector | ShkValue:
-    selectorlist = child_by_label(index_node, 'selectorlist')
+def evaluate_index_operand(
+    index_node: Tree, frame: Frame, eval_func: EvalFunc
+) -> ShkSelector | ShkValue:
+    selectorlist = child_by_label(index_node, "selectorlist")
 
     if selectorlist is not None:
         selectors = evaluate_selectorlist(selectorlist, frame, eval_func)
@@ -147,9 +161,11 @@ def evaluate_index_operand(index_node: Tree, frame: Frame, eval_func: EvalFunc) 
     return eval_func(expr_node, frame)
 
 
-def apply_slice(recv: ShkValue, arms: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def apply_slice(
+    recv: ShkValue, arms: List[Node], frame: Frame, eval_func: EvalFunc
+) -> ShkValue:
     def arm_to_py(node: Node) -> Optional[int]:
-        if tree_label(node) == 'emptyexpr':
+        if tree_label(node) == "emptyexpr":
             return None
 
         value = eval_func(node, frame)
@@ -162,10 +178,14 @@ def apply_slice(recv: ShkValue, arms: List[Node], frame: Frame, eval_func: EvalF
     return slice_value(recv, start, stop, step)
 
 
-def apply_index_operation(recv: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
-    selectorlist = child_by_label(op, 'selectorlist')
+def apply_index_operation(
+    recv: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc
+) -> ShkValue:
+    selectorlist = child_by_label(op, "selectorlist")
     default_node = _default_arg(op)
-    default_thunk = (lambda: eval_func(default_node, frame)) if default_node is not None else None
+    default_thunk = (
+        (lambda: eval_func(default_node, frame)) if default_node is not None else None
+    )
 
     if selectorlist is None:
         expr_node = _index_expr_from_children(op.children)
@@ -186,7 +206,9 @@ def apply_index_operation(recv: ShkValue, op: Tree, frame: Frame, eval_func: Eva
     return apply_selectors_to_value(recv, selectors)
 
 
-def apply_op(recv: EvalResult, op: Tree, frame: Frame, eval_func: EvalFunc) -> EvalResult:
+def apply_op(
+    recv: EvalResult, op: Tree, frame: Frame, eval_func: EvalFunc
+) -> EvalResult:
     if isinstance(recv, FanContext):
         return apply_fan_op(recv, op, frame, apply_op=apply_op, eval_func=eval_func)
 
@@ -197,15 +219,22 @@ def apply_op(recv: EvalResult, op: Tree, frame: Frame, eval_func: EvalFunc) -> E
         recv = context.value
 
     op_handlers: dict[str, Callable[[], EvalResult]] = {
-        'field': lambda: _get_field(recv, op, frame),
-        'fieldsel': lambda: _get_field(recv, op, frame),
-        'index': lambda: apply_index_operation(recv, op, frame, eval_func),
-        'lv_index': lambda: apply_index_operation(recv, op, frame, eval_func),
-        'slicesel': lambda: apply_slice(recv, op.children, frame, eval_func),
-        'fieldfan': lambda: apply_fan_op(recv, op, frame, apply_op=apply_op, eval_func=eval_func),
-        'valuefan': lambda: _valuefan(recv, op, frame, eval_func),
-        'call': lambda: call_value(recv, eval_args_node(op.children[0] if op.children else None, frame, eval_func), frame, eval_func),
-        'method': lambda: _call_method(recv, op, frame, eval_func),
+        "field": lambda: _get_field(recv, op, frame),
+        "fieldsel": lambda: _get_field(recv, op, frame),
+        "index": lambda: apply_index_operation(recv, op, frame, eval_func),
+        "lv_index": lambda: apply_index_operation(recv, op, frame, eval_func),
+        "slicesel": lambda: apply_slice(recv, op.children, frame, eval_func),
+        "fieldfan": lambda: apply_fan_op(
+            recv, op, frame, apply_op=apply_op, eval_func=eval_func
+        ),
+        "valuefan": lambda: _valuefan(recv, op, frame, eval_func),
+        "call": lambda: call_value(
+            recv,
+            eval_args_node(op.children[0] if op.children else None, frame, eval_func),
+            frame,
+            eval_func,
+        ),
+        "method": lambda: _call_method(recv, op, frame, eval_func),
     }
 
     handler = op_handlers.get(op.data)
@@ -231,15 +260,23 @@ def _get_field(recv: ShkValue, op: Tree, frame: Frame) -> ShkValue:
     try:
         field_name = _expect_ident_token(tok, "Field access")
     except ShakarRuntimeError as err:
-        meta = getattr(tok, 'meta', None)
-        span = (getattr(meta, 'line', None), getattr(meta, 'column', None)) if meta else (None, None)
+        meta = getattr(tok, "meta", None)
+        span = (
+            (getattr(meta, "line", None), getattr(meta, "column", None))
+            if meta
+            else (None, None)
+        )
         raise ShakarRuntimeError(f"{err.args[0]} at {span}") from None
     return get_field_value(recv, field_name, frame)
 
 
-def _call_method(recv: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def _call_method(
+    recv: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc
+) -> ShkValue:
     method_name = _expect_ident_token(op.children[0], "Method call")
-    args = eval_args_node(op.children[1] if len(op.children) > 1 else None, frame, eval_func)
+    args = eval_args_node(
+        op.children[1] if len(op.children) > 1 else None, frame, eval_func
+    )
 
     try:
         return call_builtin_method(recv, method_name, args, frame)
@@ -258,7 +295,9 @@ def _valuefan(base: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc) -> Sh
     return eval_valuefan(base, op, frame, eval_func, apply_op)
 
 
-def call_value(cal: ShkValue, args: List[ShkValue], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def call_value(
+    cal: ShkValue, args: List[ShkValue], frame: Frame, eval_func: EvalFunc
+) -> ShkValue:
     match cal:
         case BoundMethod(fn=fn, subject=subject):
             return call_shkfn(fn, args, subject=subject, caller_frame=frame)
@@ -266,11 +305,15 @@ def call_value(cal: ShkValue, args: List[ShkValue], frame: Frame, eval_func: Eva
             return call_builtin_method(subject, name, args, frame)
         case StdlibFunction(fn=fn, arity=arity):
             if arity is not None and len(args) != arity:
-                raise ShakarArityError(f"Function expects {arity} args; got {len(args)}")
+                raise ShakarArityError(
+                    f"Function expects {arity} args; got {len(args)}"
+                )
             return fn(frame, args)
         case DecoratorContinuation():
             if len(args) != 1:
-                raise ShakarArityError("Decorator continuation expects exactly 1 argument (the args array)")
+                raise ShakarArityError(
+                    "Decorator continuation expects exactly 1 argument (the args array)"
+                )
             return cal.invoke(args[0])
         case ShkDecorator():
             params = cal.params or []
@@ -296,7 +339,7 @@ def _index_expr_from_children(children: List[Node]) -> Tree:
             return node
 
         tag = tree_label(node)
-        if tag in {'selectorlist', 'selector', 'indexsel'}:
+        if tag in {"selectorlist", "selector", "indexsel"}:
             queue.extend(node.children)
             continue
 
@@ -310,7 +353,7 @@ def _default_arg(node: Tree) -> Optional[Tree]:
     selector_index = None
 
     for idx, child in enumerate(children):
-        if tree_label(child) == 'selectorlist':
+        if tree_label(child) == "selectorlist":
             selector_index = idx
             break
 
@@ -319,7 +362,7 @@ def _default_arg(node: Tree) -> Optional[Tree]:
 
     skip_tokens = {TT.RSQB, TT.COMMA, TT.COLON}
 
-    for child in children[selector_index + 1:]:
+    for child in children[selector_index + 1 :]:
         if is_token(child) and child.type in skip_tokens:
             continue
 

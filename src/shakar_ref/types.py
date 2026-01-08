@@ -22,10 +22,12 @@ class ShkNull:
 @dataclass
 class ShkNumber:
     value: float
+
     def __repr__(self) -> str:
         v = float(self.value)
         # Always show .0 for integer values to match expected output
         return f"{int(v)}.0" if v.is_integer() else str(v)
+
     def __str__(self) -> str:
         # For stringify: render integral floats without .0
         v = float(self.value)
@@ -35,6 +37,7 @@ class ShkNumber:
 @dataclass
 class ShkString:
     value: str
+
     def __repr__(self) -> str:
         return f'"{self.value}"'
 
@@ -45,6 +48,7 @@ class ShkRegex:
     flags: str
     include_full: bool
     compiled: re.Pattern[str]
+
     def __repr__(self) -> str:
         suffix = f"/{self.flags}" if self.flags else ""
         return f'r"{self.pattern}"{suffix}'
@@ -53,13 +57,15 @@ class ShkRegex:
 @dataclass
 class ShkBool:
     value: bool
+
     def __repr__(self) -> str:
         return "true" if self.value else "false"
 
 
 @dataclass
 class ShkArray:
-    items: List['ShkValue']
+    items: List["ShkValue"]
+
     def __repr__(self) -> str:
         return "[" + ", ".join(repr(x) for x in self.items) + "]"
 
@@ -67,8 +73,10 @@ class ShkArray:
 @dataclass
 class ShkCommand:
     segments: List[str]
+
     def render(self) -> str:
         return "".join(self.segments)
+
     def __repr__(self) -> str:
         return f"sh<{self.render()}>"
 
@@ -76,10 +84,13 @@ class ShkCommand:
 @dataclass
 class ShkPath:
     value: str
+
     def as_path(self) -> pathlib.Path:
         return pathlib.Path(self.value)
+
     def __repr__(self) -> str:
         return f'p"{self.value}"'
+
     def __str__(self) -> str:
         return self.value
 
@@ -87,8 +98,10 @@ class ShkPath:
 @dataclass(frozen=True)
 class ShkType:
     """Runtime type representation for structural matching."""
+
     name: str
     mapped_type: type
+
     def __repr__(self) -> str:
         return f"<type {self.name}>"
 
@@ -96,7 +109,9 @@ class ShkType:
 @dataclass(frozen=True)
 class ShkOptional:
     """Optional field wrapper for structural matching schemas."""
-    inner: 'ShkValue'
+
+    inner: "ShkValue"
+
     def __repr__(self) -> str:
         return f"Optional({self.inner!r})"
 
@@ -104,7 +119,9 @@ class ShkOptional:
 @dataclass(frozen=True)
 class ShkUnion:
     """Union type for structural matching - matches any of the alternatives."""
-    alternatives: Tuple['ShkValue', ...]
+
+    alternatives: Tuple["ShkValue", ...]
+
     def __repr__(self) -> str:
         alts = ", ".join(repr(a) for a in self.alternatives)
         return f"Union({alts})"
@@ -112,7 +129,8 @@ class ShkUnion:
 
 @dataclass
 class ShkObject:
-    slots: Dict[str, 'ShkValue']
+    slots: Dict[str, "ShkValue"]
+
     def __repr__(self) -> str:
         pairs = []
 
@@ -124,7 +142,7 @@ class ShkObject:
 
 @dataclass
 class SelectorIndex:
-    value: 'ShkValue'
+    value: "ShkValue"
 
 
 @dataclass
@@ -135,12 +153,14 @@ class SelectorSlice:
     clamp: bool
     exclusive_stop: bool = False
 
+
 SelectorPart = Union[SelectorIndex, SelectorSlice]
 
 
 @dataclass
 class ShkSelector:
     parts: List[SelectorPart]
+
     def __repr__(self) -> str:
         descr = []
 
@@ -150,7 +170,13 @@ class ShkSelector:
             else:
                 bits = []
                 bits.append("" if part.start is None else str(part.start))
-                bits.append("" if part.stop is None else ("<" + str(part.stop) if part.exclusive_stop else str(part.stop)))
+                bits.append(
+                    ""
+                    if part.stop is None
+                    else (
+                        "<" + str(part.stop) if part.exclusive_stop else str(part.stop)
+                    )
+                )
 
                 if part.step is not None:
                     bits.append(str(part.step))
@@ -166,27 +192,28 @@ class ShkSelector:
 class ShkDecorator:
     params: Optional[List[str]]
     body: Node
-    frame: 'Frame'
+    frame: "Frame"
     vararg_indices: Optional[List[int]] = None
 
 
 @dataclass
 class DecoratorConfigured:
     decorator: ShkDecorator
-    args: List['ShkValue']
+    args: List["ShkValue"]
 
 
 @dataclass
 class ShkFn:
     params: Optional[List[str]]  # None for subject-only amp-lambda
-    body: Node                    # AST node
-    frame: 'Frame'                   # Closure frame
+    body: Node  # AST node
+    frame: "Frame"  # Closure frame
     decorators: Optional[Tuple[DecoratorConfigured, ...]] = None
     kind: str = "fn"
     return_contract: Optional[Node] = None  # AST node for return type contract
     vararg_indices: Optional[List[int]] = None
+
     def __repr__(self) -> str:
-        body_label = getattr(self.body, 'data', type(self.body).__name__)
+        body_label = getattr(self.body, "data", type(self.body).__name__)
         label = "amp-fn" if self.kind == "amp" else self.kind
 
         if self.params is None:
@@ -200,13 +227,13 @@ class ShkFn:
 @dataclass
 class BoundMethod:
     fn: ShkFn
-    subject: 'ShkValue'
+    subject: "ShkValue"
 
 
 @dataclass
 class BuiltinMethod:
     name: str
-    subject: 'ShkValue'
+    subject: "ShkValue"
 
 
 @dataclass
@@ -220,29 +247,35 @@ class DecoratorContinuation:
     fn: ShkFn
     decorators: Tuple[DecoratorConfigured, ...]
     index: int
-    subject: Optional['ShkValue']
-    caller_frame: 'Frame'
+    subject: Optional["ShkValue"]
+    caller_frame: "Frame"
 
-    def invoke(self, args_value: ShkValue) -> 'ShkValue':
+    def invoke(self, args_value: ShkValue) -> "ShkValue":
         from . import runtime
+
         args = runtime._coerce_decorator_args(args_value)
-        return runtime._run_decorator_chain(self.fn, self.decorators, self.index, args, self.subject, self.caller_frame)
+        return runtime._run_decorator_chain(
+            self.fn, self.decorators, self.index, args, self.subject, self.caller_frame
+        )
 
 
 @dataclass
 class DeferEntry:
     """Scheduled defer thunk plus optional metadata for dependency ordering."""
+
     thunk: Callable[[], None]
     label: Optional[str] = None
     deps: List[str] = field(default_factory=list)
 
-StdlibFn = Callable[['Frame', List['ShkValue']], 'ShkValue']
+
+StdlibFn = Callable[["Frame", List["ShkValue"]], "ShkValue"]
 
 
 @dataclass(frozen=True)
 class StdlibFunction:
     fn: StdlibFn
     arity: Optional[int] = None
+
 
 ShkValue: TypeAlias = Union[
     ShkNull,
@@ -275,7 +308,12 @@ DotValue: TypeAlias = Optional[ShkValue]
 
 
 class Frame:
-    def __init__(self, parent: Optional['Frame']=None, dot: DotValue=None, source: Optional[str]=None):
+    def __init__(
+        self,
+        parent: Optional["Frame"] = None,
+        dot: DotValue = None,
+        source: Optional[str] = None,
+    ):
         self.parent = parent
         self.vars: Dict[str, ShkValue] = {}
         self.dot: DotValue = dot
@@ -292,7 +330,7 @@ class Frame:
 
         if source is not None:
             self.source = source
-        elif parent is not None and hasattr(parent, 'source'):
+        elif parent is not None and hasattr(parent, "source"):
             self.source = parent.source
         else:
             self.source = None
@@ -343,6 +381,7 @@ class Frame:
 
     def is_function_frame(self) -> bool:
         return self._is_function_frame
+
 
 # ---------- Exceptions (keep Shakar* canonical) ----------
 
@@ -412,12 +451,14 @@ class CommandError(ShakarRuntimeError):
         self.code = code
         self.stdout = stdout
         self.stderr = stderr
-        self.shk_payload = ShkObject({
-            "cmd": ShkString(cmd),
-            "code": ShkNumber(float(code)),
-            "stdout": ShkString(stdout),
-            "stderr": ShkString(stderr),
-        })
+        self.shk_payload = ShkObject(
+            {
+                "cmd": ShkString(cmd),
+                "code": ShkNumber(float(code)),
+                "stdout": ShkString(stdout),
+                "stderr": ShkString(stderr),
+            }
+        )
         self.shk_type = "CommandError"
 
 
@@ -427,6 +468,7 @@ class ShakarAssertionError(ShakarRuntimeError):
 
 class ShakarReturnSignal(Exception):
     """Internal control-flow exception used to implement `return`."""
+
     def __init__(self, value: ShkValue):
         self.value = value
 
@@ -437,6 +479,7 @@ class ShakarBreakSignal(Exception):
 
 class ShakarContinueSignal(Exception):
     """Internal control flow for `continue`."""
+
 
 _SHK_VALUE_TYPES: Tuple[type, ...] = (
     ShkNull,
@@ -474,11 +517,15 @@ def _ensure_shk_value(value: ShkValue | Node) -> ShkValue:
         return value
     raise ShakarTypeError(f"Unexpected value type {type(value).__name__}")
 
+
 R_contra = TypeVar("R_contra", bound="ShkValue", contravariant=True)
 
 
 class Method(Protocol[R_contra]):
-    def __call__(self, frame: 'Frame', recv: R_contra, args: List['ShkValue']) -> 'ShkValue': ...
+    def __call__(
+        self, frame: "Frame", recv: R_contra, args: List["ShkValue"]
+    ) -> "ShkValue": ...
+
 
 MethodRegistry = Dict[str, Method[ShkValue]]
 
@@ -491,4 +538,4 @@ class Builtins:
     command_methods: MethodRegistry = {}
     path_methods: MethodRegistry = {}
     stdlib_functions: Dict[str, StdlibFunction] = {}
-    type_constants: Dict[str, 'ShkType'] = {}
+    type_constants: Dict[str, "ShkType"] = {}

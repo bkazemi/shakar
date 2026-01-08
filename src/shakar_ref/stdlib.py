@@ -5,7 +5,18 @@ from __future__ import annotations
 import asyncio
 from typing import List
 
-from .runtime import register_stdlib, ShkNull, ShkString, ShkNumber, ShkBool, ShkValue, ShakarTypeError, ShkObject, ShkOptional, ShkUnion
+from .runtime import (
+    register_stdlib,
+    ShkNull,
+    ShkString,
+    ShkNumber,
+    ShkBool,
+    ShkValue,
+    ShakarTypeError,
+    ShkObject,
+    ShkOptional,
+    ShkUnion,
+)
 from .runtime import ShakarRuntimeError
 from .eval.helpers import is_truthy
 
@@ -79,10 +90,10 @@ def std_error(_frame, args: List[ShkValue]) -> ShkObject:
         raise ShakarTypeError("error expects string type and message")
     data = rest[0] if rest else ShkNull()
     slots: dict[str, ShkValue] = {
-        '__error__': ShkBool(True),
-        'type': type_arg,
-        'message': message_arg,
-        'data': data,
+        "__error__": ShkBool(True),
+        "type": type_arg,
+        "message": message_arg,
+        "data": data,
     }
 
     return ShkObject(slots)

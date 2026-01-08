@@ -38,7 +38,9 @@ def _walrus_target_name(node: Node) -> str:
     raise ShakarRuntimeError("Unsupported walrus target")
 
 
-def _split_postfix_children(children: Sequence[Node], keyword_tokens: Iterable[str]) -> tuple[Node, Node]:
+def _split_postfix_children(
+    children: Sequence[Node], keyword_tokens: Iterable[str]
+) -> tuple[Node, Node]:
     keywords = set(keyword_tokens)
     semantic: List[Node] = []
 
@@ -62,7 +64,9 @@ def eval_postfix_if(
     truthy_fn: TruthyFunc,
 ) -> ShkValue:
     stmt_node, cond_node = _split_postfix_children(children, {"IF"})
-    return _eval_postfix_guard(stmt_node, cond_node, frame, eval_func, truthy_fn, run_on_truthy=True)
+    return _eval_postfix_guard(
+        stmt_node, cond_node, frame, eval_func, truthy_fn, run_on_truthy=True
+    )
 
 
 def eval_postfix_unless(
@@ -74,7 +78,9 @@ def eval_postfix_unless(
 ) -> ShkValue:
     stmt_node, cond_node = _split_postfix_children(children, {"UNLESS"})
 
-    return _eval_postfix_guard(stmt_node, cond_node, frame, eval_func, truthy_fn, run_on_truthy=False)
+    return _eval_postfix_guard(
+        stmt_node, cond_node, frame, eval_func, truthy_fn, run_on_truthy=False
+    )
 
 
 def _eval_postfix_guard(

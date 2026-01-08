@@ -21,10 +21,12 @@ from .token_types import TT, Tok
 
 class ParseContext(Enum):
     """Track parsing context to disambiguate comma usage"""
+
     NORMAL = 0  # Default: CCC allowed
     FUNCTION_ARGS = 1  # Inside f(...): commas are arg separators
     ARRAY_ELEMENTS = 2  # Inside [...]: commas are element separators
     DESTRUCTURE_PACK = 3  # Inside destructure RHS pack: commas are value separators
+
 
 # ============================================================================
 # Parser
@@ -33,6 +35,7 @@ class ParseContext(Enum):
 
 class ParseError(Exception):
     """Parse error with position info"""
+
     def __init__(self, message: str, token: Optional[Tok] = None):
         self.message = message
         self.token = token
@@ -69,7 +72,9 @@ class Parser:
         self.in_inline_body = False  # Track if we're in inlinebody context
         self.use_indenter = use_indenter  # Track indentation mode
         self.paren_depth = 0  # Track parenthesis nesting depth
-        self.parse_context = ParseContext.NORMAL  # Track parsing context for comma disambiguation
+        self.parse_context = (
+            ParseContext.NORMAL
+        )  # Track parsing context for comma disambiguation
 
     def _tok(self, type_name: str, value: str, line: int = 0, column: int = 0) -> Tok:
         return Tok(TT[type_name], value, line, column)
@@ -138,7 +143,11 @@ class Parser:
 
             # Skip newlines and layout tokens when inside parentheses
             if self.paren_depth > 0:
-                skip_types = (TT.NEWLINE, TT.INDENT, TT.DEDENT) if self.use_indenter else (TT.NEWLINE,)
+                skip_types = (
+                    (TT.NEWLINE, TT.INDENT, TT.DEDENT)
+                    if self.use_indenter
+                    else (TT.NEWLINE,)
+                )
                 while self.current.type in skip_types:
                     self.pos += 1
                     if self.pos < len(self.tokens):
@@ -200,16 +209,16 @@ class Parser:
             if self.match(TT.NEWLINE):
                 # If we have accumulated statements, wrap them
                 if stmts:
-                    stmtlists.append(Tree('stmtlist', stmts))
+                    stmtlists.append(Tree("stmtlist", stmts))
                     stmts = []
                 continue
 
             stmt = self.parse_statement()
-            stmts.append(Tree('stmt', [stmt]))
+            stmts.append(Tree("stmt", [stmt]))
 
             # Check for semicolon separator
             if self.match(TT.SEMI):
-                stmts.append(self._tok('SEMI', ';'))
+                stmts.append(self._tok("SEMI", ";"))
                 # Continue parsing more statements on same line
                 # Skip whitespace but not newlines
                 continue
@@ -220,10 +229,10 @@ class Parser:
 
         # Add any remaining statements
         if stmts:
-            stmtlists.append(Tree('stmtlist', stmts))
+            stmtlists.append(Tree("stmtlist", stmts))
 
         # Return appropriate start node based on indentation mode
-        start_node = 'start_indented' if self.use_indenter else 'start_noindent'
+        start_node = "start_indented" if self.use_indenter else "start_noindent"
         return Tree(start_node, list(stmtlists))
 
     # ========================================================================
@@ -272,11 +281,15 @@ class Parser:
         # Simple statements
         if self.check(TT.RETURN):
             return self.parse_return_stmt()
-        if self.check(TT.QMARK) and self.peek(1).type == TT.IDENT and self.peek(1).value == 'ret':
+        if (
+            self.check(TT.QMARK)
+            and self.peek(1).type == TT.IDENT
+            and self.peek(1).value == "ret"
+        ):
             # ?ret expr - returnif statement
             self.advance(2)  # consume "? ret"
             value = self.parse_expr()
-            return Tree('returnif', [value])
+            return Tree("returnif", [value])
         if self.check(TT.BREAK):
             return self.parse_break_stmt()
         if self.check(TT.CONTINUE):
@@ -304,14 +317,14 @@ class Parser:
                 patterns.append(self.parse_pattern())
 
             # Always wrap in pattern_list for evaluator consistency
-            pattern_node = Tree('pattern_list', patterns)
+            pattern_node = Tree("pattern_list", patterns)
 
             if self.match(TT.ASSIGN):
                 rhs = self.parse_destructure_rhs()
-                return Tree('destructure', [pattern_node, rhs])
+                return Tree("destructure", [pattern_node, rhs])
             elif self.match(TT.WALRUS):
                 rhs = self.parse_destructure_rhs()
-                return Tree('destructure_walrus', [pattern_node, rhs])
+                return Tree("destructure_walrus", [pattern_node, rhs])
             else:
                 raise ParseError("Expected = or := after pattern", self.current)
 
@@ -319,41 +332,57 @@ class Parser:
 
         # Check for destructuring: a, b, c = ... or a, b, c := ...
         if self.check(TT.COMMA):
-            first_tok = self.tokens[expr_start] if expr_start < len(self.tokens) else None
+            first_tok = (
+                self.tokens[expr_start] if expr_start < len(self.tokens) else None
+            )
             if first_tok is None or first_tok.type not in {TT.IDENT, TT.LPAR}:
                 # Not a valid pattern start; comma belongs to surrounding expression (e.g., anon fn body)
                 pass
             else:
                 # Backtrack and parse as pattern_list
                 self.pos = expr_start
-                self.current = self.tokens[self.pos] if self.pos < len(self.tokens) else Tok(TT.EOF, None, 0, 0)
+                self.current = (
+                    self.tokens[self.pos]
+                    if self.pos < len(self.tokens)
+                    else Tok(TT.EOF, None, 0, 0)
+                )
                 pattern_list = self.parse_pattern_list()
 
                 if self.match(TT.ASSIGN):
                     rhs = self.parse_destructure_rhs()
-                    return Tree('destructure', [pattern_list, rhs])
+                    return Tree("destructure", [pattern_list, rhs])
                 elif self.match(TT.WALRUS):
                     rhs = self.parse_destructure_rhs()
-                    return Tree('destructure_walrus', [pattern_list, rhs])
+                    return Tree("destructure_walrus", [pattern_list, rhs])
                 else:
-                    raise ParseError("Expected = or := after pattern list", self.current)
+                    raise ParseError(
+                        "Expected = or := after pattern list", self.current
+                    )
 
         # Guard chain inline form
         if self.check(TT.COLON):
             self.pos = expr_start
-            self.current = self.tokens[self.pos] if self.pos < len(self.tokens) else Tok(TT.EOF, None, 0, 0)
+            self.current = (
+                self.tokens[self.pos]
+                if self.pos < len(self.tokens)
+                else Tok(TT.EOF, None, 0, 0)
+            )
             return self.parse_guard_chain()
 
         # Catch statement form: expr catch ... : body
         if self.check(TT.CATCH) or (self.check(TT.AT) and self.peek(1).type == TT.AT):
             self.pos = expr_start
-            self.current = self.tokens[self.pos] if self.pos < len(self.tokens) else Tok(TT.EOF, None, 0, 0)
+            self.current = (
+                self.tokens[self.pos]
+                if self.pos < len(self.tokens)
+                else Tok(TT.EOF, None, 0, 0)
+            )
             return self.parse_catch_stmt()
 
         # Fanout block form: expr { .field = value; ... }
         if self.check(TT.LBRACE):
             fanblock = self.parse_fanblock()
-            return Tree('fanoutblock', [expr, fanblock])
+            return Tree("fanoutblock", [expr, fanblock])
 
         # Base statement starts as expression
         base_stmt: Tree | Tok = expr
@@ -375,29 +404,37 @@ class Parser:
                 lvalue = self._expr_to_lvalue(expr)
                 self.advance()  # =
                 rhs = self.parse_nullish_expr()
-                base_stmt = Tree('assignstmt', [lvalue, self._tok('ASSIGN', '='), rhs])
+                base_stmt = Tree("assignstmt", [lvalue, self._tok("ASSIGN", "="), rhs])
             else:
                 lvalue = self._expr_to_lvalue(expr)
                 op = self.advance()
                 rhs = self.parse_nullish_expr()
-                base_stmt = Tree('compound_assign', [lvalue, self._tok(op.type.name, op.value), rhs])
+                base_stmt = Tree(
+                    "compound_assign", [lvalue, self._tok(op.type.name, op.value), rhs]
+                )
 
         # Postfix if/unless wraps the base statement
         if self.check(TT.IF):
             self.advance()
             cond = self.parse_expr()
-            wrapped_base = base_stmt if isinstance(base_stmt, Tree) else Tree('expr', [base_stmt])
-            return Tree('postfixif', [wrapped_base, self._tok('IF', 'if'), Tree('expr', [cond])])
+            wrapped_base = (
+                base_stmt if isinstance(base_stmt, Tree) else Tree("expr", [base_stmt])
+            )
+            return Tree(
+                "postfixif", [wrapped_base, self._tok("IF", "if"), Tree("expr", [cond])]
+            )
         if self.check(TT.IDENT) and getattr(self.current, "value", "") == "unless":
             self.advance()
             cond = self.parse_expr()
-            wrapped_base = base_stmt if isinstance(base_stmt, Tree) else Tree('expr', [base_stmt])
-            return Tree('postfixunless', [wrapped_base, Tree('expr', [cond])])
+            wrapped_base = (
+                base_stmt if isinstance(base_stmt, Tree) else Tree("expr", [base_stmt])
+            )
+            return Tree("postfixunless", [wrapped_base, Tree("expr", [cond])])
 
         # Just a statement/expression
         if isinstance(base_stmt, Tree):
             return base_stmt
-        return Tree('expr', [base_stmt])
+        return Tree("expr", [base_stmt])
 
     def parse_if_stmt(self) -> Tree:
         """
@@ -417,19 +454,21 @@ class Parser:
             elif_cond = self.parse_expr()
             self.expect(TT.COLON)
             elif_body = self.parse_body()
-            elifs.append(Tree('elifclause', [self._tok('ELIF', 'elif'), elif_cond, elif_body]))
+            elifs.append(
+                Tree("elifclause", [self._tok("ELIF", "elif"), elif_cond, elif_body])
+            )
 
         if self.check(TT.ELSE):
             self.advance()
             self.expect(TT.COLON)
             else_body = self.parse_body()
-            else_clause = Tree('elseclause', [self._tok('ELSE', 'else'), else_body])
+            else_clause = Tree("elseclause", [self._tok("ELSE", "else"), else_body])
 
-        children = [self._tok('IF', 'if'), cond, then_body] + elifs
+        children = [self._tok("IF", "if"), cond, then_body] + elifs
         if else_clause:
             children.append(else_clause)
 
-        return Tree('ifstmt', children)
+        return Tree("ifstmt", children)
 
     def parse_while_stmt(self) -> Tree:
         """Parse while loop: while expr: body"""
@@ -437,7 +476,7 @@ class Parser:
         cond = self.parse_expr()
         self.expect(TT.COLON)
         body = self.parse_body()
-        return Tree('whilestmt', [self._tok('WHILE', 'while'), cond, body])
+        return Tree("whilestmt", [self._tok("WHILE", "while"), cond, body])
 
     def parse_for_stmt(self) -> Tree:
         """
@@ -465,14 +504,19 @@ class Parser:
                 iterable = self.parse_expr()
                 self.expect(TT.COLON)
                 body = self.parse_body()
-                return Tree('formap2', [self._tok('FOR', 'for'), binder1, binder2, iterable, body])
+                return Tree(
+                    "formap2",
+                    [self._tok("FOR", "for"), binder1, binder2, iterable, body],
+                )
             else:
                 self.expect(TT.RSQB)
                 # for[pattern] expr: body
                 iterable = self.parse_expr()
                 self.expect(TT.COLON)
                 body = self.parse_body()
-                return Tree('forindexed', [self._tok('FOR', 'for'), binder1, iterable, body])
+                return Tree(
+                    "forindexed", [self._tok("FOR", "for"), binder1, iterable, body]
+                )
 
         # Check if it's "for x in expr" or "for x, y in expr" (with destructuring)
         if self.check(TT.IDENT):
@@ -491,7 +535,9 @@ class Parser:
                     tok, new_idx, new_paren = self._lookahead_advance(idx, paren_depth)
                     if tok.type == TT.COMMA:
                         idx, paren_depth = new_idx, new_paren
-                        tok, new_idx, new_paren = self._lookahead_advance(idx, paren_depth)
+                        tok, new_idx, new_paren = self._lookahead_advance(
+                            idx, paren_depth
+                        )
                         if tok.type == TT.IDENT:
                             ident_values.append(tok.value)
                             idx, paren_depth = new_idx, new_paren
@@ -518,19 +564,28 @@ class Parser:
                     # Build pattern
                     if len(idents) == 1:
                         # Simple pattern: for x in expr
-                        pattern = Tree('pattern', [self._tok('IDENT', idents[0].value)])
+                        pattern = Tree("pattern", [self._tok("IDENT", idents[0].value)])
                     else:
                         # Destructuring pattern: for k, v in expr
-                        pattern_items = [self._tok('IDENT', id.value) for id in idents]
-                        pattern = Tree('pattern_list_inline', pattern_items)
+                        pattern_items = [self._tok("IDENT", id.value) for id in idents]
+                        pattern = Tree("pattern_list_inline", pattern_items)
 
-                    return Tree('forin', [self._tok('FOR', 'for'), pattern, self._tok('IN', 'in'), iterable, body])
+                    return Tree(
+                        "forin",
+                        [
+                            self._tok("FOR", "for"),
+                            pattern,
+                            self._tok("IN", "in"),
+                            iterable,
+                            body,
+                        ],
+                    )
 
         # Subjectful for: for expr: body
         iterable = self.parse_expr()
         self.expect(TT.COLON)
         body = self.parse_body()
-        return Tree('forsubject', [self._tok('FOR', 'for'), iterable, body])
+        return Tree("forsubject", [self._tok("FOR", "for"), iterable, body])
 
     def parse_using_stmt(self) -> Tree:
         """
@@ -557,12 +612,12 @@ class Parser:
 
         children: List[Any] = []
         if handle is not None:
-            children.append(Tree('using_handle', [self._tok('IDENT', handle.value)]))
+            children.append(Tree("using_handle", [self._tok("IDENT", handle.value)]))
         children.append(resource)
         if binder is not None:
-            children.append(Tree('using_bind', [self._tok('IDENT', binder.value)]))
+            children.append(Tree("using_bind", [self._tok("IDENT", binder.value)]))
         children.append(body)
-        return Tree('usingstmt', children)
+        return Tree("usingstmt", children)
 
     def parse_defer_stmt(self) -> Tree:
         """
@@ -599,7 +654,9 @@ class Parser:
             # Optional label
             if self.check(TT.IDENT):
                 label_tok = self.advance()
-                defer_children.append(Tree('deferlabel', [self._tok('IDENT', label_tok.value)]))
+                defer_children.append(
+                    Tree("deferlabel", [self._tok("IDENT", label_tok.value)])
+                )
 
             # Optional deferafter
             if self.check(TT.IDENT) and getattr(self.current, "value", "") == "after":
@@ -608,8 +665,8 @@ class Parser:
 
             self.expect(TT.COLON)
             body = self.parse_body()
-            defer_children.append(Tree('defer_block', [body]))
-            return Tree('deferstmt', defer_children)
+            defer_children.append(Tree("defer_block", [body]))
+            return Tree("deferstmt", defer_children)
 
         # simplecall branch
         call_expr = self.parse_postfix_expr()
@@ -622,25 +679,25 @@ class Parser:
             defer_children.append(self._parse_defer_after())
         defer_children.append(call_expr)
 
-        return Tree('deferstmt', defer_children)
+        return Tree("deferstmt", defer_children)
 
     def _parse_defer_after(self) -> Tree:
         deps: List[Tok] = []
 
         if self.match(TT.LPAR):
             if not self.check(TT.RPAR):
-                deps.append(self._tok('IDENT', self.expect(TT.IDENT).value))
+                deps.append(self._tok("IDENT", self.expect(TT.IDENT).value))
                 while self.match(TT.COMMA):
-                    deps.append(self._tok('IDENT', self.expect(TT.IDENT).value))
+                    deps.append(self._tok("IDENT", self.expect(TT.IDENT).value))
             self.expect(TT.RPAR)
         else:
-            deps.append(self._tok('IDENT', self.expect(TT.IDENT).value))
+            deps.append(self._tok("IDENT", self.expect(TT.IDENT).value))
 
-        return Tree('deferafter', deps)
+        return Tree("deferafter", deps)
 
     def _expr_has_call(self, expr: Tree | Tok) -> bool:
         if isinstance(expr, Tree):
-            if expr.data == 'call':
+            if expr.data == "call":
                 return True
             return any(self._expr_has_call(ch) for ch in expr.children)
         return False
@@ -712,7 +769,10 @@ class Parser:
                     depth -= 1
                     if depth == 0 and tok.type == TT.RPAR:
                         # Found closing paren, check if next is colon
-                        if idx + 1 < len(self.tokens) and self.tokens[idx + 1].type == TT.COLON:
+                        if (
+                            idx + 1 < len(self.tokens)
+                            and self.tokens[idx + 1].type == TT.COLON
+                        ):
                             return True
                         break
                 idx += 1
@@ -735,7 +795,7 @@ class Parser:
 
         # Convert inlinebody to amp_lambda if it contains implicit chain
         # For now, just wrap the body directly
-        return Tree('hook', [name, Tree('amp_lambda', [body])])
+        return Tree("hook", [name, Tree("amp_lambda", [body])])
 
     def parse_decorator_stmt(self) -> Tree:
         """
@@ -752,7 +812,7 @@ class Parser:
         self.expect(TT.COLON)
         body = self.parse_body()
 
-        return Tree('decorator_def', [self._tok('IDENT', name.value), params, body])
+        return Tree("decorator_def", [self._tok("IDENT", name.value), params, body])
 
     def parse_fanblock(self) -> Tree:
         """
@@ -780,84 +840,113 @@ class Parser:
             # First segment (required)
             if self.check(TT.IDENT):
                 tok = self.advance()
-                segs.append(Tree('field', [self._tok('IDENT', tok.value, tok.line, tok.column)]))
+                segs.append(
+                    Tree("field", [self._tok("IDENT", tok.value, tok.line, tok.column)])
+                )
             elif self.match(TT.LSQB):
                 selectors = self.parse_selector_list()
                 self.expect(TT.RSQB)
-                segs.append(Tree('lv_index', [
-                    self._tok('LSQB', '['),
-                    Tree('selectorlist', selectors),
-                    self._tok('RSQB', ']'),
-                ]))
+                segs.append(
+                    Tree(
+                        "lv_index",
+                        [
+                            self._tok("LSQB", "["),
+                            Tree("selectorlist", selectors),
+                            self._tok("RSQB", "]"),
+                        ],
+                    )
+                )
             else:
-                raise ParseError("Expected identifier or [selector] in fanout path", self.current)
+                raise ParseError(
+                    "Expected identifier or [selector] in fanout path", self.current
+                )
 
             # Subsequent segments: allow either a dot+segment or a bare [selector] segment
             while True:
                 if self.match(TT.DOT):
                     if self.check(TT.IDENT):
                         tok = self.advance()
-                        segs.append(Tree('field', [self._tok('IDENT', tok.value, tok.line, tok.column)]))
+                        segs.append(
+                            Tree(
+                                "field",
+                                [self._tok("IDENT", tok.value, tok.line, tok.column)],
+                            )
+                        )
                     elif self.match(TT.LSQB):
                         selectors = self.parse_selector_list()
                         self.expect(TT.RSQB)
-                        segs.append(Tree('lv_index', [
-                            self._tok('LSQB', '['),
-                            Tree('selectorlist', selectors),
-                            self._tok('RSQB', ']'),
-                        ]))
+                        segs.append(
+                            Tree(
+                                "lv_index",
+                                [
+                                    self._tok("LSQB", "["),
+                                    Tree("selectorlist", selectors),
+                                    self._tok("RSQB", "]"),
+                                ],
+                            )
+                        )
                     else:
-                        raise ParseError("Expected identifier or [selector] after '.' in fanout path", self.current)
+                        raise ParseError(
+                            "Expected identifier or [selector] after '.' in fanout path",
+                            self.current,
+                        )
                 elif self.check(TT.LSQB):
                     # Adjacent selector segment without a dot (e.g., .rows[1].v)
                     self.advance()  # consume '['
                     selectors = self.parse_selector_list()
                     self.expect(TT.RSQB)
-                    segs.append(Tree('lv_index', [
-                        self._tok('LSQB', '['),
-                        Tree('selectorlist', selectors),
-                        self._tok('RSQB', ']'),
-                    ]))
+                    segs.append(
+                        Tree(
+                            "lv_index",
+                            [
+                                self._tok("LSQB", "["),
+                                Tree("selectorlist", selectors),
+                                self._tok("RSQB", "]"),
+                            ],
+                        )
+                    )
                 else:
                     break
 
-            fanpath = Tree('fanpath', segs)
+            fanpath = Tree("fanpath", segs)
 
             # Parse assignment operator
             if self.check(TT.ASSIGN):
                 self.advance()
-                fanop = Tree('fanop_assign', [])
+                fanop = Tree("fanop_assign", [])
             elif self.check(TT.APPLYASSIGN):
                 self.advance()
-                fanop = Tree('fanop_apply', [])
+                fanop = Tree("fanop_apply", [])
             elif self.check(TT.PLUSEQ):
                 self.advance()
-                fanop = Tree('fanop_pluseq', [])
+                fanop = Tree("fanop_pluseq", [])
             elif self.check(TT.MINUSEQ):
                 self.advance()
-                fanop = Tree('fanop_minuseq', [])
+                fanop = Tree("fanop_minuseq", [])
             elif self.check(TT.STAREQ):
                 self.advance()
-                fanop = Tree('fanop_stareq', [])
+                fanop = Tree("fanop_stareq", [])
             elif self.check(TT.SLASHEQ):
                 self.advance()
-                fanop = Tree('fanop_slasheq', [])
+                fanop = Tree("fanop_slasheq", [])
             elif self.check(TT.FLOORDIVEQ):
                 self.advance()
-                fanop = Tree('fanop_floordiveq', [])
+                fanop = Tree("fanop_floordiveq", [])
             elif self.check(TT.MODEQ):
                 self.advance()
-                fanop = Tree('fanop_modeq', [])
+                fanop = Tree("fanop_modeq", [])
             elif self.check(TT.POWEQ):
                 self.advance()
-                fanop = Tree('fanop_poweq', [])
+                fanop = Tree("fanop_poweq", [])
             else:
                 raise ParseError("Expected fanout assignment operator", self.current)
 
             # Parse value expression
             value = self.parse_expr()
 
-            clauses.append(Tree('fanclause', [self._tok('DOT', '.'), fanpath, fanop, value]))
+            clauses.append(
+                Tree("fanclause", [self._tok("DOT", "."), fanpath, fanop, value])
+            )
             clause_count += 1
 
         self.expect(TT.RBRACE)
@@ -866,15 +955,28 @@ class Parser:
         if clause_count == 1:
             fanpath = clauses[0].children[1]
             value_expr = clauses[0].children[3]
-            if not (self._fanpath_has_multiselector(fanpath) or self._expr_uses_subject(value_expr)):
-                raise ParseError("Single-clause fanout requires a multi-selector or implicit-subject RHS", self.current)
-        return Tree('fanblock', clauses)
+            if not (
+                self._fanpath_has_multiselector(fanpath)
+                or self._expr_uses_subject(value_expr)
+            ):
+                raise ParseError(
+                    "Single-clause fanout requires a multi-selector or implicit-subject RHS",
+                    self.current,
+                )
+        return Tree("fanblock", clauses)
 
     def _fanpath_has_multiselector(self, fanpath: Tree) -> bool:
         """Detect slice or multi-index selector in fanpath segments."""
         for seg in fanpath.children:
-            if isinstance(seg, Tree) and seg.data == 'lv_index':
-                selectorlist = next((ch for ch in seg.children if isinstance(ch, Tree) and ch.data == 'selectorlist'), None)
+            if isinstance(seg, Tree) and seg.data == "lv_index":
+                selectorlist = next(
+                    (
+                        ch
+                        for ch in seg.children
+                        if isinstance(ch, Tree) and ch.data == "selectorlist"
+                    ),
+                    None,
+                )
                 if selectorlist is None:
                     continue
                 selectors = [ch for ch in selectorlist.children if isinstance(ch, Tree)]
@@ -882,7 +984,10 @@ class Parser:
                     return True
                 if selectors:
                     sel = selectors[0]
-                    if any(isinstance(grand, Tree) and grand.data == 'slicesel' for grand in sel.children):
+                    if any(
+                        isinstance(grand, Tree) and grand.data == "slicesel"
+                        for grand in sel.children
+                    ):
                         return True
         return False
 
@@ -914,7 +1019,7 @@ class Parser:
             while self.match(TT.NEWLINE):
                 pass
             # decorator_entry: just the expression, no @ token
-            decorators.append(Tree('decorator_entry', [decorator_expr]))
+            decorators.append(Tree("decorator_entry", [decorator_expr]))
 
         self.expect(TT.FN)
         name = self.expect(TT.IDENT)
@@ -932,16 +1037,16 @@ class Parser:
         body = self.parse_body()
 
         # fnstmt structure: [name, params, body, return_contract?, decorator_list?]
-        children = [self._tok('IDENT', name.value), params, body]
+        children = [self._tok("IDENT", name.value), params, body]
 
         if return_contract is not None:
-            children.append(Tree('return_contract', [return_contract]))
+            children.append(Tree("return_contract", [return_contract]))
 
         if decorators:
-            decorator_list = Tree('decorator_list', decorators)
+            decorator_list = Tree("decorator_list", decorators)
             children.append(decorator_list)
 
-        return Tree('fnstmt', children)
+        return Tree("fnstmt", children)
 
     def parse_await_stmt(self) -> Tree:
         """
@@ -965,10 +1070,14 @@ class Parser:
             if self.match(TT.COLON):
                 trailing_body = self.parse_body()
 
-            root_label = 'awaitanycall' if kind == TT.ANY else 'awaitallcall'
-            children: List[Any] = [Tree('anyarmlist' if root_label == 'awaitanycall' else 'allarmlist', arms)]
+            root_label = "awaitanycall" if kind == TT.ANY else "awaitallcall"
+            children: List[Any] = [
+                Tree(
+                    "anyarmlist" if root_label == "awaitanycall" else "allarmlist", arms
+                )
+            ]
             if trailing_body is not None:
-                children.append(self._tok('RPAR', ')'))
+                children.append(self._tok("RPAR", ")"))
                 children.append(trailing_body)
             return Tree(root_label, children)
 
@@ -976,8 +1085,8 @@ class Parser:
         expr = self.parse_expr()
         if self.match(TT.COLON):
             body = self.parse_body()
-            return Tree('awaitstmt', [self._tok('AWAIT', await_tok.value), expr, body])
-        return Tree('await_value', [self._tok('AWAIT', await_tok.value), expr])
+            return Tree("awaitstmt", [self._tok("AWAIT", await_tok.value), expr, body])
+        return Tree("await_value", [self._tok("AWAIT", await_tok.value), expr])
 
     def parse_return_stmt(self) -> Tree:
         """Parse return statement: return [expr | pack]"""
@@ -985,7 +1094,7 @@ class Parser:
 
         # Check if there's a value
         if self.check(TT.NEWLINE, TT.EOF, TT.SEMI, TT.RBRACE):
-            return Tree('returnstmt', [self._tok('RETURN', 'return')])
+            return Tree("returnstmt", [self._tok("RETURN", "return")])
 
         # Parse first expression
         first_expr = self.parse_expr()
@@ -995,26 +1104,26 @@ class Parser:
             exprs = [first_expr]
             while self.match(TT.COMMA):
                 exprs.append(self.parse_expr())
-            pack = Tree('pack', exprs)
-            return Tree('returnstmt', [self._tok('RETURN', 'return'), pack])
+            pack = Tree("pack", exprs)
+            return Tree("returnstmt", [self._tok("RETURN", "return"), pack])
 
-        return Tree('returnstmt', [self._tok('RETURN', 'return'), first_expr])
+        return Tree("returnstmt", [self._tok("RETURN", "return"), first_expr])
 
     def parse_break_stmt(self) -> Tree:
         """Parse break statement"""
         self.expect(TT.BREAK)
-        return Tree('breakstmt', [self._tok('BREAK', 'break')])
+        return Tree("breakstmt", [self._tok("BREAK", "break")])
 
     def parse_continue_stmt(self) -> Tree:
         """Parse continue statement"""
         self.expect(TT.CONTINUE)
-        return Tree('continuestmt', [self._tok('CONTINUE', 'continue')])
+        return Tree("continuestmt", [self._tok("CONTINUE", "continue")])
 
     def parse_throw_stmt(self) -> Tree:
         """Parse throw statement: throw expr"""
         self.expect(TT.THROW)
         value = self.parse_expr()
-        return Tree('throwstmt', [value])
+        return Tree("throwstmt", [value])
 
     def parse_assert_stmt(self) -> Tree:
         """Parse assert: assert expr [, message]"""
@@ -1023,8 +1132,8 @@ class Parser:
         # Optional comma and message expression
         if self.match(TT.COMMA):
             message = self.parse_expr()
-            return Tree('assert', [value, message])
-        return Tree('assert', [value])
+            return Tree("assert", [value, message])
+        return Tree("assert", [value])
 
     def parse_dbg_stmt(self) -> Tree:
         """Parse dbg: DBG (expr ("," expr)?)"""
@@ -1032,8 +1141,8 @@ class Parser:
         first_expr = self.parse_expr()
         if self.match(TT.COMMA):
             second_expr = self.parse_expr()
-            return Tree('dbg', [self._tok('DBG', 'dbg'), first_expr, second_expr])
-        return Tree('dbg', [self._tok('DBG', 'dbg'), first_expr])
+            return Tree("dbg", [self._tok("DBG", "dbg"), first_expr, second_expr])
+        return Tree("dbg", [self._tok("DBG", "dbg"), first_expr])
 
     def parse_guard_chain(self) -> Tree:
         """
@@ -1047,7 +1156,7 @@ class Parser:
         cond = self.parse_expr()
         self.expect(TT.COLON)
         body = self.parse_body()
-        branches.append(Tree('guardbranch', [cond, body]))
+        branches.append(Tree("guardbranch", [cond, body]))
 
         # Parse additional branches (allow newlines before | or |:)
         while True:
@@ -1077,12 +1186,12 @@ class Parser:
                     cond = self.parse_expr()
                     self.expect(TT.COLON)
                     body = self.parse_body()
-                    branches.append(Tree('guardbranch', [cond, body]))
+                    branches.append(Tree("guardbranch", [cond, body]))
             else:
                 # No continuation, exit without consuming tokens
                 break
 
-        return Tree('onelineguard', branches)
+        return Tree("onelineguard", branches)
 
     def parse_body(self) -> Tree:
         """
@@ -1105,45 +1214,54 @@ class Parser:
                 if self.match(TT.NEWLINE):
                     continue
                 if self.match(TT.SEMI):
-                    stmts.append(self._tok('SEMI', ';'))
+                    stmts.append(self._tok("SEMI", ";"))
                     continue
                 stmt = self.parse_statement()
-                stmts.append(Tree('stmt', [stmt]))
+                stmts.append(Tree("stmt", [stmt]))
             self.expect(TT.RBRACE)
             # Wrap stmtlist in inlinebody
             if stmts:
-                return Tree('inlinebody', [Tree('stmtlist', stmts)])
-            return Tree('inlinebody', [])
+                return Tree("inlinebody", [Tree("stmtlist", stmts)])
+            return Tree("inlinebody", [])
 
         if self.check(TT.INDENT):
             # Indented block
             indent_tok = self.advance()
             # Use actual indent value from lexer
-            children: list[Node] = [self._tok('INDENT', indent_tok.value if indent_tok.value is not None else '    ')]
+            children: list[Node] = [
+                self._tok(
+                    "INDENT",
+                    indent_tok.value if indent_tok.value is not None else "    ",
+                )
+            ]
 
             # Parse statements in the block
             while not self.check(TT.DEDENT, TT.EOF):
                 if self.match(TT.NEWLINE):
                     continue
                 if self.match(TT.SEMI):
-                    children.append(self._tok('SEMI', ';'))
+                    children.append(self._tok("SEMI", ";"))
                     continue
                 stmt = self.parse_statement()
-                children.append(Tree('stmt', [stmt]))
+                children.append(Tree("stmt", [stmt]))
                 # Skip newlines between statements
                 while self.check(TT.NEWLINE) and not self.check(TT.DEDENT):
                     self.match(TT.NEWLINE)
 
             dedent_tok = self.expect(TT.DEDENT)
-            children.append(self._tok('DEDENT', dedent_tok.value if dedent_tok.value is not None else ''))
-            return Tree('indentblock', children)
+            children.append(
+                self._tok(
+                    "DEDENT", dedent_tok.value if dedent_tok.value is not None else ""
+                )
+            )
+            return Tree("indentblock", children)
 
         # Single statement inline
         old_inline = self.in_inline_body
         self.in_inline_body = True
         stmt = self.parse_statement()
         self.in_inline_body = old_inline
-        return Tree('inlinebody', [stmt])
+        return Tree("inlinebody", [stmt])
 
     # ========================================================================
     # Expressions - Precedence Climbing
@@ -1155,7 +1273,7 @@ class Parser:
         Handles catch, ternary, binary ops, etc.
         """
         # Wrap in expr node to match Lark
-        return Tree('expr', [self.parse_catch_expr()])
+        return Tree("expr", [self.parse_catch_expr()])
 
     def parse_catch_expr(self) -> Node:
         """Parse catch expression: expr catch [types] [bind x]: handler"""
@@ -1172,10 +1290,10 @@ class Parser:
             types: List[Tok] = []
             if self.match(TT.LPAR):
                 ident_tok = self.expect(TT.IDENT)
-                types.append(self._tok('IDENT', ident_tok.value))
+                types.append(self._tok("IDENT", ident_tok.value))
                 while self.match(TT.COMMA):
                     ident_tok = self.expect(TT.IDENT)
-                    types.append(self._tok('IDENT', ident_tok.value))
+                    types.append(self._tok("IDENT", ident_tok.value))
                 self.expect(TT.RPAR)
 
             # Optional binder: either bare IDENT or 'bind' IDENT
@@ -1189,7 +1307,9 @@ class Parser:
 
             self.expect(TT.COLON)
             # Choose expression vs block handler
-            if self.check(TT.LBRACE, TT.INDENT) or (self.check(TT.NEWLINE) and self.peek(1).type == TT.INDENT):
+            if self.check(TT.LBRACE, TT.INDENT) or (
+                self.check(TT.NEWLINE) and self.peek(1).type == TT.INDENT
+            ):
                 handler = self.parse_body()
                 is_stmt = True
             else:
@@ -1199,12 +1319,12 @@ class Parser:
             # Build catch node
             children: list[Node] = [expr]
             if binder:
-                children.append(self._tok('IDENT', binder.value))
+                children.append(self._tok("IDENT", binder.value))
             if types:
-                children.append(Tree('catchtypes', types))
+                children.append(Tree("catchtypes", types))
             children.append(handler)
 
-            return Tree('catchstmt' if is_stmt else 'catchexpr', children)
+            return Tree("catchstmt" if is_stmt else "catchexpr", children)
 
         return expr
 
@@ -1212,7 +1332,9 @@ class Parser:
         """Parse catch statement starting at current position."""
         try_expr = self.parse_expr()
 
-        if not (self.check(TT.CATCH) or (self.check(TT.AT) and self.peek(1).type == TT.AT)):
+        if not (
+            self.check(TT.CATCH) or (self.check(TT.AT) and self.peek(1).type == TT.AT)
+        ):
             return try_expr
 
         if self.check(TT.CATCH):
@@ -1223,10 +1345,10 @@ class Parser:
         types: List[Tok] = []
         if self.match(TT.LPAR):
             ident_tok = self.expect(TT.IDENT)
-            types.append(self._tok('IDENT', ident_tok.value))
+            types.append(self._tok("IDENT", ident_tok.value))
             while self.match(TT.COMMA):
                 ident_tok = self.expect(TT.IDENT)
-                types.append(self._tok('IDENT', ident_tok.value))
+                types.append(self._tok("IDENT", ident_tok.value))
             self.expect(TT.RPAR)
 
         binder_tok = None
@@ -1241,11 +1363,11 @@ class Parser:
 
         children: List[Any] = [try_expr]
         if binder_tok is not None:
-            children.append(self._tok('IDENT', binder_tok.value))
+            children.append(self._tok("IDENT", binder_tok.value))
         if types:
-            children.append(Tree('catchtypes', types))
+            children.append(Tree("catchtypes", types))
         children.append(body)
-        return Tree('catchstmt', children)
+        return Tree("catchstmt", children)
 
     def parse_ternary_expr(self) -> Node:
         """Parse ternary: expr ? then : else"""
@@ -1255,7 +1377,7 @@ class Parser:
             then_expr = self.parse_expr()
             self.expect(TT.COLON)
             else_expr = self.parse_ternary_expr()  # Right associative
-            return Tree('ternary', [expr, then_expr, else_expr])
+            return Tree("ternary", [expr, then_expr, else_expr])
 
         # No ternary, return unwrapped
         return expr
@@ -1276,7 +1398,7 @@ class Parser:
             right = self.parse_and_expr()
             children.append(right)
 
-        return Tree('or', children)
+        return Tree("or", children)
 
     def parse_and_expr(self) -> Node:
         """Parse logical AND: expr && expr"""
@@ -1294,7 +1416,7 @@ class Parser:
             right = self.parse_bind_expr()
             children.append(right)
 
-        return Tree('and', children)
+        return Tree("and", children)
 
     def parse_bind_expr(self) -> Node:
         """Parse apply bind: lvalue .= expr"""
@@ -1304,7 +1426,7 @@ class Parser:
             lvalue = self._expr_to_lvalue(left)
 
             right = self.parse_bind_expr()  # Right associative
-            return Tree('bind', [lvalue, right])
+            return Tree("bind", [lvalue, right])
 
         # No bind, just return walrus level
         return left
@@ -1322,27 +1444,30 @@ class Parser:
             core_expr = core_expr.children[0]
 
         if isinstance(core_expr, Tok) and core_expr.type == TT.IDENT:
-            return Tree('lvalue', [core_expr])
+            return Tree("lvalue", [core_expr])
 
-        if isinstance(core_expr, Tree) and core_expr.data in {'explicit_chain', 'implicit_chain'}:
+        if isinstance(core_expr, Tree) and core_expr.data in {
+            "explicit_chain",
+            "implicit_chain",
+        }:
             if not core_expr.children:
-                return Tree('lvalue', [core_expr])
+                return Tree("lvalue", [core_expr])
 
             head, *ops = core_expr.children
 
             norm_ops: List[Tree | Tok] = []
             for op in ops:
-                if isinstance(op, Tree) and op.data == 'index':
-                    norm_ops.append(Tree('lv_index', list(op.children)))
-                elif isinstance(op, Tree) and op.data == 'valuefan':
+                if isinstance(op, Tree) and op.data == "index":
+                    norm_ops.append(Tree("lv_index", list(op.children)))
+                elif isinstance(op, Tree) and op.data == "valuefan":
                     # valuefan is expression fan-out; for assignment treat as fieldfan
-                    norm_ops.append(Tree('fieldfan', op.children))
+                    norm_ops.append(Tree("fieldfan", op.children))
                 else:
                     norm_ops.append(op)
 
-            return Tree('lvalue', [head] + norm_ops)
+            return Tree("lvalue", [head] + norm_ops)
 
-        return Tree('lvalue', [expr])
+        return Tree("lvalue", [expr])
 
     def parse_walrus_expr(self) -> Node:
         """Parse walrus: x := expr"""
@@ -1352,7 +1477,7 @@ class Parser:
             self.advance(2)  # consume IDENT and :=
             # Parse the RHS
             value = self.parse_catch_expr()  # allow catch expressions in walrus RHS
-            return Tree('walrus', [self._tok('IDENT', name.value), value])
+            return Tree("walrus", [self._tok("IDENT", name.value), value])
 
         # No walrus, just return nullish level
         return self.parse_nullish_expr()
@@ -1369,11 +1494,11 @@ class Parser:
         children: list[Node] = [left]
         while self.check(TT.NULLISH):
             op = self.advance()
-            children.append(self._tok('NULLISH', op.value))
+            children.append(self._tok("NULLISH", op.value))
             right = self.parse_compare_expr()
             children.append(right)
 
-        return Tree('nullish', children)
+        return Tree("nullish", children)
 
     def parse_compare_expr(self) -> Node:
         """
@@ -1392,7 +1517,7 @@ class Parser:
         right = self.parse_add_expr()
 
         # Wrap operator tokens in cmpop tree
-        op_tree = Tree('cmpop', op_tokens)
+        op_tree = Tree("cmpop", op_tokens)
         children = [left, op_tree, right]
 
         # Check for comma-chained comparisons (only if comma is CCC)
@@ -1405,42 +1530,44 @@ class Parser:
                 and_token = None
                 if self.check(TT.OR):
                     self.advance()
-                    or_token = self._tok('OR', 'or')
+                    or_token = self._tok("OR", "or")
                 elif self.check(TT.AND):
                     self.advance()
-                    and_token = self._tok('AND', 'and')
+                    and_token = self._tok("AND", "and")
 
                 # Parse next leg
-                leg_op_tokens = self.parse_compare_op() if self.is_compare_op() else None
+                leg_op_tokens = (
+                    self.parse_compare_op() if self.is_compare_op() else None
+                )
                 leg_value = self.parse_add_expr()
 
                 leg_parts: list[Node] = []
                 if or_token:
                     leg_parts.append(or_token)
                     if leg_op_tokens:
-                        leg_op = Tree('cmpop', leg_op_tokens)
+                        leg_op = Tree("cmpop", leg_op_tokens)
                         leg_parts.extend([leg_op, leg_value])
                     else:
                         leg_parts.append(leg_value)
-                    children.append(Tree('ccc_or_leg', leg_parts))
+                    children.append(Tree("ccc_or_leg", leg_parts))
                 else:
                     if and_token:
                         leg_parts.append(and_token)
                     if leg_op_tokens:
-                        leg_op = Tree('cmpop', leg_op_tokens)
+                        leg_op = Tree("cmpop", leg_op_tokens)
                         leg_parts.extend([leg_op, leg_value])
                     else:
                         leg_parts.append(leg_value)
-                    children.append(Tree('ccc_and_leg', leg_parts))
+                    children.append(Tree("ccc_and_leg", leg_parts))
 
                 # Check if next comma is also CCC
                 if not self.comma_is_ccc():
                     break
                 self.match(TT.COMMA)  # consume it
 
-            return Tree('compare', children)
+            return Tree("compare", children)
 
-        return Tree('compare', [left, op_tree, right])
+        return Tree("compare", [left, op_tree, right])
 
     def comma_is_ccc(self) -> bool:
         """
@@ -1477,9 +1604,11 @@ class Parser:
         # This is ambiguous - use context to decide:
         # - In separator contexts (args/array/pack): NOT CCC
         # - In normal context: IS CCC (implicit AND with bare addexpr)
-        if self.parse_context in (ParseContext.FUNCTION_ARGS,
-                                   ParseContext.ARRAY_ELEMENTS,
-                                   ParseContext.DESTRUCTURE_PACK):
+        if self.parse_context in (
+            ParseContext.FUNCTION_ARGS,
+            ParseContext.ARRAY_ELEMENTS,
+            ParseContext.DESTRUCTURE_PACK,
+        ):
             return False  # Comma is a separator
 
         return True  # Default: allow CCC in normal context
@@ -1489,11 +1618,30 @@ class Parser:
         if idx >= len(self.tokens):
             return False
         tok = self.tokens[idx]
-        if tok.type in {TT.EQ, TT.NEQ, TT.LT, TT.LTE, TT.GT, TT.GTE, TT.IS, TT.IN, TT.TILDE, TT.REGEXMATCH}:
+        if tok.type in {
+            TT.EQ,
+            TT.NEQ,
+            TT.LT,
+            TT.LTE,
+            TT.GT,
+            TT.GTE,
+            TT.IS,
+            TT.IN,
+            TT.TILDE,
+            TT.REGEXMATCH,
+        }:
             return True
-        if tok.type == TT.NOT and idx + 1 < len(self.tokens) and self.tokens[idx + 1].type == TT.IN:
+        if (
+            tok.type == TT.NOT
+            and idx + 1 < len(self.tokens)
+            and self.tokens[idx + 1].type == TT.IN
+        ):
             return True
-        if tok.type == TT.NEG and idx + 1 < len(self.tokens) and self.tokens[idx + 1].type in {TT.IS, TT.IN}:
+        if (
+            tok.type == TT.NEG
+            and idx + 1 < len(self.tokens)
+            and self.tokens[idx + 1].type in {TT.IS, TT.IN}
+        ):
             return True
         return False
 
@@ -1503,30 +1651,32 @@ class Parser:
 
     def parse_compare_op(self) -> List[Tok]:
         """Parse comparison operator - returns list of tokens for compound ops"""
-        if self.check(TT.EQ, TT.NEQ, TT.LT, TT.LTE, TT.GT, TT.GTE, TT.TILDE, TT.REGEXMATCH):
+        if self.check(
+            TT.EQ, TT.NEQ, TT.LT, TT.LTE, TT.GT, TT.GTE, TT.TILDE, TT.REGEXMATCH
+        ):
             op = self.advance()
             return [self._tok(op.type.name, op.value)]
 
         if self.check(TT.IS):
             self.advance()
             if self.match(TT.NOT):
-                return [self._tok('IS', 'is'), self._tok('NOT', 'not')]
-            return [self._tok('IS', 'is')]
+                return [self._tok("IS", "is"), self._tok("NOT", "not")]
+            return [self._tok("IS", "is")]
 
         if self.check(TT.IN):
             self.advance()
-            return [self._tok('IN', 'in')]
+            return [self._tok("IN", "in")]
 
         if self.match(TT.NOT):
             self.expect(TT.IN)
-            return [self._tok('NOT', 'not'), self._tok('IN', 'in')]
+            return [self._tok("NOT", "not"), self._tok("IN", "in")]
 
         # Check for !is and !in
         if self.match(TT.NEG):  # ! token
             if self.match(TT.IS):
-                return [self._tok('NEG', '!'), self._tok('IS', 'is')]
+                return [self._tok("NEG", "!"), self._tok("IS", "is")]
             elif self.match(TT.IN):
-                return [self._tok('NEG', '!'), self._tok('IN', 'in')]
+                return [self._tok("NEG", "!"), self._tok("IN", "in")]
             else:
                 raise ParseError("Expected 'is' or 'in' after '!'", self.current)
 
@@ -1549,8 +1699,8 @@ class Parser:
         # Build add with left-associative structure
         for op, right in ops_and_operands:
             # Wrap operator in addop tree
-            op_tree = Tree('addop', [self._tok(op.type.name, op.value)])
-            left = Tree('add', [left, op_tree, right])
+            op_tree = Tree("addop", [self._tok(op.type.name, op.value)])
+            left = Tree("add", [left, op_tree, right])
 
         return left
 
@@ -1569,8 +1719,8 @@ class Parser:
 
         for op, right in ops_and_operands:
             # Wrap operator in mulop tree
-            op_tree = Tree('mulop', [self._tok(op.type.name, op.value)])
-            left = Tree('mul', [left, op_tree, right])
+            op_tree = Tree("mulop", [self._tok(op.type.name, op.value)])
+            left = Tree("mul", [left, op_tree, right])
 
         return left
 
@@ -1580,7 +1730,7 @@ class Parser:
 
         if self.match(TT.POW):
             exp = self.parse_pow_expr()  # Right associative
-            return Tree('pow', [base, self._tok('POW', '**'), exp])
+            return Tree("pow", [base, self._tok("POW", "**"), exp])
 
         # No power operator, return unwrapped
         return base
@@ -1591,9 +1741,9 @@ class Parser:
         if self.check(TT.THROW):
             self.advance()
             if self.check(TT.NEWLINE, TT.EOF, TT.SEMI, TT.RBRACE, TT.RPAR, TT.COMMA):
-                return Tree('throwstmt', [])
+                return Tree("throwstmt", [])
             value = self.parse_unary_expr()
-            return Tree('throwstmt', [value])
+            return Tree("throwstmt", [value])
 
         # Await
         if self.check(TT.AWAIT):
@@ -1604,24 +1754,24 @@ class Parser:
                 self.expect(TT.RPAR)
             else:
                 expr = self.parse_unary_expr()
-            return Tree('await_value', [self._tok('AWAIT', 'await'), expr])
+            return Tree("await_value", [self._tok("AWAIT", "await"), expr])
 
         # $ (no anchor)
         if self.match(TT.DOLLAR):
             expr = self.parse_unary_expr()
-            return Tree('no_anchor', [expr])
+            return Tree("no_anchor", [expr])
 
         # Spread prefix
         if self.match(TT.SPREAD):
             expr = self.parse_unary_expr()
-            return Tree('spread', [expr])
+            return Tree("spread", [expr])
 
         # Unary prefix operators
         if self.check(TT.MINUS, TT.NOT, TT.NEG, TT.INCR, TT.DECR):
             op = self.advance()
             expr = self.parse_unary_expr()
-            op_tree = Tree('unaryprefixop', [self._tok(op.type.name, op.value)])
-            return Tree('unary', [op_tree, expr])
+            op_tree = Tree("unaryprefixop", [self._tok(op.type.name, op.value)])
+            return Tree("unary", [op_tree, expr])
 
         # No unary operator, return unwrapped
         return self.parse_postfix_expr()
@@ -1646,7 +1796,9 @@ class Parser:
             # Standalone subject: just .
             if next_tok.type not in (TT.IDENT, TT.LPAR, TT.LSQB, TT.OVER):
                 dot = self.advance()
-                return Tree('subject', [self._tok('DOT', dot.value, dot.line, dot.column)])
+                return Tree(
+                    "subject", [self._tok("DOT", dot.value, dot.line, dot.column)]
+                )
 
             # Implicit chain: .field, .(args), .[index], .over
             self.advance()  # consume .
@@ -1655,11 +1807,13 @@ class Parser:
             imphead = None
             if self.check(TT.IDENT, TT.OVER):
                 tok = self.advance()
-                imphead = Tree('field', [self._tok(tok.type.name, tok.value, tok.line, tok.column)])
+                imphead = Tree(
+                    "field", [self._tok(tok.type.name, tok.value, tok.line, tok.column)]
+                )
             elif self.match(TT.LPAR):
                 args = self.parse_arg_list()
                 self.expect(TT.RPAR)
-                imphead = Tree('call', args if args else [])
+                imphead = Tree("call", args if args else [])
             elif self.check(TT.LSQB):
                 self.advance()
                 selectors = self.parse_selector_list()
@@ -1667,19 +1821,22 @@ class Parser:
                 if self.match(TT.COMMA):
                     # Expect 'default' keyword
                     default_tok = self.expect(TT.IDENT)
-                    if default_tok.value != 'default':
-                        raise ParseError(f"Expected 'default' keyword, got '{default_tok.value}'", default_tok)
+                    if default_tok.value != "default":
+                        raise ParseError(
+                            f"Expected 'default' keyword, got '{default_tok.value}'",
+                            default_tok,
+                        )
                     self.expect(TT.COLON)
                     default = self.parse_expr()
                 self.expect(TT.RSQB)
                 children = [
-                    self._tok('LSQB', '['),
-                    Tree('selectorlist', selectors),
-                    self._tok('RSQB', ']')
+                    self._tok("LSQB", "["),
+                    Tree("selectorlist", selectors),
+                    self._tok("RSQB", "]"),
                 ]
                 if default:
                     children.append(default)
-                imphead = Tree('index', children)
+                imphead = Tree("index", children)
 
             # Now collect any additional postfix operations
             postfix_ops = [imphead]
@@ -1687,15 +1844,29 @@ class Parser:
                 if self.match(TT.DOT):
                     if self.check(TT.IDENT, TT.OVER):
                         field = self.advance()
-                        postfix_ops.append(Tree('field', [self._tok(field.type.name, field.value, field.line, field.column)]))
+                        postfix_ops.append(
+                            Tree(
+                                "field",
+                                [
+                                    self._tok(
+                                        field.type.name,
+                                        field.value,
+                                        field.line,
+                                        field.column,
+                                    )
+                                ],
+                            )
+                        )
                     elif self.match(TT.LBRACE):
                         items = self.parse_fan_items()
                         self.expect(TT.RBRACE)
                         # Build valuefan_item nodes from parsed items (IDENT or identchain)
                         valuefan_items = []
                         for item in items:
-                            valuefan_items.append(Tree('valuefan_item', [item]))
-                        postfix_ops.append(Tree('valuefan', [Tree('valuefan_list', valuefan_items)]))
+                            valuefan_items.append(Tree("valuefan_item", [item]))
+                        postfix_ops.append(
+                            Tree("valuefan", [Tree("valuefan_list", valuefan_items)])
+                        )
                     else:
                         raise ParseError("Expected field name after '.'", self.current)
                 elif self.check(TT.LSQB):
@@ -1708,28 +1879,28 @@ class Parser:
                         default = self.parse_expr()
                     self.expect(TT.RSQB)
                     children = [
-                        self._tok('LSQB', '['),
-                        Tree('selectorlist', selectors),
-                        self._tok('RSQB', ']')
+                        self._tok("LSQB", "["),
+                        Tree("selectorlist", selectors),
+                        self._tok("RSQB", "]"),
                     ]
                     if default:
                         children.append(default)
-                    postfix_ops.append(Tree('index', children))
+                    postfix_ops.append(Tree("index", children))
                 elif self.match(TT.LPAR):
                     args = self.parse_arg_list()
                     self.expect(TT.RPAR)
                     if args:
-                        args = [Tree('arglistnamedmixed', args)]
+                        args = [Tree("arglistnamedmixed", args)]
                     else:
                         args = []
-                    postfix_ops.append(Tree('call', args))
+                    postfix_ops.append(Tree("call", args))
                 elif self.check(TT.INCR, TT.DECR):
                     op = self.advance()
                     postfix_ops.append(Tree(op.type.name.lower(), []))
                 else:
                     break
 
-            return Tree('implicit_chain', postfix_ops)
+            return Tree("implicit_chain", postfix_ops)
 
         # Otherwise parse normal primary + postfix
         primary = self.parse_primary_expr()
@@ -1742,7 +1913,19 @@ class Parser:
             if self.match(TT.DOT):
                 if self.check(TT.IDENT, TT.OVER):
                     field = self.advance()
-                    postfix_ops.append(Tree('field', [self._tok(field.type.name, field.value, field.line, field.column)]))
+                    postfix_ops.append(
+                        Tree(
+                            "field",
+                            [
+                                self._tok(
+                                    field.type.name,
+                                    field.value,
+                                    field.line,
+                                    field.column,
+                                )
+                            ],
+                        )
+                    )
                 elif self.match(TT.LBRACE):
                     # Fan syntax: .{field1, field2} or .{chain1, chain2}
                     items = self.parse_fan_items()
@@ -1750,8 +1933,10 @@ class Parser:
                     # Build valuefan_item nodes from parsed items (IDENT or identchain)
                     valuefan_items = []
                     for item in items:
-                        valuefan_items.append(Tree('valuefan_item', [item]))
-                    postfix_ops.append(Tree('valuefan', [Tree('valuefan_list', valuefan_items)]))
+                        valuefan_items.append(Tree("valuefan_item", [item]))
+                    postfix_ops.append(
+                        Tree("valuefan", [Tree("valuefan_list", valuefan_items)])
+                    )
                 else:
                     raise ParseError("Expected field name after '.'", self.current)
 
@@ -1765,8 +1950,11 @@ class Parser:
                 if self.match(TT.COMMA):
                     # Expect 'default' keyword
                     default_tok = self.expect(TT.IDENT)
-                    if default_tok.value != 'default':
-                        raise ParseError(f"Expected 'default' keyword, got '{default_tok.value}'", default_tok)
+                    if default_tok.value != "default":
+                        raise ParseError(
+                            f"Expected 'default' keyword, got '{default_tok.value}'",
+                            default_tok,
+                        )
                     self.expect(TT.COLON)
                     default = self.parse_expr()
 
@@ -1774,23 +1962,23 @@ class Parser:
 
                 # Build index tree: [ selectorlist ]
                 children = [
-                    self._tok('LSQB', '['),
-                    Tree('selectorlist', selectors),
-                    self._tok('RSQB', ']')
+                    self._tok("LSQB", "["),
+                    Tree("selectorlist", selectors),
+                    self._tok("RSQB", "]"),
                 ]
                 if default:
                     children.append(default)
-                postfix_ops.append(Tree('index', children))
+                postfix_ops.append(Tree("index", children))
 
             # Call
             elif self.match(TT.LPAR):
                 args = self.parse_arg_list()
                 self.expect(TT.RPAR)
                 if args:
-                    args = [Tree('arglistnamedmixed', args)]
+                    args = [Tree("arglistnamedmixed", args)]
                 else:
                     args = []
-                postfix_ops.append(Tree('call', args))
+                postfix_ops.append(Tree("call", args))
 
             # Postfix increment/decrement
             elif self.check(TT.INCR, TT.DECR):
@@ -1802,9 +1990,9 @@ class Parser:
                 lam = self.parse_anonymous_fn()
                 # Wrap as lambdacall1 or lambdacalln depending on whether it has params
                 if len(lam.children) == 2:  # Has paramlist
-                    postfix_ops.append(Tree('lambdacalln', lam.children))
+                    postfix_ops.append(Tree("lambdacalln", lam.children))
                 else:  # Subject-based lambda
-                    postfix_ops.append(Tree('lambdacall1', lam.children))
+                    postfix_ops.append(Tree("lambdacall1", lam.children))
 
             else:
                 break
@@ -1813,7 +2001,7 @@ class Parser:
         if not postfix_ops:
             return primary
 
-        return Tree('explicit_chain', [primary] + postfix_ops)
+        return Tree("explicit_chain", [primary] + postfix_ops)
 
     def parse_primary_expr(self) -> Node:
         """
@@ -1833,46 +2021,53 @@ class Parser:
                 # =(lvalue) - grouped rebind
                 lvalue = self.parse_rebind_lvalue()
                 self.expect(TT.RPAR)
-                return Tree('rebind_primary_grouped', [lvalue])
+                return Tree("rebind_primary_grouped", [lvalue])
             else:
                 # =ident - simple rebind
                 ident = self.expect(TT.IDENT)
-                return Tree('rebind_primary', [self._tok('IDENT', ident.value)])
+                return Tree("rebind_primary", [self._tok("IDENT", ident.value)])
 
         # Null-safe chain: ??(expr)
         if self.match(TT.NULLISH):
             self.expect(TT.LPAR)
             inner = self.parse_expr()
             self.expect(TT.RPAR)
-            return Tree('nullsafe', [inner])
+            return Tree("nullsafe", [inner])
 
         # Literals - just return tokens, Prune() will wrap if needed
         if self.check(TT.NUMBER):
             tok = self.advance()
-            return self._tok('NUMBER', tok.value)
+            return self._tok("NUMBER", tok.value)
 
         # Hole placeholder for partial application
         if self.match(TT.QMARK):
-            return Tree('holeexpr', [])
+            return Tree("holeexpr", [])
 
-        if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING, TT.SHELL_STRING, TT.PATH_STRING, TT.REGEX):
+        if self.check(
+            TT.STRING,
+            TT.RAW_STRING,
+            TT.RAW_HASH_STRING,
+            TT.SHELL_STRING,
+            TT.PATH_STRING,
+            TT.REGEX,
+        ):
             tok = self.advance()
             # Wrap in 'literal' tree so Prune transformer can process string interpolation
-            return Tree('literal', [self._tok(tok.type.name, tok.value)])
+            return Tree("literal", [self._tok(tok.type.name, tok.value)])
 
         if self.match(TT.TRUE):
-            return self._tok('TRUE', 'true')
+            return self._tok("TRUE", "true")
         if self.match(TT.FALSE):
-            return self._tok('FALSE', 'false')
+            return self._tok("FALSE", "false")
         if self.match(TT.NIL):
-            return self._tok('NIL', 'nil')
+            return self._tok("NIL", "nil")
 
         # Set literal / comprehension
         if self.match(TT.SET):
             self.expect(TT.LBRACE)
             if self.check(TT.RBRACE):
                 self.advance()
-                return Tree('setliteral', [])
+                return Tree("setliteral", [])
 
             first_expr = self.parse_expr()
             if self.check(TT.FOR, TT.OVER):
@@ -1882,7 +2077,7 @@ class Parser:
                 children = [first_expr, comphead]
                 if ifclause:
                     children.append(ifclause)
-                return Tree('setcomp', children)
+                return Tree("setcomp", children)
 
             items = [first_expr]
             while self.match(TT.COMMA):
@@ -1890,20 +2085,20 @@ class Parser:
                     break
                 items.append(self.parse_expr())
             self.expect(TT.RBRACE)
-            return Tree('setliteral', items)
+            return Tree("setliteral", items)
 
         # Identifiers
         if self.check(TT.IDENT):
             tok = self.advance()
-            return self._tok('IDENT', tok.value)
+            return self._tok("IDENT", tok.value)
 
         # Special identifiers
         if self.match(TT.OVER):
-            return self._tok('OVER', '_')
+            return self._tok("OVER", "_")
         if self.match(TT.ANY):
-            return self._tok('ANY', 'any')
+            return self._tok("ANY", "any")
         if self.match(TT.ALL):
-            return self._tok('ALL', 'all')
+            return self._tok("ALL", "all")
 
         # Parenthesized expression
         if self.match(TT.LPAR):
@@ -1913,7 +2108,7 @@ class Parser:
             try:
                 expr = self.parse_expr()
                 self.expect(TT.RPAR)
-                return Tree('group_expr', [expr])
+                return Tree("group_expr", [expr])
             finally:
                 self.parse_context = saved_context
 
@@ -1924,7 +2119,7 @@ class Parser:
 
             if self.check(TT.RSQB):
                 self.advance()
-                return Tree('array', [])
+                return Tree("array", [])
 
             # Set context: commas in arrays are element separators, not CCC
             saved_context = self.parse_context
@@ -1939,7 +2134,7 @@ class Parser:
                     children = [first_elem, comphead]
                     if ifclause:
                         children.append(ifclause)
-                    return Tree('listcomp', children)
+                    return Tree("listcomp", children)
 
                 elements = [first_elem]
 
@@ -1955,7 +2150,7 @@ class Parser:
                     self.skip_layout_tokens()
 
                 self.expect(TT.RSQB)
-                return Tree('array', elements)
+                return Tree("array", elements)
             finally:
                 self.parse_context = saved_context
 
@@ -1978,7 +2173,7 @@ class Parser:
                         children = [first_key, first_val, comphead]
                         if ifclause:
                             children.append(ifclause)
-                        return Tree('dictcomp', children)
+                        return Tree("dictcomp", children)
             except ParseError:
                 pass
 
@@ -1991,7 +2186,11 @@ class Parser:
 
             while not self.check(TT.RBRACE, TT.EOF):
                 # Skip newlines
-                while self.match(TT.NEWLINE) or self.match(TT.INDENT) or self.match(TT.DEDENT):
+                while (
+                    self.match(TT.NEWLINE)
+                    or self.match(TT.INDENT)
+                    or self.match(TT.DEDENT)
+                ):
                     pass
 
                 if self.check(TT.RBRACE):
@@ -2000,19 +2199,27 @@ class Parser:
                 items.append(self.parse_object_item())
 
                 # Skip newlines/indent markers
-                while self.match(TT.NEWLINE) or self.match(TT.INDENT) or self.match(TT.DEDENT):
+                while (
+                    self.match(TT.NEWLINE)
+                    or self.match(TT.INDENT)
+                    or self.match(TT.DEDENT)
+                ):
                     pass
 
                 if not self.match(TT.COMMA):
                     # Allow optional trailing comma but permit newline-separated entries
-                    while self.match(TT.NEWLINE) or self.match(TT.INDENT) or self.match(TT.DEDENT):
+                    while (
+                        self.match(TT.NEWLINE)
+                        or self.match(TT.INDENT)
+                        or self.match(TT.DEDENT)
+                    ):
                         pass
                     if self.check(TT.RBRACE):
                         break
                     continue
 
             self.expect(TT.RBRACE)
-            return Tree('object', items)
+            return Tree("object", items)
 
         # Anonymous fn literal (expression form)
         if self.match(TT.FN):
@@ -2027,10 +2234,12 @@ class Parser:
             selectors = self.parse_selector_literal_content()
             self.expect(TT.BACKQUOTE)
             # Wrap in sellist node as expected by evaluator
-            sellist = Tree('sellist', selectors)
-            return Tree('selectorliteral', [sellist])
+            sellist = Tree("sellist", selectors)
+            return Tree("selectorliteral", [sellist])
 
-        raise ParseError(f"Unexpected token in expression: {self.current.type.name}", self.current)
+        raise ParseError(
+            f"Unexpected token in expression: {self.current.type.name}", self.current
+        )
 
     # ========================================================================
     # Helper Parsers
@@ -2042,21 +2251,31 @@ class Parser:
         Used in =(lvalue) expressions
         """
         ident = self.expect(TT.IDENT)
-        children: list[Node] = [self._tok('IDENT', ident.value)]
+        children: list[Node] = [self._tok("IDENT", ident.value)]
 
         # Parse postfix operations (field, index)
         while True:
             if self.match(TT.DOT):
                 field = self.expect(TT.IDENT)
-                children.append(Tree('field', [self._tok('IDENT', field.value, field.line, field.column)]))
+                children.append(
+                    Tree(
+                        "field",
+                        [self._tok("IDENT", field.value, field.line, field.column)],
+                    )
+                )
             elif self.match(TT.LSQB):
                 selectors = self.parse_selector_list()
                 self.expect(TT.RSQB)
-                children.append(Tree('index', [
-                    self._tok('LSQB', '['),
-                    Tree('selectorlist', selectors),
-                    self._tok('RSQB', ']')
-                ]))
+                children.append(
+                    Tree(
+                        "index",
+                        [
+                            self._tok("LSQB", "["),
+                            Tree("selectorlist", selectors),
+                            self._tok("RSQB", "]"),
+                        ],
+                    )
+                )
             else:
                 break
 
@@ -2067,7 +2286,7 @@ class Parser:
                 fieldfan = self.parse_fieldfan()
                 children.append(fieldfan)
 
-        return Tree('rebind_lvalue', children)
+        return Tree("rebind_lvalue", children)
 
     def parse_fieldfan(self) -> Tree:
         """Parse fieldfan: .{fieldlist} where fieldlist is IDENT ("," IDENT)*"""
@@ -2084,8 +2303,8 @@ class Parser:
         self.expect(TT.RBRACE)
 
         # Build fieldlist tree
-        fieldlist = Tree('fieldlist', [self._tok('IDENT', f.value) for f in fields])
-        return Tree('fieldfan', [self._tok('DOT', '.'), fieldlist])
+        fieldlist = Tree("fieldlist", [self._tok("IDENT", f.value) for f in fields])
+        return Tree("fieldfan", [self._tok("DOT", "."), fieldlist])
 
     def parse_param_list(self) -> Tree:
         """Parse function parameter list with optional contracts"""
@@ -2107,24 +2326,42 @@ class Parser:
                 default = self.parse_expr()
 
             if is_spread and (contract or default):
-                raise ParseError("Spread parameter cannot have a contract or default", self.current)
+                raise ParseError(
+                    "Spread parameter cannot have a contract or default", self.current
+                )
 
             if contract and default:
-                params.append(Tree('param', [self._tok('IDENT', param.value), Tree('contract', [contract]), default]))
+                params.append(
+                    Tree(
+                        "param",
+                        [
+                            self._tok("IDENT", param.value),
+                            Tree("contract", [contract]),
+                            default,
+                        ],
+                    )
+                )
             elif contract:
-                params.append(Tree('param', [self._tok('IDENT', param.value), Tree('contract', [contract])]))
+                params.append(
+                    Tree(
+                        "param",
+                        [self._tok("IDENT", param.value), Tree("contract", [contract])],
+                    )
+                )
             elif default:
-                params.append(Tree('param', [self._tok('IDENT', param.value), default]))
+                params.append(Tree("param", [self._tok("IDENT", param.value), default]))
             else:
                 if is_spread:
-                    params.append(Tree('param_spread', [self._tok('IDENT', param.value)]))
+                    params.append(
+                        Tree("param_spread", [self._tok("IDENT", param.value)])
+                    )
                 else:
-                    params.append(self._tok('IDENT', param.value))
+                    params.append(self._tok("IDENT", param.value))
 
             if not self.match(TT.COMMA):
                 break
 
-        return Tree('paramlist', params)
+        return Tree("paramlist", params)
 
     def parse_pattern(self) -> Tree:
         if self.check(TT.IDENT):
@@ -2136,9 +2373,12 @@ class Parser:
                 contract = self.parse_compare_expr()
 
             if contract is not None:
-                return Tree('pattern', [self._tok('IDENT', tok.value), Tree('contract', [contract])])
+                return Tree(
+                    "pattern",
+                    [self._tok("IDENT", tok.value), Tree("contract", [contract])],
+                )
             else:
-                return Tree('pattern', [self._tok('IDENT', tok.value)])
+                return Tree("pattern", [self._tok("IDENT", tok.value)])
 
         if self.match(TT.LPAR):
             items = [self.parse_pattern()]
@@ -2148,21 +2388,21 @@ class Parser:
             while self.match(TT.COMMA):
                 items.append(self.parse_pattern())
             self.expect(TT.RPAR)
-            return Tree('pattern', [Tree('pattern_list', items)])
+            return Tree("pattern", [Tree("pattern_list", items)])
 
         raise ParseError("Expected pattern", self.current)
 
     def parse_binderpattern(self) -> Tree:
         if self.match(TT.CARET):
             ident = self.expect(TT.IDENT)
-            return Tree('hoist', [self._tok('IDENT', ident.value)])
-        return Tree('binderpattern', [self.parse_pattern()])
+            return Tree("hoist", [self._tok("IDENT", ident.value)])
+        return Tree("binderpattern", [self.parse_pattern()])
 
     def parse_binderlist(self) -> Tree:
         items = [self.parse_binderpattern()]
         while self.match(TT.COMMA):
             items.append(self.parse_binderpattern())
-        return Tree('binderlist', items)
+        return Tree("binderlist", items)
 
     def parse_overspec(self) -> Tree:
         """Parse comprehension spec: iterable expression and optional binders"""
@@ -2179,7 +2419,7 @@ class Parser:
                 iter_expr = self.parse_expr()
                 children.append(binder_list)
                 children.append(iter_expr)
-                return Tree('overspec', children)
+                return Tree("overspec", children)
 
             # Check for common pattern: IDENT in expr (e.g., for x in data)
             if self.check(TT.IDENT) and self.peek(1).type == TT.IN:
@@ -2188,7 +2428,7 @@ class Parser:
                 iter_expr = self.parse_expr()
                 children.append(iter_expr)
                 children.append(pattern)
-                return Tree('overspec', children)
+                return Tree("overspec", children)
 
             # Otherwise: expr [bind pattern]
             iter_expr = self.parse_expr()
@@ -2197,7 +2437,7 @@ class Parser:
                 self.advance()
                 pattern = self.parse_pattern()
                 children.append(pattern)
-            return Tree('overspec', children)
+            return Tree("overspec", children)
         finally:
             self.parse_context = saved_context
 
@@ -2205,11 +2445,11 @@ class Parser:
         if self.check(TT.FOR):
             self.advance()
             spec = self.parse_overspec()
-            return Tree('comphead', [self._tok('FOR', 'for'), spec])
+            return Tree("comphead", [self._tok("FOR", "for"), spec])
         if self.check(TT.OVER):
             self.advance()
             spec = self.parse_overspec()
-            return Tree('comphead', [self._tok('OVER', 'over'), spec])
+            return Tree("comphead", [self._tok("OVER", "over"), spec])
         raise ParseError("Expected comprehension head", self.current)
 
     def parse_ifclause_opt(self) -> Optional[Tree]:
@@ -2223,7 +2463,7 @@ class Parser:
         self.parse_context = ParseContext.NORMAL
         try:
             cond = self.parse_expr()
-            return Tree('ifclause', [self._tok('IF', 'if'), cond])
+            return Tree("ifclause", [self._tok("IF", "if"), cond])
         finally:
             self.parse_context = saved_context
 
@@ -2247,12 +2487,12 @@ class Parser:
                     name = self.current
                     self.advance(2)  # consume IDENT and ':'
                     value = self.parse_expr()
-                    arg_tree = Tree('namedarg', [self._tok('IDENT', name.value), value])
+                    arg_tree = Tree("namedarg", [self._tok("IDENT", name.value), value])
                 else:
                     expr = self.parse_expr()
-                    arg_tree = Tree('arg', [expr])
+                    arg_tree = Tree("arg", [expr])
 
-                argitems.append(Tree('argitem', [arg_tree]))
+                argitems.append(Tree("argitem", [arg_tree]))
 
                 if not self.match(TT.COMMA):
                     break
@@ -2285,11 +2525,13 @@ class Parser:
 
             arm_children: List[Any] = []
             if label_tok is not None:
-                arm_children.append(self._tok('IDENT', label_tok.value))
+                arm_children.append(self._tok("IDENT", label_tok.value))
             arm_children.append(expr)
             if body is not None:
                 arm_children.append(body)
-            arms.append(Tree('anyarm' if kind_tok.type == TT.ANY else 'allarm', arm_children))
+            arms.append(
+                Tree("anyarm" if kind_tok.type == TT.ANY else "allarm", arm_children)
+            )
 
             if not self.match(TT.COMMA):
                 break
@@ -2308,15 +2550,19 @@ class Parser:
             # Check for slice syntax (has :)
             if self.is_slice_selector():
                 slice_tree = self.parse_slice_selector()
-                selectors.append(Tree('selector', [slice_tree]))
+                selectors.append(Tree("selector", [slice_tree]))
             else:
                 expr = self.parse_expr()
-                selectors.append(Tree('selector', [Tree('indexsel', [expr])]))
+                selectors.append(Tree("selector", [Tree("indexsel", [expr])]))
 
             # Check if next is ', default:' sequence - if so, stop before consuming comma
             if self.check(TT.COMMA):
                 # Peek ahead to see if it's followed by 'default' ':'
-                if self.peek(1).type == TT.IDENT and self.peek(1).value == 'default' and self.peek(2).type == TT.COLON:
+                if (
+                    self.peek(1).type == TT.IDENT
+                    and self.peek(1).value == "default"
+                    and self.peek(2).type == TT.COLON
+                ):
                     break
                 # Not a default clause, consume the comma and continue
                 self.match(TT.COMMA)
@@ -2337,13 +2583,13 @@ class Parser:
             if self.is_slice_selector_literal():
                 slice_tree = self.parse_slice_selector_literal()
                 # Wrap in selitem for evaluator
-                selectors.append(Tree('selitem', [slice_tree]))
+                selectors.append(Tree("selitem", [slice_tree]))
             else:
                 atom = self.parse_selector_atom()
                 # Wrap atom in selatom, then in indexitem, then in selitem
-                selatom = Tree('selatom', [atom])
-                indexitem = Tree('indexitem', [selatom])
-                selectors.append(Tree('selitem', [indexitem]))
+                selatom = Tree("selatom", [atom])
+                indexitem = Tree("indexitem", [selatom])
+                selectors.append(Tree("selitem", [indexitem]))
 
             if not self.match(TT.COMMA):
                 break
@@ -2356,19 +2602,21 @@ class Parser:
         if self.match(TT.LBRACE):
             expr = self.parse_expr()
             self.expect(TT.RBRACE)
-            return Tree('interp', [expr])
+            return Tree("interp", [expr])
 
         # IDENT - convert to AST token with string type
         if self.check(TT.IDENT):
             tok = self.advance()
-            return self._tok('IDENT', tok.value)
+            return self._tok("IDENT", tok.value)
 
         # NUMBER - convert to AST token with string type
         if self.check(TT.NUMBER):
             tok = self.advance()
-            return self._tok('NUMBER', tok.value)
+            return self._tok("NUMBER", tok.value)
 
-        raise ParseError("Expected selector atom (number, identifier, or {expr})", self.current)
+        raise ParseError(
+            "Expected selector atom (number, identifier, or {expr})", self.current
+        )
 
     def is_slice_selector_literal(self) -> bool:
         """Check if next tokens form a slice selector in literal context"""
@@ -2397,7 +2645,7 @@ class Parser:
         start = None
         if not self.check(TT.COLON):
             atom = self.parse_selector_atom()
-            start = Tree('selatom', [atom])
+            start = Tree("selatom", [atom])
 
         self.expect(TT.COLON)
 
@@ -2407,13 +2655,13 @@ class Parser:
         stop = None
         if not self.check(TT.COLON, TT.COMMA, TT.BACKQUOTE):
             atom = self.parse_selector_atom()
-            stop = Tree('selatom', [atom])
+            stop = Tree("selatom", [atom])
 
         step = None
         if self.match(TT.COLON):
             if not self.check(TT.COMMA, TT.BACKQUOTE):
                 atom = self.parse_selector_atom()
-                step = Tree('selatom', [atom])
+                step = Tree("selatom", [atom])
 
         # Build sliceitem tree according to grammar:
         # sliceitem: selatom? ":" seloptstop (":" selatom)?
@@ -2423,16 +2671,16 @@ class Parser:
 
         # seloptstop: "<" selatom | selatom?
         if is_exclusive and stop:
-            children.append(Tree('seloptstop', [self._tok('LT', '<'), stop]))
+            children.append(Tree("seloptstop", [self._tok("LT", "<"), stop]))
         elif stop:
-            children.append(Tree('seloptstop', [stop]))
+            children.append(Tree("seloptstop", [stop]))
         else:
-            children.append(Tree('seloptstop', []))
+            children.append(Tree("seloptstop", []))
 
         if step:
             children.append(step)
 
-        return Tree('sliceitem', children)
+        return Tree("sliceitem", children)
 
     def is_slice_selector(self) -> bool:
         """Check if next tokens form a slice selector"""
@@ -2447,7 +2695,9 @@ class Parser:
             if self._lookahead_check(idx, TT.BACKQUOTE):
                 # Skip selector literal contents so internal ':' doesn't count as slice delimiter
                 _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
-                while idx < len(self.tokens) and not self._lookahead_check(idx, TT.BACKQUOTE):
+                while idx < len(self.tokens) and not self._lookahead_check(
+                    idx, TT.BACKQUOTE
+                ):
                     _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
                 # Consume closing backtick if present
                 if idx < len(self.tokens):
@@ -2491,25 +2741,25 @@ class Parser:
 
         children = []
         if start:
-            children.append(Tree('slicearm_expr', [start]))
+            children.append(Tree("slicearm_expr", [start]))
         else:
-            children.append(Tree('slicearm_empty', []))
+            children.append(Tree("slicearm_empty", []))
 
         if stop:
-            children.append(Tree('slicearm_expr', [stop]))
+            children.append(Tree("slicearm_expr", [stop]))
         else:
-            children.append(Tree('slicearm_empty', []))
+            children.append(Tree("slicearm_empty", []))
 
         if step:
-            children.append(Tree('slicearm_expr', [step]))
+            children.append(Tree("slicearm_expr", [step]))
 
-        return Tree('slicesel', children)
+        return Tree("slicesel", children)
 
     def parse_object_item(self) -> Tree:
         """Parse object item: key: value or method(params): body"""
         if self.match(TT.SPREAD):
             expr = self.parse_expr()
-            return Tree('obj_spread', [expr])
+            return Tree("obj_spread", [expr])
 
         # Field, method, getter, setter
         # Grammar allows: (IDENT | OVER) for field names
@@ -2527,25 +2777,27 @@ class Parser:
                 else:
                     # Inline expression
                     expr = self.parse_expr()
-                    body = Tree('inlinebody', [expr])
-                return Tree('obj_method', [self._tok('IDENT', name.value), params, body])
+                    body = Tree("inlinebody", [expr])
+                return Tree(
+                    "obj_method", [self._tok("IDENT", name.value), params, body]
+                )
 
             # Field: name: value or name?: value (optional)
             is_optional = self.match(TT.QMARK)
             self.expect(TT.COLON)
             value = self.parse_expr()
-            key = Tree('key_ident', [self._tok('IDENT', name.value)])
+            key = Tree("key_ident", [self._tok("IDENT", name.value)])
             if is_optional:
-                return Tree('obj_field_optional', [key, value])
-            return Tree('obj_field', [key, value])
+                return Tree("obj_field_optional", [key, value])
+            return Tree("obj_field", [key, value])
 
         # String key
         if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING):
             key_tok = self.advance()
             self.expect(TT.COLON)
             value = self.parse_expr()
-            key = Tree('key_string', [self._tok(key_tok.type.name, key_tok.value)])
-            return Tree('obj_field', [key, value])
+            key = Tree("key_string", [self._tok(key_tok.type.name, key_tok.value)])
+            return Tree("obj_field", [key, value])
 
         # Expression key: (expr): value
         if self.check(TT.LPAR):
@@ -2554,8 +2806,8 @@ class Parser:
             self.expect(TT.RPAR)
             self.expect(TT.COLON)
             value = self.parse_expr()
-            key = Tree('key_expr', [key_expr])
-            return Tree('obj_field', [key, value])
+            key = Tree("key_expr", [key_expr])
+            return Tree("obj_field", [key, value])
 
         # Getter/setter
         if self.match(TT.GET):
@@ -2570,8 +2822,8 @@ class Parser:
             else:
                 # Inline expression
                 expr = self.parse_expr()
-                body = Tree('inlinebody', [expr])
-            return Tree('obj_get', [self._tok('IDENT', name.value), body])
+                body = Tree("inlinebody", [expr])
+            return Tree("obj_get", [self._tok("IDENT", name.value), body])
 
         if self.match(TT.SET):
             name = self.expect(TT.IDENT)
@@ -2585,8 +2837,11 @@ class Parser:
             else:
                 # Inline expression
                 expr = self.parse_expr()
-                body = Tree('inlinebody', [expr])
-            return Tree('obj_set', [self._tok('IDENT', name.value), self._tok('IDENT', param.value), body])
+                body = Tree("inlinebody", [expr])
+            return Tree(
+                "obj_set",
+                [self._tok("IDENT", name.value), self._tok("IDENT", param.value), body],
+            )
 
         raise ParseError("Expected object item", self.current)
 
@@ -2605,7 +2860,7 @@ class Parser:
                 continue
 
             stmt = self.parse_statement()
-            stmts.append(Tree('stmt', [stmt]))
+            stmts.append(Tree("stmt", [stmt]))
 
             if self.match(TT.SEMI):
                 continue
@@ -2617,21 +2872,23 @@ class Parser:
             if self._looks_like_object_item_start():
                 break
 
-        return Tree('indentblock', stmts)
+        return Tree("indentblock", stmts)
 
     def parse_pattern_list(self) -> Tree:
         """Parse destructuring pattern list: a, b, c"""
         patterns = [self.parse_pattern()]
 
         if not self.match(TT.COMMA):
-            raise ParseError("Pattern list requires at least two patterns", self.current)
+            raise ParseError(
+                "Pattern list requires at least two patterns", self.current
+            )
 
         patterns.append(self.parse_pattern())
 
         while self.match(TT.COMMA):
             patterns.append(self.parse_pattern())
 
-        return Tree('pattern_list', patterns)
+        return Tree("pattern_list", patterns)
 
     def parse_destructure_rhs(self) -> Tree:
         """Parse destructuring RHS: expr or expr, expr, ..."""
@@ -2646,7 +2903,7 @@ class Parser:
                 exprs = [first_expr]
                 while self.match(TT.COMMA):
                     exprs.append(self.parse_expr())
-                return Tree('pack', exprs)
+                return Tree("pack", exprs)
 
             # Single expression
             return first_expr
@@ -2661,7 +2918,7 @@ class Parser:
         while self.match(TT.COMMA):
             items.append(self._parse_pattern_item())
 
-        return Tree('patternlist', items)
+        return Tree("patternlist", items)
 
     def _parse_pattern_item(self) -> Tree:
         """Parse a single pattern item: IDENT [~ contract]"""
@@ -2672,9 +2929,12 @@ class Parser:
             contract = self.parse_compare_expr()
 
         if contract is not None:
-            return Tree('pattern', [self._tok('IDENT', ident.value), Tree('contract', [contract])])
+            return Tree(
+                "pattern",
+                [self._tok("IDENT", ident.value), Tree("contract", [contract])],
+            )
         else:
-            return Tree('pattern', [self._tok('IDENT', ident.value)])
+            return Tree("pattern", [self._tok("IDENT", ident.value)])
 
     def _is_destructure_with_contracts(self) -> bool:
         """
@@ -2736,35 +2996,58 @@ class Parser:
                         args = self.parse_arg_list()
                         self.expect(TT.RPAR)
                         if args:
-                            args = [Tree('arglistnamedmixed', args)]
+                            args = [Tree("arglistnamedmixed", args)]
                         else:
                             args = []
-                        postfix_ops.append(Tree('call', args))
+                        postfix_ops.append(Tree("call", args))
                     elif self.match(TT.DOT):
                         # Field access
                         if self.check(TT.IDENT):
                             field = self.advance()
-                            postfix_ops.append(Tree('field', [self._tok('IDENT', field.value, field.line, field.column)]))
+                            postfix_ops.append(
+                                Tree(
+                                    "field",
+                                    [
+                                        self._tok(
+                                            "IDENT",
+                                            field.value,
+                                            field.line,
+                                            field.column,
+                                        )
+                                    ],
+                                )
+                            )
                         else:
-                            raise ParseError("Expected field name after '.'", self.current)
+                            raise ParseError(
+                                "Expected field name after '.'", self.current
+                            )
                     elif self.check(TT.LSQB):
                         # Index
                         self.advance()
                         selectors = self.parse_selector_list()
                         self.expect(TT.RSQB)
-                        postfix_ops.append(Tree('index', [
-                            self._tok('LSQB', '['),
-                            Tree('selectorlist', selectors),
-                            self._tok('RSQB', ']')
-                        ]))
+                        postfix_ops.append(
+                            Tree(
+                                "index",
+                                [
+                                    self._tok("LSQB", "["),
+                                    Tree("selectorlist", selectors),
+                                    self._tok("RSQB", "]"),
+                                ],
+                            )
+                        )
                     else:
                         break
 
                 # Build identchain if we have postfix ops
                 if postfix_ops:
-                    items.append(Tree('identchain', [self._tok('IDENT', name.value)] + postfix_ops))
+                    items.append(
+                        Tree(
+                            "identchain", [self._tok("IDENT", name.value)] + postfix_ops
+                        )
+                    )
                 else:
-                    items.append(self._tok('IDENT', name.value))
+                    items.append(self._tok("IDENT", name.value))
             else:
                 raise ParseError("Expected identifier in fan list", self.current)
 
@@ -2780,14 +3063,18 @@ class Parser:
         """
         self.expect(TT.LPAR)
         auto_invoke = False
-        params: Tree = Tree('paramlist', [])
+        params: Tree = Tree("paramlist", [])
 
         if self.match(TT.LPAR):
             # fn ( ( ) ) : body  -> auto invoke
             self.expect(TT.RPAR)
             auto_invoke = True
         else:
-            params = self.parse_param_list() if not self.check(TT.RPAR) else Tree('paramlist', [])
+            params = (
+                self.parse_param_list()
+                if not self.check(TT.RPAR)
+                else Tree("paramlist", [])
+            )
         self.expect(TT.RPAR)
 
         # Optional return contract: ~ Schema
@@ -2810,7 +3097,7 @@ class Parser:
 
             if looks_like_object:
                 expr_body = self.parse_expr()
-                body = Tree('inlinebody', [Tree('stmt', [expr_body])])
+                body = Tree("inlinebody", [Tree("stmt", [expr_body])])
             else:
                 body = self.parse_body()
         else:
@@ -2823,12 +3110,12 @@ class Parser:
         anon_children.append(body)
 
         if return_contract is not None:
-            anon_children.append(Tree('return_contract', [return_contract]))
+            anon_children.append(Tree("return_contract", [return_contract]))
 
-        anon = Tree('anonfn', anon_children)
+        anon = Tree("anonfn", anon_children)
 
         if auto_invoke:
-            return Tree('explicit_chain', [anon, Tree('call', [])])
+            return Tree("explicit_chain", [anon, Tree("call", [])])
         return anon
 
     def parse_anonymous_fn(self) -> Tree:
@@ -2841,8 +3128,9 @@ class Parser:
         Expected tokens: '[' for explicit params or '(' for implicit subject.
         """
         # Verify invariant: & should have been consumed by caller
-        assert self.check(TT.LSQB, TT.LPAR), \
-            f"parse_anonymous_fn expects '[' or '(', got {self.current.type.name}. Caller must consume '&' first."
+        assert self.check(
+            TT.LSQB, TT.LPAR
+        ), f"parse_anonymous_fn expects '[' or '(', got {self.current.type.name}. Caller must consume '&' first."
 
         # Check for explicit params: &[params]
         if self.match(TT.LSQB):
@@ -2851,7 +3139,7 @@ class Parser:
             while not self.check(TT.RSQB, TT.EOF):
                 if not self.check(TT.IDENT):
                     raise ParseError("Expected parameter name in lambda", self.current)
-                params.append(self._tok('IDENT', self.advance().value))
+                params.append(self._tok("IDENT", self.advance().value))
                 if not self.match(TT.COMMA):
                     break
             self.expect(TT.RSQB)
@@ -2862,7 +3150,7 @@ class Parser:
             self.expect(TT.RPAR)
 
             # Return Tree('amp_lambda', [Tree('paramlist', params), body])
-            return Tree('amp_lambda', [Tree('paramlist', params), body])
+            return Tree("amp_lambda", [Tree("paramlist", params), body])
 
         # Implicit subject: &(expr)
         self.expect(TT.LPAR)
@@ -2870,7 +3158,8 @@ class Parser:
         self.expect(TT.RPAR)
 
         # Return Tree('amp_lambda', [body])
-        return Tree('amp_lambda', [body])
+        return Tree("amp_lambda", [body])
+
 
 # ============================================================================
 # Usage Example
@@ -2918,16 +3207,16 @@ def parse_expr_fragment(source: str) -> Tree:
 # Main - Differential Testing
 # ============================================================================
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import sys
 
     # Parse arguments
-    use_indenter = '--no-indent' not in sys.argv
-    args = [arg for arg in sys.argv[1:] if not arg.startswith('--')]
+    use_indenter = "--no-indent" not in sys.argv
+    args = [arg for arg in sys.argv[1:] if not arg.startswith("--")]
 
     # Read source from file or stdin
-    if len(args) > 0 and args[0] != '-':
-        with open(args[0], 'r') as f:
+    if len(args) > 0 and args[0] != "-":
+        with open(args[0], "r") as f:
             source = f.read()
     else:
         source = sys.stdin.read()

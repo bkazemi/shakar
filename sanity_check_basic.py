@@ -45,6 +45,7 @@ def _load_shakar_modules():
         ShakarRuntimeError,
         ShakarTypeError,
     )
+
     # RD parser only (Lark deprecated)
     from shakar_ref.parser_rd import parse_source as parse_rd, ParseError
     from shakar_ref.lexer_rd import LexError, Lexer
@@ -71,6 +72,7 @@ def _load_shakar_modules():
         Prune,
         lower,
     )
+
 
 (
     run_program,
@@ -107,6 +109,7 @@ GRAMMAR_TEXT = GRAMMAR_PATH.read_text(encoding="utf-8")
 @dataclass(frozen=True)
 class Case:
     """Parser sample used for grammar sanity checks."""
+
     name: str
     code: str
     start: str  # "noindent", "indented", or "both"
@@ -115,6 +118,7 @@ class Case:
 @dataclass(frozen=True)
 class AstScenario:
     """Validates AST transforms (amp lambdas, decorators, etc.)."""
+
     name: str
     code: str
     checker: Optional[Callable[[object], Optional[str]]]
@@ -124,6 +128,7 @@ class AstScenario:
 @dataclass(frozen=True)
 class RuntimeScenario:
     """Runs a source string end-to-end through the interpreter."""
+
     name: str
     source: str
     expectation: Optional[Tuple[str, object]]
@@ -133,6 +138,7 @@ class RuntimeScenario:
 @dataclass(frozen=True)
 class LimitResult:
     """Holds the sampled size plus an optional truncation note."""
+
     size: int
     note: Optional[str]
 
@@ -140,10 +146,12 @@ class LimitResult:
 @dataclass(frozen=True)
 class KeywordPlan:
     """Captures keyword sampling decisions for the parser sweeps."""
+
     sample: List[str]
     variants: int
     ident_limit: int
     notes: List[str]
+
 
 # ---------------------------------------------------------------------------
 # Limit computation helpers
@@ -170,7 +178,9 @@ def _limit_from_env(env_var: str, default: int, total: int, label: str) -> Limit
     return LimitResult(size=value, note=note)
 
 
-def _keyword_sample(all_keywords: Sequence[str], default_limit: int) -> Tuple[List[str], List[str]]:
+def _keyword_sample(
+    all_keywords: Sequence[str], default_limit: int
+) -> Tuple[List[str], List[str]]:
     words = sorted(all_keywords)
     notes: List[str] = []
     raw = os.getenv("SANITY_KEYWORD_LIMIT")
@@ -192,7 +202,9 @@ def _keyword_sample(all_keywords: Sequence[str], default_limit: int) -> Tuple[Li
     except ValueError:
         limit = default_limit
     if limit <= 0:
-        notes.append(f"[INFO] keyword prefix cases disabled (SANITY_KEYWORD_LIMIT={raw})")
+        notes.append(
+            f"[INFO] keyword prefix cases disabled (SANITY_KEYWORD_LIMIT={raw})"
+        )
         return [], notes
     if limit >= len(words):
         return words, notes
@@ -226,6 +238,7 @@ def build_keyword_plan() -> KeywordPlan:
         notes=all_notes,
     )
 
+
 # ---------------------------------------------------------------------------
 # Parser management
 # ---------------------------------------------------------------------------
@@ -233,13 +246,14 @@ def build_keyword_plan() -> KeywordPlan:
 
 class ParserBundle:
     """Simplified parser runner using RD parser only."""
+
     def __init__(self, grammar_text: str):
         pass  # No initialization needed for RD-only mode
 
     def parse(self, start: str, code: str) -> Tuple[bool, Optional[str]]:
         """Parse using the requested start symbol, returning (ok, error_message)."""
         label = f"start_{start}"
-        use_indenter = (start == "indented")
+        use_indenter = start == "indented"
 
         try:
             rd_tree = parse_rd(code, use_indenter=use_indenter)
@@ -250,6 +264,7 @@ class ParserBundle:
             return False, f"{label} (RD): {exc}"
         except Exception as exc:
             return False, f"{label} (RD): {exc}"
+
 
 # ---------------------------------------------------------------------------
 # Case builders
@@ -267,7 +282,9 @@ KEYWORD_PREFIXES = ["my", "pre", "x"]
 CASE_BUILDERS: List[Callable[[KeywordPlan], List[Case]]] = []
 
 
-def case_builder(func: Callable[[KeywordPlan], List[Case]]) -> Callable[[KeywordPlan], List[Case]]:
+def case_builder(
+    func: Callable[[KeywordPlan], List[Case]],
+) -> Callable[[KeywordPlan], List[Case]]:
     CASE_BUILDERS.append(func)
     return func
 
@@ -281,7 +298,7 @@ def _identifier_variants(keyword: str, limit: int) -> List[str]:
 @case_builder
 def build_keyword_cases(plan: KeywordPlan) -> List[Case]:
     cases: List[Case] = []
-    templates = PREFIX_SNIPPET_TEMPLATES[:plan.variants]
+    templates = PREFIX_SNIPPET_TEMPLATES[: plan.variants]
     for kw in plan.sample:
         for ident in _identifier_variants(kw, plan.ident_limit):
             for idx, template in enumerate(templates):
@@ -306,13 +323,18 @@ def build_operator_cases(_: KeywordPlan) -> List[Case]:
         "a !in b",
         "7 // 2",
     ]
-    return [Case(name=f"op-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"op-{i}", code=src, start="both") for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
 def build_postfix_if_cases(_: KeywordPlan) -> List[Case]:
     samples = ["1 if 0", "foo() if bar", "(a+b) if c", "x.y if z"]
-    return [Case(name=f"postfixif-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"postfixif-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -322,7 +344,9 @@ def build_await_cases(_: KeywordPlan) -> List[Case]:
         "x = await g(1,2)",
         "h(await k())",
     ]
-    return [Case(name=f"await-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"await-{i}", code=src, start="both") for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -332,7 +356,10 @@ def build_block_cases(_: KeywordPlan) -> List[Case]:
         "if a:\n  b\nelif c:\n  d\nelse:\n  e\n",
         "if a:\n  if b:\n    c\n  else:\n    d\n",
     ]
-    return [Case(name=f"block-{i}", code=src, start="indented") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"block-{i}", code=src, start="indented")
+        for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -342,7 +369,9 @@ def build_misc_cases(_: KeywordPlan) -> List[Case]:
         "a.b; c.d; e",
         "x = (a.b + c[d]) * e.f(g)",
     ]
-    return [Case(name=f"misc-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"misc-{i}", code=src, start="both") for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -350,7 +379,10 @@ def build_destructure_inline_cases(_: KeywordPlan) -> List[Case]:
     samples = [
         "if true: a, b := 1, 2",
     ]
-    return [Case(name="inline-destructure-walrus", code=src, start="both") for src in samples]
+    return [
+        Case(name="inline-destructure-walrus", code=src, start="both")
+        for src in samples
+    ]
 
 
 @case_builder
@@ -359,7 +391,9 @@ def build_fn_cases(_: KeywordPlan) -> List[Case]:
         "fn add(x, y): x + y",
         "fn greet(name): { dbg(name) }",
     ]
-    return [Case(name=f"fn-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"fn-{i}", code=src, start="both") for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -369,7 +403,9 @@ def build_power_cases(_: KeywordPlan) -> List[Case]:
         "x ** 2 + y ** 2",
         "a ** b ** c",
     ]
-    return [Case(name=f"power-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"power-{i}", code=src, start="both") for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -379,7 +415,10 @@ def build_unary_incr_cases(_: KeywordPlan) -> List[Case]:
         "--y",
         "++(a.b)",
     ]
-    return [Case(name=f"unary-incr-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"unary-incr-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -390,7 +429,10 @@ def build_postfix_incr_cases(_: KeywordPlan) -> List[Case]:
         "arr[i]++",
         "obj.count--",
     ]
-    return [Case(name=f"postfix-incr-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"postfix-incr-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -400,7 +442,10 @@ def build_valuefan_cases(_: KeywordPlan) -> List[Case]:
         "obj.{x(), y}",
         "[state.{a, b, c}]",
     ]
-    return [Case(name=f"valuefan-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"valuefan-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -408,16 +453,21 @@ def build_dbg_cases(_: KeywordPlan) -> List[Case]:
     samples = [
         "dbg(x)",
     ]
-    return [Case(name=f"dbg-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"dbg-{i}", code=src, start="both") for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
 def build_computed_key_cases(_: KeywordPlan) -> List[Case]:
     samples = [
         '{ ("key" + "1"): 10 }',
-        '{ (a + b): value }',
+        "{ (a + b): value }",
     ]
-    return [Case(name=f"computed-key-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"computed-key-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -427,7 +477,10 @@ def build_anon_fn_expr_cases(_: KeywordPlan) -> List[Case]:
         "arr.map(fn(x): x + 1)",
         "result := fn(()): { tmp := 1; tmp + 2 }",
     ]
-    return [Case(name=f"anon-fn-expr-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"anon-fn-expr-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -437,7 +490,10 @@ def build_pattern_destructure_cases(_: KeywordPlan) -> List[Case]:
         "a, b := get_pair()",
         "x, y, z := 1, 2, 3",
     ]
-    return [Case(name=f"pattern-destructure-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"pattern-destructure-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -446,7 +502,10 @@ def build_deepmerge_cases(_: KeywordPlan) -> List[Case]:
         "a +> b",
         "obj1 +> obj2 +> obj3",
     ]
-    return [Case(name=f"deepmerge-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"deepmerge-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -455,7 +514,10 @@ def build_assignor_cases(_: KeywordPlan) -> List[Case]:
         "config.key or= default",
         "obj.field or= fallback",
     ]
-    return [Case(name=f"assignor-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"assignor-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -467,7 +529,9 @@ def build_slice_cases(_: KeywordPlan) -> List[Case]:
         "arr[::2]",
         "arr[1:3:2]",
     ]
-    return [Case(name=f"slice-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"slice-{i}", code=src, start="both") for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -478,7 +542,10 @@ def build_comp_for_cases(_: KeywordPlan) -> List[Case]:
         "set{ x for x in vals }",
         "{ k: v for [k, v] items }",
     ]
-    return [Case(name=f"comp-for-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"comp-for-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -488,7 +555,10 @@ def build_nullsafe_cases(_: KeywordPlan) -> List[Case]:
         "??(arr[0])",
         "??(obj.field)",
     ]
-    return [Case(name=f"nullsafe-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"nullsafe-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
 
 
 @case_builder
@@ -497,7 +567,11 @@ def build_postfix_unless_cases(_: KeywordPlan) -> List[Case]:
         "x = 1 unless false",
         "return 5 unless cond",
     ]
-    return [Case(name=f"postfix-unless-{i}", code=src, start="both") for i, src in enumerate(samples)]
+    return [
+        Case(name=f"postfix-unless-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
+
 
 # ---------------------------------------------------------------------------
 # AST + runtime scenarios
@@ -509,6 +583,7 @@ RUNTIME_SCENARIOS: List[RuntimeScenario] = []
 
 def runtime_scenario(func: Callable[[], RuntimeScenario]) -> None:
     RUNTIME_SCENARIOS.append(func())
+
 
 # AST check helpers
 
@@ -582,7 +657,14 @@ def _check_decorator_def(ast) -> Optional[str]:
     name = deco.children[0] if deco.children else None
     if getattr(name, "value", None) != "logger":
         return "decorator name mismatch"
-    body = next((ch for ch in deco.children if getattr(ch, "data", None) in {"inlinebody", "indentblock"}), None)
+    body = next(
+        (
+            ch
+            for ch in deco.children
+            if getattr(ch, "data", None) in {"inlinebody", "indentblock"}
+        ),
+        None,
+    )
     if body is None:
         return "decorator body missing"
     return None
@@ -593,29 +675,62 @@ def _check_decorated_fn(ast) -> Optional[str]:
     fn_node = stmtlist.children[0]
     if getattr(fn_node, "data", None) != "fndef":
         return "fndef node missing"
-    deco_list = next((ch for ch in fn_node.children if getattr(ch, "data", None) == "decorator_list"), None)
+    deco_list = next(
+        (
+            ch
+            for ch in fn_node.children
+            if getattr(ch, "data", None) == "decorator_list"
+        ),
+        None,
+    )
     if deco_list is None:
         return "decorator list missing"
     if len(deco_list.children) != 1:
         return "decorator list size mismatch"
     return None
 
-AST_SCENARIOS.extend([
-    AstScenario("lambda-infer-zipwith", 'zipWith&(left + right)(xs, ys)', _check_zipwith, None),
-    AstScenario("lambda-respect-subject", 'map&(.trim())', _check_map, None),
-    AstScenario("lambda-hole-desugar", 'blend(?, ?, 0.25)', _check_holes, None),
-    AstScenario("lambda-dot-mix-error", 'map&(value + .trim())', None, SyntaxError),
-    AstScenario("hook-inline-body", 'hook "warn": .trim()', _check_hook_inline, None),
-    AstScenario("decorator-ast-def", 'decorator logger(msg): args', _check_decorator_def, None),
-    AstScenario("decorated-fn-ast", """@noop
-fn hi(): 1""", _check_decorated_fn, None),
-])
+
+AST_SCENARIOS.extend(
+    [
+        AstScenario(
+            "lambda-infer-zipwith",
+            "zipWith&(left + right)(xs, ys)",
+            _check_zipwith,
+            None,
+        ),
+        AstScenario("lambda-respect-subject", "map&(.trim())", _check_map, None),
+        AstScenario("lambda-hole-desugar", "blend(?, ?, 0.25)", _check_holes, None),
+        AstScenario("lambda-dot-mix-error", "map&(value + .trim())", None, SyntaxError),
+        AstScenario(
+            "hook-inline-body", 'hook "warn": .trim()', _check_hook_inline, None
+        ),
+        AstScenario(
+            "decorator-ast-def",
+            "decorator logger(msg): args",
+            _check_decorator_def,
+            None,
+        ),
+        AstScenario(
+            "decorated-fn-ast",
+            """@noop
+fn hi(): 1""",
+            _check_decorated_fn,
+            None,
+        ),
+    ]
+)
 
 # Runtime scenarios
 
 
-def _rt(name: str, source: str, expectation: Optional[Tuple[str, object]], expected_exc: Optional[type]) -> RuntimeScenario:
+def _rt(
+    name: str,
+    source: str,
+    expectation: Optional[Tuple[str, object]],
+    expected_exc: Optional[type],
+) -> RuntimeScenario:
     return RuntimeScenario(name, source, expectation, expected_exc)
+
 
 runtime_scenario(
     lambda: _rt(
@@ -677,7 +792,7 @@ runtime_scenario(
 runtime_scenario(
     lambda: _rt(
         "int-builtin",
-        "int(3) + int(\"4\")",
+        'int(3) + int("4")',
         ("number", 7),
         None,
     )
@@ -707,9 +822,15 @@ runtime_scenario(
         None,
     )
 )
-runtime_scenario(lambda: _rt("join-array", '", ".join(["a", "b"])', ("string", "a, b"), None))
-runtime_scenario(lambda: _rt("join-varargs", '"-".join("a", "b")', ("string", "a-b"), None))
-runtime_scenario(lambda: _rt("join-mixed", '"|".join("a", 1, true)', ("string", "a|1|true"), None))
+runtime_scenario(
+    lambda: _rt("join-array", '", ".join(["a", "b"])', ("string", "a, b"), None)
+)
+runtime_scenario(
+    lambda: _rt("join-varargs", '"-".join("a", "b")', ("string", "a-b"), None)
+)
+runtime_scenario(
+    lambda: _rt("join-mixed", '"|".join("a", 1, true)', ("string", "a|1|true"), None)
+)
 runtime_scenario(
     lambda: _rt(
         "regex-match-captures",
@@ -892,67 +1013,358 @@ using resource: resource + 1""",
         None,
     )
 )
-runtime_scenario(lambda: _rt("lambda-subject-direct-call", 'a := &(.trim()); a(" B")', ("string", "B"), None))
-runtime_scenario(lambda: _rt("floor-div-basic", '7 // 2', ("number", 3), None))
-runtime_scenario(lambda: _rt("floor-div-negative", '-7 // 2', ("number", -4), None))
-runtime_scenario(lambda: _rt("compound-assign-number", 'a := 1; a += 2; a', ("number", 3), None))
-runtime_scenario(lambda: _rt("compound-assign-string", 's := "a"; s += "b"; s', ("string", "ab"), None))
-runtime_scenario(lambda: _rt("compound-assign-mod", 'a := 10; a %= 3; a', ("number", 1), None))
-runtime_scenario(lambda: _rt("compound-assign-minus", 'a := 10; a -= 4; a', ("number", 6), None))
-runtime_scenario(lambda: _rt("compound-assign-mul", 'a := 3; a *= 4; a', ("number", 12), None))
-runtime_scenario(lambda: _rt("compound-assign-div", 'a := 9; a /= 2; a', ("number", 4.5), None))
-runtime_scenario(lambda: _rt("compound-assign-floordiv", 'a := 9; a //= 2; a', ("number", 4), None))
-runtime_scenario(lambda: _rt("fanout-block-basic", 'state := {cur: 1, next: 2, x: 0}; state{ .cur = .next; .x += 5 }; state.cur + state.x', ("number", 7), None))
-runtime_scenario(lambda: _rt("fieldfan-chain-assign", 'state := {a: {c: 0}, b: {c: 1}}; state.{a, b}.c = 5; state.a.c + state.b.c', ("number", 10), None))
-runtime_scenario(lambda: _rt("fieldfan-chain-apply", 'state := {a: {c: 1}, b: {c: 3}}; state.{a, b}.c .= . + 1; state.a.c + state.b.c', ("number", 6), None))
-runtime_scenario(lambda: _rt("selector-assign-broadcast", 'arr := [0, 1]; o := {a: arr}; o.a[0,1] = 2; o.a[0] + o.a[1]', ("number", 4), None))
-runtime_scenario(lambda: _rt("selectorliteral-assign-broadcast", 'arr := [0, 1, 2]; arr[`0:1`] = 5; arr[0] + arr[1] + arr[2]', ("number", 12), None))
-runtime_scenario(lambda: _rt("fanout-single-clause-implicit", 'state := {cur: 1, next: 2}; state{ .cur = .next }; state.cur', ("number", 2), None))
-runtime_scenario(lambda: _rt("fanout-single-clause-literal-error", 'state := {a: 1}; state{ .a = 5 }', None, ParseError))
-runtime_scenario(lambda: _rt("slice-negative-start-positive-stop-error", 'arr := [0, 1, 2]; arr[-1:2]', None, ShakarRuntimeError))
-runtime_scenario(lambda: _rt("slice-positive-start-negative-stop", 'arr := [0, 1, 2, 3, 4]; result := arr[0:-1]; result[0] + result[3]', ("number", 3), None))
-runtime_scenario(lambda: _rt("slice-both-negative", 'arr := [0, 1, 2, 3, 4]; result := arr[-3:-1]; result[0] + result[1]', ("number", 5), None))
-runtime_scenario(lambda: _rt("fieldfan-chain-apply-return", 'state := {a: {c: 1}, b: {c: 3}}; result := state.{a, b}.c .= . + 1; result[0] + result[1]', ("number", 6), None))
-runtime_scenario(lambda: _rt("fanout-block-slice-selector", "state := {rows: [{v: 1}, {v: 3}, {v: 5}]}; state{ .rows[1:3].v = 0 }; state.rows[0].v + state.rows[1].v + state.rows[2].v", ("number", 1), None))
-runtime_scenario(lambda: _rt("fanout-block-bracketed", "state := {rows: [{v: 1}, {v: 3}, {v: 5}]}; state{ .rows[1].v += 4; .rows[0] = {v: state.rows[0].v + 2} }; state.rows[0].v + state.rows[1].v", ("number", 10), None))
-runtime_scenario(lambda: _rt("fanout-block-multi-index-selector", "state := {rows: [[{v: 1}], [{v: 3}]]}; state{ .rows[1][0].v = 8 }; state.rows[0][0].v + state.rows[1][0].v", None, ParseError))
-runtime_scenario(lambda: _rt("fanout-block-apply", 's := {name: " Ada ", greet: ""}; s{ .name .= .trim(); .greet = .name }; s.greet', ("string", "Ada"), None))
-runtime_scenario(lambda: _rt("fanout-block-dup-error", 'state := {a: 1}; state{ .a = 1; .a = 2 }', None, ShakarRuntimeError))
-runtime_scenario(lambda: _rt("fanout-value-array", 'state := {a: 1, b: 2}; arr := state.{a, b}; arr[0] + arr[1]', ("number", 3), None))
-runtime_scenario(lambda: _rt("fanout-call-spread", 'state := {a: 1, b: 2}; fn add(x, y): x + y; add(state.{a, b})', ("number", 3), None))
-runtime_scenario(lambda: _rt("fanout-value-call-item", 'state := {a: fn():3, b: 2}; vals := state.{a(), b}; vals[0] + vals[1]', ("number", 5), None))
-runtime_scenario(lambda: _rt("fanout-named-arg-no-spread", 'state := {a: 1, b: 2}; fn wrap(x): x[1]; wrap(named: state.{a, b})', ("number", 2), None))
-runtime_scenario(lambda: _rt("spread-array-literal", 'arr := [1, ...[2, 3], 4]; arr[0] + arr[3]', ("number", 5), None))
-runtime_scenario(lambda: _rt("spread-object-literal", 'base := {a: 1}; obj := { ...base, b: 2, a: 3 }; obj.a + obj.b', ("number", 5), None))
-runtime_scenario(lambda: _rt("spread-call-array", 'fn add(a, b, c): a + b + c; add(...[1, 2, 3])', ("number", 6), None))
-runtime_scenario(lambda: _rt("spread-call-object", 'fn pair(a, b): a * 10 + b; pair(...{a: 1, b: 2})', ("number", 12), None))
-runtime_scenario(lambda: _rt("spread-params-multi", 'fn capture(a, ...mid, b, ...tail, c): [a, mid.len, b, tail.len, c]; res := capture(1, 2, 3, 4, 5, 6, 7); res[0] + res[1] + res[2] + res[3] + res[4]', ("number", 18), None))
-runtime_scenario(lambda: _rt("spread-object-dot-space", 'state := {config: {a: 1}, cfg: {}}; state{ .cfg = { ... .config } }; state.cfg.a', ("number", 1), None))
-runtime_scenario(lambda: _rt("spread-decorator-params", """decorator bump(...xs):
+runtime_scenario(
+    lambda: _rt(
+        "lambda-subject-direct-call", 'a := &(.trim()); a(" B")', ("string", "B"), None
+    )
+)
+runtime_scenario(lambda: _rt("floor-div-basic", "7 // 2", ("number", 3), None))
+runtime_scenario(lambda: _rt("floor-div-negative", "-7 // 2", ("number", -4), None))
+runtime_scenario(
+    lambda: _rt("compound-assign-number", "a := 1; a += 2; a", ("number", 3), None)
+)
+runtime_scenario(
+    lambda: _rt(
+        "compound-assign-string", 's := "a"; s += "b"; s', ("string", "ab"), None
+    )
+)
+runtime_scenario(
+    lambda: _rt("compound-assign-mod", "a := 10; a %= 3; a", ("number", 1), None)
+)
+runtime_scenario(
+    lambda: _rt("compound-assign-minus", "a := 10; a -= 4; a", ("number", 6), None)
+)
+runtime_scenario(
+    lambda: _rt("compound-assign-mul", "a := 3; a *= 4; a", ("number", 12), None)
+)
+runtime_scenario(
+    lambda: _rt("compound-assign-div", "a := 9; a /= 2; a", ("number", 4.5), None)
+)
+runtime_scenario(
+    lambda: _rt("compound-assign-floordiv", "a := 9; a //= 2; a", ("number", 4), None)
+)
+runtime_scenario(
+    lambda: _rt(
+        "fanout-block-basic",
+        "state := {cur: 1, next: 2, x: 0}; state{ .cur = .next; .x += 5 }; state.cur + state.x",
+        ("number", 7),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fieldfan-chain-assign",
+        "state := {a: {c: 0}, b: {c: 1}}; state.{a, b}.c = 5; state.a.c + state.b.c",
+        ("number", 10),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fieldfan-chain-apply",
+        "state := {a: {c: 1}, b: {c: 3}}; state.{a, b}.c .= . + 1; state.a.c + state.b.c",
+        ("number", 6),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-assign-broadcast",
+        "arr := [0, 1]; o := {a: arr}; o.a[0,1] = 2; o.a[0] + o.a[1]",
+        ("number", 4),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selectorliteral-assign-broadcast",
+        "arr := [0, 1, 2]; arr[`0:1`] = 5; arr[0] + arr[1] + arr[2]",
+        ("number", 12),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fanout-single-clause-implicit",
+        "state := {cur: 1, next: 2}; state{ .cur = .next }; state.cur",
+        ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fanout-single-clause-literal-error",
+        "state := {a: 1}; state{ .a = 5 }",
+        None,
+        ParseError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "slice-negative-start-positive-stop-error",
+        "arr := [0, 1, 2]; arr[-1:2]",
+        None,
+        ShakarRuntimeError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "slice-positive-start-negative-stop",
+        "arr := [0, 1, 2, 3, 4]; result := arr[0:-1]; result[0] + result[3]",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "slice-both-negative",
+        "arr := [0, 1, 2, 3, 4]; result := arr[-3:-1]; result[0] + result[1]",
+        ("number", 5),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fieldfan-chain-apply-return",
+        "state := {a: {c: 1}, b: {c: 3}}; result := state.{a, b}.c .= . + 1; result[0] + result[1]",
+        ("number", 6),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fanout-block-slice-selector",
+        "state := {rows: [{v: 1}, {v: 3}, {v: 5}]}; state{ .rows[1:3].v = 0 }; state.rows[0].v + state.rows[1].v + state.rows[2].v",
+        ("number", 1),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fanout-block-bracketed",
+        "state := {rows: [{v: 1}, {v: 3}, {v: 5}]}; state{ .rows[1].v += 4; .rows[0] = {v: state.rows[0].v + 2} }; state.rows[0].v + state.rows[1].v",
+        ("number", 10),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fanout-block-multi-index-selector",
+        "state := {rows: [[{v: 1}], [{v: 3}]]}; state{ .rows[1][0].v = 8 }; state.rows[0][0].v + state.rows[1][0].v",
+        None,
+        ParseError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fanout-block-apply",
+        's := {name: " Ada ", greet: ""}; s{ .name .= .trim(); .greet = .name }; s.greet',
+        ("string", "Ada"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fanout-block-dup-error",
+        "state := {a: 1}; state{ .a = 1; .a = 2 }",
+        None,
+        ShakarRuntimeError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fanout-value-array",
+        "state := {a: 1, b: 2}; arr := state.{a, b}; arr[0] + arr[1]",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fanout-call-spread",
+        "state := {a: 1, b: 2}; fn add(x, y): x + y; add(state.{a, b})",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fanout-value-call-item",
+        "state := {a: fn():3, b: 2}; vals := state.{a(), b}; vals[0] + vals[1]",
+        ("number", 5),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "fanout-named-arg-no-spread",
+        "state := {a: 1, b: 2}; fn wrap(x): x[1]; wrap(named: state.{a, b})",
+        ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "spread-array-literal",
+        "arr := [1, ...[2, 3], 4]; arr[0] + arr[3]",
+        ("number", 5),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "spread-object-literal",
+        "base := {a: 1}; obj := { ...base, b: 2, a: 3 }; obj.a + obj.b",
+        ("number", 5),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "spread-call-array",
+        "fn add(a, b, c): a + b + c; add(...[1, 2, 3])",
+        ("number", 6),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "spread-call-object",
+        "fn pair(a, b): a * 10 + b; pair(...{a: 1, b: 2})",
+        ("number", 12),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "spread-params-multi",
+        "fn capture(a, ...mid, b, ...tail, c): [a, mid.len, b, tail.len, c]; res := capture(1, 2, 3, 4, 5, 6, 7); res[0] + res[1] + res[2] + res[3] + res[4]",
+        ("number", 18),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "spread-object-dot-space",
+        "state := {config: {a: 1}, cfg: {}}; state{ .cfg = { ... .config } }; state.cfg.a",
+        ("number", 1),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "spread-decorator-params",
+        """decorator bump(...xs):
   args[0] = args[0] + xs.len
 @bump(1, 2, 3)
 fn id(x): x
-id(10)""", ("number", 13), None))
+id(10)""",
+        ("number", 13),
+        None,
+    )
+)
 runtime_scenario(lambda: _rt("all-varargs", 'all(true, 1, "x")', ("bool", True), None))
-runtime_scenario(lambda: _rt("all-varargs-short", 'all(true, false, 1)', ("bool", False), None))
-runtime_scenario(lambda: _rt("all-iterable", 'all([true, 1, "x"])', ("bool", True), None))
-runtime_scenario(lambda: _rt("all-empty-iterable", 'all([])', ("bool", True), None))
-runtime_scenario(lambda: _rt("all-zero-args-error", 'all()', None, ShakarRuntimeError))
+runtime_scenario(
+    lambda: _rt("all-varargs-short", "all(true, false, 1)", ("bool", False), None)
+)
+runtime_scenario(
+    lambda: _rt("all-iterable", 'all([true, 1, "x"])', ("bool", True), None)
+)
+runtime_scenario(lambda: _rt("all-empty-iterable", "all([])", ("bool", True), None))
+runtime_scenario(lambda: _rt("all-zero-args-error", "all()", None, ShakarRuntimeError))
 runtime_scenario(lambda: _rt("any-varargs", 'any(false, 0, "x")', ("bool", True), None))
-runtime_scenario(lambda: _rt("any-iterable", 'any([false, 0, ""])', ("bool", False), None))
-runtime_scenario(lambda: _rt("raw-string-basic", 'raw"hi {name}\\n"', ("string", "hi {name}\\n"), None))
-runtime_scenario(lambda: _rt("raw-hash-string", 'raw#"path "C:\\\\tmp"\\file"#', ("string", 'path "C:\\\\tmp"\\file'), None))
-runtime_scenario(lambda: _rt("shell-string-quote", 'path := "file name.txt"; sh"cat {path}"', ("command", "cat 'file name.txt'"), None))
-runtime_scenario(lambda: _rt("shell-string-array", 'files := ["a.txt", "b 1.txt"]; sh"ls {files}"', ("command", "ls a.txt 'b 1.txt'"), None))
-runtime_scenario(lambda: _rt("shell-string-raw-splice", 'flag := "-n 2"; file := "log 1.txt"; sh"head {{flag}} {file}"', ("command", "head -n 2 'log 1.txt'"), None))
-runtime_scenario(lambda: _rt("shell-run-stdout", 'msg := "hi"; res := (sh"printf {msg}").run(); res', ("string", "hi"), None))
+runtime_scenario(
+    lambda: _rt("any-iterable", 'any([false, 0, ""])', ("bool", False), None)
+)
+runtime_scenario(
+    lambda: _rt(
+        "raw-string-basic", 'raw"hi {name}\\n"', ("string", "hi {name}\\n"), None
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "raw-hash-string",
+        'raw#"path "C:\\\\tmp"\\file"#',
+        ("string", 'path "C:\\\\tmp"\\file'),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "shell-string-quote",
+        'path := "file name.txt"; sh"cat {path}"',
+        ("command", "cat 'file name.txt'"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "shell-string-array",
+        'files := ["a.txt", "b 1.txt"]; sh"ls {files}"',
+        ("command", "ls a.txt 'b 1.txt'"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "shell-string-raw-splice",
+        'flag := "-n 2"; file := "log 1.txt"; sh"head {{flag}} {file}"',
+        ("command", "head -n 2 'log 1.txt'"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "shell-run-stdout",
+        'msg := "hi"; res := (sh"printf {msg}").run(); res',
+        ("string", "hi"),
+        None,
+    )
+)
 runtime_scenario(lambda: _rt("shell-run-code", '(sh"false").run()', None, CommandError))
-runtime_scenario(lambda: _rt("shell-run-catch-code", 'val := (sh"false").run() catch err: err.code', ("number", 1), None))
-runtime_scenario(lambda: _rt("path-literal-exists", 'p"README.md".exists', ("bool", True), None))
-runtime_scenario(lambda: _rt("path-join-exists", '(p"docs" / "shakar-design-notes.md").exists', ("bool", True), None))
-runtime_scenario(lambda: _rt("path-interp-read", 'name := "README.md"\n(p"{name}").read().len > 0', ("bool", True), None))
-runtime_scenario(lambda: _rt("path-glob-contains", 'names := [ .name over p"*.md" ]\n"README.md" in names', ("bool", True), None))
-runtime_scenario(lambda: _rt("path-glob-empty", '[ .name over p"__shakar_no_match__*.zzz" ].len == 0', ("bool", True), None))
+runtime_scenario(
+    lambda: _rt(
+        "shell-run-catch-code",
+        'val := (sh"false").run() catch err: err.code',
+        ("number", 1),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt("path-literal-exists", 'p"README.md".exists', ("bool", True), None)
+)
+runtime_scenario(
+    lambda: _rt(
+        "path-join-exists",
+        '(p"docs" / "shakar-design-notes.md").exists',
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "path-interp-read",
+        'name := "README.md"\n(p"{name}").read().len > 0',
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "path-glob-contains",
+        'names := [ .name over p"*.md" ]\n"README.md" in names',
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "path-glob-empty",
+        '[ .name over p"__shakar_no_match__*.zzz" ].len == 0',
+        ("bool", True),
+        None,
+    )
+)
 runtime_scenario(
     lambda: _rt(
         "listcomp-filter",
@@ -1005,8 +1417,12 @@ obj["b"]""",
         None,
     )
 )
-runtime_scenario(lambda: _rt("fn-definition", 'fn add(x, y): x + y; add(2, 3)', ("number", 5), None))
-runtime_scenario(lambda: _rt("fn-closure", 'y := 5; fn addY(x): x + y; addY(2)', ("number", 7), None))
+runtime_scenario(
+    lambda: _rt("fn-definition", "fn add(x, y): x + y; add(2, 3)", ("number", 5), None)
+)
+runtime_scenario(
+    lambda: _rt("fn-closure", "y := 5; fn addY(x): x + y; addY(2)", ("number", 7), None)
+)
 runtime_scenario(
     lambda: _rt(
         "fn-return-value",
@@ -1025,7 +1441,11 @@ noop()""",
         None,
     )
 )
-runtime_scenario(lambda: _rt("anon-fn-expression", 'inc := fn(x): { x + 1 }; inc(5)', ("number", 6), None))
+runtime_scenario(
+    lambda: _rt(
+        "anon-fn-expression", "inc := fn(x): { x + 1 }; inc(5)", ("number", 6), None
+    )
+)
 runtime_scenario(
     lambda: _rt(
         "anon-fn-block",
@@ -1081,9 +1501,30 @@ val""",
         None,
     )
 )
-runtime_scenario(lambda: _rt("await-any-trailing-body", 'await [any]( fast: sleep(10), slow: sleep(50) ): winner', ("string", "fast"), None))
-runtime_scenario(lambda: _rt("await-any-inline-body", 'await [any]( fast: sleep(10): "done" )', ("string", "done"), None))
-runtime_scenario(lambda: _rt("await-all-trailing-body", 'await [all]( first: sleep(10), second: sleep(20) ): "ok"', ("string", "ok"), None))
+runtime_scenario(
+    lambda: _rt(
+        "await-any-trailing-body",
+        "await [any]( fast: sleep(10), slow: sleep(50) ): winner",
+        ("string", "fast"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "await-any-inline-body",
+        'await [any]( fast: sleep(10): "done" )',
+        ("string", "done"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "await-all-trailing-body",
+        'await [all]( first: sleep(10), second: sleep(20) ): "ok"',
+        ("string", "ok"),
+        None,
+    )
+)
 runtime_scenario(
     lambda: _rt(
         "no-anchor-preserves-dot",
@@ -1295,7 +1736,7 @@ sum[0] + sum[1]""",
 runtime_scenario(
     lambda: _rt(
         "compare-anchor-object",
-        'a := {b: 1, c: 2}; a >= .b',
+        "a := {b: 1, c: 2}; a >= .b",
         None,
         ShakarTypeError,
     )
@@ -1659,7 +2100,9 @@ log""",
         None,
     )
 )
-runtime_scenario(lambda: _rt("defer-unknown-handle", 'defer cleanup: pass', None, ShakarRuntimeError))
+runtime_scenario(
+    lambda: _rt("defer-unknown-handle", "defer cleanup: pass", None, ShakarRuntimeError)
+)
 runtime_scenario(
     lambda: _rt(
         "defer-cycle-detected",
@@ -1679,9 +2122,13 @@ run()""",
         ShakarRuntimeError,
     )
 )
-runtime_scenario(lambda: _rt("assert-pass", 'assert 1 == 1', ("null", None), None))
-runtime_scenario(lambda: _rt("assert-fail", 'assert false, "boom"', None, ShakarAssertionError))
-runtime_scenario(lambda: _rt("throw-new-error", 'throw error("boom")', None, ShakarRuntimeError))
+runtime_scenario(lambda: _rt("assert-pass", "assert 1 == 1", ("null", None), None))
+runtime_scenario(
+    lambda: _rt("assert-fail", 'assert false, "boom"', None, ShakarAssertionError)
+)
+runtime_scenario(
+    lambda: _rt("throw-new-error", 'throw error("boom")', None, ShakarRuntimeError)
+)
 runtime_scenario(
     lambda: _rt(
         "throw-custom-catch",
@@ -1710,8 +2157,12 @@ risky() catch err: throw""",
         ShakarRuntimeError,
     )
 )
-runtime_scenario(lambda: _rt("return-outside-fn", 'return 1', None, ShakarRuntimeError))
-runtime_scenario(lambda: _rt("lambda-subject-missing-arg", 'a := &(.trim()); a()', None, ShakarArityError))
+runtime_scenario(lambda: _rt("return-outside-fn", "return 1", None, ShakarRuntimeError))
+runtime_scenario(
+    lambda: _rt(
+        "lambda-subject-missing-arg", "a := &(.trim()); a()", None, ShakarArityError
+    )
+)
 runtime_scenario(
     lambda: _rt(
         "lambda-hole-runtime",
@@ -1722,171 +2173,562 @@ partial(0, 16)""",
         None,
     )
 )
-runtime_scenario(lambda: _rt("lambda-hole-iifc", 'blend(?, ?, 0.25)()', None, SyntaxError))
-runtime_scenario(lambda: _rt("power-basic", '2 ** 3', ("number", 8), None))
-runtime_scenario(lambda: _rt("power-precedence", '2 ** 3 ** 2', ("number", 512), None))
-runtime_scenario(lambda: _rt("power-negative", '(-2) ** 3', ("number", -8), None))
-runtime_scenario(lambda: _rt("power-assign", 'x := 2; x **= 3; x', ("number", 8), None))
-runtime_scenario(lambda: _rt("postfix-incr-basic", 'a := 5; a++; a', ("number", 6), None))
-runtime_scenario(lambda: _rt("postfix-decr-basic", 'a := 5; a--; a', ("number", 4), None))
-runtime_scenario(lambda: _rt("prefix-incr-basic", 'a := 5; ++a; a', ("number", 6), None))
-runtime_scenario(lambda: _rt("prefix-decr-basic", 'a := 5; --a; a', ("number", 4), None))
+runtime_scenario(
+    lambda: _rt("lambda-hole-iifc", "blend(?, ?, 0.25)()", None, SyntaxError)
+)
+runtime_scenario(lambda: _rt("power-basic", "2 ** 3", ("number", 8), None))
+runtime_scenario(lambda: _rt("power-precedence", "2 ** 3 ** 2", ("number", 512), None))
+runtime_scenario(lambda: _rt("power-negative", "(-2) ** 3", ("number", -8), None))
+runtime_scenario(lambda: _rt("power-assign", "x := 2; x **= 3; x", ("number", 8), None))
+runtime_scenario(
+    lambda: _rt("postfix-incr-basic", "a := 5; a++; a", ("number", 6), None)
+)
+runtime_scenario(
+    lambda: _rt("postfix-decr-basic", "a := 5; a--; a", ("number", 4), None)
+)
+runtime_scenario(
+    lambda: _rt("prefix-incr-basic", "a := 5; ++a; a", ("number", 6), None)
+)
+runtime_scenario(
+    lambda: _rt("prefix-decr-basic", "a := 5; --a; a", ("number", 4), None)
+)
 
 # CCC disambiguation tests
-runtime_scenario(lambda: _rt("ccc-function-args", 'fn f(a, b, c): a + b + c; f(1, 2, 3)', ("number", 6), None))
-runtime_scenario(lambda: _rt("ccc-array-elements", 'a := [1, 2, 3]; a[0] + a[1] + a[2]', ("number", 6), None))
-runtime_scenario(lambda: _rt("ccc-array-with-parens", 'a := [(5 == 5, == 5)]; a[0]', ("bool", True), None))
-runtime_scenario(lambda: _rt("ccc-destructure-pack", 'a, b := 10, 20; a + b', ("number", 30), None))
-runtime_scenario(lambda: _rt("ccc-statement-allowed", 'x := 5; assert x == 5, < 10; x', ("number", 5), None))
+runtime_scenario(
+    lambda: _rt(
+        "ccc-function-args", "fn f(a, b, c): a + b + c; f(1, 2, 3)", ("number", 6), None
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "ccc-array-elements", "a := [1, 2, 3]; a[0] + a[1] + a[2]", ("number", 6), None
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "ccc-array-with-parens", "a := [(5 == 5, == 5)]; a[0]", ("bool", True), None
+    )
+)
+runtime_scenario(
+    lambda: _rt("ccc-destructure-pack", "a, b := 10, 20; a + b", ("number", 30), None)
+)
+runtime_scenario(
+    lambda: _rt(
+        "ccc-statement-allowed", "x := 5; assert x == 5, < 10; x", ("number", 5), None
+    )
+)
 
 # CCC in comprehensions - parser and evaluator now support it
-runtime_scenario(lambda: _rt("ccc-comprehension-filter", 'data := [1, 5, 10]; [x for x in data if x == 1, < 6]', ("array", [1.0]), None))
-runtime_scenario(lambda: _rt("ccc-comprehension-explicit", 'data := [1, 5, 10]; [x for x in data if x > 0, and < 8]', ("array", [1.0, 5.0]), None))
-runtime_scenario(lambda: _rt("ccc-comprehension-or", 'data := [1, 5, 10]; [x for x in data if x == 1, or == 10]', ("array", [1.0, 10.0]), None))
+runtime_scenario(
+    lambda: _rt(
+        "ccc-comprehension-filter",
+        "data := [1, 5, 10]; [x for x in data if x == 1, < 6]",
+        ("array", [1.0]),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "ccc-comprehension-explicit",
+        "data := [1, 5, 10]; [x for x in data if x > 0, and < 8]",
+        ("array", [1.0, 5.0]),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "ccc-comprehension-or",
+        "data := [1, 5, 10]; [x for x in data if x == 1, or == 10]",
+        ("array", [1.0, 10.0]),
+        None,
+    )
+)
 
 # Structural match (~) operator
-runtime_scenario(lambda: _rt("struct-match-type-int", '5 ~ Int', ("bool", True), None))
-runtime_scenario(lambda: _rt("struct-match-type-str", '"hello" ~ Str', ("bool", True), None))
-runtime_scenario(lambda: _rt("struct-match-type-bool", 'true ~ Bool', ("bool", True), None))
-runtime_scenario(lambda: _rt("struct-match-type-array", '[1, 2] ~ Array', ("bool", True), None))
-runtime_scenario(lambda: _rt("struct-match-type-object", '{a: 1} ~ Object', ("bool", True), None))
-runtime_scenario(lambda: _rt("struct-match-object-subset", 'obj := {a: 1, b: 2, c: 3}; obj ~ {a: Int}', ("bool", True), None))
-runtime_scenario(lambda: _rt("struct-match-object-multi", 'obj := {a: 1, b: 2}; obj ~ {a: Int, b: Int}', ("bool", True), None))
-runtime_scenario(lambda: _rt("struct-match-object-missing", '{a: 1} ~ {a: Int, b: Int}', ("bool", False), None))
-runtime_scenario(lambda: _rt("struct-match-nested", 'u := {name: "Alice", profile: {role: "admin"}}; u ~ {profile: {role: Str}}', ("bool", True), None))
-runtime_scenario(lambda: _rt("struct-match-value", '5 ~ 5', ("bool", True), None))
+runtime_scenario(lambda: _rt("struct-match-type-int", "5 ~ Int", ("bool", True), None))
+runtime_scenario(
+    lambda: _rt("struct-match-type-str", '"hello" ~ Str', ("bool", True), None)
+)
+runtime_scenario(
+    lambda: _rt("struct-match-type-bool", "true ~ Bool", ("bool", True), None)
+)
+runtime_scenario(
+    lambda: _rt("struct-match-type-array", "[1, 2] ~ Array", ("bool", True), None)
+)
+runtime_scenario(
+    lambda: _rt("struct-match-type-object", "{a: 1} ~ Object", ("bool", True), None)
+)
+runtime_scenario(
+    lambda: _rt(
+        "struct-match-object-subset",
+        "obj := {a: 1, b: 2, c: 3}; obj ~ {a: Int}",
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "struct-match-object-multi",
+        "obj := {a: 1, b: 2}; obj ~ {a: Int, b: Int}",
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "struct-match-object-missing",
+        "{a: 1} ~ {a: Int, b: Int}",
+        ("bool", False),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "struct-match-nested",
+        'u := {name: "Alice", profile: {role: "admin"}}; u ~ {profile: {role: Str}}',
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(lambda: _rt("struct-match-value", "5 ~ 5", ("bool", True), None))
 
 # Type contracts in function parameters
-runtime_scenario(lambda: _rt("contract-int-valid", """fn add(a ~ Int, b ~ Int):
+runtime_scenario(
+    lambda: _rt(
+        "contract-int-valid",
+        """fn add(a ~ Int, b ~ Int):
     a + b
-add(1, 2)""", ("number", 3), None))
-runtime_scenario(lambda: _rt("contract-str-valid", """fn greet(name ~ Str):
+add(1, 2)""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "contract-str-valid",
+        """fn greet(name ~ Str):
     "Hello, " + name
-greet("Bob")""", ("string", "Hello, Bob"), None))
-runtime_scenario(lambda: _rt("contract-object-valid", """fn getname(u ~ {name: Str}):
+greet("Bob")""",
+        ("string", "Hello, Bob"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "contract-object-valid",
+        """fn getname(u ~ {name: Str}):
     u.name
-getname({name: "Alice", age: 30})""", ("string", "Alice"), None))
-runtime_scenario(lambda: _rt("contract-int-invalid", """fn add(a ~ Int):
+getname({name: "Alice", age: 30})""",
+        ("string", "Alice"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "contract-int-invalid",
+        """fn add(a ~ Int):
     a
-add("wrong")""", None, ShakarAssertionError))
-runtime_scenario(lambda: _rt("contract-object-invalid", """fn f(u ~ {x: Int}):
+add("wrong")""",
+        None,
+        ShakarAssertionError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "contract-object-invalid",
+        """fn f(u ~ {x: Int}):
     u
-f({y: 1})""", None, ShakarAssertionError))
+f({y: 1})""",
+        None,
+        ShakarAssertionError,
+    )
+)
 
 # Ensure unary ~ is rejected (only binary ~ is supported)
-runtime_scenario(lambda: _rt("unary-tilde-rejected", '~5', None, ParseError))
+runtime_scenario(lambda: _rt("unary-tilde-rejected", "~5", None, ParseError))
 
 # Inline functions with contracts should work correctly
-runtime_scenario(lambda: _rt("contract-inline-fn", 'fn inc(x ~ Int): x + 1; inc(5)', ("number", 6), None))
-runtime_scenario(lambda: _rt("contract-inline-fn-invalid", 'fn inc(x ~ Int): x + 1; inc("bad")', None, ShakarAssertionError))
-runtime_scenario(lambda: _rt("contract-inline-fn-defer", """fn test(x ~ Int):
+runtime_scenario(
+    lambda: _rt(
+        "contract-inline-fn", "fn inc(x ~ Int): x + 1; inc(5)", ("number", 6), None
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "contract-inline-fn-invalid",
+        'fn inc(x ~ Int): x + 1; inc("bad")',
+        None,
+        ShakarAssertionError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "contract-inline-fn-defer",
+        """fn test(x ~ Int):
     defer: x + 1
     x * 2
-test(5)""", ("number", 10), None))
-runtime_scenario(lambda: _rt("contract-inline-multiple", 'fn add(a ~ Int, b ~ Int): a + b; add(3, 4)', ("number", 7), None))
+test(5)""",
+        ("number", 10),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "contract-inline-multiple",
+        "fn add(a ~ Int, b ~ Int): a + b; add(3, 4)",
+        ("number", 7),
+        None,
+    )
+)
 
 # Optional fields with Optional() function
-runtime_scenario(lambda: _rt("optional-fn-missing-ok", '{} ~ {a: Optional(Int)}', ("bool", True), None))
-runtime_scenario(lambda: _rt("optional-fn-present-valid", '{a: 1} ~ {a: Optional(Int)}', ("bool", True), None))
-runtime_scenario(lambda: _rt("optional-fn-present-invalid", '{a: "no"} ~ {a: Optional(Int)}', ("bool", False), None))
+runtime_scenario(
+    lambda: _rt(
+        "optional-fn-missing-ok", "{} ~ {a: Optional(Int)}", ("bool", True), None
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "optional-fn-present-valid", "{a: 1} ~ {a: Optional(Int)}", ("bool", True), None
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "optional-fn-present-invalid",
+        '{a: "no"} ~ {a: Optional(Int)}',
+        ("bool", False),
+        None,
+    )
+)
 
 # Optional fields with key?: syntax
-runtime_scenario(lambda: _rt("optional-syntax-missing-ok", '{} ~ {a?: Int}', ("bool", True), None))
-runtime_scenario(lambda: _rt("optional-syntax-present-valid", '{a: 1, b: 2} ~ {a: Int, b?: Int}', ("bool", True), None))
-runtime_scenario(lambda: _rt("optional-syntax-present-invalid", '{a: "bad"} ~ {a?: Int}', ("bool", False), None))
-runtime_scenario(lambda: _rt("optional-syntax-mixed", '{name: "Alice"} ~ {name: Str, age?: Int}', ("bool", True), None))
-runtime_scenario(lambda: _rt("optional-syntax-required-missing", '{age: 30} ~ {name: Str, age?: Int}', ("bool", False), None))
+runtime_scenario(
+    lambda: _rt("optional-syntax-missing-ok", "{} ~ {a?: Int}", ("bool", True), None)
+)
+runtime_scenario(
+    lambda: _rt(
+        "optional-syntax-present-valid",
+        "{a: 1, b: 2} ~ {a: Int, b?: Int}",
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "optional-syntax-present-invalid",
+        '{a: "bad"} ~ {a?: Int}',
+        ("bool", False),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "optional-syntax-mixed",
+        '{name: "Alice"} ~ {name: Str, age?: Int}',
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "optional-syntax-required-missing",
+        "{age: 30} ~ {name: Str, age?: Int}",
+        ("bool", False),
+        None,
+    )
+)
 
 # Union types
-runtime_scenario(lambda: _rt("union-basic-int", '5 ~ Union(Int, Str)', ("bool", True), None))
-runtime_scenario(lambda: _rt("union-basic-str", '"hi" ~ Union(Int, Str)', ("bool", True), None))
-runtime_scenario(lambda: _rt("union-basic-fail", 'true ~ Union(Int, Str)', ("bool", False), None))
-runtime_scenario(lambda: _rt("union-with-nil", 'nil ~ Union(Int, Nil)', ("bool", True), None))
-runtime_scenario(lambda: _rt("union-reassign", 'Schema := Union(Int, Str); x := 5; x = "hello"; x ~ Schema', ("bool", True), None))
-runtime_scenario(lambda: _rt("union-in-object", '{age: 30} ~ {age: Union(Int, Str)}', ("bool", True), None))
-runtime_scenario(lambda: _rt("union-in-object-str", '{age: "30"} ~ {age: Union(Int, Str)}', ("bool", True), None))
-runtime_scenario(lambda: _rt("union-in-object-fail", '{age: true} ~ {age: Union(Int, Str)}', ("bool", False), None))
-runtime_scenario(lambda: _rt("union-with-optional", '{name: "Alice"} ~ {name: Str, age?: Union(Int, Str)}', ("bool", True), None))
-runtime_scenario(lambda: _rt("union-contract-valid", """fn process(value ~ Union(Int, Str)):
+runtime_scenario(
+    lambda: _rt("union-basic-int", "5 ~ Union(Int, Str)", ("bool", True), None)
+)
+runtime_scenario(
+    lambda: _rt("union-basic-str", '"hi" ~ Union(Int, Str)', ("bool", True), None)
+)
+runtime_scenario(
+    lambda: _rt("union-basic-fail", "true ~ Union(Int, Str)", ("bool", False), None)
+)
+runtime_scenario(
+    lambda: _rt("union-with-nil", "nil ~ Union(Int, Nil)", ("bool", True), None)
+)
+runtime_scenario(
+    lambda: _rt(
+        "union-reassign",
+        'Schema := Union(Int, Str); x := 5; x = "hello"; x ~ Schema',
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "union-in-object", "{age: 30} ~ {age: Union(Int, Str)}", ("bool", True), None
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "union-in-object-str",
+        '{age: "30"} ~ {age: Union(Int, Str)}',
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "union-in-object-fail",
+        "{age: true} ~ {age: Union(Int, Str)}",
+        ("bool", False),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "union-with-optional",
+        '{name: "Alice"} ~ {name: Str, age?: Union(Int, Str)}',
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "union-contract-valid",
+        """fn process(value ~ Union(Int, Str)):
     value
-process(42)""", ("number", 42), None))
-runtime_scenario(lambda: _rt("union-contract-invalid", """fn process(value ~ Union(Int, Str)):
+process(42)""",
+        ("number", 42),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "union-contract-invalid",
+        """fn process(value ~ Union(Int, Str)):
     value
-process(true)""", None, ShakarAssertionError))
+process(true)""",
+        None,
+        ShakarAssertionError,
+    )
+)
 
 # Return type contracts
-runtime_scenario(lambda: _rt("return-contract-basic", """fn double(x ~ Int) ~ Int:
+runtime_scenario(
+    lambda: _rt(
+        "return-contract-basic",
+        """fn double(x ~ Int) ~ Int:
     x * 2
-double(5)""", ("number", 10), None))
-runtime_scenario(lambda: _rt("return-contract-union", """fn safe_divide(a ~ Int, b ~ Int) ~ Union(Float, Nil):
+double(5)""",
+        ("number", 10),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "return-contract-union",
+        """fn safe_divide(a ~ Int, b ~ Int) ~ Union(Float, Nil):
     if b == 0:
         nil
     else:
         a / b
-safe_divide(10, 2)""", ("number", 5.0), None))
-runtime_scenario(lambda: _rt("return-contract-union-nil", """fn safe_divide(a ~ Int, b ~ Int) ~ Union(Float, Nil):
+safe_divide(10, 2)""",
+        ("number", 5.0),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "return-contract-union-nil",
+        """fn safe_divide(a ~ Int, b ~ Int) ~ Union(Float, Nil):
     if b == 0:
         nil
     else:
         a / b
-safe_divide(10, 0)""", ("null", None), None))
-runtime_scenario(lambda: _rt("return-contract-inline", """fn inc(x ~ Int) ~ Int: x + 1
-inc(5)""", ("number", 6), None))
-runtime_scenario(lambda: _rt("return-contract-anon", """square := fn(x ~ Int) ~ Int: x * x
-square(4)""", ("number", 16), None))
-runtime_scenario(lambda: _rt("return-contract-object", """PersonSchema := {name: Str, age: Int}
+safe_divide(10, 0)""",
+        ("null", None),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "return-contract-inline",
+        """fn inc(x ~ Int) ~ Int: x + 1
+inc(5)""",
+        ("number", 6),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "return-contract-anon",
+        """square := fn(x ~ Int) ~ Int: x * x
+square(4)""",
+        ("number", 16),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "return-contract-object",
+        """PersonSchema := {name: Str, age: Int}
 fn make_person(name ~ Str, age ~ Int) ~ PersonSchema:
     {name: name, age: age}
 p := make_person("Bob", 30)
-p.age""", ("number", 30), None))
-runtime_scenario(lambda: _rt("return-contract-fail", """fn bad_return(x ~ Int) ~ Str:
+p.age""",
+        ("number", 30),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "return-contract-fail",
+        """fn bad_return(x ~ Int) ~ Str:
     x * 2
-bad_return(5)""", None, ShakarTypeError))
+bad_return(5)""",
+        None,
+        ShakarTypeError,
+    )
+)
 
 # Destructure contracts
-runtime_scenario(lambda: _rt("destructure-contract-single", """a ~ Int := 42
-a""", ("number", 42), None))
-runtime_scenario(lambda: _rt("destructure-nested", """a, (b, (c, d)) := [1, [2, [3, 4]]]
-a + b + c + d""", ("number", 10), None))
-runtime_scenario(lambda: _rt("destructure-mixed-contract-nested", """a ~ Int, (b, c) := [10, [20, 30]]
-a + b + c""", ("number", 60), None))
-runtime_scenario(lambda: _rt("destructure-contract-basic", """a ~ Int, b ~ Str := 10, "hello"
-a""", ("number", 10), None))
-runtime_scenario(lambda: _rt("destructure-contract-partial", """x ~ Int, y, z ~ Int := 5, "mid", 15
-z - x""", ("number", 10), None))
-runtime_scenario(lambda: _rt("destructure-contract-broadcast", """m ~ Int, n ~ Int := 42
-m + n""", ("number", 84), None))
-runtime_scenario(lambda: _rt("destructure-contract-array", """id ~ Int, name ~ Str := [100, "Alice"]
-id""", ("number", 100), None))
-runtime_scenario(lambda: _rt("destructure-contract-fail", """a ~ Int, b ~ Str := 10, 20
-a""", None, ShakarAssertionError))
+runtime_scenario(
+    lambda: _rt(
+        "destructure-contract-single",
+        """a ~ Int := 42
+a""",
+        ("number", 42),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "destructure-nested",
+        """a, (b, (c, d)) := [1, [2, [3, 4]]]
+a + b + c + d""",
+        ("number", 10),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "destructure-mixed-contract-nested",
+        """a ~ Int, (b, c) := [10, [20, 30]]
+a + b + c""",
+        ("number", 60),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "destructure-contract-basic",
+        """a ~ Int, b ~ Str := 10, "hello"
+a""",
+        ("number", 10),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "destructure-contract-partial",
+        """x ~ Int, y, z ~ Int := 5, "mid", 15
+z - x""",
+        ("number", 10),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "destructure-contract-broadcast",
+        """m ~ Int, n ~ Int := 42
+m + n""",
+        ("number", 84),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "destructure-contract-array",
+        """id ~ Int, name ~ Str := [100, "Alice"]
+id""",
+        ("number", 100),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "destructure-contract-fail",
+        """a ~ Int, b ~ Str := 10, 20
+a""",
+        None,
+        ShakarAssertionError,
+    )
+)
 
 # Lookahead paren_depth leak tests - ensure layout parsing works after lookahead with parens
-runtime_scenario(lambda: _rt("lookahead-destructure-paren", """a ~ (Int), b := 10, 20
+runtime_scenario(
+    lambda: _rt(
+        "lookahead-destructure-paren",
+        """a ~ (Int), b := 10, 20
 x := 1
 y := 2
-x + y""", ("number", 3), None))
-runtime_scenario(lambda: _rt("lookahead-forin-paren", """sum := 0
+x + y""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "lookahead-forin-paren",
+        """sum := 0
 for x in [1, 2, 3]:
     sum = sum + x
-sum""", ("number", 6), None))
-runtime_scenario(lambda: _rt("lookahead-guard-continue", """x := 5
+sum""",
+        ("number", 6),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "lookahead-guard-continue",
+        """x := 5
 x > 3:
     print("big")
 | x > 0:
     print("small")
 y := 42
-y""", ("number", 42), None))
-runtime_scenario(lambda: _rt("lookahead-ccc-paren", """a, b := (1 > 0), (2 > 1)
+y""",
+        ("number", 42),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "lookahead-ccc-paren",
+        """a, b := (1 > 0), (2 > 1)
 x := 99
-x""", ("number", 99), None))
-runtime_scenario(lambda: _rt("lookahead-dictcomp-paren", """d := {x: x * 2 for x in [1, 2, 3]}
+x""",
+        ("number", 99),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "lookahead-dictcomp-paren",
+        """d := {x: x * 2 for x in [1, 2, 3]}
 y := 42
-y""", ("number", 42), None))
-runtime_scenario(lambda: _rt("lookahead-slice-literal", """arr := [10, 20, 30, 40]
+y""",
+        ("number", 42),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "lookahead-slice-literal",
+        """arr := [10, 20, 30, 40]
 s := arr`1:3`
 z := 100
-z""", ("number", 100), None))
+z""",
+        ("number", 100),
+        None,
+    )
+)
 
 # ---------------------------------------------------------------------------
 # Suite execution
@@ -1895,6 +2737,7 @@ z""", ("number", 100), None))
 
 class CaseRunner:
     """Runs parser-only cases across both start symbols and captures errors."""
+
     def __init__(self, parsers: ParserBundle):
         self.parsers = parsers
 
@@ -1918,6 +2761,7 @@ class CaseRunner:
 
 class SanitySuite:
     """Coordinates parser, AST, and runtime checks then emits a text report."""
+
     def __init__(self, plan: KeywordPlan, filters: Optional[Sequence[str]] = None):
         self.plan = plan
         self.filters = list(filters) if filters else []
@@ -2011,7 +2855,9 @@ class SanitySuite:
             try:
                 ast = self._parse_ast(scenario.code)
                 if scenario.expected_exc is not None:
-                    lines.append(f"[FAIL] {scenario.name}: expected {scenario.expected_exc.__name__}")
+                    lines.append(
+                        f"[FAIL] {scenario.name}: expected {scenario.expected_exc.__name__}"
+                    )
                     failed += 1
                     continue
                 error = scenario.checker(ast) if scenario.checker else None
@@ -2022,7 +2868,9 @@ class SanitySuite:
                     lines.append(f"[PASS] {scenario.name}: {scenario.code!r}")
             except Exception as exc:
                 if scenario.expected_exc and isinstance(exc, scenario.expected_exc):
-                    lines.append(f"[PASS] {scenario.name}: raised {scenario.expected_exc.__name__}")
+                    lines.append(
+                        f"[PASS] {scenario.name}: raised {scenario.expected_exc.__name__}"
+                    )
                 else:
                     lines.append(f"[FAIL] {scenario.name}: {exc}")
                     failed += 1
@@ -2039,7 +2887,9 @@ class SanitySuite:
             try:
                 result = run_program(scenario.source)
                 if scenario.expected_exc is not None:
-                    lines.append(f"[FAIL] {scenario.name}: expected {scenario.expected_exc.__name__}")
+                    lines.append(
+                        f"[FAIL] {scenario.name}: expected {scenario.expected_exc.__name__}"
+                    )
                     failed += 1
                     continue
                 err = self._verify_runtime_result(result, scenario.expectation)
@@ -2050,13 +2900,17 @@ class SanitySuite:
                     lines.append(self._pass_line(scenario.name, result))
             except Exception as exc:
                 if scenario.expected_exc and isinstance(exc, scenario.expected_exc):
-                    lines.append(f"[PASS] {scenario.name}: raised {scenario.expected_exc.__name__}")
+                    lines.append(
+                        f"[PASS] {scenario.name}: raised {scenario.expected_exc.__name__}"
+                    )
                 else:
                     lines.append(f"[FAIL] {scenario.name}: {exc}")
                     failed += 1
         return lines, total, failed
 
-    def _verify_runtime_result(self, value: object, expectation: Optional[Tuple[str, object]]) -> Optional[str]:
+    def _verify_runtime_result(
+        self, value: object, expectation: Optional[Tuple[str, object]]
+    ) -> Optional[str]:
         if expectation is None:
             return None
         kind, expected = expectation
@@ -2092,7 +2946,9 @@ class SanitySuite:
         if kind == "array":
             if not isinstance(value, ShkArray):
                 return f"expected ShkArray, got {type(value).__name__}"
-            actual_items = [item.value if hasattr(item, 'value') else item for item in value.items]
+            actual_items = [
+                item.value if hasattr(item, "value") else item for item in value.items
+            ]
             if actual_items != expected:
                 return f"expected {expected!r}, got {actual_items!r}"
             return None
@@ -2108,11 +2964,14 @@ class SanitySuite:
         elif isinstance(value, ShkCommand):
             desc = f"produced sh<{value.render()}>"
         elif isinstance(value, ShkArray):
-            items = [item.value if hasattr(item, 'value') else item for item in value.items]
+            items = [
+                item.value if hasattr(item, "value") else item for item in value.items
+            ]
             desc = f"produced {items!r}"
         else:
             desc = f"produced {value}"
         return f"[PASS] {name}: {desc}"
+
 
 # ---------------------------------------------------------------------------
 # Entrypoint
@@ -2134,6 +2993,7 @@ def run(argv: Sequence[str] = ()) -> Tuple[str, int]:
     suite = SanitySuite(plan, filters=_selected_filters(argv))
     return suite.execute()
 
+
 if __name__ == "__main__":
     report, failures = run(sys.argv[1:])
     out_path = Path("sanity_report.txt")
@@ -2142,11 +3002,11 @@ if __name__ == "__main__":
     if failures:
         raise SystemExit(1)
 r_runtime_ops = [
-    ("compound-mod", 'a := 10; a %= 3; a', ("number", 1)),
-    ("compound-minus", 'a := 10; a -= 4; a', ("number", 6)),
-    ("compound-mul", 'a := 3; a *= 4; a', ("number", 12)),
-    ("compound-div", 'a := 9; a /= 2; a', ("number", 4.5)),
-    ("compound-floordiv", 'a := 9; a //= 2; a', ("number", 4)),
+    ("compound-mod", "a := 10; a %= 3; a", ("number", 1)),
+    ("compound-minus", "a := 10; a -= 4; a", ("number", 6)),
+    ("compound-mul", "a := 3; a *= 4; a", ("number", 12)),
+    ("compound-div", "a := 9; a /= 2; a", ("number", 4.5)),
+    ("compound-floordiv", "a := 9; a //= 2; a", ("number", 4)),
 ]
 for name, source, expect in r_runtime_ops:
     runtime_scenario(lambda n=name, src=source, exp=expect: _rt(n, src, exp, None))

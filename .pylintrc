@@ -2,7 +2,9 @@
 disable =
     C0115,  # missing-class-docstring
     C0116,  # missing-function-docstring
-    C0301,  # line-too-long
     C0321,  # multiple-statements
     R0911,  # too-many-return-statements
     R0912   # too-many-branches
+
+[FORMAT]
+max-line-length = 88

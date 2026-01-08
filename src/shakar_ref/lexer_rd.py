@@ -31,96 +31,94 @@ class Lexer:
 
     # Keyword mapping
     KEYWORDS = {
-        'if': TT.IF,
-        'elif': TT.ELIF,
-        'else': TT.ELSE,
-        'while': TT.WHILE,
-        'for': TT.FOR,
-        'in': TT.IN,
-        'break': TT.BREAK,
-        'continue': TT.CONTINUE,
-        'return': TT.RETURN,
-        'fn': TT.FN,
-        'await': TT.AWAIT,
-        'using': TT.USING,
-        'defer': TT.DEFER,
-        'throw': TT.THROW,
-        'catch': TT.CATCH,
-        'assert': TT.ASSERT,
-        'dbg': TT.DBG,
-        'decorator': TT.DECORATOR,
-        'get': TT.GET,
-        'set': TT.SET,
-        'hook': TT.HOOK,
-        'over': TT.OVER,
-        'any': TT.ANY,
-        'all': TT.ALL,
-        'true': TT.TRUE,
-        'false': TT.FALSE,
-        'nil': TT.NIL,
-        'and': TT.AND,
-        'or': TT.OR,
-        'not': TT.NOT,
-        'is': TT.IS,
+        "if": TT.IF,
+        "elif": TT.ELIF,
+        "else": TT.ELSE,
+        "while": TT.WHILE,
+        "for": TT.FOR,
+        "in": TT.IN,
+        "break": TT.BREAK,
+        "continue": TT.CONTINUE,
+        "return": TT.RETURN,
+        "fn": TT.FN,
+        "await": TT.AWAIT,
+        "using": TT.USING,
+        "defer": TT.DEFER,
+        "throw": TT.THROW,
+        "catch": TT.CATCH,
+        "assert": TT.ASSERT,
+        "dbg": TT.DBG,
+        "decorator": TT.DECORATOR,
+        "get": TT.GET,
+        "set": TT.SET,
+        "hook": TT.HOOK,
+        "over": TT.OVER,
+        "any": TT.ANY,
+        "all": TT.ALL,
+        "true": TT.TRUE,
+        "false": TT.FALSE,
+        "nil": TT.NIL,
+        "and": TT.AND,
+        "or": TT.OR,
+        "not": TT.NOT,
+        "is": TT.IS,
     }
 
     # Operator mapping: longest matches first to handle prefixes correctly
     OPERATORS = [
         # Three-character operators
-        ('//=', TT.FLOORDIVEQ),
-        ('**=', TT.POWEQ),
-        ('...', TT.SPREAD),
-
+        ("//=", TT.FLOORDIVEQ),
+        ("**=", TT.POWEQ),
+        ("...", TT.SPREAD),
         # Two-character operators
-        ('~~', TT.REGEXMATCH),
-        ('==', TT.EQ),
-        ('!=', TT.NEQ),
-        ('<=', TT.LTE),
-        ('>=', TT.GTE),
-        ('&&', TT.AND),
-        ('||', TT.OR),
-        (':=', TT.WALRUS),
-        ('.=', TT.APPLYASSIGN),
-        ('+=', TT.PLUSEQ),
-        ('-=', TT.MINUSEQ),
-        ('*=', TT.STAREQ),
-        ('/=', TT.SLASHEQ),
-        ('//', TT.FLOORDIV),
-        ('**', TT.POW),
-        ('%=', TT.MODEQ),
-        ('++', TT.INCR),
-        ('--', TT.DECR),
-        ('??', TT.NULLISH),
-        ('+>', TT.DEEPMERGE),
-
+        ("~~", TT.REGEXMATCH),
+        ("==", TT.EQ),
+        ("!=", TT.NEQ),
+        ("<=", TT.LTE),
+        (">=", TT.GTE),
+        ("&&", TT.AND),
+        ("||", TT.OR),
+        (":=", TT.WALRUS),
+        (".=", TT.APPLYASSIGN),
+        ("+=", TT.PLUSEQ),
+        ("-=", TT.MINUSEQ),
+        ("*=", TT.STAREQ),
+        ("/=", TT.SLASHEQ),
+        ("//", TT.FLOORDIV),
+        ("**", TT.POW),
+        ("%=", TT.MODEQ),
+        ("++", TT.INCR),
+        ("--", TT.DECR),
+        ("??", TT.NULLISH),
+        ("+>", TT.DEEPMERGE),
         # Single-character operators
-        ('+', TT.PLUS),
-        ('-', TT.MINUS),
-        ('*', TT.STAR),
-        ('/', TT.SLASH),
-        ('%', TT.MOD),
-        ('^', TT.CARET),
-        ('<', TT.LT),
-        ('>', TT.GT),
-        ('!', TT.NEG),
-        ('=', TT.ASSIGN),
-        ('(', TT.LPAR),
-        (')', TT.RPAR),
-        ('[', TT.LSQB),
-        (']', TT.RSQB),
-        ('{', TT.LBRACE),
-        ('}', TT.RBRACE),
-        ('.', TT.DOT),
-        (',', TT.COMMA),
-        (':', TT.COLON),
-        (';', TT.SEMI),
-        ('?', TT.QMARK),
-        ('@', TT.AT),
-        ('$', TT.DOLLAR),
-        ('`', TT.BACKQUOTE),
-        ('&', TT.AMP),
-        ('|', TT.PIPE),
-        ('~', TT.TILDE),
+        ("+", TT.PLUS),
+        ("-", TT.MINUS),
+        ("*", TT.STAR),
+        ("/", TT.SLASH),
+        ("%", TT.MOD),
+        ("^", TT.CARET),
+        ("<", TT.LT),
+        (">", TT.GT),
+        ("!", TT.NEG),
+        ("=", TT.ASSIGN),
+        ("(", TT.LPAR),
+        (")", TT.RPAR),
+        ("[", TT.LSQB),
+        ("]", TT.RSQB),
+        ("{", TT.LBRACE),
+        ("}", TT.RBRACE),
+        (".", TT.DOT),
+        (",", TT.COMMA),
+        (":", TT.COLON),
+        (";", TT.SEMI),
+        ("?", TT.QMARK),
+        ("@", TT.AT),
+        ("$", TT.DOLLAR),
+        ("`", TT.BACKQUOTE),
+        ("&", TT.AMP),
+        ("|", TT.PIPE),
+        ("~", TT.TILDE),
     ]
 
     def __init__(self, source: str, track_indentation: bool = False):
@@ -133,7 +131,7 @@ class Lexer:
         # Indentation tracking
         self.track_indentation = track_indentation
         self.indent_stack = [0]  # Stack of indent levels (counts)
-        self.indent_strings = ['']  # Stack of indent strings
+        self.indent_strings = [""]  # Stack of indent strings
         self.at_line_start = True
         self.pending_dedents = 0
 
@@ -150,7 +148,7 @@ class Lexer:
         if self.track_indentation:
             while len(self.indent_stack) > 1:
                 self.indent_stack.pop()
-                self.emit(TT.DEDENT, '')
+                self.emit(TT.DEDENT, "")
 
         self.emit(TT.EOF, None)
         return self.tokens
@@ -167,12 +165,12 @@ class Lexer:
             return
 
         # Comments
-        if self.peek() == '#':
+        if self.peek() == "#":
             self.skip_comment()
             return
 
         # Newlines
-        if self.peek() in ('\n', '\r'):
+        if self.peek() in ("\n", "\r"):
             self.scan_newline()
             return
 
@@ -182,21 +180,21 @@ class Lexer:
             return
 
         # Raw strings
-        if self.match_keyword('raw'):
+        if self.match_keyword("raw"):
             self.scan_raw_string()
             return
 
         # Shell strings
-        if self.match_keyword('sh'):
+        if self.match_keyword("sh"):
             self.scan_shell_string()
             return
         # Path strings
-        if self.peek() == 'p' and self.peek(1) in ('"', "'"):
+        if self.peek() == "p" and self.peek(1) in ('"', "'"):
             self.advance()  # consume 'p'
             self.scan_path_string()
             return
         # Regex literals (r"..."/flags)
-        if self.peek() == 'r' and self.peek(1) in ('"', "'"):
+        if self.peek() == "r" and self.peek(1) in ('"', "'"):
             self.scan_regex_literal()
             return
 
@@ -206,7 +204,7 @@ class Lexer:
             return
 
         # Identifiers and keywords
-        if self.peek().isalpha() or self.peek() == '_':
+        if self.peek().isalpha() or self.peek() == "_":
             self.scan_identifier()
             return
 
@@ -224,11 +222,11 @@ class Lexer:
         """
         # Count leading spaces/tabs and capture the actual string
         indent = 0
-        indent_str = ''
-        while self.peek() in (' ', '\t'):
+        indent_str = ""
+        while self.peek() in (" ", "\t"):
             ch = self.peek()
             indent_str += ch
-            if ch == ' ':
+            if ch == " ":
                 indent += 1
             else:
                 indent += 8  # Tab = 8 spaces
@@ -237,7 +235,7 @@ class Lexer:
         self.at_line_start = False
 
         # Skip blank lines
-        if self.peek() in ('\n', '\r', '#'):
+        if self.peek() in ("\n", "\r", "#"):
             return
 
         current_indent = self.indent_stack[-1]
@@ -254,7 +252,7 @@ class Lexer:
                 self.indent_stack.pop()
                 self.indent_strings.pop()
                 # DEDENT value should be the indentation we're returning to
-                dedent_str = self.indent_strings[-1] if self.indent_strings else ''
+                dedent_str = self.indent_strings[-1] if self.indent_strings else ""
                 self.emit(TT.DEDENT, dedent_str)
 
             if self.indent_stack[-1] != indent:
@@ -268,12 +266,12 @@ class Lexer:
         """Scan newline character"""
         start_line, start_col = self.line, self.column
 
-        if self.peek() == '\r' and self.peek(1) == '\n':
+        if self.peek() == "\r" and self.peek(1) == "\n":
             self.advance(2)  # consume CRLF
         else:
             self.advance()
 
-        self.emit(TT.NEWLINE, '\n', start_line=start_line, start_col=start_col)
+        self.emit(TT.NEWLINE, "\n", start_line=start_line, start_col=start_col)
         self.line += 1
         self.column = 1
         self.at_line_start = True
@@ -285,7 +283,7 @@ class Lexer:
         value = quote  # Keep opening quote
 
         while self.pos < len(self.source) and self.peek() != quote:
-            if self.peek() == '\\':
+            if self.peek() == "\\":
                 # Keep escape sequence as-is
                 value += self.advance()
                 if self.pos < len(self.source):
@@ -301,9 +299,9 @@ class Lexer:
 
     def scan_quoted_content(self, quote: str, allow_escapes: bool = False) -> str:
         """Helper to scan content between quotes"""
-        content = ''
+        content = ""
         while self.pos < len(self.source) and self.peek() != quote:
-            if allow_escapes and self.peek() == '\\':
+            if allow_escapes and self.peek() == "\\":
                 content += self.advance()
                 if self.pos < len(self.source):
                     content += self.advance()
@@ -316,18 +314,23 @@ class Lexer:
         # 'raw' keyword already consumed - start_col is 3 chars back
         start_line, start_col = self.line, self.column - 3
 
-        if self.peek() == '#':
+        if self.peek() == "#":
             # Hash-delimited raw string: raw#"..."#
             self.advance()  # consume #
             quote = self.advance()
-            content = ''
+            content = ""
 
             # Scan until we find quote followed by #
             while self.pos < len(self.source):
-                if self.peek() == quote and self.peek(1) == '#':
+                if self.peek() == quote and self.peek(1) == "#":
                     self.advance(2)  # consume quote and #
-                    full_value = f'raw#{quote}{content}{quote}#'
-                    self.emit(TT.RAW_HASH_STRING, full_value, start_line=start_line, start_col=start_col)
+                    full_value = f"raw#{quote}{content}{quote}#"
+                    self.emit(
+                        TT.RAW_HASH_STRING,
+                        full_value,
+                        start_line=start_line,
+                        start_col=start_col,
+                    )
                     return
                 content += self.advance()
 
@@ -341,8 +344,10 @@ class Lexer:
                 raise LexError(f"Unterminated raw string at line {self.line}")
 
             self.advance()  # Closing quote
-            full_value = f'raw{quote}{content}{quote}'
-            self.emit(TT.RAW_STRING, full_value, start_line=start_line, start_col=start_col)
+            full_value = f"raw{quote}{content}{quote}"
+            self.emit(
+                TT.RAW_STRING, full_value, start_line=start_line, start_col=start_col
+            )
 
     def scan_shell_string(self):
         """Scan shell string: sh"..." or sh'...'"""
@@ -365,7 +370,7 @@ class Lexer:
         value = quote  # keep opening quote
 
         while self.pos < len(self.source) and self.peek() != quote:
-            if self.peek() == '\\':
+            if self.peek() == "\\":
                 value += self.advance()
                 if self.pos < len(self.source):
                     value += self.advance()
@@ -377,19 +382,21 @@ class Lexer:
 
         value += self.advance()  # Closing quote
         full_value = f"p{value}"
-        self.emit(TT.PATH_STRING, full_value, start_line=start_line, start_col=start_col)
+        self.emit(
+            TT.PATH_STRING, full_value, start_line=start_line, start_col=start_col
+        )
 
     def scan_regex_literal(self):
         """Scan regex literal: r"..." or r'...' with optional /flags."""
         start_line, start_col = self.line, self.column
         self.advance()  # consume 'r'
         quote = self.advance()
-        pattern = ''
+        pattern = ""
 
         while self.pos < len(self.source) and self.peek() != quote:
-            if self.peek() in ('\n', '\r'):
+            if self.peek() in ("\n", "\r"):
                 raise LexError(f"Unterminated regex literal at line {start_line}")
-            if self.peek() == '\\':
+            if self.peek() == "\\":
                 pattern += self.advance()
                 if self.pos < len(self.source):
                     pattern += self.advance()
@@ -401,37 +408,39 @@ class Lexer:
 
         self.advance()  # Closing quote
 
-        flags = ''
-        if self.peek() == '/':
+        flags = ""
+        if self.peek() == "/":
             self.advance()  # consume /
-            if self.peek() not in ('i', 'm', 's', 'x', 'f'):
+            if self.peek() not in ("i", "m", "s", "x", "f"):
                 raise LexError(f"Unknown regex flag at line {self.line}")
-            while self.peek() in ('i', 'm', 's', 'x', 'f'):
+            while self.peek() in ("i", "m", "s", "x", "f"):
                 flags += self.advance()
-            if self.peek().isalnum() or self.peek() == '_':
+            if self.peek().isalnum() or self.peek() == "_":
                 raise LexError(f"Unknown regex flag at line {self.line}")
 
-        self.emit(TT.REGEX, (pattern, flags), start_line=start_line, start_col=start_col)
+        self.emit(
+            TT.REGEX, (pattern, flags), start_line=start_line, start_col=start_col
+        )
 
     def scan_number(self):
         """Scan number literal"""
         start_line, start_col = self.line, self.column
-        value = ''
+        value = ""
 
         # Integer part
         while self.peek().isdigit():
             value += self.advance()
 
         # Decimal part
-        if self.peek() == '.' and self.peek(1).isdigit():
+        if self.peek() == "." and self.peek(1).isdigit():
             value += self.advance()  # .
             while self.peek().isdigit():
                 value += self.advance()
 
         # Scientific notation
-        if self.peek() in ('e', 'E'):
+        if self.peek() in ("e", "E"):
             value += self.advance()
-            if self.peek() in ('+', '-'):
+            if self.peek() in ("+", "-"):
                 value += self.advance()
             while self.peek().isdigit():
                 value += self.advance()
@@ -442,9 +451,9 @@ class Lexer:
     def scan_identifier(self):
         """Scan identifier or keyword"""
         start_line, start_col = self.line, self.column
-        value = ''
+        value = ""
 
-        while self.peek().isalnum() or self.peek() == '_':
+        while self.peek().isalnum() or self.peek() == "_":
             value += self.advance()
 
         # Check if keyword
@@ -462,7 +471,9 @@ class Lexer:
                 return
 
         ch = self.peek()
-        raise LexError(f"Unexpected character '{ch}' at line {self.line}, col {self.column}")
+        raise LexError(
+            f"Unexpected character '{ch}' at line {self.line}, col {self.column}"
+        )
 
     # ========================================================================
     # Utilities
@@ -473,15 +484,15 @@ class Lexer:
         idx = self.pos + offset
         if idx < len(self.source):
             return self.source[idx]
-        return '\0'
+        return "\0"
 
     def advance(self, n: int = 1) -> str:
         """Consume n characters and return them as a string"""
         if n < 0:
             raise ValueError(f"advance() requires n >= 0, got {n}")
-        result = ''
+        result = ""
         for _ in range(n):
-            ch = self.source[self.pos] if self.pos < len(self.source) else '\0'
+            ch = self.source[self.pos] if self.pos < len(self.source) else "\0"
             result += ch
             self.pos += 1
             self.column += 1
@@ -494,7 +505,7 @@ class Lexer:
                 return False
 
         # Ensure it's not part of identifier
-        if self.peek(len(keyword)).isalnum() or self.peek(len(keyword)) == '_':
+        if self.peek(len(keyword)).isalnum() or self.peek(len(keyword)) == "_":
             return False
 
         # Consume keyword
@@ -506,17 +517,24 @@ class Lexer:
     def skip_whitespace(self) -> bool:
         """Skip whitespace (not newlines), return True if any skipped"""
         skipped = False
-        while self.peek() in (' ', '\t'):
+        while self.peek() in (" ", "\t"):
             self.advance()
             skipped = True
         return skipped
 
     def skip_comment(self):
         """Skip comment until end of line"""
-        while self.peek() not in ('\n', '\r', '\0'):
+        while self.peek() not in ("\n", "\r", "\0"):
             self.advance()
 
-    def emit(self, token_type: TT, value, *, start_line: Optional[int] = None, start_col: Optional[int] = None):
+    def emit(
+        self,
+        token_type: TT,
+        value,
+        *,
+        start_line: Optional[int] = None,
+        start_col: Optional[int] = None,
+    ):
         """Emit a token with position info.
 
         If start_line/start_col not provided, uses current position.
@@ -525,14 +543,16 @@ class Lexer:
             type=token_type,
             value=value,
             line=start_line if start_line is not None else self.line,
-            column=start_col if start_col is not None else self.column
+            column=start_col if start_col is not None else self.column,
         )
         self.tokens.append(tok)
 
 
 class LexError(Exception):
     """Lexical analysis error"""
+
     pass
+
 
 # ============================================================================
 # Testing
@@ -545,16 +565,16 @@ def tokenize(source: str, track_indentation: bool = False) -> List[Tok]:
     return lexer.tokenize()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Simple test
-    test_source = '''
+    test_source = """
 fn fibonacci(n):
     if n <= 1:
         return n
     return fibonacci(n-1) + fibonacci(n-2)
 
 print(fibonacci(10))
-'''
+"""
 
     tokens = tokenize(test_source, track_indentation=True)
     for tok in tokens:

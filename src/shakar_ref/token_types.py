@@ -11,6 +11,7 @@ from enum import Enum, auto
 
 class TT(Enum):
     """Token Types - mirrors grammar terminals"""
+
     # Literals
     NUMBER = auto()
     STRING = auto()
@@ -138,6 +139,7 @@ class TT(Enum):
 @dataclass
 class Tok:
     """Token with position info"""
+
     type: TT
     value: Any
     line: int = 0

@@ -9,7 +9,9 @@ from .bind import RebindContext
 from .mutation import get_field_value
 
 
-def eval_valuefan(base: ShkValue, fan_node: Tree, frame: Frame, eval_func, apply_op) -> ShkValue:
+def eval_valuefan(
+    base: ShkValue, fan_node: Tree, frame: Frame, eval_func, apply_op
+) -> ShkValue:
     """Evaluate value fanout `base.{...}` to an array; base is evaluated already."""
     items: List[ShkValue] = []
     seen: set[str] = set()
@@ -26,7 +28,9 @@ def eval_valuefan(base: ShkValue, fan_node: Tree, frame: Frame, eval_func, apply
     return ShkArray(items)
 
 
-def _eval_item(base: ShkValue, item: Tree, frame: Frame, eval_func, apply_op) -> ShkValue:
+def _eval_item(
+    base: ShkValue, item: Tree, frame: Frame, eval_func, apply_op
+) -> ShkValue:
     """Evaluate a single valuefan item, applying postfix ops starting from base.field."""
     label = tree_label(item)
     if label == "field":

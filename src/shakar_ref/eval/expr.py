@@ -36,23 +36,29 @@ EvalFunc = Callable[[Node, Frame], ShkValue]
 
 
 def normalize_unary_op(op_node: Node, frame: Frame) -> Node | str:
-    if tree_label(op_node) == 'unaryprefixop':
+    if tree_label(op_node) == "unaryprefixop":
         if op_node.children:
             return normalize_unary_op(op_node.children[0], frame)
-        src = getattr(frame, 'source', None)
+        src = getattr(frame, "source", None)
         meta = node_meta(op_node)
 
         if src is not None and meta is not None:
-            return src[meta.start_pos:meta.end_pos]
-        return ''
+            return src[meta.start_pos : meta.end_pos]
+        return ""
     return op_node
 
 
-def eval_unary(op_node: Node, rhs_node: Tree, frame: Frame, eval_func: EvalFunc, apply_op_func=chain_apply_op) -> ShkValue:
+def eval_unary(
+    op_node: Node,
+    rhs_node: Tree,
+    frame: Frame,
+    eval_func: EvalFunc,
+    apply_op_func=chain_apply_op,
+) -> ShkValue:
     op_norm = normalize_unary_op(op_node, frame)
     op_value = op_norm.value if isinstance(op_norm, Tok) else op_norm
 
-    if op_value in ('++', '--'):
+    if op_value in ("++", "--"):
         from .bind import resolve_assignable_node, apply_numeric_delta
 
         context = resolve_assignable_node(
@@ -64,28 +70,33 @@ def eval_unary(op_node: Node, rhs_node: Tree, frame: Frame, eval_func: EvalFunc,
         )
         if isinstance(context, FanContext):
             raise ShakarRuntimeError("Increment target must end with a field or index")
-        _, new_val = apply_numeric_delta(context, 1 if op_value == '++' else -1)
+        _, new_val = apply_numeric_delta(context, 1 if op_value == "++" else -1)
         return new_val
 
     rhs = eval_func(rhs_node, frame)
 
     match op_norm:
-        case Tok(type=TT.PLUS) | '+':
+        case Tok(type=TT.PLUS) | "+":
             raise ShakarRuntimeError("unary + not supported")
-        case Tok(type=TT.MINUS) | '-':
+        case Tok(type=TT.MINUS) | "-":
             rhs_num = _coerce_number(rhs)
             return ShkNumber(-rhs_num)
-        case Tok(type=TT.TILDE) | '~':
+        case Tok(type=TT.TILDE) | "~":
             raise ShakarRuntimeError("bitwise ~ not supported yet")
-        case Tok(type=TT.NOT) | 'not':
+        case Tok(type=TT.NOT) | "not":
             return ShkBool(not is_truthy(rhs))
-        case Tok(type=TT.NEG) | '!':
+        case Tok(type=TT.NEG) | "!":
             return ShkBool(not is_truthy(rhs))
         case _:
             raise ShakarRuntimeError("Unsupported unary op")
 
 
-def eval_infix(children: List[Tree], frame: Frame, eval_func: EvalFunc, right_assoc_ops: Optional[Set[str]]=None) -> ShkValue:
+def eval_infix(
+    children: List[Tree],
+    frame: Frame,
+    eval_func: EvalFunc,
+    right_assoc_ops: Optional[Set[str]] = None,
+) -> ShkValue:
     if not children:
         return ShkNull()
 
@@ -96,7 +107,9 @@ def eval_infix(children: List[Tree], frame: Frame, eval_func: EvalFunc, right_as
             return False
 
         # Avoid clobbering anchor for plain identifiers in arithmetic chains so subjectful anchors survive (e.g., acc + .upper()).
-        if token_kind(node) == "IDENT" and (next_op in arithmetic_ops or next_op is None):
+        if token_kind(node) == "IDENT" and (
+            next_op in arithmetic_ops or next_op is None
+        ):
             return False
 
         return True
@@ -114,10 +127,10 @@ def eval_infix(children: List[Tree], frame: Frame, eval_func: EvalFunc, right_as
 
         acc = vals[-1]
 
-        for i in range(len(vals)-2, -1, -1):
+        for i in range(len(vals) - 2, -1, -1):
             lhs = require_number(vals[i])
             rhs = require_number(acc)
-            acc = ShkNumber(lhs.value ** rhs.value)
+            acc = ShkNumber(lhs.value**rhs.value)
         return acc
 
     operands = children[0::2]
@@ -145,7 +158,11 @@ def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
     if len(children) == 1:
         return eval_func(children[0], frame)
 
-    if len(children) == 3 and tree_label(children[1]) == 'cmpop' and as_op(children[1]) == '~~':
+    if (
+        len(children) == 3
+        and tree_label(children[1]) == "cmpop"
+        and as_op(children[1]) == "~~"
+    ):
         lhs_node, _, rhs_node = children
         lhs = eval_func(lhs_node, frame)
         if retargets_anchor(lhs_node):
@@ -160,7 +177,7 @@ def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
     if retargets_anchor(first_node):
         frame.dot = subject
     idx = 1
-    joiner = 'and'
+    joiner = "and"
     last_comp: Optional[str] = None
     agg: Optional[bool] = None
 
@@ -168,17 +185,17 @@ def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
         node = children[idx]
         tok = token_kind(node)
 
-        if tok in {'AND', 'and'}:
-            joiner = 'and'
+        if tok in {"AND", "and"}:
+            joiner = "and"
             idx += 1
             continue
-        if tok in {'OR', 'or'}:
-            joiner = 'or'
+        if tok in {"OR", "or"}:
+            joiner = "or"
             idx += 1
             continue
 
         label = tree_label(node)
-        if label == 'cmpop':
+        if label == "cmpop":
             comp = as_op(node)
             last_comp = comp
             idx += 1
@@ -205,25 +222,27 @@ def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
         if agg is None:
             agg = leg_val
         else:
-            agg = (agg and leg_val) if joiner == 'and' else (agg or leg_val)
+            agg = (agg and leg_val) if joiner == "and" else (agg or leg_val)
 
     return ShkBool(bool(agg)) if agg is not None else ShkBool(True)
 
 
-def eval_logical(kind: str, children: List[Tree], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_logical(
+    kind: str, children: List[Tree], frame: Frame, eval_func: EvalFunc
+) -> ShkValue:
     if not children:
         return ShkNull()
 
-    normalized = 'and' if 'and' in kind else 'or'
+    normalized = "and" if "and" in kind else "or"
     prev_dot = frame.dot
 
     try:
         last_val: ShkValue
-        if normalized == 'and':
+        if normalized == "and":
             last_val = ShkBool(True)
 
             for child in children:
-                if token_kind(child) in {'AND', 'OR'}:
+                if token_kind(child) in {"AND", "OR"}:
                     continue
 
                 val = eval_func(child, frame)
@@ -237,7 +256,7 @@ def eval_logical(kind: str, children: List[Tree], frame: Frame, eval_func: EvalF
         last_val = ShkBool(False)
 
         for child in children:
-            if token_kind(child) in {'AND', 'OR'}:
+            if token_kind(child) in {"AND", "OR"}:
                 continue
 
             val = eval_func(child, frame)
@@ -252,7 +271,11 @@ def eval_logical(kind: str, children: List[Tree], frame: Frame, eval_func: EvalF
 
 
 def eval_nullish(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> ShkValue:
-    exprs = [child for child in children if not (isinstance(child, Tok) and child.value == '??')]
+    exprs = [
+        child
+        for child in children
+        if not (isinstance(child, Tok) and child.value == "??")
+    ]
 
     if not exprs:
         return ShkNull()
@@ -269,10 +292,10 @@ def eval_nullish(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
 
 def eval_nullsafe(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     target = node
-    if is_tree(node) and tree_label(node) == 'nullsafe' and node.children:
+    if is_tree(node) and tree_label(node) == "nullsafe" and node.children:
         target = node.children[0]
 
-    if not is_tree(target) or tree_label(target) != 'explicit_chain':
+    if not is_tree(target) or tree_label(target) != "explicit_chain":
         try:
             return eval_func(target, frame)
         except (ShakarKeyError, ShakarIndexError):
@@ -327,16 +350,22 @@ def as_op(x: Node) -> str:
 
     label = tree_label(x) if is_tree(x) else None
     if label is not None:
-        if label in ('addop', 'mulop', 'powop') and len(x.children) == 1 and isinstance(x.children[0], Tok):
+        if (
+            label in ("addop", "mulop", "powop")
+            and len(x.children) == 1
+            and isinstance(x.children[0], Tok)
+        ):
             return str(x.children[0].value)
 
-        if label == 'cmpop':
-            tokens: list[str] = [str(tok.value) for tok in x.children if isinstance(tok, Tok)]
+        if label == "cmpop":
+            tokens: list[str] = [
+                str(tok.value) for tok in x.children if isinstance(tok, Tok)
+            ]
             if not tokens:
                 raise ShakarRuntimeError("Empty comparison operator")
 
-            if tokens[0] == '!' and len(tokens) > 1:
-                return '!' + ''.join(tokens[1:])
+            if tokens[0] == "!" and len(tokens) > 1:
+                return "!" + "".join(tokens[1:])
 
             if len(tokens) > 1:
                 return " ".join(tokens)
@@ -347,7 +376,7 @@ def as_op(x: Node) -> str:
 
 def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
     match op:
-        case '+':
+        case "+":
             if isinstance(lhs, ShkArray) and isinstance(rhs, ShkArray):
                 return ShkArray(lhs.items + rhs.items)
             if isinstance(lhs, ShkString) or isinstance(rhs, ShkString):
@@ -355,15 +384,15 @@ def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
             lhs_num = require_number(lhs)
             rhs_num = require_number(rhs)
             return ShkNumber(lhs_num.value + rhs_num.value)
-        case '-':
+        case "-":
             lhs_num = require_number(lhs)
             rhs_num = require_number(rhs)
             return ShkNumber(lhs_num.value - rhs_num.value)
-        case '*':
+        case "*":
             lhs_num = require_number(lhs)
             rhs_num = require_number(rhs)
             return ShkNumber(lhs_num.value * rhs_num.value)
-        case '/':
+        case "/":
             if isinstance(lhs, ShkPath):
                 if isinstance(rhs, ShkPath):
                     return ShkPath(str(lhs.as_path() / rhs.as_path()))
@@ -373,18 +402,18 @@ def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
             lhs_num = require_number(lhs)
             rhs_num = require_number(rhs)
             return ShkNumber(lhs_num.value / rhs_num.value)
-        case '//':
+        case "//":
             lhs_num = require_number(lhs)
             rhs_num = require_number(rhs)
             return ShkNumber(math.floor(lhs_num.value / rhs_num.value))
-        case '%':
+        case "%":
             lhs_num = require_number(lhs)
             rhs_num = require_number(rhs)
             return ShkNumber(lhs_num.value % rhs_num.value)
-        case '**':
+        case "**":
             lhs_num = require_number(lhs)
             rhs_num = require_number(rhs)
-            return ShkNumber(lhs_num.value ** rhs_num.value)
+            return ShkNumber(lhs_num.value**rhs_num.value)
     raise ShakarRuntimeError(f"Unknown operator {op}")
 
 
@@ -393,30 +422,31 @@ def _compare_values(op: str, lhs: ShkValue, rhs: ShkValue) -> bool:
         return _compare_with_selector(op, lhs, rhs)
 
     match op:
-        case '==':
+        case "==":
             return shk_equals(lhs, rhs)
-        case '!=':
+        case "!=":
             return not shk_equals(lhs, rhs)
-        case '<':
+        case "<":
             return _coerce_number(lhs) < _coerce_number(rhs)
-        case '<=':
+        case "<=":
             return _coerce_number(lhs) <= _coerce_number(rhs)
-        case '>':
+        case ">":
             return _coerce_number(lhs) > _coerce_number(rhs)
-        case '>=':
+        case ">=":
             return _coerce_number(lhs) >= _coerce_number(rhs)
-        case 'is':
+        case "is":
             return shk_equals(lhs, rhs)
-        case '!is' | 'is not':
+        case "!is" | "is not":
             return not shk_equals(lhs, rhs)
-        case 'in':
+        case "in":
             return _contains(rhs, lhs)
-        case 'not in' | '!in':
+        case "not in" | "!in":
             return not _contains(rhs, lhs)
-        case '~':
+        case "~":
             from .match import match_structure
+
             return match_structure(lhs, rhs)
-        case '~~':
+        case "~~":
             return is_truthy(_regex_match(lhs, rhs))
         case _:
             raise ShakarRuntimeError(f"Unknown comparator {op}")
@@ -448,23 +478,23 @@ def _coerce_number(value: ShkValue) -> float:
 def _compare_with_selector(op: str, lhs: ShkValue, selector: ShkSelector) -> bool:
     values = _selector_values(selector)
 
-    if op == '==':
+    if op == "==":
         return all(shk_equals(lhs, val) for val in values)
 
-    if op == '!=':
+    if op == "!=":
         return any(not shk_equals(lhs, val) for val in values)
 
     lhs_num = _coerce_number(lhs)
     rhs_nums = [_coerce_number(val) for val in values]
 
     match op:
-        case '<':
+        case "<":
             return all(lhs_num < num for num in rhs_nums)
-        case '<=':
+        case "<=":
             return all(lhs_num <= num for num in rhs_nums)
-        case '>':
+        case ">":
             return all(lhs_num > num for num in rhs_nums)
-        case '>=':
+        case ">=":
             return all(lhs_num >= num for num in rhs_nums)
         case _:
             raise ShakarTypeError(f"Unsupported comparator '{op}' for selector literal")
@@ -483,7 +513,9 @@ def _contains(container: ShkValue, item: ShkValue) -> bool:
                 return item.value in slots
             raise ShakarTypeError("Object membership requires a string key")
         case _:
-            raise ShakarTypeError(f"Unsupported container type for 'in': {type(container).__name__}")
+            raise ShakarTypeError(
+                f"Unsupported container type for 'in': {type(container).__name__}"
+            )
 
 
 def _nullsafe_recovers(err: Exception, recv: ShkValue) -> bool:

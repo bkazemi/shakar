@@ -29,7 +29,11 @@ def looks_like_offside(code: str) -> bool:
     lines = code.splitlines()
 
     for i, ln in enumerate(lines):
-        if ln.rstrip().endswith(":") and i < len(lines) - 1 and lines[i + 1].startswith((" ", "\t")):
+        if (
+            ln.rstrip().endswith(":")
+            and i < len(lines) - 1
+            and lines[i + 1].startswith((" ", "\t"))
+        ):
             return True
 
         if ln and (ln[0] == " " or ln[0] == "\t"):
@@ -109,7 +113,11 @@ class ChainNormalize(Transformer):
 
                 if tree_label(nxt) == "call":
                     name = node.children[0]
-                    args_node = Tree("args", [Tree("amp_lambda", nxt.children)]) if nxt.children else Tree("args", [])
+                    args_node = (
+                        Tree("args", [Tree("amp_lambda", nxt.children)])
+                        if nxt.children
+                        else Tree("args", [])
+                    )
                     out.append(Tree("method", [name, args_node]))
                     i += 2
                     continue
@@ -176,10 +184,10 @@ class Prune(Transformer):
         value = c[1]
         # Wrap value in Optional() call
         # The correct AST structure is: explicit_chain(IDENT, call(args(...)))
-        optional_call = Tree("explicit_chain", [
-            Tok(TT.IDENT, "Optional"),
-            Tree("call", [Tree("args", [value])])
-        ])
+        optional_call = Tree(
+            "explicit_chain",
+            [Tok(TT.IDENT, "Optional"), Tree("call", [Tree("args", [value])])],
+        )
         return Tree("obj_field", [key, optional_call])
 
     def obj_sep(self, _c):
@@ -289,7 +297,9 @@ class Prune(Transformer):
     def SHELL_STRING(self, token: Tok) -> Tree:
         return self._transform_shell_string_token(token)
 
-    def _split_interpolation_segments(self, text: str, token: Tok) -> List[InterpolationSegment]:
+    def _split_interpolation_segments(
+        self, text: str, token: Tok
+    ) -> List[InterpolationSegment]:
         parts: List[InterpolationSegment] = []
         literal: List[str] = []
         index = 0
@@ -305,7 +315,9 @@ class Prune(Transformer):
                     index += 2
                     continue
 
-                expr_text, next_index = self._extract_interpolation_expr(text, index + 1, token)
+                expr_text, next_index = self._extract_interpolation_expr(
+                    text, index + 1, token
+                )
 
                 if literal:
                     parts.append(("text", "".join(literal)))
@@ -333,7 +345,9 @@ class Prune(Transformer):
             parts.append(("text", "".join(literal)))
         return parts
 
-    def _split_shell_interpolation_segments(self, text: str, token: Tok) -> List[InterpolationSegment]:
+    def _split_shell_interpolation_segments(
+        self, text: str, token: Tok
+    ) -> List[InterpolationSegment]:
         parts: List[InterpolationSegment] = []
         literal: List[str] = []
         index = 0
@@ -344,7 +358,9 @@ class Prune(Transformer):
 
             if ch == "{":
                 if index + 1 < length and text[index + 1] == "{":
-                    expr_text, next_index = self._extract_interpolation_expr(text, index + 2, token, raw_close=True)
+                    expr_text, next_index = self._extract_interpolation_expr(
+                        text, index + 2, token, raw_close=True
+                    )
 
                     if literal:
                         parts.append(("text", "".join(literal)))
@@ -355,7 +371,9 @@ class Prune(Transformer):
                     index = next_index
                     continue
 
-                expr_text, next_index = self._extract_interpolation_expr(text, index + 1, token)
+                expr_text, next_index = self._extract_interpolation_expr(
+                    text, index + 1, token
+                )
 
                 if literal:
                     parts.append(("text", "".join(literal)))
@@ -378,7 +396,9 @@ class Prune(Transformer):
             parts.append(("text", "".join(literal)))
         return parts
 
-    def _extract_interpolation_expr(self, text: str, start: int, token: Tok, raw_close: bool = False) -> Tuple[str, int]:
+    def _extract_interpolation_expr(
+        self, text: str, start: int, token: Tok, raw_close: bool = False
+    ) -> Tuple[str, int]:
         depth = 1
         index = start
         length = len(text)
@@ -412,17 +432,23 @@ class Prune(Transformer):
                     expr = text[start:index]
 
                     if not expr.strip():
-                        raise SyntaxError("Empty interpolation expression in string literal")
+                        raise SyntaxError(
+                            "Empty interpolation expression in string literal"
+                        )
 
                     if raw_close:
                         if index + 1 >= length or text[index + 1] != "}":
-                            raise SyntaxError(f"Unterminated interpolation expression in string literal: {token.value!r}")
+                            raise SyntaxError(
+                                f"Unterminated interpolation expression in string literal: {token.value!r}"
+                            )
                         return expr, index + 2
 
                     return expr, index + 1
             index += 1
 
-        raise SyntaxError(f"Unterminated interpolation expression in string literal: {token.value!r}")
+        raise SyntaxError(
+            f"Unterminated interpolation expression in string literal: {token.value!r}"
+        )
 
     def _parse_interpolation_expr(self, expr_src: str) -> Node:
         # Use RD fragment parser to avoid Lark dependency for fragments
@@ -579,20 +605,20 @@ class Prune(Transformer):
     def lambdacall1(self, c):
         body = c[-1] if c else None
         # unify postfix &(...) into a normal call with an amp_lambda arg
-        return Tree('call', [Tree('args', [Tree('amp_lambda', [body])])])
+        return Tree("call", [Tree("args", [Tree("amp_lambda", [body])])])
 
     def lambdacalln(self, c):
         params, body = c[0], c[-1]
-        return Tree('call', [Tree('args', [Tree('amp_lambda', [params, body])])])
+        return Tree("call", [Tree("args", [Tree("amp_lambda", [params, body])])])
 
     def amp_lambda1(self, c):
         # Standalone &(expr) -> amp_lambda
-        return Tree('amp_lambda', [c[0]])
+        return Tree("amp_lambda", [c[0]])
 
     def amp_lambdan(self, c):
         # Standalone &[params](expr) -> amp_lambda with paramlist
         params, body = c[0], c[1]
-        return Tree('amp_lambda', [params, body])
+        return Tree("amp_lambda", [params, body])
 
     def primary(self, c):
         return c[0] if len(c) == 1 else Tree("primary", c)
@@ -807,7 +833,11 @@ class Prune(Transformer):
         for node in c:
             if is_token(node) and node.type == TT.CATCH:
                 continue
-            if is_tree(node) and tree_label(node) == "catchtypes" and len(node.children) == 0:
+            if (
+                is_tree(node)
+                and tree_label(node) == "catchtypes"
+                and len(node.children) == 0
+            ):
                 continue
             children.append(node)
 
@@ -833,7 +863,6 @@ class Prune(Transformer):
 
     def arglistnamedmixed(self, c):
         return Tree("args", c)
-
 
     def compare(self, c):
         """Flatten CCC leg wrappers in comparison chains"""
@@ -900,7 +929,9 @@ def validate_named_args(tree: Tree) -> None:
             seen_named = False
             for ch in tree_children(arglist):
                 if not is_namedarg(ch) and seen_named:
-                    raise SyntaxError("Positional arguments must appear before named arguments")
+                    raise SyntaxError(
+                        "Positional arguments must appear before named arguments"
+                    )
                 if is_namedarg(ch):
                     seen_named = True
 
@@ -940,10 +971,14 @@ def validate_hoisted_binders(tree: Tree) -> None:
 
                 for base, kinds in byname.items():
                     if kinds == {"H", "P"}:
-                        raise SyntaxError(f"Cannot use both hoisted and local binder for '{base}' in the same binder list")
+                        raise SyntaxError(
+                            f"Cannot use both hoisted and local binder for '{base}' in the same binder list"
+                        )
 
                     if sum(1 for nm, is_h in pairs if nm == base and is_h) > 1:
-                        raise SyntaxError(f"Duplicate hoisted binder '{base}' in binder list")
+                        raise SyntaxError(
+                            f"Duplicate hoisted binder '{base}' in binder list"
+                        )
 
         for ch in tree_children(n):
             walk(ch)
@@ -1010,7 +1045,9 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
             break
 
     if hole_call_index is not None and hole_call_index + 1 < len(ops):
-        raise SyntaxError("Hole partials cannot be immediately invoked; assign or pass the partial before calling it")
+        raise SyntaxError(
+            "Hole partials cannot be immediately invoked; assign or pass the partial before calling it"
+        )
 
     def clone(node: Node) -> Node:
         if is_token(node):
@@ -1048,7 +1085,9 @@ def _infer_amp_lambda_params(node: Node) -> Node:
         names, uses_subject = _collect_lambda_free_names(body)
 
         if uses_subject and names:
-            raise SyntaxError("Cannot mix subject '.' with implicit parameters in amp_lambda body")
+            raise SyntaxError(
+                "Cannot mix subject '.' with implicit parameters in amp_lambda body"
+            )
 
         if uses_subject or not names:
             node.children = [body]
@@ -1184,7 +1223,11 @@ def canonicalize_root(tree: Tree) -> Tree:
         return tree
     children = [child for child in tree_children(tree) if child is not Discard]
 
-    if len(children) == 1 and is_tree(children[0]) and tree_label(children[0]) == "stmtlist":
+    if (
+        len(children) == 1
+        and is_tree(children[0])
+        and tree_label(children[0]) == "stmtlist"
+    ):
         stmtlist = _strip_discard(children[0])
     else:
         stmtlist = _strip_discard(Tree("stmtlist", children))

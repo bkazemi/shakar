@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..runtime import Frame, ShkArray, ShkBool, ShkNull, ShkNumber, ShkObject, ShkString, ShkValue
+from ..runtime import (
+    Frame,
+    ShkArray,
+    ShkBool,
+    ShkNull,
+    ShkNumber,
+    ShkObject,
+    ShkString,
+    ShkValue,
+)
 from ..tree import Node, is_token, is_tree, tree_label
 from .common import token_kind as _token_kind
 
@@ -27,21 +36,21 @@ def is_truthy(val: ShkValue) -> bool:
 
 def retargets_anchor(node: Node) -> bool:
     if is_token(node):
-        return _token_kind(node) == 'IDENT'
+        return _token_kind(node) == "IDENT"
 
     if is_tree(node):
         label = tree_label(node)
 
-        if label == 'expr' and node.children:
+        if label == "expr" and node.children:
             return retargets_anchor(node.children[0])
 
         return label not in {
-            'implicit_chain',
-            'subject',
-            'group',
-            'no_anchor',
-            'literal',
-            'bind',
+            "implicit_chain",
+            "subject",
+            "group",
+            "no_anchor",
+            "literal",
+            "bind",
         }
     return True
 

@@ -58,7 +58,9 @@ def eval_selectorliteral(node: Tree, frame: Frame, eval_fn: EvalFunc) -> ShkSele
     return ShkSelector(parts)
 
 
-def evaluate_selectorlist(node: Tree, frame: Frame, eval_fn: EvalFunc, clamp: bool = True) -> List[SelectorPart]:
+def evaluate_selectorlist(
+    node: Tree, frame: Frame, eval_fn: EvalFunc, clamp: bool = True
+) -> List[SelectorPart]:
     """Evaluate runtime selector expressions like `xs[sel1, sel2]` into parts."""
     selectors: List[SelectorPart] = []
 
@@ -69,7 +71,9 @@ def evaluate_selectorlist(node: Tree, frame: Frame, eval_fn: EvalFunc, clamp: bo
 
         if label == "slicesel":
             # slicesel already encodes explicit start/stop/step nodes.
-            selectors.append(_selector_slice_from_slicesel(target, frame, eval_fn, clamp))
+            selectors.append(
+                _selector_slice_from_slicesel(target, frame, eval_fn, clamp)
+            )
             continue
 
         if label == "indexsel":
@@ -91,7 +95,9 @@ def evaluate_selectorlist(node: Tree, frame: Frame, eval_fn: EvalFunc, clamp: bo
     return selectors
 
 
-def clone_selector_parts(parts: Iterable[SelectorPart], clamp: bool) -> List[SelectorPart]:
+def clone_selector_parts(
+    parts: Iterable[SelectorPart], clamp: bool
+) -> List[SelectorPart]:
     """Copy selector parts so mutations (e.g., clamping) do not affect originals."""
     cloned: List[SelectorPart] = []
 
@@ -138,7 +144,9 @@ def selector_iter_values(selector: ShkSelector) -> List[ShkValue]:
     return values
 
 
-def _selector_parts_from_selitem(node: Tree, frame: Frame, eval_fn: EvalFunc) -> List[SelectorPart]:
+def _selector_parts_from_selitem(
+    node: Tree, frame: Frame, eval_fn: EvalFunc
+) -> List[SelectorPart]:
     """Turn a literal selitem node into concrete slice/index parts."""
     inner = child_by_labels(node, {"sliceitem", "indexitem"})
     target = inner if inner is not None else node
@@ -157,7 +165,9 @@ def _selector_parts_from_selitem(node: Tree, frame: Frame, eval_fn: EvalFunc) ->
     return []
 
 
-def _selector_slice_from_sliceitem(node: Tree, frame: Frame, eval_fn: EvalFunc) -> SelectorSlice:
+def _selector_slice_from_sliceitem(
+    node: Tree, frame: Frame, eval_fn: EvalFunc
+) -> SelectorSlice:
     children = list(tree_children(node))
     index = 0
     start_node = None
@@ -176,34 +186,56 @@ def _selector_slice_from_sliceitem(node: Tree, frame: Frame, eval_fn: EvalFunc) 
         step_node = children[index]
 
     # sliceitem uses selatom nodes for start/step and seloptstop for stop.
-    start_val = _coerce_selector_number(_eval_selector_atom(start_node, frame, eval_fn), allow_none=True)
+    start_val = _coerce_selector_number(
+        _eval_selector_atom(start_node, frame, eval_fn), allow_none=True
+    )
     stop_value, exclusive = _eval_seloptstop(stop_node, frame, eval_fn)
     stop_val = _coerce_selector_number(stop_value, allow_none=True)
-    step_val = _coerce_selector_number(_eval_selector_atom(step_node, frame, eval_fn), allow_none=True)
+    step_val = _coerce_selector_number(
+        _eval_selector_atom(step_node, frame, eval_fn), allow_none=True
+    )
 
     _validate_slice_signs(start_val, stop_val)
 
-    return SelectorSlice(start=start_val, stop=stop_val, step=step_val, clamp=False, exclusive_stop=exclusive)
+    return SelectorSlice(
+        start=start_val,
+        stop=stop_val,
+        step=step_val,
+        clamp=False,
+        exclusive_stop=exclusive,
+    )
 
 
-def _selector_slice_from_slicesel(node: Tree, frame: Frame, eval_fn: EvalFunc, clamp: bool) -> SelectorSlice:
+def _selector_slice_from_slicesel(
+    node: Tree, frame: Frame, eval_fn: EvalFunc, clamp: bool
+) -> SelectorSlice:
     children = list(tree_children(node))
 
     start_node = children[0] if len(children) > 0 else None
     stop_node = children[1] if len(children) > 1 else None
     step_node = children[2] if len(children) > 2 else None
 
-    start_val = _coerce_selector_number(_eval_optional_expr(start_node, frame, eval_fn), allow_none=True)
-    stop_val = _coerce_selector_number(_eval_optional_expr(stop_node, frame, eval_fn), allow_none=True)
-    step_val = _coerce_selector_number(_eval_optional_expr(step_node, frame, eval_fn), allow_none=True)
+    start_val = _coerce_selector_number(
+        _eval_optional_expr(start_node, frame, eval_fn), allow_none=True
+    )
+    stop_val = _coerce_selector_number(
+        _eval_optional_expr(stop_node, frame, eval_fn), allow_none=True
+    )
+    step_val = _coerce_selector_number(
+        _eval_optional_expr(step_node, frame, eval_fn), allow_none=True
+    )
     # slicesel originates from runtime selector expressions `xs[start:stop:step]`.
 
     _validate_slice_signs(start_val, stop_val)
 
-    return SelectorSlice(start=start_val, stop=stop_val, step=step_val, clamp=clamp, exclusive_stop=True)
+    return SelectorSlice(
+        start=start_val, stop=stop_val, step=step_val, clamp=clamp, exclusive_stop=True
+    )
 
 
-def _eval_optional_expr(node: Optional[Tree], frame: Frame, eval_fn: EvalFunc) -> Optional[ShkValue]:
+def _eval_optional_expr(
+    node: Optional[Tree], frame: Frame, eval_fn: EvalFunc
+) -> Optional[ShkValue]:
     if node is None:
         return None
 
@@ -219,7 +251,9 @@ def _eval_optional_expr(node: Optional[Tree], frame: Frame, eval_fn: EvalFunc) -
     return eval_fn(node, frame)
 
 
-def _eval_selector_atom(node: Optional[Tree], frame: Frame, eval_fn: EvalFunc) -> Optional[ShkValue]:
+def _eval_selector_atom(
+    node: Optional[Tree], frame: Frame, eval_fn: EvalFunc
+) -> Optional[ShkValue]:
     if node is None:
         return None
 
@@ -252,7 +286,9 @@ def _eval_selector_atom(node: Optional[Tree], frame: Frame, eval_fn: EvalFunc) -
     return eval_fn(child, frame)
 
 
-def _eval_seloptstop(node: Optional[Tree], frame: Frame, eval_fn: EvalFunc) -> tuple[ShkValue, bool]:
+def _eval_seloptstop(
+    node: Optional[Tree], frame: Frame, eval_fn: EvalFunc
+) -> tuple[ShkValue, bool]:
     if node is None:
         return ShkNull(), False
 
@@ -286,7 +322,9 @@ def _validate_slice_signs(start: Optional[int], stop: Optional[int]) -> None:
         raise ShakarRuntimeError("Slice cannot have negative start with positive stop")
 
 
-def _coerce_selector_number(value: Optional[ShkValue], allow_none: bool = False) -> Optional[int]:
+def _coerce_selector_number(
+    value: Optional[ShkValue], allow_none: bool = False
+) -> Optional[int]:
     if value is None or isinstance(value, ShkNull):
         if allow_none:
             return None
@@ -332,7 +370,9 @@ def _apply_selectors_to_array(arr: ShkArray, selectors: List[SelectorPart]) -> S
     return ShkArray(result)
 
 
-def _apply_selectors_to_string(s: ShkString, selectors: List[SelectorPart]) -> ShkString:
+def _apply_selectors_to_string(
+    s: ShkString, selectors: List[SelectorPart]
+) -> ShkString:
     pieces: List[str] = []
     length = len(s.value)
 
@@ -414,7 +454,9 @@ def _iterate_selector_slice(part: SelectorSlice) -> Iterable[int]:
         raise ShakarRuntimeError("Selector slice step cannot be zero")
 
     if part.start is None or part.stop is None:
-        raise ShakarRuntimeError("Selector slice requires explicit start and stop when iterated")
+        raise ShakarRuntimeError(
+            "Selector slice requires explicit start and stop when iterated"
+        )
 
     stop = part.stop if part.exclusive_stop else part.stop + (1 if step > 0 else -1)
 

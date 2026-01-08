@@ -13,7 +13,12 @@ from .runtime import ShkValue
 from .runtime import Frame, init_stdlib
 
 
-def run(src: str, grammar_path: Optional[str]=None, use_indenter: Optional[bool]=None, grammar_variant: str="default") -> ShkValue:  # grammar_path/variant kept for CLI compatibility; ignored
+def run(
+    src: str,
+    grammar_path: Optional[str] = None,
+    use_indenter: Optional[bool] = None,
+    grammar_variant: str = "default",
+) -> ShkValue:  # grammar_path/variant kept for CLI compatibility; ignored
     init_stdlib()
 
     if use_indenter is None:
@@ -41,10 +46,10 @@ def run(src: str, grammar_path: Optional[str]=None, use_indenter: Optional[bool]
     ast2 = lower(ast)
     # Unwrap start_* roots only when they contain a single child; otherwise keep
     # them so statement lists execute in order during evaluation.
-    d = getattr(ast2, 'data', None)
+    d = getattr(ast2, "data", None)
 
-    if d in ('start_noindent', 'start_indented'):
-        children = getattr(ast2, 'children', None)
+    if d in ("start_noindent", "start_indented"):
+        children = getattr(ast2, "children", None)
 
         if children and len(children) == 1:
             ast2 = children[0]
@@ -116,6 +121,7 @@ def main() -> None:
         print(ast2.pretty())
     else:
         print(run(source, grammar_path=grammar_path, grammar_variant=grammar_variant))
+
 
 if __name__ == "__main__":
     main()

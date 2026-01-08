@@ -9,7 +9,13 @@ Implements recursive structural matching as specified:
 """
 
 from ..types import (
-    ShkValue, ShkObject, ShkType, ShkSelector, ShkNumber, ShkOptional, ShkUnion,
+    ShkValue,
+    ShkObject,
+    ShkType,
+    ShkSelector,
+    ShkNumber,
+    ShkOptional,
+    ShkUnion,
 )
 
 
@@ -34,6 +40,7 @@ def match_structure(lhs: ShkValue, rhs: ShkValue) -> bool:
         if not isinstance(lhs, ShkNumber):
             return False
         from .selector import selector_iter_values
+
         values = selector_iter_values(rhs)
         return lhs in values
 

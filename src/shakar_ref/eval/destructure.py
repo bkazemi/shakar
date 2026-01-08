@@ -7,7 +7,14 @@ from typing import Callable, Iterable, Optional, Any
 from ..tree import Tok
 from ..token_types import TT
 
-from ..runtime import Frame, ShkArray, ShkNull, ShkValue, ShakarRuntimeError, ShakarAssertionError
+from ..runtime import (
+    Frame,
+    ShkArray,
+    ShkNull,
+    ShkValue,
+    ShakarRuntimeError,
+    ShakarAssertionError,
+)
 from ..utils import (
     is_sequence_value,
     sequence_items,
@@ -31,7 +38,7 @@ def evaluate_destructure_rhs(
     rhs_node: Node,
     frame: Frame,
     target_count: int,
-    allow_broadcast: bool
+    allow_broadcast: bool,
 ) -> tuple[list[ShkValue], ShkValue]:
     """Evaluate RHS once and expand/broadcast values to match the target count."""
     if tree_label(rhs_node) == "pack":
@@ -79,7 +86,7 @@ def assign_pattern(
     value: ShkValue,
     frame: Frame,
     create: bool,
-    allow_broadcast: bool
+    allow_broadcast: bool,
 ) -> None:
     """Bind a destructuring pattern to a value, recursing into nested tuples."""
     if tree_label(pattern) != "pattern" or not tree_children(pattern):
@@ -97,12 +104,15 @@ def assign_pattern(
         # Validate contract before binding
         if contract_node is not None:
             from .match import match_structure
+
             contract_children = tree_children(contract_node)
             if contract_children:
                 contract_expr = contract_children[0]
                 contract_value = eval_fn(contract_expr, frame)
                 if not match_structure(value, contract_value):
-                    raise ShakarAssertionError(f"Destructure contract failed: {ident} ~ {contract_value}, got {value}")
+                    raise ShakarAssertionError(
+                        f"Destructure contract failed: {ident} ~ {contract_value}, got {value}"
+                    )
 
         # Bind the value
         if create:
@@ -125,7 +135,9 @@ def assign_pattern(
                 raise ShakarRuntimeError("Destructure expects a sequence")
 
         for sub_pat, sub_val in zip(subpatterns, seq):
-            assign_pattern(eval_fn, assign_ident, sub_pat, sub_val, frame, create, allow_broadcast)
+            assign_pattern(
+                eval_fn, assign_ident, sub_pat, sub_val, frame, create, allow_broadcast
+            )
         return
 
     raise ShakarRuntimeError("Unsupported pattern element")
@@ -135,7 +147,7 @@ def infer_implicit_binders(
     exprs: Iterable[Tree],
     ifclause: Optional[Tree],
     frame: Frame,
-    collect_fn: Callable[[Tree, Callable[[str], None]], None]
+    collect_fn: Callable[[Tree, Callable[[str], None]], None],
 ) -> list[str]:
     """Collect implicit binder names used inside comprehensions, skipping clashes."""
     names: list[str] = []
@@ -163,7 +175,7 @@ def apply_comp_binders(
     binders: list[dict[str, Any]],
     element: ShkValue,
     iter_frame: Frame,
-    outer_frame: Frame
+    outer_frame: Frame,
 ) -> None:
     """Assign comprehension binder patterns for each element, honoring hoisting."""
 
@@ -194,11 +206,7 @@ def _name_exists(frame: Frame, name: str) -> bool:
 
 
 def eval_destructure(
-    node: Tree,
-    frame: Frame,
-    eval_func: EvalFunc,
-    create: bool,
-    allow_broadcast: bool
+    node: Tree, frame: Frame, eval_func: EvalFunc, create: bool, allow_broadcast: bool
 ) -> ShkValue:
     """Evaluate destructuring assignment/expression."""
     if len(node.children) != 2:
@@ -210,7 +218,9 @@ def eval_destructure(
     if not patterns:
         raise ShakarRuntimeError("Empty destructure pattern")
 
-    values, result = evaluate_destructure_rhs(eval_func, rhs_node, frame, len(patterns), allow_broadcast)
+    values, result = evaluate_destructure_rhs(
+        eval_func, rhs_node, frame, len(patterns), allow_broadcast
+    )
 
     # local import avoids circular reference with bind module.
     from .bind import assign_pattern_value
