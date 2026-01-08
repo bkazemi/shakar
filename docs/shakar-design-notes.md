@@ -30,7 +30,7 @@ This is a living technical spec. Every surface sugar has a deterministic desugar
 - **Whitespace & layout**: indentation (spaces only) after `:` starts blocks.
 - **Semicolons**: hard statement delimiters at top level and inside braced inline suites `{ ... }`. Multiple statements may share a line. Grammar shape: `stmtlist := stmt (SEMI stmt)* SEMI?`.
 - **Inline suites after `:`**: exactly one simple statement. Wrap a braced inline suite on the right of the colon for multiple statements.
-- **Reserved keywords**: `and, or, not, if, elif, else, for, in, break, continue, return, assert, using, defer, catch, decorator, decorate, hook, fn, get, set, bind, over, true, false, nil`.
+- **Reserved keywords**: `and, or, not, if, elif, else, for, in, break, continue, return, assert, using, call, defer, catch, decorator, decorate, hook, fn, get, set, bind, over, true, false, nil`.
 - **Contextual keywords**: `for` (in comprehensions), `get`/`set` (inside object literals).
 - **Punctuation tokens**: `.=` (apply-assign), `|`/`|:` (guards), `?ret` (statement head), `??(expr)` (nil-safe chain), `:=` (walrus).
 
@@ -46,6 +46,7 @@ This is a living technical spec. Every surface sugar has a deterministic desugar
 - **`await[any]`**: per-arm body uses `.` = that arm’s result; trailing body uses `.` = winning value and `winner` label.
 - **Selectors** `base[ sel1, sel2, … ]`: inside each selector, `.` = the `base`.
 - **Not creators**: one-line guards and plain blocks do not create a subject.
+- **Call blocks**: do not create `.`; they bind an emit target accessed via `>` instead.
 
 ### Leading-dot chains
 
@@ -132,6 +133,59 @@ ix, vals := [], []
 xs = [10,11,12,13]
 for[i] xs[1:3]: ix.append(i); vals.append(.)
 assert ix == [0,1] and vals == [11,12]
+```
+
+---
+
+## Call blocks (`call`) and emit (`>`)
+
+- **Status**: 🧪 Experimental (spec complete).
+- **Goal**: introduce an action channel separate from `.` by binding a callable as an emit target.
+
+### Syntax
+```shakar
+call expr:
+  ...
+
+call[name] expr:
+  ...
+
+call expr bind name:
+  ...
+```
+
+Bracket binder ambiguity: if the header expression begins with `[`, parenthesize it or use `bind` (e.g., `call ([1,2,3].picker):` or `call [1,2,3].picker bind p:`).
+
+### Semantics
+- The header expression is evaluated **once** and must be callable; otherwise runtime error.
+- If a binder is present, its name is bound to the emit target for the block.
+- `call` does **not** bind or retarget `.`; data and action channels are separate.
+
+### Emit expression (`>`)
+- `>` is a **primary expression** that invokes the emit target and returns its result.
+- It parses the **same argument list** as a normal function call (positional, named, spread, holes).
+- `>` is only valid inside a lexical `call` block; otherwise it is a **parse error**.
+- **Precedence**: `>` consumes its arglist before outer commas; `> a, b` parses as `>(a, b)`.
+
+### Scope & capture
+- `>` resolves to the **nearest lexically enclosing** `call` block; nested calls shadow outer targets.
+- Functions defined inside a call block capture the emit target at definition time.
+- To emit dynamically, pass the target explicitly as an argument.
+
+### Example (desugaring)
+```shakar
+call html.ul:
+  > html.li("Item 1")
+  if user.is_admin:
+    > html.li("Admin Control")
+```
+
+Desugars to:
+```shakar
+ul = html.ul
+ul(html.li("Item 1"))
+if user.is_admin:
+  ul(html.li("Admin Control"))
 ```
 
 ---
@@ -627,7 +681,7 @@ u := makeUser() and .isValid()
     ```shakar
     # Happy path: destructured assignment
     year, month, day := date ~~ r"(\d{4})-(\d{2})-(\d{2})"
-    
+
     # Using /f to get full match
     full, protocol, host := url ~~ r"(https?)://([^/]+)"/f
 
@@ -652,7 +706,7 @@ u := makeUser() and .isValid()
   # Subjectful loop with guard filtering
   for log_dir / "*.log":
       .name == "error.log": print(.read())
-  
+
   # Comprehension style
   errors := [ .read() over log_dir / "*.log" if .size > 0 ]
   ```
@@ -828,6 +882,7 @@ Primary         ::= IDENT
                   | Literal
                   | "(" Expr ")"
                   | SelectorLiteral
+                  | EmitExpr
                   | NullSafe
 
                   ;
@@ -846,6 +901,8 @@ Interp          ::= "{" Expr "}" ;
 (* ImplicitUse is contextual via anchor stack; not a nonterminal here. *)
 
 NullSafe        ::= "??" "(" Expr ")" ;
+EmitExpr        ::= ">" CallArgList? ;   (* only valid inside a lexical call block *)
+CallArgList     ::= ArgListNamedMixed | ArgList ;  (* same argument grammar as calls *)
 
 (* ===== Assignment forms ===== *)
 
@@ -875,6 +932,7 @@ BaseSimpleStmt  ::= RebindStmt
                   | Dbg
                   | Assert
                   | UsingStmt
+                  | CallStmt
                   | DeferStmt
                   | Hook
                   | CatchStmt
@@ -998,6 +1056,8 @@ DeferLabel      ::= IDENT ;
 DeferBody       ::= ":" (InlineBody | IndentBlock) ;
 DeferAfter      ::= "after" ( IDENT | "(" (IDENT ("," IDENT)*)? ")" ) ;
 SimpleCall      ::= Callee "(" ArgList? ")" ;
+CallStmt        ::= "call" CallBinder? Expr ("bind" IDENT)? ":" (InlineBody | IndentBlock) ;
+CallBinder      ::= "[" IDENT "]" ;
 UsingStmt       ::= "using" ( "[" IDENT "]" )? Expr ("bind" IDENT)? ":" IndentBlock ;
 Assert          ::= "assert" Expr ("," Expr)? ;
 Dbg             ::= "dbg" (Expr ("," Expr)?) ;

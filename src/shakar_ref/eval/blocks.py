@@ -1,16 +1,22 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Callable, Iterator, List, Optional
 
 from ..tree import Tree
 
 from ..runtime import (
+    BoundMethod,
+    BuiltinMethod,
     DeferEntry,
     DotValue,
     Frame,
+    ShkDecorator,
+    ShkFn,
     ShkNull,
     ShkValue,
+    StdlibFunction,
+    DecoratorContinuation,
     ShakarBreakSignal,
     ShakarContinueSignal,
     ShakarRuntimeError,
@@ -18,6 +24,7 @@ from ..runtime import (
 from ..tree import Node, is_token, is_tree, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token, token_kind as _token_kind
 from .helpers import is_truthy as _is_truthy
+from .chains import call_value, eval_args_node
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
@@ -260,6 +267,77 @@ def temporary_bindings(frame: Frame, bindings: dict[str, ShkValue]) -> Iterator[
                 target.vars[name] = prev
             else:
                 target.vars.pop(name, None)
+
+
+@contextmanager
+def temporary_emit_target(frame: Frame, target: ShkValue) -> Iterator[None]:
+    prev = frame.emit_target
+    frame.emit_target = target
+
+    try:
+        yield
+    finally:
+        frame.emit_target = prev
+
+
+def _is_callable_emit_target(value: ShkValue) -> bool:
+    return isinstance(
+        value,
+        (
+            ShkFn,
+            BoundMethod,
+            BuiltinMethod,
+            StdlibFunction,
+            DecoratorContinuation,
+            ShkDecorator,
+        ),
+    )
+
+
+def eval_call_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    bind_tok: Optional[Node] = None
+    target_node: Optional[Node] = None
+    body_node: Optional[Tree] = None
+
+    for child in tree_children(n):
+        if is_tree(child) and tree_label(child) == "call_bind":
+            bind_tok = child.children[0] if child.children else None
+            continue
+
+        if is_tree(child) and tree_label(child) in {"inlinebody", "indentblock"}:
+            body_node = child
+            continue
+
+        if target_node is None:
+            target_node = child
+
+    if target_node is None or body_node is None:
+        raise ShakarRuntimeError("Malformed call statement")
+
+    emit_target = eval_func(target_node, frame)
+
+    if not _is_callable_emit_target(emit_target):
+        raise ShakarRuntimeError("call expects a callable emit target")
+
+    bind_name = (
+        _expect_ident_token(bind_tok, "Call binder") if bind_tok is not None else None
+    )
+    ctx = (
+        temporary_bindings(frame, {bind_name: emit_target})
+        if bind_name is not None
+        else nullcontext()
+    )
+
+    with ctx:
+        with temporary_emit_target(frame, emit_target):
+            return eval_body_node(body_node, frame, eval_func)
+
+
+def eval_emit_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    emit_target = frame.get_emit_target()
+    args_node = n.children[0] if n.children else None
+    args = eval_args_node(args_node, frame, eval_func)
+    return call_value(emit_target, args, frame, eval_func)
 
 
 def eval_defer_stmt(

@@ -921,7 +921,7 @@ def validate_named_args(tree: Tree) -> None:
         label = tree_label(n)
         children = tree_children(n)
 
-        if label in {"call", "callnc"} and children:
+        if label in {"call", "callnc", "emitexpr"} and children:
             arglist = children[0]
 
             if not is_tree(arglist) or tree_label(arglist) != "arglistnamedmixed":

@@ -66,3 +66,18 @@ def current_function_frame(frame: Frame) -> Optional[Frame]:
         cur = getattr(cur, "parent", None)
 
     return None
+
+
+def find_emit_target(frame: Frame) -> Optional[ShkValue]:
+    cur: Optional[Frame] = frame
+    while cur is not None:
+        if cur.emit_target is not None:
+            return cur.emit_target
+        cur = getattr(cur, "parent", None)
+    return None
+
+
+def closure_frame(frame: Frame) -> Frame:
+    """Create a closure frame that captures the current emit target."""
+    emit_target = find_emit_target(frame)
+    return Frame(parent=frame, dot=None, emit_target=emit_target)

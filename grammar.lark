@@ -39,7 +39,7 @@ STRING: /"(?:\\.|[^"\\])*"/ | /'(?:\\.|[^'\\])*'/
 
 %import common.NUMBER -> NUMBER
 
-%declare AND OR IS IN NOT FOR IF ELIF ELSE WHILE AWAIT USING OVER HOOK RETURN DEFER ASSERT DBG GET SET FN BREAK CONTINUE THROW DECORATOR DECORATE
+%declare AND OR IS IN NOT FOR IF ELIF ELSE WHILE AWAIT USING CALL OVER HOOK RETURN DEFER ASSERT DBG GET SET FN BREAK CONTINUE THROW DECORATOR DECORATE
 
 %import common.CNAME -> IDENT
 
@@ -159,6 +159,7 @@ primary: rebind_primary
        | "(" expr ")"            -> group_expr
        | selectorliteral
        | nullsafe
+       | emitexpr
        | ampval1 | ampvaln
 
 NIL: "nil"
@@ -179,6 +180,7 @@ selatom: interp | IDENT | NUMBER
 interp: "{" expr "}"
 
 nullsafe: "??" "(" expr ")"
+emitexpr: GT arglistnamedmixed?
 comment: COMMENT
 rebind_primary: "=" IDENT -> rebind_primary
               | "=" "(" rebind_lvalue ")" -> rebind_primary_grouped
@@ -222,6 +224,7 @@ continuestmt: CONTINUE
           | dbg
           | assert
           | usingstmt
+          | callstmt
           | deferstmt
           | hook
           | fanoutblock
@@ -391,6 +394,7 @@ deferafter: "after" (IDENT | "(" (IDENT ("," IDENT)*)? ")")
 simplecall: callee "(" arglistnamedmixed? ")"
 
 !usingstmt: USING ("[" IDENT "]")? expr ("bind" IDENT)? ":" (inlinebody | indentblock)
+!callstmt: CALL ("[" IDENT "]")? expr ("bind" IDENT)? ":" (inlinebody | indentblock)
 
 assert: ASSERT expr ("," expr)?
 

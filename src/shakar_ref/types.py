@@ -312,11 +312,13 @@ class Frame:
         self,
         parent: Optional["Frame"] = None,
         dot: DotValue = None,
+        emit_target: Optional["ShkValue"] = None,
         source: Optional[str] = None,
     ):
         self.parent = parent
         self.vars: Dict[str, ShkValue] = {}
         self.dot: DotValue = dot
+        self.emit_target: Optional[ShkValue] = emit_target
         self._defer_stack: List[List[DeferEntry]] = []
         self._is_function_frame = False
         self._active_error: Optional[ShakarRuntimeError] = None
@@ -381,6 +383,13 @@ class Frame:
 
     def is_function_frame(self) -> bool:
         return self._is_function_frame
+
+    def get_emit_target(self) -> ShkValue:
+        if self.emit_target is not None:
+            return self.emit_target
+        if self.parent is not None:
+            return self.parent.get_emit_target()
+        raise ShakarRuntimeError("No emit target available for '>'")
 
 
 # ---------- Exceptions (keep Shakar* canonical) ----------

@@ -717,6 +717,7 @@ fn hi(): 1""",
             _check_decorated_fn,
             None,
         ),
+        AstScenario("emit-outside-call", "> 1", None, ParseError),
     ]
 )
 
@@ -762,6 +763,110 @@ runtime_scenario(
 fn value(): 42
 value()""",
         ("null", None),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "call-basic-emit",
+        """count := 0
+fn bump(x): count += x
+call bump:
+  > 1
+  > 2
+count""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "call-emit-capture",
+        """log := ""
+fn out(x): log += x
+fn wrap(x): log += "[" + x + "]"
+call out:
+  helper := fn(): > "a"
+  call wrap:
+    > "b"
+    helper()
+log""",
+        ("string", "[b]a"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "call-emit-postfix-unless",
+        """log := ""
+fn emit(x): log += x
+call emit:
+  > "a" unless false
+  > "b" unless true
+log""",
+        ("string", "a"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "call-emit-named-args",
+        """log := ""
+fn emit(a, b): log += a + ":" + b
+call emit:
+  > a: "x", b: "y"
+log""",
+        ("string", "x:y"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "call-emit-spread",
+        """count := 0
+fn emit(...args): count += args.len
+call emit:
+  > ...[1, 2, 3]
+count""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "call-nested-shadow",
+        """log := ""
+fn outer(x): log += "o" + x
+fn inner(x): log += "i" + x
+call outer:
+  > "1"
+  call inner:
+    > "2"
+  > "3"
+log""",
+        ("string", "o1i2o3"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "call-non-callable-error",
+        """x := 42
+call x:
+  > 1""",
+        None,
+        ShakarRuntimeError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "call-emit-trailing-comma",
+        """log := ""
+fn emit(a, b): log += a + b
+call emit:
+  > "x", "y",
+log""",
+        ("string", "xy"),
         None,
     )
 )

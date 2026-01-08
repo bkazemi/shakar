@@ -43,6 +43,7 @@ class Lexer:
         "fn": TT.FN,
         "await": TT.AWAIT,
         "using": TT.USING,
+        "call": TT.CALL,
         "defer": TT.DEFER,
         "throw": TT.THROW,
         "catch": TT.CATCH,

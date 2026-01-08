@@ -35,6 +35,7 @@ class TT(Enum):
     FN = auto()
     AWAIT = auto()
     USING = auto()
+    CALL = auto()
     DEFER = auto()
     THROW = auto()
     CATCH = auto()

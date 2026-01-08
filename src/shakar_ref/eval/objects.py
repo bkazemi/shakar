@@ -17,6 +17,7 @@ from ..runtime import (
 )
 from ..tree import Tree, is_token, is_tree, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token, extract_param_names
+from .helpers import closure_frame
 
 EvalFunc = Callable[[Tree, Frame], ShkValue]
 
@@ -133,7 +134,7 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 if method_sig:
                     name, params = method_sig
                     method_fn = ShkFn(
-                        params=params, body=val_node, frame=Frame(parent=frame)
+                        params=params, body=val_node, frame=closure_frame(frame)
                     )
                     slots[name] = method_fn
                     return
@@ -147,7 +148,7 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                     raise ShakarRuntimeError("Getter missing name")
 
                 key = _expect_ident_token(name_tok, "Getter name")
-                getter_fn = ShkFn(params=None, body=body, frame=Frame(parent=frame))
+                getter_fn = ShkFn(params=None, body=body, frame=closure_frame(frame))
                 _install_descriptor(key, getter=getter_fn)
             case "obj_set":
                 name_tok, param_tok, body = item.children
@@ -158,7 +159,7 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 key = _expect_ident_token(name_tok, "Setter name")
                 param_name = _expect_ident_token(param_tok, "Setter parameter")
                 setter_fn = ShkFn(
-                    params=[param_name], body=body, frame=Frame(parent=frame)
+                    params=[param_name], body=body, frame=closure_frame(frame)
                 )
                 _install_descriptor(key, setter=setter_fn)
             case "obj_method":
@@ -173,7 +174,7 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 method_fn = ShkFn(
                     params=param_names,
                     body=body,
-                    frame=Frame(parent=frame),
+                    frame=closure_frame(frame),
                     vararg_indices=varargs,
                 )
                 slots[method_name] = method_fn

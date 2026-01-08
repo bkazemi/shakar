@@ -50,6 +50,19 @@ Both forms are built on the same implicit-subject rules, which makes “update t
 
 ---
 
+### Call blocks and emit `>`
+
+Call blocks bind a callable as an **emit target** for the duration of a block. Inside, `>` invokes that target using the normal argument rules, giving you vertical, imperative sequences without losing declarative structure.
+
+```shakar
+call self.expect:
+  > TT.IN
+  expr := > TT.EXPR
+  > TT.COLON
+```
+
+---
+
 ### Implicit subject and anchor stack
 
 The implicit subject `.` only exists inside constructs that explicitly bind it (statement-subject `=LHS<tail>`, `.=` apply-assign, subjectful `for` loops, selectors, `await`, path-lambdas, and a few others). It never leaks across statements.

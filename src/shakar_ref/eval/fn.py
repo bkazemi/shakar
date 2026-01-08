@@ -22,6 +22,7 @@ from .common import (
     ident_token_value as _ident_token_value,
     extract_param_names,
 )
+from .helpers import closure_frame
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
@@ -95,7 +96,7 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
     fn_value = ShkFn(
         params=params,
         body=final_body,
-        frame=Frame(parent=frame, dot=None),
+        frame=closure_frame(frame),
         return_contract=return_contract_expr,
         vararg_indices=varargs,
     )
@@ -175,7 +176,7 @@ def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
     decorator = ShkDecorator(
         params=params,
         body=body_node,
-        frame=Frame(parent=frame, dot=None),
+        frame=closure_frame(frame),
         vararg_indices=varargs,
     )
     frame.define(name, decorator)
@@ -216,7 +217,7 @@ def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
     return ShkFn(
         params=params,
         body=final_body,
-        frame=Frame(parent=frame, dot=None),
+        frame=closure_frame(frame),
         return_contract=return_contract_expr,
         vararg_indices=varargs,
     )
@@ -227,7 +228,7 @@ def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
         return ShkFn(
             params=None,
             body=n.children[0],
-            frame=Frame(parent=frame, dot=None),
+            frame=closure_frame(frame),
             kind="amp",
         )
 
@@ -237,7 +238,7 @@ def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
         return ShkFn(
             params=params,
             body=body,
-            frame=Frame(parent=frame, dot=None),
+            frame=closure_frame(frame),
             kind="amp",
             vararg_indices=varargs,
         )

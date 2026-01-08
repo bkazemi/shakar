@@ -44,6 +44,8 @@ from .eval.blocks import (
     eval_indent_block,
     eval_guard,
     eval_defer_stmt,
+    eval_call_stmt,
+    eval_emit_expr,
     get_subject,
 )
 
@@ -422,6 +424,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "awaitanycall": lambda n, frame: eval_await_any_call(n, frame, eval_node),
     "awaitallcall": lambda n, frame: eval_await_all_call(n, frame, eval_node),
     "usingstmt": lambda n, frame: eval_using_stmt(n, frame, eval_node),
+    "callstmt": lambda n, frame: eval_call_stmt(n, frame, eval_node),
     "ifstmt": lambda n, frame: eval_if_stmt(n, frame, eval_node),
     "whilestmt": lambda n, frame: eval_while_stmt(n, frame, eval_node),
     "fanoutblock": lambda n, frame: eval_fanout_block(
@@ -444,6 +447,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "inlinebody": lambda n, frame: eval_inline_body(n, frame, eval_node),
     "indentblock": lambda n, frame: eval_indent_block(n, frame, eval_node),
     "onelineguard": lambda n, frame: eval_guard(n.children, frame, eval_node),
+    "emitexpr": lambda n, frame: eval_emit_expr(n, frame, eval_node),
     "pack": lambda n, frame: ShkArray([eval_node(ch, frame) for ch in n.children]),
 }
 

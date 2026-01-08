@@ -75,6 +75,7 @@ class Parser:
         self.parse_context = (
             ParseContext.NORMAL
         )  # Track parsing context for comma disambiguation
+        self.call_depth = 0  # Track lexical call-block nesting for emit '>'
 
     def _tok(self, type_name: str, value: str, line: int = 0, column: int = 0) -> Tok:
         return Tok(TT[type_name], value, line, column)
@@ -166,6 +167,10 @@ class Parser:
     def check(self, *types: TT) -> bool:
         """Check if current token matches any of the given types"""
         return self.current.type in types
+
+    def check_contextual(self, keyword: str) -> bool:
+        """Check if current token is a contextual keyword (IDENT with specific value)"""
+        return self.check(TT.IDENT) and getattr(self.current, "value", "") == keyword
 
     def match(self, *types: TT) -> bool:
         """Check and consume if current token matches"""
@@ -268,6 +273,8 @@ class Parser:
             return self.parse_for_stmt()
         if self.check(TT.USING):
             return self.parse_using_stmt()
+        if self.check(TT.CALL):
+            return self.parse_call_stmt()
         if self.check(TT.DEFER):
             return self.parse_defer_stmt()
         if self.check(TT.AWAIT):
@@ -430,7 +437,7 @@ class Parser:
             return Tree(
                 "postfixif", [wrapped_base, self._tok("IF", "if"), Tree("expr", [cond])]
             )
-        if self.check(TT.IDENT) and getattr(self.current, "value", "") == "unless":
+        if self.check_contextual("unless"):
             self.advance()
             cond = self.parse_expr()
             wrapped_base = (
@@ -609,7 +616,7 @@ class Parser:
         resource = self.parse_expr()
 
         binder = None
-        if self.check(TT.IDENT) and getattr(self.current, "value", "") == "bind":
+        if self.check_contextual("bind"):
             self.advance()
             binder = self.expect(TT.IDENT)
 
@@ -624,6 +631,49 @@ class Parser:
             children.append(Tree("using_bind", [self._tok("IDENT", binder.value)]))
         children.append(body)
         return Tree("usingstmt", children)
+
+    def parse_call_stmt(self) -> Tree:
+        """
+        Parse call statement:
+        call [name] expr:
+          body
+        call expr bind name:
+          body
+        """
+        self.expect(TT.CALL)
+
+        handle = None
+        if self.match(TT.LSQB):
+            ident_tok, _ = self.expect_seq(TT.IDENT, TT.RSQB)
+            handle = ident_tok
+
+        target = self.parse_expr()
+
+        binder = None
+        if self.check_contextual("bind"):
+            self.advance()
+            binder = self.expect(TT.IDENT)
+
+        if handle is not None and binder is not None:
+            raise ParseError(
+                "call supports either [name] or bind name, not both", self.current
+            )
+
+        self.expect(TT.COLON)
+
+        self.call_depth += 1
+        try:
+            body = self.parse_body()
+        finally:
+            self.call_depth -= 1
+
+        children: List[Any] = []
+        bind_tok = handle or binder
+        if bind_tok is not None:
+            children.append(Tree("call_bind", [self._tok("IDENT", bind_tok.value)]))
+        children.append(target)
+        children.append(body)
+        return Tree("callstmt", children)
 
     def parse_defer_stmt(self) -> Tree:
         """
@@ -665,7 +715,7 @@ class Parser:
                 )
 
             # Optional deferafter
-            if self.check(TT.IDENT) and getattr(self.current, "value", "") == "after":
+            if self.check_contextual("after"):
                 self.advance()
                 defer_children.append(self._parse_defer_after())
 
@@ -680,7 +730,7 @@ class Parser:
             raise ParseError("defer expects a call expression or block", self.current)
 
         # Optional deferafter
-        if self.check(TT.IDENT) and getattr(self.current, "value", "") == "after":
+        if self.check_contextual("after"):
             self.advance()
             defer_children.append(self._parse_defer_after())
         defer_children.append(call_expr)
@@ -1298,7 +1348,7 @@ class Parser:
 
             # Optional binder: either bare IDENT or 'bind' IDENT
             binder: Optional[Tok] = None
-            if self.check(TT.IDENT) and getattr(self.current, "value", "") == "bind":
+            if self.check_contextual("bind"):
                 self.advance()
                 binder = self.expect(TT.IDENT)
             elif self.check(TT.IDENT) and not types:
@@ -1352,7 +1402,7 @@ class Parser:
             self.expect(TT.RPAR)
 
         binder_tok = None
-        if self.check(TT.IDENT) and getattr(self.current, "value", "") == "bind":
+        if self.check_contextual("bind"):
             self.advance()
             binder_tok = self.expect(TT.IDENT)
         elif self.check(TT.IDENT) and not types:
@@ -2034,6 +2084,20 @@ class Parser:
             self.expect(TT.RPAR)
             return Tree("nullsafe", [inner])
 
+        # Emit expression: > arglist
+        if self.check(TT.GT):
+            if self.call_depth == 0:
+                raise ParseError(
+                    "Emit '>' is only valid inside a call block", self.current
+                )
+            self.advance()
+            args = self.parse_emit_arg_list()
+            if args:
+                args = [Tree("arglistnamedmixed", args)]
+            else:
+                args = []
+            return Tree("emitexpr", args)
+
         # Literals - just return tokens, Prune() will wrap if needed
         if self.check(TT.NUMBER):
             tok = self.advance()
@@ -2433,7 +2497,7 @@ class Parser:
             # Otherwise: expr [bind pattern]
             iter_expr = self.parse_expr()
             children.append(iter_expr)
-            if self.check(TT.IDENT) and getattr(self.current, "value", "") == "bind":
+            if self.check_contextual("bind"):
                 self.advance()
                 pattern = self.parse_pattern()
                 children.append(pattern)
@@ -2498,6 +2562,63 @@ class Parser:
                     break
 
             # Return argitems directly (let caller wrap if needed)
+            return argitems
+        finally:
+            self.parse_context = saved_context
+
+    def _emit_args_terminator(self) -> bool:
+        if self.check(
+            TT.NEWLINE,
+            TT.SEMI,
+            TT.DEDENT,
+            TT.EOF,
+            TT.RPAR,
+            TT.RSQB,
+            TT.RBRACE,
+            TT.COMMA,
+            TT.COLON,
+            TT.PIPE,
+            TT.IF,
+        ):
+            return True
+        if self.check_contextual("unless"):
+            return True
+        return False
+
+    def parse_emit_arg_list(self) -> Optional[List[Tree]]:
+        """
+        Parse emit arguments after '>' (no surrounding parentheses).
+        Returns list of argitems (unwrapped) or None if empty.
+        """
+        if self.check(TT.LPAR) and self.peek(1).type == TT.RPAR:
+            self.advance(2)
+            return []
+
+        if self._emit_args_terminator():
+            return None
+
+        saved_context = self.parse_context
+        self.parse_context = ParseContext.FUNCTION_ARGS
+        try:
+            argitems = []
+
+            while True:
+                if self.check(TT.IDENT) and self.peek(1).type == TT.COLON:
+                    name = self.current
+                    self.advance(2)
+                    value = self.parse_expr()
+                    arg_tree = Tree("namedarg", [self._tok("IDENT", name.value), value])
+                else:
+                    expr = self.parse_expr()
+                    arg_tree = Tree("arg", [expr])
+
+                argitems.append(Tree("argitem", [arg_tree]))
+
+                if not self.match(TT.COMMA):
+                    break
+                if self._emit_args_terminator():
+                    break  # allow trailing comma
+
             return argitems
         finally:
             self.parse_context = saved_context
