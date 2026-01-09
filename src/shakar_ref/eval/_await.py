@@ -178,9 +178,11 @@ def _await_winner_object(label: str, value: ShkValue) -> ShkObject:
 
 def eval_await_value(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     for child in tree_children(n):
-        if not is_token(child):
-            value = eval_func(child, frame)
-            return resolve_await_result(value)
+        # Skip AWAIT keyword token, but keep IDENT (which is the awaited expr)
+        if is_token(child) and getattr(child, "type", None) == TT.AWAIT:
+            continue
+        value = eval_func(child, frame)
+        return resolve_await_result(value)
 
     raise ShakarRuntimeError("Malformed await expression")
 
@@ -192,7 +194,9 @@ def eval_await_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     for child in tree_children(n):
         if is_tree(child) and tree_label(child) in {"inlinebody", "indentblock"}:
             body_node = child
-        elif not is_token(child) and expr_node is None:
+        elif is_token(child) and getattr(child, "type", None) == TT.AWAIT:
+            continue  # Skip AWAIT keyword
+        elif expr_node is None:
             expr_node = child
 
     if expr_node is None:

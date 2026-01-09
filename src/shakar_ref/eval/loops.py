@@ -528,12 +528,13 @@ def eval_for_subject(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     body_node = None
 
     for child in tree_children(n):
-        if is_token(child):
+        # Skip FOR keyword token, but not IDENT (which is the iterable expr)
+        if is_token(child) and getattr(child, "type", None) == TT.FOR:
             continue
 
         if iter_expr is None:
             iter_expr = child
-        else:
+        elif body_node is None and is_tree(child):
             body_node = child
 
     if iter_expr is None or body_node is None:

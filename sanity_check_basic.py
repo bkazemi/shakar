@@ -2098,6 +2098,39 @@ acc""",
 )
 runtime_scenario(
     lambda: _rt(
+        "for-subject-bare-ident",
+        """acc := ""
+items := ["x", "y"]
+for items: acc = acc + .
+acc""",
+        ("string", "xy"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "for-subject-in-call-block",
+        """log := ""
+fn out(s): log = log + s
+items := ["a", "b"]
+call out:
+  for items: > .
+log""",
+        ("string", "ab"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "await-bare-ident",
+        """x := 99
+await x""",
+        ("number", 99),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "for-indexed",
         """logs := ""
 items := ["a", "b"]
