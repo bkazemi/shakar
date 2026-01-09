@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import subprocess
 from typing import Callable, Dict, List, Optional, Tuple
+from .tree import Node
 from .types import (
     ShkNull,
     ShkNumber,
@@ -425,44 +426,87 @@ def call_shkfn(
     return _call_shkfn_raw(fn, positional, subject, caller_frame)
 
 
-def _bind_params_with_spread(
+def _bind_params_with_defaults(
     params: List[str],
     vararg_indices: List[int],
     positional: List[ShkValue],
+    defaults: Optional[List[Optional[Node]]],
     *,
     label: str,
+    eval_default: Optional[Callable[[Node], ShkValue]] = None,
+    on_bind: Optional[Callable[[str, ShkValue], None]] = None,
 ) -> List[ShkValue]:
-    spread_set = set(vararg_indices)
-    non_spread_after = [0] * len(params)
-    count = 0
+    defaults_list = defaults or []
+    if len(defaults_list) < len(params):
+        defaults_list = defaults_list + [None] * (len(params) - len(defaults_list))
 
-    for idx in range(len(params) - 1, -1, -1):
-        non_spread_after[idx] = count
-        if idx not in spread_set:
-            count += 1
+    spread_index = None
+    if vararg_indices:
+        if len(vararg_indices) != 1 or vararg_indices[0] != len(params) - 1:
+            raise ShakarRuntimeError("Spread parameter must be last")
+        spread_index = vararg_indices[0]
 
-    bound_values: List[ShkValue] = []
-    current_pos = 0
-    total_args = len(positional)
-
-    for idx, _name in enumerate(params):
-        if idx in spread_set:
-            needed_after = non_spread_after[idx]
-            available = total_args - current_pos
-            take = max(0, available - needed_after)
-            spread_vals = positional[current_pos : current_pos + take]
-            bound_values.append(ShkArray(list(spread_vals)))
-            current_pos += take
+    optional_present = False
+    for idx in range(len(params)):
+        if idx == spread_index:
             continue
+        if defaults_list[idx] is not None:
+            optional_present = True
+            break
 
-        if current_pos >= total_args:
+    if spread_index is None and not optional_present:
+        if len(positional) != len(params):
             raise ShakarArityError(
                 f"{label} expects {len(params)} args; got {len(positional)}"
             )
-        bound_values.append(positional[current_pos])
-        current_pos += 1
+        if on_bind is not None:
+            for name, val in zip(params, positional):
+                on_bind(name, val)
+        return list(positional)
 
-    if current_pos < total_args:
+    required = 0
+    for idx in range(len(params)):
+        if idx == spread_index:
+            continue
+        if defaults_list[idx] is None:
+            required += 1
+
+    if len(positional) < required:
+        raise ShakarArityError(
+            f"{label} expects at least {required} args; got {len(positional)}"
+        )
+
+    bound_values: List[ShkValue] = []
+    current_pos = 0
+
+    for idx, name in enumerate(params):
+        if spread_index is not None and idx == spread_index:
+            spread_vals = positional[current_pos:]
+            bound = ShkArray(list(spread_vals))
+            bound_values.append(bound)
+            if on_bind is not None:
+                on_bind(name, bound)
+            current_pos = len(positional)
+            continue
+
+        if current_pos < len(positional):
+            bound = positional[current_pos]
+            current_pos += 1
+        else:
+            default_node = defaults_list[idx]
+            if default_node is None:
+                raise ShakarArityError(
+                    f"{label} expects at least {required} args; got {len(positional)}"
+                )
+            if eval_default is None:
+                raise ShakarRuntimeError("Missing default evaluator")
+            bound = eval_default(default_node)
+
+        bound_values.append(bound)
+        if on_bind is not None:
+            on_bind(name, bound)
+
+    if current_pos < len(positional):
         raise ShakarArityError(
             f"too many arguments for {label.lower()} with {len(params)} parameters"
         )
@@ -471,22 +515,23 @@ def _bind_params_with_spread(
 
 
 def _bind_decorator_params(
-    params: List[str], vararg_indices: List[int], args: List[ShkValue]
+    decorator: ShkDecorator, args: List[ShkValue]
 ) -> List[ShkValue]:
-    if not vararg_indices:
-        if len(args) != len(params):
-            raise ShakarArityError(
-                f"Decorator expects {len(params)} args; got {len(args)}"
-            )
-        return list(args)
+    from .evaluator import eval_node  # local import to avoid cycle
 
-    required = len(params) - len(vararg_indices)
-    if len(args) < required:
-        raise ShakarArityError(
-            f"Decorator expects at least {required} args; got {len(args)}"
-        )
-    return _bind_params_with_spread(
-        params, vararg_indices, list(args), label="Decorator"
+    params = decorator.params or []
+    defaults = decorator.param_defaults or []
+
+    temp_frame = Frame(parent=decorator.frame)
+
+    return _bind_params_with_defaults(
+        params=params,
+        vararg_indices=decorator.vararg_indices or [],
+        positional=list(args),
+        defaults=defaults,
+        label="Decorator",
+        eval_default=lambda node: _ensure_shk_value(eval_node(node, temp_frame)),
+        on_bind=temp_frame.define,
     )
 
 
@@ -524,26 +569,15 @@ def _call_shkfn_raw(
 
     callee_frame = Frame(parent=fn.frame, dot=subject)
 
-    varargs = fn.vararg_indices or []
-
-    if not varargs:
-        if len(positional) != len(fn.params):
-            raise ShakarArityError(
-                f"Function expects {len(fn.params)} args; got {len(positional)}"
-            )
-        bound_values = positional
-    else:
-        required = len(fn.params) - len(varargs)
-        if len(positional) < required:
-            raise ShakarArityError(
-                f"Function expects at least {required} args; got {len(positional)}"
-            )
-        bound_values = _bind_params_with_spread(
-            fn.params, varargs, positional, label="Function"
-        )
-
-    for name, val in zip(fn.params, bound_values):
-        callee_frame.define(name, val)
+    _bind_params_with_defaults(
+        params=fn.params,
+        vararg_indices=fn.vararg_indices or [],
+        positional=positional,
+        defaults=fn.param_defaults,
+        label="Function",
+        eval_default=lambda node: _ensure_shk_value(eval_node(node, callee_frame)),
+        on_bind=callee_frame.define,
+    )
 
     callee_frame.mark_function_frame()
 

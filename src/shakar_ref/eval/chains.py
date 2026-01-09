@@ -316,9 +316,7 @@ def call_value(
                 )
             return cal.invoke(args[0])
         case ShkDecorator():
-            params = cal.params or []
-            varargs = cal.vararg_indices or []
-            bound = _bind_decorator_params(params, varargs, args)
+            bound = _bind_decorator_params(cal, args)
             return DecoratorConfigured(decorator=cal, args=list(bound))
         case ShkFn():
             return call_shkfn(cal, args, subject=None, caller_frame=frame)

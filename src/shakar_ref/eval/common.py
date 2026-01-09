@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, List, Optional, Tuple, TypeAlias
+from typing import Callable, Dict, List, Optional, Tuple, TypeAlias
 import re
 
 from ..tree import Tree, Tok
@@ -20,6 +20,7 @@ from ..types import (
 )
 from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
 from ..tree import token_kind
+from ..param_utils import param_default_expr
 
 SourceSpan: TypeAlias = tuple[int, int] | tuple[None, None]
 
@@ -47,12 +48,42 @@ def ident_token_value(node: Node) -> Optional[str]:
 def extract_param_names(
     params_node: Optional[Node], context: str = "parameter list"
 ) -> Tuple[List[str], List[int]]:
+    names, varargs, _defaults, _contracts, _spread_contracts = (
+        extract_function_signature(params_node, context=context)
+    )
+    return names, varargs
+
+
+def extract_param_defaults(
+    params_node: Optional[Node], context: str = "parameter list"
+) -> List[Optional[Node]]:
+    _names, _varargs, defaults, _contracts, _spread_contracts = (
+        extract_function_signature(params_node, context=context)
+    )
+    return defaults
+
+
+def extract_function_signature(
+    params_node: Optional[Node], context: str = "parameter list"
+) -> Tuple[
+    List[str],
+    List[int],
+    List[Optional[Node]],
+    Dict[str, Node],
+    Dict[str, Node],
+]:
     if params_node is None:
-        return [], []
+        return [], [], [], {}, {}
 
     names: List[str] = []
     varargs: List[int] = []
+    defaults: List[Optional[Node]] = []
+    contracts: Dict[str, Node] = {}
+    spread_contracts: Dict[str, Node] = {}
     param_index = 0
+
+    def fail(message: str) -> None:
+        raise ShakarRuntimeError(message)
 
     for p in tree_children(params_node):
         if is_token(p) and token_kind(p) == "COMMA":
@@ -60,32 +91,63 @@ def extract_param_names(
 
         if is_tree(p) and tree_label(p) == "param_spread":
             children = tree_children(p)
-            if children:
-                param_name = ident_token_value(children[0])
-                if param_name is not None:
-                    names.append(param_name)
-                    varargs.append(param_index)
-                    param_index += 1
-                    continue
+            if not children:
+                raise ShakarRuntimeError(
+                    f"Unsupported parameter node in {context}: {p}"
+                )
+            param_name = ident_token_value(children[0])
+            if param_name is None:
+                raise ShakarRuntimeError(
+                    f"Unsupported parameter node in {context}: {p}"
+                )
+            names.append(param_name)
+            varargs.append(param_index)
+            defaults.append(None)
+            contract_expr = _param_contract_expr(p)
+            if contract_expr is not None:
+                spread_contracts[param_name] = contract_expr
+            param_index += 1
+            continue
 
         name = ident_token_value(p)
         if name is not None:
             names.append(name)
+            defaults.append(None)
             param_index += 1
             continue
 
         if is_tree(p) and tree_label(p) == "param":
             children = tree_children(p)
-            if children:
-                param_name = ident_token_value(children[0])
-                if param_name is not None:
-                    names.append(param_name)
-                    param_index += 1
-                    continue
+            if not children:
+                raise ShakarRuntimeError(
+                    f"Unsupported parameter node in {context}: {p}"
+                )
+            param_name = ident_token_value(children[0])
+            if param_name is None:
+                raise ShakarRuntimeError(
+                    f"Unsupported parameter node in {context}: {p}"
+                )
+            names.append(param_name)
+            defaults.append(param_default_expr(p, on_error=fail))
+            contract_expr = _param_contract_expr(p)
+            if contract_expr is not None:
+                contracts[param_name] = contract_expr
+            param_index += 1
+            continue
 
         raise ShakarRuntimeError(f"Unsupported parameter node in {context}: {p}")
 
-    return names, varargs
+    return names, varargs, defaults, contracts, spread_contracts
+
+
+def _param_contract_expr(node: Tree) -> Optional[Node]:
+    for child in tree_children(node):
+        if is_tree(child) and tree_label(child) == "contract":
+            contract_children = tree_children(child)
+            if contract_children:
+                return contract_children[0]
+            return None
+    return None
 
 
 def is_literal_node(node: Node) -> bool:

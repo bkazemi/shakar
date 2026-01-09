@@ -6,6 +6,7 @@ Lark parser so they can be used with the RD parser pipeline.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import List, Optional, Tuple, TypeAlias
 
 from .tree import Tree, Tok, Transformer, v_args
@@ -20,6 +21,7 @@ from .tree import (
     tree_children,
 )
 from .parser_rd import parse_expr_fragment
+from .param_utils import param_default_expr
 
 InterpolationSegment: TypeAlias = tuple[str, str | Node]
 
@@ -1073,6 +1075,192 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
     params = [Tok(TT.IDENT, name) for name in holes]
     paramlist = Tree("paramlist", params)
     return Tree("amp_lambda", [paramlist, cloned_chain])
+
+
+@dataclass
+class _ParamEntry:
+    node: Node
+    isolated: bool
+    trailing_contract: bool
+
+
+def normalize_param_contracts(node: Node) -> Node:
+    """Normalize grouped/implicit parameter contracts in param lists."""
+    if is_token(node) or not is_tree(node):
+        return node
+
+    if tree_label(node) == "paramlist":
+        return _normalize_paramlist(node)
+
+    node.children = [normalize_param_contracts(child) for child in tree_children(node)]
+    return node
+
+
+def _normalize_paramlist(node: Tree) -> Tree:
+    entries: List[_ParamEntry] = []
+
+    for child in tree_children(node):
+        entries.extend(_expand_param_entry(child))
+
+    _propagate_param_contracts(entries)
+    _validate_param_entries(entries)
+
+    node.children = [entry.node for entry in entries]
+    return node
+
+
+def _expand_param_entry(node: Node) -> List[_ParamEntry]:
+    if is_tree(node):
+        label = tree_label(node)
+
+        if label == "param_isolated":
+            inner = node.children[0] if node.children else None
+            if inner is None:
+                raise SyntaxError("Empty isolated parameter group")
+            entries = _expand_param_entry(inner)
+            for entry in entries:
+                entry.isolated = True
+                entry.trailing_contract = False
+            return entries
+
+        if label == "param_group":
+            return _expand_param_group(node)
+
+    return [_entry_from_node(node, isolated=False)]
+
+
+def _expand_param_group(node: Tree) -> List[_ParamEntry]:
+    group_params: Optional[Tree] = None
+    contract_expr: Optional[Node] = None
+
+    for child in tree_children(node):
+        if is_tree(child) and tree_label(child) == "paramlist":
+            group_params = child
+        elif is_tree(child) and tree_label(child) == "contract":
+            kids = tree_children(child)
+            if kids:
+                contract_expr = kids[0]
+
+    if group_params is None or contract_expr is None:
+        raise SyntaxError("Malformed parameter group")
+
+    entries: List[_ParamEntry] = []
+
+    for child in tree_children(group_params):
+        if param_default_expr(child) is not None:
+            raise SyntaxError("Grouped parameters cannot include defaults")
+        if _param_contract_expr(child) is not None:
+            raise SyntaxError("Grouped parameters cannot include contracts")
+        if _param_is_spread(child):
+            raise SyntaxError("Grouped parameters cannot include spread")
+
+        entry = _entry_from_node(child, isolated=False)
+        entry.node = _add_param_contract(entry.node, contract_expr)
+        entry.trailing_contract = False
+        entries.append(entry)
+
+    return entries
+
+
+def _entry_from_node(node: Node, *, isolated: bool) -> _ParamEntry:
+    has_contract = _param_contract_expr(node) is not None
+    trailing_contract = has_contract and not isolated
+    return _ParamEntry(
+        node=node, isolated=isolated, trailing_contract=trailing_contract
+    )
+
+
+def _propagate_param_contracts(entries: List[_ParamEntry]) -> None:
+    for idx, entry in enumerate(entries):
+        if not entry.trailing_contract:
+            continue
+
+        contract_expr = _param_contract_expr(entry.node)
+        if contract_expr is None:
+            continue
+
+        scan = idx - 1
+        while scan >= 0:
+            prev = entries[scan]
+
+            if prev.isolated:
+                scan -= 1
+                continue
+
+            if _param_contract_expr(prev.node) is not None:
+                break
+
+            prev.node = _add_param_contract(prev.node, contract_expr)
+            scan -= 1
+
+
+def _validate_param_entries(entries: List[_ParamEntry]) -> None:
+    seen: set[str] = set()
+    spread_indices: List[int] = []
+
+    for idx, entry in enumerate(entries):
+        name = _param_name(entry.node)
+        if name is None:
+            raise SyntaxError("Parameter name missing")
+        if name in seen:
+            raise SyntaxError(f"Duplicate parameter name '{name}'")
+        seen.add(name)
+
+        if _param_is_spread(entry.node):
+            spread_indices.append(idx)
+
+    if len(spread_indices) > 1:
+        raise SyntaxError("Only one spread parameter is allowed")
+
+    if spread_indices and spread_indices[0] != len(entries) - 1:
+        raise SyntaxError("Spread parameter must be last")
+
+
+def _param_contract_expr(node: Node) -> Optional[Node]:
+    if not is_tree(node):
+        return None
+
+    if tree_label(node) not in {"param", "param_spread"}:
+        return None
+
+    for child in tree_children(node):
+        if is_tree(child) and tree_label(child) == "contract":
+            kids = tree_children(child)
+            if kids:
+                return kids[0]
+    return None
+
+
+def _param_is_spread(node: Node) -> bool:
+    return is_tree(node) and tree_label(node) == "param_spread"
+
+
+def _param_name(node: Node) -> Optional[str]:
+    if is_token(node) and node.type == TT.IDENT:
+        return str(node.value)
+
+    if is_tree(node) and tree_label(node) in {"param", "param_spread"}:
+        children = tree_children(node)
+        if children and is_token(children[0]) and children[0].type == TT.IDENT:
+            return str(children[0].value)
+
+    return None
+
+
+def _add_param_contract(node: Node, contract_expr: Node) -> Node:
+    if _param_contract_expr(node) is not None:
+        return node
+
+    contract_node = Tree("contract", [contract_expr])
+
+    if is_token(node):
+        return Tree("param", [node, contract_node])
+
+    if is_tree(node) and tree_label(node) in {"param", "param_spread"}:
+        node.children.append(contract_node)
+        return node
+
+    return node
 
 
 def _infer_amp_lambda_params(node: Node) -> Node:

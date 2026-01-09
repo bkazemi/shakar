@@ -397,6 +397,23 @@ def build_fn_cases(_: KeywordPlan) -> List[Case]:
 
 
 @case_builder
+def build_param_contract_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "fn f(a, b, c ~ Int): a",
+        "fn f(a, b, (c ~ Int)): a",
+        "fn f((a), b, c ~ Int): a",
+        "fn f(a, (b ~ Str), c ~ Int): a",
+        "fn f((a, b) ~ Int, c ~ Str): a",
+        "fn f(a, b, ...rest ~ Int): rest",
+        "&[a, b ~ Int](a + b)",
+    ]
+    return [
+        Case(name=f"param-contract-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
+
+
+@case_builder
 def build_power_cases(_: KeywordPlan) -> List[Case]:
     samples = [
         "2 ** 3",
@@ -718,6 +735,12 @@ fn hi(): 1""",
             None,
         ),
         AstScenario("emit-outside-call", "> 1", None, ParseError),
+        AstScenario(
+            "param-group-nested-contract",
+            "fn f((a ~ Int, b) ~ Int): a",
+            None,
+            ParseError,
+        ),
     ]
 )
 
@@ -742,6 +765,87 @@ fn hi(name): name
 hi("Ada")""",
         ("string", "Ada"),
         None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "param-contract-grouped-ok",
+        """fn f(a, b ~ Int): a + b
+f(1, 2)""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "param-contract-grouped-fail",
+        """fn f(a, b ~ Int): a + b
+f("x", 2)""",
+        None,
+        ShakarAssertionError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "param-contract-isolated-inner",
+        """fn f(a, (b ~ Int)): a
+f("x", 2)""",
+        ("string", "x"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "param-contract-isolated-bare",
+        """fn f((a), b ~ Int): a
+f("x", 2)""",
+        ("string", "x"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "param-contract-spread",
+        """fn f(...rest ~ Int): rest.len
+f(1, "x", 3)""",
+        None,
+        ShakarAssertionError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "param-default-basic",
+        """fn f(a = 1, b = 2): a + b
+f()""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "param-default-partial",
+        """fn f(a, b = 2): a + b
+f(1)""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "amp-lambda-contract-ok",
+        """f := &[a, b ~ Int](a + b)
+f(1, 2)""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "amp-lambda-contract-fail",
+        """f := &[a, b ~ Int](a + b)
+f("x", 2)""",
+        None,
+        ShakarAssertionError,
     )
 )
 runtime_scenario(
@@ -1344,8 +1448,8 @@ runtime_scenario(
     lambda: _rt(
         "spread-params-multi",
         "fn capture(a, ...mid, b, ...tail, c): [a, mid.len, b, tail.len, c]; res := capture(1, 2, 3, 4, 5, 6, 7); res[0] + res[1] + res[2] + res[3] + res[4]",
-        ("number", 18),
         None,
+        SyntaxError,
     )
 )
 runtime_scenario(

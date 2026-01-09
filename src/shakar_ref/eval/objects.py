@@ -16,7 +16,10 @@ from ..runtime import (
     ShakarTypeError,
 )
 from ..tree import Tree, is_token, is_tree, tree_children, tree_label
-from .common import expect_ident_token as _expect_ident_token, extract_param_names
+from .common import (
+    expect_ident_token as _expect_ident_token,
+    extract_function_signature,
+)
 from .helpers import closure_frame
 
 EvalFunc = Callable[[Tree, Frame], ShkValue]
@@ -168,14 +171,15 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 if name_tok is None:
                     raise ShakarRuntimeError("Method missing name")
                 method_name = _expect_ident_token(name_tok, "Method name")
-                param_names, varargs = extract_param_names(
-                    params_node, context="method definition"
+                param_names, varargs, defaults, _contracts, _spread_contracts = (
+                    extract_function_signature(params_node, context="method definition")
                 )
                 method_fn = ShkFn(
                     params=param_names,
                     body=body,
                     frame=closure_frame(frame),
                     vararg_indices=varargs,
+                    param_defaults=defaults,
                 )
                 slots[method_name] = method_fn
             case "obj_spread":

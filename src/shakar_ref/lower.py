@@ -6,13 +6,14 @@ from .token_types import TT
 
 from .tree import Node, is_tree, tree_children, tree_label
 from .tree import is_token as is_token
-from .ast_transforms import _infer_amp_lambda_params
+from .ast_transforms import _infer_amp_lambda_params, normalize_param_contracts
 
 
 def lower(ast: Node) -> Node:
-    """Runtime lowering pass: hole desugaring + amp-lambda parameter inference."""
+    """Runtime lowering pass: hole desugaring + amp-lambda inference + param normalization."""
     ast = _desugar_call_holes(ast)
     ast = _infer_amp_lambda_params(ast)
+    ast = normalize_param_contracts(ast)
     return ast
 
 

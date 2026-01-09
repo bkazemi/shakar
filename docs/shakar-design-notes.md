@@ -630,6 +630,8 @@ u := makeUser() and .isValid()
 
 - `fn(params?): body` is an expression producing a callable value. Bodies match named `fn` syntax (inline or indented). Zero-arg IIFE sugar: `fn(()): body` desugars to `(fn(): body)()`. Expression bodies execute on call, not on literal creation. Lambdas with `&` covered below.
 - **Type contracts**: Parameters may specify schemas using `param ~ Schema` syntax. Return values may specify schemas using `fn(params) ~ ReturnSchema:` syntax. Both desugar to runtime assertions. See the Structural Match section for details.
+  - **Grouped + implicit param contracts**: In function parameter lists only, a trailing contract applies to **all preceding uncontracted params** since the last contract: `fn clamp(val, lo, hi ~ Int): ...`. To opt out, wrap a param in parens: `(name)` (isolated, no contract) or `(name ~ Contract)` (isolated with its own contract). Explicit groups are also valid: `fn clamp((val, lo, hi) ~ Int): ...` (group requires **2+ identifiers** and **no `~` inside**). For `...rest ~ Contract`, checks are **per element** of the varargs array.
+  - **Order**: defaults must precede contracts (`name = default ~ Contract`). `name ~ Contract = default` is invalid.
 
 ### Decorators
 

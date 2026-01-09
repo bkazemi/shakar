@@ -194,6 +194,7 @@ class ShkDecorator:
     body: Node
     frame: "Frame"
     vararg_indices: Optional[List[int]] = None
+    param_defaults: Optional[List[Optional[Node]]] = None
 
 
 @dataclass
@@ -211,6 +212,7 @@ class ShkFn:
     kind: str = "fn"
     return_contract: Optional[Node] = None  # AST node for return type contract
     vararg_indices: Optional[List[int]] = None
+    param_defaults: Optional[List[Optional[Node]]] = None
 
     def __repr__(self) -> str:
         body_label = getattr(self.body, "data", type(self.body).__name__)

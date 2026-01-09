@@ -19,40 +19,11 @@ from ..runtime import (
 from ..tree import is_tree, tree_children, tree_label, child_by_label
 from .common import (
     expect_ident_token as _expect_ident_token,
-    ident_token_value as _ident_token_value,
-    extract_param_names,
+    extract_function_signature,
 )
 from .helpers import closure_frame
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
-
-
-def extract_param_contracts(params_node: Optional[Node]) -> Dict[str, Node]:
-    """Extract parameter contracts from function definition"""
-    if params_node is None:
-        return {}
-
-    contracts: Dict[str, Node] = {}
-
-    for p in tree_children(params_node):
-        if not is_tree(p) or tree_label(p) != "param":
-            continue
-
-        children = tree_children(p)
-        if len(children) < 2:
-            continue
-
-        param_name = _ident_token_value(children[0])
-        if param_name is None:
-            continue
-
-        contract_node = child_by_label(p, "contract")
-        if contract_node is not None:
-            contract_children = tree_children(contract_node)
-            if contract_children:
-                contracts[param_name] = contract_children[0]
-
-    return contracts
 
 
 def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
@@ -80,8 +51,9 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
     if body_node is None:
         body_node = Tree("inlinebody", [])
 
-    params, varargs = extract_param_names(params_node, context="function definition")
-    contracts = extract_param_contracts(params_node)
+    params, varargs, defaults, contracts, spread_contracts = extract_function_signature(
+        params_node, context="function definition"
+    )
 
     # Extract return contract expression if present
     return_contract_expr = None
@@ -91,7 +63,9 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
             return_contract_expr = contract_children[0]
 
     final_body = (
-        _inject_contract_assertions(body_node, contracts) if contracts else body_node
+        _inject_contract_assertions(body_node, contracts, spread_contracts)
+        if contracts or spread_contracts
+        else body_node
     )
     fn_value = ShkFn(
         params=params,
@@ -99,6 +73,7 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
         frame=closure_frame(frame),
         return_contract=return_contract_expr,
         vararg_indices=varargs,
+        param_defaults=defaults,
     )
 
     if decorators_node is not None:
@@ -111,27 +86,16 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
     return ShkNull()
 
 
-def _inject_contract_assertions(body: Node, contracts: Dict[str, Node]) -> Node:
+def _inject_contract_assertions(
+    body: Node,
+    contracts: Dict[str, Node],
+    spread_contracts: Dict[str, Node],
+) -> Node:
     """Inject assert statements for parameter contracts at the start of the function body"""
-    if not contracts:
-        return body
+    assertions = _build_contract_assertions(contracts, spread_contracts)
 
-    assertions: List[Node] = []
-    for param_name, contract_expr in contracts.items():
-        assertion = Tree(
-            "assert",
-            [
-                Tree(
-                    "compare",
-                    [
-                        Tok(TT.IDENT, param_name, 0, 0),
-                        Tree("cmpop", [Tok(TT.TILDE, "~", 0, 0)]),
-                        contract_expr,
-                    ],
-                )
-            ],
-        )
-        assertions.append(assertion)
+    if not assertions:
+        return body
 
     body_label = tree_label(body)
 
@@ -149,6 +113,56 @@ def _inject_contract_assertions(body: Node, contracts: Dict[str, Node]) -> Node:
     body_children = tree_children(body)
     new_children = assertions + list(body_children)
     return Tree(body_label, new_children)
+
+
+def _build_contract_assertions(
+    contracts: Dict[str, Node],
+    spread_contracts: Dict[str, Node],
+) -> List[Node]:
+    assertions: List[Node] = []
+
+    for param_name, contract_expr in contracts.items():
+        assertion = Tree(
+            "assert",
+            [
+                Tree(
+                    "compare",
+                    [
+                        Tok(TT.IDENT, param_name, 0, 0),
+                        Tree("cmpop", [Tok(TT.TILDE, "~", 0, 0)]),
+                        contract_expr,
+                    ],
+                )
+            ],
+        )
+        assertions.append(assertion)
+
+    for param_name, contract_expr in spread_contracts.items():
+        assertion = Tree(
+            "assert",
+            [
+                Tree(
+                    "compare",
+                    [
+                        Tree("subject", [Tok(TT.DOT, ".", 0, 0)]),
+                        Tree("cmpop", [Tok(TT.TILDE, "~", 0, 0)]),
+                        contract_expr,
+                    ],
+                )
+            ],
+        )
+        loop_body = Tree("indentblock", [assertion])
+        loop = Tree(
+            "forsubject",
+            [
+                Tok(TT.FOR, "for", 0, 0),
+                Tok(TT.IDENT, param_name, 0, 0),
+                loop_body,
+            ],
+        )
+        assertions.append(loop)
+
+    return assertions
 
 
 def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
@@ -172,12 +186,15 @@ def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
     if body_node is None:
         body_node = Tree("inlinebody", [])
 
-    params, varargs = extract_param_names(params_node, context="decorator definition")
+    params, varargs, defaults, _contracts, _spread_contracts = (
+        extract_function_signature(params_node, context="decorator definition")
+    )
     decorator = ShkDecorator(
         params=params,
         body=body_node,
         frame=closure_frame(frame),
         vararg_indices=varargs,
+        param_defaults=defaults,
     )
     frame.define(name, decorator)
 
@@ -200,8 +217,9 @@ def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
     if body_node is None:
         body_node = Tree("inlinebody", [])
 
-    params, varargs = extract_param_names(params_node, context="anonymous function")
-    contracts = extract_param_contracts(params_node)
+    params, varargs, defaults, contracts, spread_contracts = extract_function_signature(
+        params_node, context="anonymous function"
+    )
 
     # Extract return contract expression if present
     return_contract_expr = None
@@ -211,7 +229,9 @@ def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
             return_contract_expr = contract_children[0]
 
     final_body = (
-        _inject_contract_assertions(body_node, contracts) if contracts else body_node
+        _inject_contract_assertions(body_node, contracts, spread_contracts)
+        if contracts or spread_contracts
+        else body_node
     )
 
     return ShkFn(
@@ -220,6 +240,7 @@ def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
         frame=closure_frame(frame),
         return_contract=return_contract_expr,
         vararg_indices=varargs,
+        param_defaults=defaults,
     )
 
 
@@ -234,13 +255,19 @@ def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
 
     if len(n.children) == 2:
         params_node, body = n.children
-        params, varargs = extract_param_names(params_node, context="amp_lambda")
+        params, varargs, defaults, contracts, spread_contracts = (
+            extract_function_signature(params_node, context="amp_lambda")
+        )
+        if contracts or spread_contracts:
+            assertions = _build_contract_assertions(contracts, spread_contracts)
+            body = Tree("indentblock", assertions + [body])
         return ShkFn(
             params=params,
             body=body,
             frame=closure_frame(frame),
             kind="amp",
             vararg_indices=varargs,
+            param_defaults=defaults,
         )
 
     raise ShakarRuntimeError("amp_lambda malformed")
@@ -268,12 +295,26 @@ def _coerce_decorator_instance(value: ShkValue) -> DecoratorConfigured:
     match value:
         case DecoratorConfigured():
             return DecoratorConfigured(decorator=value.decorator, args=list(value.args))
-        case ShkDecorator(params=params, vararg_indices=varargs):
+        case ShkDecorator(
+            params=params, vararg_indices=varargs, param_defaults=defaults
+        ):
             param_list = params or []
             vararg_list = varargs or []
-            min_arity = len(param_list) - len(vararg_list)
+            default_list = defaults or []
+            if len(default_list) < len(param_list):
+                default_list = default_list + [None] * (
+                    len(param_list) - len(default_list)
+                )
 
-            if min_arity > 0:
+            spread_index = vararg_list[0] if vararg_list else None
+            required = 0
+            for idx in range(len(param_list)):
+                if spread_index is not None and idx == spread_index:
+                    continue
+                if default_list[idx] is None:
+                    required += 1
+
+            if required > 0:
                 raise ShakarRuntimeError(
                     "Decorator requires arguments; call it with parentheses"
                 )

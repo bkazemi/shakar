@@ -2370,62 +2370,212 @@ class Parser:
         fieldlist = Tree("fieldlist", [self._tok("IDENT", f.value) for f in fields])
         return Tree("fieldfan", [self._tok("DOT", "."), fieldlist])
 
-    def parse_param_list(self) -> Tree:
+    def parse_param_list(self, end_token: TT = TT.RPAR) -> Tree:
         """Parse function parameter list with optional contracts"""
         params: List[Node] = []
 
-        while not self.check(TT.RPAR, TT.EOF):
-            is_spread = self.match(TT.SPREAD)
-
-            param = self.expect(TT.IDENT)
-
-            # Optional contract: ~ expr
-            contract = None
-            if self.match(TT.TILDE):
-                contract = self.parse_expr()
-
-            # Optional default value
-            default = None
-            if self.match(TT.ASSIGN):
-                default = self.parse_expr()
-
-            if is_spread and (contract or default):
-                raise ParseError(
-                    "Spread parameter cannot have a contract or default", self.current
-                )
-
-            if contract and default:
-                params.append(
-                    Tree(
-                        "param",
-                        [
-                            self._tok("IDENT", param.value),
-                            Tree("contract", [contract]),
-                            default,
-                        ],
-                    )
-                )
-            elif contract:
-                params.append(
-                    Tree(
-                        "param",
-                        [self._tok("IDENT", param.value), Tree("contract", [contract])],
-                    )
-                )
-            elif default:
-                params.append(Tree("param", [self._tok("IDENT", param.value), default]))
-            else:
-                if is_spread:
-                    params.append(
-                        Tree("param_spread", [self._tok("IDENT", param.value)])
-                    )
-                else:
-                    params.append(self._tok("IDENT", param.value))
+        while not self.check(end_token, TT.EOF):
+            params.append(self._parse_param_entry())
 
             if not self.match(TT.COMMA):
                 break
 
         return Tree("paramlist", params)
+
+    def _parse_param_entry(self) -> Node:
+        if self.match(TT.LPAR):
+            inner_node, has_default, has_contract, is_spread = self._parse_param_atom()
+
+            if self.match(TT.COMMA):
+                if has_default or has_contract or is_spread:
+                    raise ParseError(
+                        "Grouped parameters cannot include defaults, contracts, or spread",
+                        self.current,
+                    )
+
+                group_items: List[Node] = [inner_node]
+
+                while True:
+                    if self.check(TT.RPAR):
+                        raise ParseError(
+                            "Grouped parameters require at least two names",
+                            self.current,
+                        )
+
+                    if self.check(TT.SPREAD):
+                        raise ParseError(
+                            "Grouped parameters cannot include spread",
+                            self.current,
+                        )
+
+                    ident = self.expect(TT.IDENT)
+                    group_items.append(ident)
+
+                    if self.check(TT.ASSIGN, TT.TILDE):
+                        raise ParseError(
+                            "Grouped parameters cannot include defaults or contracts",
+                            self.current,
+                        )
+
+                    if not self.match(TT.COMMA):
+                        break
+
+                self.expect(TT.RPAR)
+
+                if self.match(TT.ASSIGN):
+                    raise ParseError(
+                        "Grouped parameters cannot have a default", self.current
+                    )
+
+                if not self.match(TT.TILDE):
+                    raise ParseError(
+                        "Grouped parameters require a trailing contract", self.current
+                    )
+
+                contract = self.parse_expr()
+
+                if self.check(TT.ASSIGN):
+                    raise ParseError(
+                        "Default must precede contract in parameter metadata",
+                        self.current,
+                    )
+
+                return Tree(
+                    "param_group",
+                    [Tree("paramlist", group_items), Tree("contract", [contract])],
+                )
+
+            self.expect(TT.RPAR)
+
+            outer_default = None
+            outer_contract = None
+
+            if self.match(TT.ASSIGN):
+                outer_default = self.parse_expr()
+
+            if self.match(TT.TILDE):
+                outer_contract = self.parse_expr()
+                if self.check(TT.ASSIGN):
+                    raise ParseError(
+                        "Default must precede contract in parameter metadata",
+                        self.current,
+                    )
+
+            merged = self._merge_param_metadata(
+                inner_node, outer_default, outer_contract
+            )
+            return Tree("param_isolated", [merged])
+
+        node, _, _, _ = self._parse_param_atom()
+        return node
+
+    def _parse_param_atom(self) -> tuple[Node, bool, bool, bool]:
+        is_spread = self.match(TT.SPREAD)
+        ident = self.expect(TT.IDENT)
+
+        default = None
+        contract = None
+
+        if self.match(TT.ASSIGN):
+            default = self.parse_expr()
+
+        if self.match(TT.TILDE):
+            contract = self.parse_expr()
+            if self.check(TT.ASSIGN):
+                raise ParseError(
+                    "Default must precede contract in parameter metadata",
+                    self.current,
+                )
+
+        if is_spread and default is not None:
+            raise ParseError("Spread parameter cannot have a default", self.current)
+
+        node = self._build_param_node(ident, default, contract, is_spread)
+        return node, default is not None, contract is not None, is_spread
+
+    def _build_param_node(
+        self,
+        ident: Tok,
+        default: Optional[Node],
+        contract: Optional[Node],
+        is_spread: bool,
+    ) -> Node:
+        if is_spread:
+            children: List[Node] = [ident]
+            if contract is not None:
+                children.append(Tree("contract", [contract]))
+            return Tree("param_spread", children)
+
+        if default is None and contract is None:
+            return ident
+
+        children = [ident]
+        if default is not None:
+            children.append(default)
+        if contract is not None:
+            children.append(Tree("contract", [contract]))
+        return Tree("param", children)
+
+    def _merge_param_metadata(
+        self,
+        node: Node,
+        default: Optional[Node],
+        contract: Optional[Node],
+    ) -> Node:
+        ident, existing_default, existing_contract, is_spread = (
+            self._unpack_param_metadata(node)
+        )
+
+        if default is not None:
+            if existing_contract is not None:
+                raise ParseError(
+                    "Default must precede contract in parameter metadata",
+                    self.current,
+                )
+            if existing_default is not None:
+                raise ParseError(
+                    "Parameter cannot have multiple defaults", self.current
+                )
+            if is_spread:
+                raise ParseError("Spread parameter cannot have a default", self.current)
+
+        if contract is not None and existing_contract is not None:
+            raise ParseError("Parameter cannot have multiple contracts", self.current)
+
+        merged_default = existing_default or default
+        merged_contract = existing_contract or contract
+        return self._build_param_node(ident, merged_default, merged_contract, is_spread)
+
+    def _unpack_param_metadata(
+        self, node: Node
+    ) -> tuple[Tok, Optional[Node], Optional[Node], bool]:
+        if isinstance(node, Tok):
+            return node, None, None, False
+
+        if not isinstance(node, Tree):
+            raise ParseError("Invalid parameter node", self.current)
+
+        label = node.data
+        children = list(node.children)
+
+        if not children or not isinstance(children[0], Tok):
+            raise ParseError("Parameter missing name", self.current)
+
+        ident = children[0]
+        default = None
+        contract = None
+        is_spread = label == "param_spread"
+
+        for child in children[1:]:
+            if isinstance(child, Tree) and child.data == "contract":
+                contract_children = child.children
+                if contract_children:
+                    contract = contract_children[0]
+                continue
+            if default is None:
+                default = child
+
+        return ident, default, contract, is_spread
 
     def parse_pattern(self) -> Tree:
         if self.check(TT.IDENT):
@@ -3254,13 +3404,11 @@ class Parser:
         # Check for explicit params: &[params]
         if self.match(TT.LSQB):
             # &[a, b](a + b)
-            params = []
-            while not self.check(TT.RSQB, TT.EOF):
-                if not self.check(TT.IDENT):
-                    raise ParseError("Expected parameter name in lambda", self.current)
-                params.append(self._tok("IDENT", self.advance().value))
-                if not self.match(TT.COMMA):
-                    break
+            params = (
+                self.parse_param_list(end_token=TT.RSQB)
+                if not self.check(TT.RSQB)
+                else Tree("paramlist", [])
+            )
             self.expect(TT.RSQB)
 
             # Now expect (expr)
@@ -3269,7 +3417,7 @@ class Parser:
             self.expect(TT.RPAR)
 
             # Return Tree('amp_lambda', [Tree('paramlist', params), body])
-            return Tree("amp_lambda", [Tree("paramlist", params), body])
+            return Tree("amp_lambda", [params, body])
 
         # Implicit subject: &(expr)
         self.expect(TT.LPAR)
