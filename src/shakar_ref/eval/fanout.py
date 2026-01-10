@@ -6,6 +6,7 @@ from ..tree import Tok
 from ..runtime import Frame, ShkValue, EvalResult, ShakarRuntimeError
 from ..tree import Node, Tree, child_by_label, is_tree, tree_children, tree_label
 from .bind import FanContext, RebindContext
+from .common import unwrap_noanchor
 from .selector import (
     evaluate_selectorlist,
     SelectorIndex,
@@ -16,15 +17,6 @@ from .selector import (
 from ..runtime import ShkArray
 from .mutation import get_field_value, set_field_value, index_value, set_index_value
 from .expr import apply_binary_operator
-
-
-def _unwrap_noanchor(op: Tree) -> Tuple[Tree, str]:
-    """Unwrap noanchor wrapper if present, return (inner_op, label)."""
-    label = tree_label(op)
-    if label == "noanchor":
-        inner = op.children[0]
-        return inner, tree_label(inner)
-    return op, label
 
 
 # Operators we allow inside fanout blocks map directly to binary symbols.
@@ -84,7 +76,7 @@ def _fan_key(clause: Tree) -> tuple[str, ...] | None:
     for child in tree_children(clause):
         if is_tree(child) and _name(tree_label(child)) == "fanpath":
             for raw_seg in tree_children(child):
-                seg, label = _unwrap_noanchor(raw_seg)
+                seg, label = unwrap_noanchor(raw_seg)
                 label = _name(label)
                 if label in {"field", "fieldsel"}:
                     parts.append(f".{seg.children[0].value}")
@@ -286,7 +278,7 @@ def _read(
     evaluate_index_operand,
     eval_func,
 ) -> ShkValue:
-    final_seg, label = _unwrap_noanchor(raw_final_seg)
+    final_seg, label = unwrap_noanchor(raw_final_seg)
     match label:
         case "field" | "fieldsel":
             name = final_seg.children[0].value
@@ -306,7 +298,7 @@ def _store(
     evaluate_index_operand,
     eval_func,
 ) -> None:
-    final_seg, label = _unwrap_noanchor(raw_final_seg)
+    final_seg, label = unwrap_noanchor(raw_final_seg)
     match label:
         case "field" | "fieldsel":
             name = final_seg.children[0].value

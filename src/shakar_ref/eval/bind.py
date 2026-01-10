@@ -21,20 +21,11 @@ from ..tree import (
     ident_value,
 )
 
-from .common import expect_ident_token, require_number
+from .common import expect_ident_token, require_number, unwrap_noanchor
 from .destructure import assign_pattern as destructure_assign_pattern
 from .mutation import get_field_value, set_field_value, index_value, set_index_value
 from .postfix import define_new_ident
 from ..utils import fanout_values
-
-
-def _unwrap_noanchor(op: Tree) -> Tuple[Tree, str]:
-    """Unwrap noanchor wrapper if present, return (inner_op, label)."""
-    label = tree_label(op)
-    if label == "noanchor":
-        inner = op.children[0]
-        return inner, tree_label(inner)
-    return op, label
 
 
 __all__ = [
@@ -347,7 +338,7 @@ def resolve_chain_assignment(
 
     for idx, raw_op in enumerate(ops):
         is_last = idx == len(ops) - 1
-        op, label = _unwrap_noanchor(raw_op)
+        op, label = unwrap_noanchor(raw_op)
 
         # Capture anchor for final noanchor-wrapped segment (handled manually below)
         if is_last and raw_op is not op:
@@ -556,7 +547,7 @@ def apply_assign(
         return ShkArray([ctx.value for ctx in target.contexts])
 
     raw_final_op = ops[-1]
-    final_op, label = _unwrap_noanchor(raw_final_op)
+    final_op, label = unwrap_noanchor(raw_final_op)
     match label:
         case "field" | "fieldsel":
             field_name = expect_ident_token(final_op.children[0], "Field assignment")
@@ -607,7 +598,7 @@ def _apply_over_fancontext(
     eval_func: EvalFunc,
 ) -> None:
     """Apply-assign (`.=`) across all contexts in a FanContext."""
-    op, label = _unwrap_noanchor(final_op)
+    op, label = unwrap_noanchor(final_op)
 
     for ctx in fan.contexts:
         base = ctx.value
@@ -640,7 +631,7 @@ def _assign_over_fancontext(
     create: bool,
 ) -> None:
     """Assign `value` to each target held in FanContext using final_op."""
-    op, label = _unwrap_noanchor(final_op)
+    op, label = unwrap_noanchor(final_op)
 
     for ctx in fan.contexts:
         base = ctx.value
@@ -696,7 +687,7 @@ def assign_lvalue(
         return value
 
     raw_final_op = ops[-1]
-    final_op, label = _unwrap_noanchor(raw_final_op)
+    final_op, label = unwrap_noanchor(raw_final_op)
     match label:
         case "field" | "fieldsel":
             field_name = expect_ident_token(final_op.children[0], "Field assignment")
@@ -780,7 +771,7 @@ def read_lvalue(
         target = apply_op(target, op, frame, eval_func)
 
     raw_final_op = ops[-1]
-    final_op, label = _unwrap_noanchor(raw_final_op)
+    final_op, label = unwrap_noanchor(raw_final_op)
 
     # Capture anchor for final noanchor-wrapped segment
     if raw_final_op is not final_op:

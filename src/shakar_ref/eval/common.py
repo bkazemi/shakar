@@ -304,6 +304,15 @@ def strip_prefixed_quotes(raw: str, prefix: str) -> str:
     return raw
 
 
+def unwrap_noanchor(op: Tree) -> Tuple[Tree, str]:
+    """Unwrap noanchor wrapper if present, return (inner_op, label)."""
+    label = tree_label(op)
+    if label == "noanchor":
+        inner = op.children[0]
+        return inner, tree_label(inner)
+    return op, label
+
+
 def collect_free_identifiers(node: Node, callback: Callable[[str], None]) -> None:
     skip_nodes = {
         "field",

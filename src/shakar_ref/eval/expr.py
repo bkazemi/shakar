@@ -404,10 +404,6 @@ def eval_ternary(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         return eval_func(false_node, frame)
 
 
-def _all_ops_in(children: List[Tree], allowed: Set[str]) -> bool:
-    return all(as_op(children[i]) in allowed for i in range(1, len(children), 2))
-
-
 def as_op(x: Node) -> str:
     if isinstance(x, Tok):
         return str(x.value)

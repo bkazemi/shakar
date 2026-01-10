@@ -1531,7 +1531,7 @@ class Parser:
                         lv_idx = _copy_meta(
                             inner, Tree("lv_index", list(inner.children))
                         )
-                        norm_ops.append(Tree("noanchor", [lv_idx]))
+                        norm_ops.append(_copy_meta(op, Tree("noanchor", [lv_idx])))
                     else:
                         norm_ops.append(op)
                 elif isinstance(op, Tree) and op.data == "valuefan":
