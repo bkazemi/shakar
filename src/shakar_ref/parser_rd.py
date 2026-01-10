@@ -80,6 +80,14 @@ class Parser:
     def _tok(self, type_name: str, value: str, line: int = 0, column: int = 0) -> Tok:
         return Tok(TT[type_name], value, line, column)
 
+    def _take_noanchor_once(self, seen: list[bool]) -> bool:
+        if not self.match(TT.DOLLAR):
+            return False
+        if seen[0]:
+            raise ParseError("Multiple '$' segments in a chain", self.current)
+        seen[0] = True
+        return True
+
     # ========================================================================
     # Tok Navigation
     # ========================================================================
@@ -1507,7 +1515,7 @@ class Parser:
 
             norm_ops: List[Tree | Tok] = []
             for op in ops:
-                if isinstance(op, Tree) and op.data == "index":
+                if isinstance(op, Tree) and op.data in {"index", "index_noanchor"}:
                     norm_ops.append(Tree("lv_index", list(op.children)))
                 elif isinstance(op, Tree) and op.data == "valuefan":
                     # valuefan is expression fan-out; for assignment treat as fieldfan
@@ -1844,7 +1852,13 @@ class Parser:
             next_tok = self.peek(1)
 
             # Standalone subject: just .
-            if next_tok.type not in (TT.IDENT, TT.LPAR, TT.LSQB, TT.OVER):
+            if next_tok.type not in (
+                TT.IDENT,
+                TT.LPAR,
+                TT.LSQB,
+                TT.OVER,
+                TT.DOLLAR,
+            ):
                 dot = self.advance()
                 return Tree(
                     "subject", [self._tok("DOT", dot.value, dot.line, dot.column)]
@@ -1853,14 +1867,22 @@ class Parser:
             # Implicit chain: .field, .(args), .[index], .over
             self.advance()  # consume .
 
+            seen_noanchor = [False]
+
             # Parse the first implicit operation
             imphead = None
+            noanchor = self._take_noanchor_once(seen_noanchor)
             if self.check(TT.IDENT, TT.OVER):
                 tok = self.advance()
+                label = "field_noanchor" if noanchor else "field"
                 imphead = Tree(
-                    "field", [self._tok(tok.type.name, tok.value, tok.line, tok.column)]
+                    label, [self._tok(tok.type.name, tok.value, tok.line, tok.column)]
                 )
             elif self.match(TT.LPAR):
+                if noanchor:
+                    raise ParseError(
+                        "No-anchor '$' is not valid on call segments", self.current
+                    )
                 args = self.parse_arg_list()
                 self.expect(TT.RPAR)
                 imphead = Tree("call", args if args else [])
@@ -1886,17 +1908,24 @@ class Parser:
                 ]
                 if default:
                     children.append(default)
-                imphead = Tree("index", children)
+                label = "index_noanchor" if noanchor else "index"
+                imphead = Tree(label, children)
+            elif noanchor:
+                raise ParseError(
+                    "Expected field or index after '$' in chain", self.current
+                )
 
             # Now collect any additional postfix operations
             postfix_ops = [imphead]
             while True:
                 if self.match(TT.DOT):
+                    noanchor = self._take_noanchor_once(seen_noanchor)
                     if self.check(TT.IDENT, TT.OVER):
                         field = self.advance()
+                        label = "field_noanchor" if noanchor else "field"
                         postfix_ops.append(
                             Tree(
-                                "field",
+                                label,
                                 [
                                     self._tok(
                                         field.type.name,
@@ -1908,6 +1937,11 @@ class Parser:
                             )
                         )
                     elif self.match(TT.LBRACE):
+                        if noanchor:
+                            raise ParseError(
+                                "No-anchor '$' is not valid on fan segments",
+                                self.current,
+                            )
                         items = self.parse_fan_items()
                         self.expect(TT.RBRACE)
                         # Build valuefan_item nodes from parsed items (IDENT or identchain)
@@ -1919,7 +1953,12 @@ class Parser:
                         )
                     else:
                         raise ParseError("Expected field name after '.'", self.current)
-                elif self.check(TT.LSQB):
+                elif self.check(TT.DOLLAR) or self.check(TT.LSQB):
+                    noanchor = self._take_noanchor_once(seen_noanchor)
+                    if not self.check(TT.LSQB):
+                        raise ParseError(
+                            "Expected field or index after '$' in chain", self.current
+                        )
                     self.advance()
                     selectors = self.parse_selector_list()
                     default = None
@@ -1935,7 +1974,8 @@ class Parser:
                     ]
                     if default:
                         children.append(default)
-                    postfix_ops.append(Tree("index", children))
+                    label = "index_noanchor" if noanchor else "index"
+                    postfix_ops.append(Tree(label, children))
                 elif self.match(TT.LPAR):
                     args = self.parse_arg_list()
                     self.expect(TT.RPAR)
@@ -1957,15 +1997,18 @@ class Parser:
 
         # Collect postfix operations
         postfix_ops = []
+        seen_noanchor = [False]
 
         while True:
             # Field access
             if self.match(TT.DOT):
+                noanchor = self._take_noanchor_once(seen_noanchor)
                 if self.check(TT.IDENT, TT.OVER):
                     field = self.advance()
+                    label = "field_noanchor" if noanchor else "field"
                     postfix_ops.append(
                         Tree(
-                            "field",
+                            label,
                             [
                                 self._tok(
                                     field.type.name,
@@ -1977,6 +2020,11 @@ class Parser:
                         )
                     )
                 elif self.match(TT.LBRACE):
+                    if noanchor:
+                        raise ParseError(
+                            "No-anchor '$' is not valid on fan segments",
+                            self.current,
+                        )
                     # Fan syntax: .{field1, field2} or .{chain1, chain2}
                     items = self.parse_fan_items()
                     self.expect(TT.RBRACE)
@@ -1991,7 +2039,12 @@ class Parser:
                     raise ParseError("Expected field name after '.'", self.current)
 
             # Indexing
-            elif self.check(TT.LSQB):
+            elif self.check(TT.DOLLAR) or self.check(TT.LSQB):
+                noanchor = self._take_noanchor_once(seen_noanchor)
+                if not self.check(TT.LSQB):
+                    raise ParseError(
+                        "Expected field or index after '$' in chain", self.current
+                    )
                 self.advance()
                 selectors = self.parse_selector_list()
 
@@ -2018,7 +2071,8 @@ class Parser:
                 ]
                 if default:
                     children.append(default)
-                postfix_ops.append(Tree("index", children))
+                label = "index_noanchor" if noanchor else "index"
+                postfix_ops.append(Tree(label, children))
 
             # Call
             elif self.match(TT.LPAR):
@@ -2316,23 +2370,32 @@ class Parser:
         """
         ident = self.expect(TT.IDENT)
         children: list[Node] = [self._tok("IDENT", ident.value)]
+        seen_noanchor = [False]
 
         # Parse postfix operations (field, index)
         while True:
             if self.match(TT.DOT):
+                noanchor = self._take_noanchor_once(seen_noanchor)
                 field = self.expect(TT.IDENT)
+                label = "field_noanchor" if noanchor else "field"
                 children.append(
                     Tree(
-                        "field",
+                        label,
                         [self._tok("IDENT", field.value, field.line, field.column)],
                     )
                 )
-            elif self.match(TT.LSQB):
+            elif self.check(TT.DOLLAR) or self.check(TT.LSQB):
+                noanchor = self._take_noanchor_once(seen_noanchor)
+                if not self.match(TT.LSQB):
+                    raise ParseError(
+                        "Expected field or index after '$' in chain", self.current
+                    )
                 selectors = self.parse_selector_list()
                 self.expect(TT.RSQB)
+                label = "index_noanchor" if noanchor else "index"
                 children.append(
                     Tree(
-                        "index",
+                        label,
                         [
                             self._tok("LSQB", "["),
                             Tree("selectorlist", selectors),

@@ -220,8 +220,10 @@ def apply_op(
 
     op_handlers: dict[str, Callable[[], EvalResult]] = {
         "field": lambda: _get_field(recv, op, frame),
+        "field_noanchor": lambda: _get_field(recv, op, frame),
         "fieldsel": lambda: _get_field(recv, op, frame),
         "index": lambda: apply_index_operation(recv, op, frame, eval_func),
+        "index_noanchor": lambda: apply_index_operation(recv, op, frame, eval_func),
         "lv_index": lambda: apply_index_operation(recv, op, frame, eval_func),
         "slicesel": lambda: apply_slice(recv, op.children, frame, eval_func),
         "fieldfan": lambda: apply_fan_op(
@@ -235,6 +237,7 @@ def apply_op(
             eval_func,
         ),
         "method": lambda: _call_method(recv, op, frame, eval_func),
+        "method_noanchor": lambda: _call_method(recv, op, frame, eval_func),
     }
 
     handler = op_handlers.get(op.data)

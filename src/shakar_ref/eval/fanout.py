@@ -75,7 +75,7 @@ def _fan_key(clause: Tree) -> tuple[str, ...] | None:
         if is_tree(child) and _name(tree_label(child)) == "fanpath":
             for seg in tree_children(child):
                 label = _name(tree_label(seg))
-                if label in {"field", "fieldsel"}:
+                if label in {"field", "fieldsel", "field_noanchor"}:
                     parts.append(f".{seg.children[0].value}")
                 elif label == "lv_index":
                     # Encode index expression textually to avoid evaluating twice.
@@ -272,7 +272,7 @@ def _read(
     target: ShkValue, final_seg: Tree, frame: Frame, evaluate_index_operand, eval_func
 ) -> ShkValue:
     match tree_label(final_seg):
-        case "field" | "fieldsel":
+        case "field" | "fieldsel" | "field_noanchor":
             name = final_seg.children[0].value
             return get_field_value(target, name, frame)
         case "lv_index":
@@ -291,7 +291,7 @@ def _store(
     eval_func,
 ) -> None:
     match tree_label(final_seg):
-        case "field" | "fieldsel":
+        case "field" | "fieldsel" | "field_noanchor":
             name = final_seg.children[0].value
             set_field_value(target, name, value, frame, create=False)
         case "lv_index":

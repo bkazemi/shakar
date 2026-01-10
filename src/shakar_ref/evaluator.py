@@ -85,6 +85,7 @@ from .eval.expr import (
     eval_nullish,
     eval_nullsafe,
     eval_ternary,
+    eval_explicit_chain,
 )
 from .eval.literals import (
     eval_array_literal,
@@ -98,15 +99,11 @@ from .eval.fn import eval_fn_def, eval_decorator_def, eval_anonymous_fn, eval_am
 from .eval.using import eval_using_stmt
 
 from .eval.bind import (
-    FanContext,
-    RebindContext,
     eval_walrus,
     eval_assign_stmt,
     eval_compound_assign,
     eval_apply_assign,
     eval_rebind_primary,
-    apply_numeric_delta,
-    resolve_chain_assignment,
 )
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
@@ -216,57 +213,7 @@ def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
         case "mul" | "add":
             return eval_infix(n.children, frame, eval_node)
         case "explicit_chain":
-            head, *ops = n.children
-
-            if ops and tree_label(ops[-1]) in {"incr", "decr"}:
-                tail = ops[-1]
-                # ++/-- mutate the final receiver; resolve assignable context first.
-                context = resolve_chain_assignment(
-                    head,
-                    ops[:-1],
-                    frame,
-                    eval_func=eval_node,
-                    apply_op=apply_op,
-                    evaluate_index_operand=evaluate_index_operand,
-                )
-
-                delta = 1 if tree_label(tail) == "incr" else -1
-
-                if isinstance(context, FanContext):
-                    raise ShakarRuntimeError(
-                        "++/-- not supported on field fan assignments"
-                    )
-                old_val, _ = apply_numeric_delta(context, delta)
-                return old_val
-
-            val = eval_node(head, frame)
-            head_label = tree_label(head) if is_tree(head) else None
-            head_is_rebind = head_label in {"rebind_primary", "rebind_primary_grouped"}
-            head_is_grouped_rebind = head_label == "rebind_primary_grouped"
-            tail_has_effect = False
-
-            for op in ops:
-                label = tree_label(op)
-                if label not in {"field", "fieldsel", "index"}:
-                    tail_has_effect = True
-
-                val = apply_op(val, op, frame, eval_node)
-
-            if head_is_rebind:
-                if not ops:
-                    raise ShakarRuntimeError("Prefix rebind requires a tail expression")
-
-                if not head_is_grouped_rebind and not tail_has_effect:
-                    raise ShakarRuntimeError("Prefix rebind requires a tail expression")
-
-            if isinstance(val, RebindContext):
-                final = val.value
-                val.setter(final)
-                return final
-
-            if isinstance(val, FanContext):
-                return ShkArray(val.snapshot())
-            return val
+            return eval_explicit_chain(n, frame, eval_node)
         case "implicit_chain":
             return _eval_implicit_chain(n.children, frame)
         case "spread":

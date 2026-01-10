@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 from ..runtime import (
     Frame,
@@ -319,6 +319,7 @@ def resolve_chain_assignment(
     eval_func: EvalFunc,
     apply_op: ApplyOpFunc,
     evaluate_index_operand: IndexEvalFunc,
+    anchor_capture: Optional[Callable[[ShkValue], None]] = None,
 ) -> RebindContext | FanContext:
     """Walk `a.b[0]` and return the final assignable context (object slot, index, etc.)."""
     if not ops:
@@ -339,7 +340,14 @@ def resolve_chain_assignment(
         is_last = idx == len(ops) - 1
         label = tree_label(op)
 
-        if is_last and label in {"field", "fieldsel"}:
+        if anchor_capture is not None and label in {
+            "field_noanchor",
+            "index_noanchor",
+            "method_noanchor",
+        }:
+            anchor_capture(current)
+
+        if is_last and label in {"field", "fieldsel", "field_noanchor"}:
             field_name = expect_ident_token(op.children[0], "Field access")
             owner = current
             value = get_field_value(owner, field_name, frame)
@@ -354,7 +362,7 @@ def resolve_chain_assignment(
 
             return RebindContext(value, field_setter)
 
-        if is_last and label == "index":
+        if is_last and label in {"index", "index_noanchor"}:
             owner = current
             idx_value = evaluate_index_operand(op, frame, eval_func)
             value = index_value(owner, idx_value, frame)
@@ -544,7 +552,7 @@ def apply_assign(
     final_op = ops[-1]
     label = tree_label(final_op)
     match label:
-        case "field" | "fieldsel":
+        case "field" | "fieldsel" | "field_noanchor":
             field_name = expect_ident_token(final_op.children[0], "Field assignment")
             old_val = get_field_value(target, field_name, frame)
             rhs_frame = Frame(parent=frame, dot=old_val)
@@ -598,7 +606,7 @@ def _apply_over_fancontext(
     for ctx in fan.contexts:
         base = ctx.value
         match label:
-            case "field" | "fieldsel":
+            case "field" | "fieldsel" | "field_noanchor":
                 field_name = expect_ident_token(
                     final_op.children[0], "Field assignment"
                 )
@@ -633,7 +641,7 @@ def _assign_over_fancontext(
     for ctx in fan.contexts:
         base = ctx.value
         match label:
-            case "field" | "fieldsel":
+            case "field" | "fieldsel" | "field_noanchor":
                 field_name = expect_ident_token(
                     final_op.children[0], "Field assignment"
                 )
@@ -689,7 +697,7 @@ def assign_lvalue(
 
     label = tree_label(final_op)
     match label:
-        case "field" | "fieldsel":
+        case "field" | "fieldsel" | "field_noanchor":
             field_name = expect_ident_token(final_op.children[0], "Field assignment")
             return set_field_value(target, field_name, value, frame, create=create)
         case "lv_index":
@@ -773,7 +781,7 @@ def read_lvalue(
 
     label = tree_label(final_op)
     match label:
-        case "field" | "fieldsel":
+        case "field" | "fieldsel" | "field_noanchor":
             field_name = expect_ident_token(final_op.children[0], "Field value access")
             return get_field_value(target, field_name, frame)
         case "lv_index":

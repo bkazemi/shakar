@@ -107,7 +107,7 @@ class ChainNormalize(Transformer):
 
             if (
                 is_tree(node)
-                and tree_label(node) == "field"
+                and tree_label(node) in {"field", "field_noanchor"}
                 and i + 1 < len(items)
                 and is_tree(items[i + 1])
             ):
@@ -115,12 +115,17 @@ class ChainNormalize(Transformer):
 
                 if tree_label(nxt) == "call":
                     name = node.children[0]
+                    method_label = (
+                        "method_noanchor"
+                        if tree_label(node) == "field_noanchor"
+                        else "method"
+                    )
                     args_node = (
                         Tree("args", [Tree("amp_lambda", nxt.children)])
                         if nxt.children
                         else Tree("args", [])
                     )
-                    out.append(Tree("method", [name, args_node]))
+                    out.append(Tree(method_label, [name, args_node]))
                     i += 2
                     continue
 

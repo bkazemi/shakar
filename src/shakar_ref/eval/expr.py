@@ -26,13 +26,149 @@ from ..runtime import (
 )
 from ..tree import Node, Tree, is_tree, node_meta, tree_children, tree_label
 from ..utils import shk_equals
-from .bind import FanContext, RebindContext
+from .bind import (
+    FanContext,
+    RebindContext,
+    apply_numeric_delta,
+    resolve_chain_assignment,
+)
 from .chains import apply_op as chain_apply_op, evaluate_index_operand
 from .common import require_number, stringify, token_kind
 from .helpers import is_truthy, retargets_anchor
 from .selector import selector_iter_values
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
+
+_NOANCHOR_OPS = {"field_noanchor", "index_noanchor", "method_noanchor"}
+
+
+def _is_noanchor_op(node: Node) -> bool:
+    return is_tree(node) and tree_label(node) in _NOANCHOR_OPS
+
+
+def _unwrap_expr_node(node: Node) -> Node:
+    current = node
+    while (
+        is_tree(current)
+        and tree_label(current) in {"expr", "primary", "literal"}
+        and len(tree_children(current)) == 1
+    ):
+        current = tree_children(current)[0]
+    return current
+
+
+def eval_explicit_chain_with_anchor(
+    node: Tree, frame: Frame, eval_func: EvalFunc
+) -> tuple[ShkValue, Optional[ShkValue]]:
+    children = tree_children(node)
+    if not children:
+        raise ShakarRuntimeError("Malformed explicit chain")
+
+    head, *ops = children
+    anchor_override: Optional[ShkValue] = None
+
+    if ops and tree_label(ops[-1]) in {"incr", "decr"}:
+        return _eval_chain_postfix_incr(head, ops, frame, eval_func)
+
+    val = eval_func(head, frame)
+    head_label = tree_label(head) if is_tree(head) else None
+    head_is_rebind = head_label in {"rebind_primary", "rebind_primary_grouped"}
+    head_is_grouped_rebind = head_label == "rebind_primary_grouped"
+    tail_has_effect = False
+
+    for op in ops:
+        label = tree_label(op)
+        if label not in {
+            "field",
+            "fieldsel",
+            "index",
+            "field_noanchor",
+            "index_noanchor",
+        }:
+            tail_has_effect = True
+
+        recv = val.value if isinstance(val, RebindContext) else val
+        if _is_noanchor_op(op):
+            if anchor_override is not None:
+                raise ShakarRuntimeError("Multiple '$' segments in a chain")
+            anchor_override = recv
+
+        val = chain_apply_op(val, op, frame, eval_func)
+
+    if head_is_rebind:
+        if not ops:
+            raise ShakarRuntimeError("Prefix rebind requires a tail expression")
+
+        if not head_is_grouped_rebind and not tail_has_effect:
+            raise ShakarRuntimeError("Prefix rebind requires a tail expression")
+
+    if isinstance(val, RebindContext):
+        final = val.value
+        val.setter(final)
+        return final, anchor_override
+
+    if isinstance(val, FanContext):
+        return ShkArray(val.snapshot()), anchor_override
+    return val, anchor_override
+
+
+def eval_explicit_chain(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    value, _ = eval_explicit_chain_with_anchor(node, frame, eval_func)
+    return value
+
+
+def _update_anchor_if_needed(
+    should_retarget: bool,
+    value: ShkValue,
+    anchor_override: Optional[ShkValue],
+    frame: Frame,
+) -> None:
+    if not should_retarget:
+        return
+    frame.dot = anchor_override if anchor_override is not None else value
+
+
+def _eval_chain_postfix_incr(
+    head: Node,
+    ops: list[Tree],
+    frame: Frame,
+    eval_func: EvalFunc,
+) -> tuple[ShkValue, Optional[ShkValue]]:
+    anchor_override: Optional[ShkValue] = None
+    tail = ops[-1]
+
+    def capture_anchor(value: ShkValue) -> None:
+        nonlocal anchor_override
+        if anchor_override is not None:
+            raise ShakarRuntimeError("Multiple '$' segments in a chain")
+        anchor_override = value
+
+    context = resolve_chain_assignment(
+        head,
+        ops[:-1],
+        frame,
+        eval_func=eval_func,
+        apply_op=chain_apply_op,
+        evaluate_index_operand=evaluate_index_operand,
+        anchor_capture=capture_anchor,
+    )
+
+    delta = 1 if tree_label(tail) == "incr" else -1
+
+    if isinstance(context, FanContext):
+        raise ShakarRuntimeError("++/-- not supported on field fan assignments")
+    old_val, _ = apply_numeric_delta(context, delta)
+    return old_val, anchor_override
+
+
+def _eval_with_anchor(
+    node: Node, frame: Frame, eval_func: EvalFunc
+) -> tuple[ShkValue, Optional[ShkValue]]:
+    core = _unwrap_expr_node(node)
+    if is_tree(core) and tree_label(core) == "explicit_chain":
+        if any(_is_noanchor_op(op) for op in tree_children(core)[1:]):
+            return eval_explicit_chain_with_anchor(core, frame, eval_func)
+    return eval_func(node, frame), None
 
 
 def normalize_unary_op(op_node: Node, frame: Frame) -> Node | str:
@@ -120,9 +256,13 @@ def eval_infix(
         for idx in range(0, len(children), 2):
             operand_node = children[idx]
             next_op = ops[idx] if idx < len(ops) else None
-            val = eval_func(operand_node, frame)
-            if _should_retarget(operand_node, next_op):
-                frame.dot = val
+            val, anchor_override = _eval_with_anchor(operand_node, frame, eval_func)
+            _update_anchor_if_needed(
+                _should_retarget(operand_node, next_op),
+                val,
+                anchor_override,
+                frame,
+            )
             vals.append(val)
 
         acc = vals[-1]
@@ -136,16 +276,24 @@ def eval_infix(
     operands = children[0::2]
     ops = [as_op(op_node) for op_node in children[1::2]]
 
-    acc = eval_func(operands[0], frame)
-    if _should_retarget(operands[0], ops[0] if ops else None):
-        frame.dot = acc
+    acc, anchor_override = _eval_with_anchor(operands[0], frame, eval_func)
+    _update_anchor_if_needed(
+        _should_retarget(operands[0], ops[0] if ops else None),
+        acc,
+        anchor_override,
+        frame,
+    )
 
     for idx in range(1, len(operands)):
         op = ops[idx - 1]
         rhs_node = operands[idx]
-        rhs = eval_func(rhs_node, frame)
-        if _should_retarget(rhs_node, ops[idx] if idx < len(ops) else None):
-            frame.dot = rhs
+        rhs, anchor_override = _eval_with_anchor(rhs_node, frame, eval_func)
+        _update_anchor_if_needed(
+            _should_retarget(rhs_node, ops[idx] if idx < len(ops) else None),
+            rhs,
+            anchor_override,
+            frame,
+        )
         acc = apply_binary_operator(op, acc, rhs)
 
     return acc
@@ -164,18 +312,21 @@ def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
         and as_op(children[1]) == "~~"
     ):
         lhs_node, _, rhs_node = children
-        lhs = eval_func(lhs_node, frame)
-        if retargets_anchor(lhs_node):
-            frame.dot = lhs
-        rhs = eval_func(rhs_node, frame)
-        if retargets_anchor(rhs_node):
-            frame.dot = rhs
+        lhs, anchor_override = _eval_with_anchor(lhs_node, frame, eval_func)
+        _update_anchor_if_needed(
+            retargets_anchor(lhs_node), lhs, anchor_override, frame
+        )
+        rhs, anchor_override = _eval_with_anchor(rhs_node, frame, eval_func)
+        _update_anchor_if_needed(
+            retargets_anchor(rhs_node), rhs, anchor_override, frame
+        )
         return _regex_match(lhs, rhs)
 
     first_node = children[0]
-    subject = eval_func(first_node, frame)
-    if retargets_anchor(first_node):
-        frame.dot = subject
+    subject, anchor_override = _eval_with_anchor(first_node, frame, eval_func)
+    _update_anchor_if_needed(
+        retargets_anchor(first_node), subject, anchor_override, frame
+    )
     idx = 1
     joiner = "and"
     last_comp: Optional[str] = None
@@ -203,18 +354,20 @@ def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
             if idx >= len(children):
                 raise ShakarRuntimeError("Missing right-hand side for comparison")
             rhs_node = children[idx]
-            rhs = eval_func(rhs_node, frame)
-            if retargets_anchor(rhs_node):
-                frame.dot = rhs
+            rhs, anchor_override = _eval_with_anchor(rhs_node, frame, eval_func)
+            _update_anchor_if_needed(
+                retargets_anchor(rhs_node), rhs, anchor_override, frame
+            )
             idx += 1
         else:
             if last_comp is None:
                 raise ShakarRuntimeError("Comparator required in comparison chain")
 
             comp = last_comp
-            rhs = eval_func(node, frame)
-            if retargets_anchor(node):
-                frame.dot = rhs
+            rhs, anchor_override = _eval_with_anchor(node, frame, eval_func)
+            _update_anchor_if_needed(
+                retargets_anchor(node), rhs, anchor_override, frame
+            )
             idx += 1
 
         leg_val = _compare_values(comp, subject, rhs)
@@ -245,8 +398,10 @@ def eval_logical(
                 if token_kind(child) in {"AND", "OR"}:
                     continue
 
-                val = eval_func(child, frame)
-                frame.dot = val if retargets_anchor(child) else frame.dot
+                val, anchor_override = _eval_with_anchor(child, frame, eval_func)
+                _update_anchor_if_needed(
+                    retargets_anchor(child), val, anchor_override, frame
+                )
                 last_val = val
 
                 if not is_truthy(val):
@@ -259,8 +414,10 @@ def eval_logical(
             if token_kind(child) in {"AND", "OR"}:
                 continue
 
-            val = eval_func(child, frame)
-            frame.dot = val if retargets_anchor(child) else frame.dot
+            val, anchor_override = _eval_with_anchor(child, frame, eval_func)
+            _update_anchor_if_needed(
+                retargets_anchor(child), val, anchor_override, frame
+            )
             last_val = val
 
             if is_truthy(val):

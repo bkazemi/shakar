@@ -329,6 +329,21 @@ def build_operator_cases(_: KeywordPlan) -> List[Case]:
 
 
 @case_builder
+def build_noanchor_segment_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "state.$lines",
+        "arr$[idx]",
+        "obj.$method()",
+        "state.foo.$bar.baz",
+        ".$field and .other",
+    ]
+    return [
+        Case(name=f"noanchor-seg-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
+
+
+@case_builder
 def build_postfix_if_cases(_: KeywordPlan) -> List[Case]:
     samples = ["1 if 0", "foo() if bar", "(a+b) if c", "x.y if z"]
     return [
@@ -972,6 +987,40 @@ call emit:
 log""",
         ("string", "xy"),
         None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "noanchor-segment-field",
+        """state := { lines: 6, level: 2 }
+state.$lines >= .level * 3""",
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "noanchor-segment-index",
+        """arr := [{x: 1}, {x: 2}]
+arr$[0].x + .len""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "noanchor-segment-multiple-error",
+        "state.$foo.$bar",
+        None,
+        ParseError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "noanchor-segment-in-noanchor-error",
+        "$state.$lines",
+        None,
+        SyntaxError,
     )
 )
 runtime_scenario(

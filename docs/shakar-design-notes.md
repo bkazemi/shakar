@@ -57,6 +57,7 @@ Within a grouping that has an anchor, any leading dot applies to that anchor. Ea
 - **Comparison comma-chain legs are no-anchor.** The chain’s subject is the first explicit operand.
 - **Pop on exit**: leaving a grouping restores the prior anchor; sibling leading dots reuse it. Example: `a and (b) and .c()` ⇒ `a and b and a.c()`.
 - **No-anchor `$`**: `$expr` evaluates without retargeting the anchor; siblings keep using the previous anchor. Example: `a and $b and .c` ⇒ `a and b and a.c`.
+- **No-anchor segment `$`**: a single member-chain segment may be marked with `$` (e.g., `state.$lines`, `arr$[i]`, `obj.$method()`), which sets the anchor to the segment's receiver rather than its value. At most one `$` segment per chain; using `$` inside `$expr` is an error.
 - **Push/pop scopes**: parentheses, lambda bodies, comprehension heads/bodies, and `await[...]` bodies push the current anchor; they restore it on exit. Retarget inside by mentioning a new explicit subject.
 
 ### Interactions & shadowing
@@ -70,6 +71,7 @@ Within a grouping that has an anchor, any leading dot applies to that anchor. Ea
 - `.` is never an lvalue (`. = …` illegal).
 - No free `.` outside an active binder/anchor.
 - Invalid statement-subject: `=LHS` with no tail, `=.trim()`, or grouped heads that are not pure lvalues.
+- `$` segment errors: multiple `$` segments in one chain, or any `$` segment inside `$expr`.
 
 ### Normative laws
 
@@ -78,6 +80,7 @@ Within a grouping that has an anchor, any leading dot applies to that anchor. Ea
 3. **Leading-dot chain law**: each step’s result becomes the next receiver; the anchor is stable unless retargeted.
 4. **Binder-shadowing law**: inner binders (lambda, `await`, subjectful `for`, apply-assign RHS) shadow `.` for their extent, then restore.
 5. **Illegals/locality**: `. = …` is invalid; free `.` is invalid.
+6. **No-anchor segment law**: a `$`-marked segment retargets the anchor to its receiver, not its value. At most one `$` per chain; illegal inside `$expr`.
 
 #### Conformance checks
 
@@ -123,6 +126,14 @@ a and (b and .x()) and .y()      # '.x()' anchored to b; '.y()' anchored to a
 users[ .len-1 ]                  # inside selector: '.' = users
 (users[0] and .name)             # outside selector: '.' = users[0]
 for[i] names: names[i] .= .trim()   # in RHS: '.' = old names[i]
+```
+
+```shakar
+# No-anchor segment
+state = { lines: 6, level: 2 }
+state.$lines >= .level * 3        # anchor -> state
+rows = [{x: 1}, {x: 2}]
+rows$[0].x and .len == 2
 ```
 
 ```shakar
@@ -867,10 +878,15 @@ PowExpr         ::= UnaryExpr ( "**" PowExpr )? ;
 UnaryPrefixOp   ::= "-" | "not" | "!" | "$" | "++" | "--" | "await" ;
 
 PostfixExpr     ::= Primary ( Postfix )* ( PostfixIncr )?
-                  | "." ( IDENT | "(" ArgList? ")" | "[" SelectorList ("," "default" ":" Expr)? "]" ) ( Postfix )* ( PostfixIncr )? ;
-Postfix         ::= "." IDENT
-                  | "[" SelectorList ("," "default" ":" Expr)? "]"
-                  | "(" ArgList? ")" ;
+                  | "." PostfixLead ( Postfix )* ( PostfixIncr )? ;
+PostfixLead     ::= LeadCall | LeadField | LeadIndex | "(" ArgList? ")" ;
+LeadField       ::= [ "$" ] IDENT ;
+LeadIndex       ::= [ "$" ] "[" SelectorList ("," "default" ":" Expr)? "]" ;
+LeadCall        ::= [ "$" ] IDENT "(" ArgList? ")" ;
+Postfix         ::= PostfixCall | PostfixField | PostfixIndex | "(" ArgList? ")" ;
+PostfixField    ::= "." [ "$" ] IDENT ;
+PostfixIndex    ::= [ "$" ] "[" SelectorList ("," "default" ":" Expr)? "]" ;
+PostfixCall     ::= "." [ "$" ] IDENT "(" ArgList? ")" ;
 PostfixIncr     ::= "++" | "--" ;
 
 SelectorList    ::= Selector ("," Selector)* ;
@@ -1079,6 +1095,7 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
 # The first MemberExpr evaluated in an AnchorScope retargets the anchor for that scope.
 # Lead-dot chains ( "." (Ident | Call | Selector) ) use the current anchor as receiver;
 # chain steps advance the receiver, not the anchor.
+# $-marked segments retarget the anchor to their receiver (one per chain; illegal inside $expr).
 # Inside Selector expressions, '.' denotes the base (the MemberExpr before '[').
 ```
 

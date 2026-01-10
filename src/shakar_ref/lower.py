@@ -14,7 +14,27 @@ def lower(ast: Node) -> Node:
     ast = _desugar_call_holes(ast)
     ast = _infer_amp_lambda_params(ast)
     ast = normalize_param_contracts(ast)
+    _validate_noanchor_segments(ast)
     return ast
+
+
+def _validate_noanchor_segments(node: Node) -> None:
+    noanchor_ops = {"field_noanchor", "index_noanchor", "method_noanchor"}
+
+    def visit(child: Node, in_no_anchor: bool) -> None:
+        if not is_tree(child):
+            return
+
+        label = tree_label(child)
+        if in_no_anchor and label in noanchor_ops:
+            raise SyntaxError("No-anchor segments are not allowed inside $expr")
+
+        next_in_no_anchor = in_no_anchor or label == "no_anchor"
+
+        for grandchild in tree_children(child):
+            visit(grandchild, next_in_no_anchor)
+
+    visit(node, False)
 
 
 def _desugar_call_holes(node: Node) -> Node:
