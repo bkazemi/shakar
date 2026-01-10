@@ -1262,6 +1262,19 @@ runtime_scenario(
 )
 runtime_scenario(
     lambda: _rt(
+        "fanout-block-indented",
+        "state := {cur: 1, next: 2, x: 0}\n"
+        "state{\n"
+        "  .cur = .next\n"
+        "  .x += 5\n"
+        "}\n"
+        "state.cur + state.x",
+        ("number", 7),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "fieldfan-chain-assign",
         "state := {a: {c: 0}, b: {c: 1}}; state.{a, b}.c = 5; state.a.c + state.b.c",
         ("number", 10),

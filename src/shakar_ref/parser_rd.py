@@ -879,7 +879,7 @@ class Parser:
 
         while not self.check(TT.RBRACE, TT.EOF):
             # Skip newlines and separators
-            if self.match(TT.NEWLINE):
+            if self.match(TT.NEWLINE, TT.INDENT, TT.DEDENT):
                 continue
             if self.match(TT.SEMI, TT.COMMA):
                 continue
