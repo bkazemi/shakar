@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Optional
+from contextlib import contextmanager
+from typing import Iterator, Optional
 
 from ..runtime import (
     Frame,
@@ -53,6 +54,17 @@ def retargets_anchor(node: Node) -> bool:
             "bind",
         }
     return True
+
+
+@contextmanager
+def isolate_anchor_override(frame: Frame) -> Iterator[None]:
+    """Prevent pending anchor overrides from leaking across nested evaluations."""
+    saved = frame.pending_anchor_override
+    frame.pending_anchor_override = None
+    try:
+        yield
+    finally:
+        frame.pending_anchor_override = saved
 
 
 def current_function_frame(frame: Frame) -> Optional[Frame]:

@@ -324,6 +324,7 @@ class Frame:
         self._defer_stack: List[List[DeferEntry]] = []
         self._is_function_frame = False
         self._active_error: Optional[ShakarRuntimeError] = None
+        self.pending_anchor_override: Optional[ShkValue] = None
         self.source: Optional[str]
 
         if parent is None:

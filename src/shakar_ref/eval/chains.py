@@ -39,6 +39,7 @@ from ..tree import (
 )
 from .bind import FanContext, RebindContext, apply_fan_op
 from .common import expect_ident_token as _expect_ident_token
+from .helpers import isolate_anchor_override
 from .mutation import get_field_value, index_value, slice_value
 from .selector import evaluate_selectorlist, apply_selectors_to_value
 from .valuefan import eval_valuefan
@@ -87,20 +88,24 @@ def eval_args_node(
 def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[ShkValue]:
     values: List[ShkValue] = []
 
+    def eval_isolated(node: Node) -> ShkValue:
+        with isolate_anchor_override(frame):
+            return eval_func(node, frame)
+
     for node in nodes:
         if _is_namedarg(node):
             # named args: evaluate value once; no auto-spread
             value_expr = node.children[-1] if node.children else None
             if value_expr is None:
                 raise ShakarRuntimeError("Malformed named argument")
-            values.append(eval_func(value_expr, frame))
+            values.append(eval_isolated(value_expr))
             continue
 
         if _is_spread(node):
             spread_expr = node.children[0] if is_tree(node) and node.children else None
             if spread_expr is None:
                 raise ShakarRuntimeError("Malformed spread argument")
-            spread_val = eval_func(spread_expr, frame)
+            spread_val = eval_isolated(spread_expr)
             if isinstance(spread_val, ShkArray):
                 values.extend(spread_val.items)
                 continue
@@ -110,7 +115,7 @@ def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[Shk
             raise ShakarRuntimeError("Spread argument must be an array or object value")
 
         if _is_raw_fieldfan(node):
-            spread_val = eval_func(node, frame)
+            spread_val = eval_isolated(node)
 
             if not isinstance(spread_val, ShkArray):
                 raise ShakarRuntimeError(
@@ -120,7 +125,7 @@ def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[Shk
             values.extend(spread_val.items)
             continue
 
-        values.append(eval_func(node, frame))
+        values.append(eval_isolated(node))
 
     return values
 
@@ -218,12 +223,15 @@ def apply_op(
         context = recv
         recv = context.value
 
+    # Handle noanchor wrapper: capture receiver and unwrap
+    if op.data == "noanchor":
+        frame.pending_anchor_override = recv
+        op = op.children[0]
+
     op_handlers: dict[str, Callable[[], EvalResult]] = {
         "field": lambda: _get_field(recv, op, frame),
-        "field_noanchor": lambda: _get_field(recv, op, frame),
         "fieldsel": lambda: _get_field(recv, op, frame),
         "index": lambda: apply_index_operation(recv, op, frame, eval_func),
-        "index_noanchor": lambda: apply_index_operation(recv, op, frame, eval_func),
         "lv_index": lambda: apply_index_operation(recv, op, frame, eval_func),
         "slicesel": lambda: apply_slice(recv, op.children, frame, eval_func),
         "fieldfan": lambda: apply_fan_op(
@@ -237,7 +245,6 @@ def apply_op(
             eval_func,
         ),
         "method": lambda: _call_method(recv, op, frame, eval_func),
-        "method_noanchor": lambda: _call_method(recv, op, frame, eval_func),
     }
 
     handler = op_handlers.get(op.data)

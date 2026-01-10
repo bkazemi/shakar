@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import List, Tuple
 from ..tree import Tok
 
 from ..runtime import Frame, ShkValue, EvalResult, ShakarRuntimeError
@@ -16,6 +16,16 @@ from .selector import (
 from ..runtime import ShkArray
 from .mutation import get_field_value, set_field_value, index_value, set_index_value
 from .expr import apply_binary_operator
+
+
+def _unwrap_noanchor(op: Tree) -> Tuple[Tree, str]:
+    """Unwrap noanchor wrapper if present, return (inner_op, label)."""
+    label = tree_label(op)
+    if label == "noanchor":
+        inner = op.children[0]
+        return inner, tree_label(inner)
+    return op, label
+
 
 # Operators we allow inside fanout blocks map directly to binary symbols.
 _COMPOUND_MAP = {
@@ -73,9 +83,10 @@ def _fan_key(clause: Tree) -> tuple[str, ...] | None:
     parts: list[str] = []
     for child in tree_children(clause):
         if is_tree(child) and _name(tree_label(child)) == "fanpath":
-            for seg in tree_children(child):
-                label = _name(tree_label(seg))
-                if label in {"field", "fieldsel", "field_noanchor"}:
+            for raw_seg in tree_children(child):
+                seg, label = _unwrap_noanchor(raw_seg)
+                label = _name(label)
+                if label in {"field", "fieldsel"}:
                     parts.append(f".{seg.children[0].value}")
                 elif label == "lv_index":
                     # Encode index expression textually to avoid evaluating twice.
@@ -269,10 +280,15 @@ def _store_target(
 
 
 def _read(
-    target: ShkValue, final_seg: Tree, frame: Frame, evaluate_index_operand, eval_func
+    target: ShkValue,
+    raw_final_seg: Tree,
+    frame: Frame,
+    evaluate_index_operand,
+    eval_func,
 ) -> ShkValue:
-    match tree_label(final_seg):
-        case "field" | "fieldsel" | "field_noanchor":
+    final_seg, label = _unwrap_noanchor(raw_final_seg)
+    match label:
+        case "field" | "fieldsel":
             name = final_seg.children[0].value
             return get_field_value(target, name, frame)
         case "lv_index":
@@ -284,14 +300,15 @@ def _read(
 
 def _store(
     target: ShkValue,
-    final_seg: Tree,
+    raw_final_seg: Tree,
     value: ShkValue,
     frame: Frame,
     evaluate_index_operand,
     eval_func,
 ) -> None:
-    match tree_label(final_seg):
-        case "field" | "fieldsel" | "field_noanchor":
+    final_seg, label = _unwrap_noanchor(raw_final_seg)
+    match label:
+        case "field" | "fieldsel":
             name = final_seg.children[0].value
             set_field_value(target, name, value, frame, create=False)
         case "lv_index":

@@ -88,6 +88,9 @@ class Parser:
         seen[0] = True
         return True
 
+    def _maybe_noanchor(self, node: Tree, wrap: bool) -> Tree:
+        return Tree("noanchor", [node]) if wrap else node
+
     # ========================================================================
     # Tok Navigation
     # ========================================================================
@@ -1513,13 +1516,27 @@ class Parser:
 
             head, *ops = core_expr.children
 
+            def _copy_meta(src: Tree, dst: Tree) -> Tree:
+                if hasattr(src, "meta"):
+                    dst.meta = src.meta
+                return dst
+
             norm_ops: List[Tree | Tok] = []
             for op in ops:
-                if isinstance(op, Tree) and op.data in {"index", "index_noanchor"}:
-                    norm_ops.append(Tree("lv_index", list(op.children)))
+                if isinstance(op, Tree) and op.data == "index":
+                    norm_ops.append(_copy_meta(op, Tree("lv_index", list(op.children))))
+                elif isinstance(op, Tree) and op.data == "noanchor":
+                    inner = op.children[0]
+                    if isinstance(inner, Tree) and inner.data == "index":
+                        lv_idx = _copy_meta(
+                            inner, Tree("lv_index", list(inner.children))
+                        )
+                        norm_ops.append(Tree("noanchor", [lv_idx]))
+                    else:
+                        norm_ops.append(op)
                 elif isinstance(op, Tree) and op.data == "valuefan":
                     # valuefan is expression fan-out; for assignment treat as fieldfan
-                    norm_ops.append(Tree("fieldfan", op.children))
+                    norm_ops.append(_copy_meta(op, Tree("fieldfan", op.children)))
                 else:
                     norm_ops.append(op)
 
@@ -1874,9 +1891,12 @@ class Parser:
             noanchor = self._take_noanchor_once(seen_noanchor)
             if self.check(TT.IDENT, TT.OVER):
                 tok = self.advance()
-                label = "field_noanchor" if noanchor else "field"
-                imphead = Tree(
-                    label, [self._tok(tok.type.name, tok.value, tok.line, tok.column)]
+                imphead = self._maybe_noanchor(
+                    Tree(
+                        "field",
+                        [self._tok(tok.type.name, tok.value, tok.line, tok.column)],
+                    ),
+                    noanchor,
                 )
             elif self.match(TT.LPAR):
                 if noanchor:
@@ -1908,8 +1928,7 @@ class Parser:
                 ]
                 if default:
                     children.append(default)
-                label = "index_noanchor" if noanchor else "index"
-                imphead = Tree(label, children)
+                imphead = self._maybe_noanchor(Tree("index", children), noanchor)
             elif noanchor:
                 raise ParseError(
                     "Expected field or index after '$' in chain", self.current
@@ -1922,18 +1941,20 @@ class Parser:
                     noanchor = self._take_noanchor_once(seen_noanchor)
                     if self.check(TT.IDENT, TT.OVER):
                         field = self.advance()
-                        label = "field_noanchor" if noanchor else "field"
                         postfix_ops.append(
-                            Tree(
-                                label,
-                                [
-                                    self._tok(
-                                        field.type.name,
-                                        field.value,
-                                        field.line,
-                                        field.column,
-                                    )
-                                ],
+                            self._maybe_noanchor(
+                                Tree(
+                                    "field",
+                                    [
+                                        self._tok(
+                                            field.type.name,
+                                            field.value,
+                                            field.line,
+                                            field.column,
+                                        )
+                                    ],
+                                ),
+                                noanchor,
                             )
                         )
                     elif self.match(TT.LBRACE):
@@ -1974,8 +1995,9 @@ class Parser:
                     ]
                     if default:
                         children.append(default)
-                    label = "index_noanchor" if noanchor else "index"
-                    postfix_ops.append(Tree(label, children))
+                    postfix_ops.append(
+                        self._maybe_noanchor(Tree("index", children), noanchor)
+                    )
                 elif self.match(TT.LPAR):
                     args = self.parse_arg_list()
                     self.expect(TT.RPAR)
@@ -2005,18 +2027,20 @@ class Parser:
                 noanchor = self._take_noanchor_once(seen_noanchor)
                 if self.check(TT.IDENT, TT.OVER):
                     field = self.advance()
-                    label = "field_noanchor" if noanchor else "field"
                     postfix_ops.append(
-                        Tree(
-                            label,
-                            [
-                                self._tok(
-                                    field.type.name,
-                                    field.value,
-                                    field.line,
-                                    field.column,
-                                )
-                            ],
+                        self._maybe_noanchor(
+                            Tree(
+                                "field",
+                                [
+                                    self._tok(
+                                        field.type.name,
+                                        field.value,
+                                        field.line,
+                                        field.column,
+                                    )
+                                ],
+                            ),
+                            noanchor,
                         )
                     )
                 elif self.match(TT.LBRACE):
@@ -2071,8 +2095,9 @@ class Parser:
                 ]
                 if default:
                     children.append(default)
-                label = "index_noanchor" if noanchor else "index"
-                postfix_ops.append(Tree(label, children))
+                postfix_ops.append(
+                    self._maybe_noanchor(Tree("index", children), noanchor)
+                )
 
             # Call
             elif self.match(TT.LPAR):
@@ -2377,11 +2402,13 @@ class Parser:
             if self.match(TT.DOT):
                 noanchor = self._take_noanchor_once(seen_noanchor)
                 field = self.expect(TT.IDENT)
-                label = "field_noanchor" if noanchor else "field"
                 children.append(
-                    Tree(
-                        label,
-                        [self._tok("IDENT", field.value, field.line, field.column)],
+                    self._maybe_noanchor(
+                        Tree(
+                            "field",
+                            [self._tok("IDENT", field.value, field.line, field.column)],
+                        ),
+                        noanchor,
                     )
                 )
             elif self.check(TT.DOLLAR) or self.check(TT.LSQB):
@@ -2392,15 +2419,17 @@ class Parser:
                     )
                 selectors = self.parse_selector_list()
                 self.expect(TT.RSQB)
-                label = "index_noanchor" if noanchor else "index"
                 children.append(
-                    Tree(
-                        label,
-                        [
-                            self._tok("LSQB", "["),
-                            Tree("selectorlist", selectors),
-                            self._tok("RSQB", "]"),
-                        ],
+                    self._maybe_noanchor(
+                        Tree(
+                            "index",
+                            [
+                                self._tok("LSQB", "["),
+                                Tree("selectorlist", selectors),
+                                self._tok("RSQB", "]"),
+                            ],
+                        ),
+                        noanchor,
                     )
                 )
             else:

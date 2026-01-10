@@ -105,27 +105,34 @@ class ChainNormalize(Transformer):
         while i < len(items):
             node = items[i]
 
-            if (
+            # Check for field (or noanchor-wrapped field) followed by call
+            is_field = is_tree(node) and tree_label(node) == "field"
+            is_noanchor_field = (
                 is_tree(node)
-                and tree_label(node) in {"field", "field_noanchor"}
+                and tree_label(node) == "noanchor"
+                and is_tree(node.children[0])
+                and tree_label(node.children[0]) == "field"
+            )
+
+            if (
+                (is_field or is_noanchor_field)
                 and i + 1 < len(items)
                 and is_tree(items[i + 1])
             ):
                 nxt = items[i + 1]
 
                 if tree_label(nxt) == "call":
-                    name = node.children[0]
-                    method_label = (
-                        "method_noanchor"
-                        if tree_label(node) == "field_noanchor"
-                        else "method"
-                    )
+                    inner = node.children[0] if is_noanchor_field else node
+                    name = inner.children[0]
                     args_node = (
                         Tree("args", [Tree("amp_lambda", nxt.children)])
                         if nxt.children
                         else Tree("args", [])
                     )
-                    out.append(Tree(method_label, [name, args_node]))
+                    method = Tree("method", [name, args_node])
+                    out.append(
+                        Tree("noanchor", [method]) if is_noanchor_field else method
+                    )
                     i += 2
                     continue
 

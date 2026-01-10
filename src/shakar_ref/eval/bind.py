@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+from typing import Callable, List, Tuple
 
 from ..runtime import (
     Frame,
@@ -26,6 +26,16 @@ from .destructure import assign_pattern as destructure_assign_pattern
 from .mutation import get_field_value, set_field_value, index_value, set_index_value
 from .postfix import define_new_ident
 from ..utils import fanout_values
+
+
+def _unwrap_noanchor(op: Tree) -> Tuple[Tree, str]:
+    """Unwrap noanchor wrapper if present, return (inner_op, label)."""
+    label = tree_label(op)
+    if label == "noanchor":
+        inner = op.children[0]
+        return inner, tree_label(inner)
+    return op, label
+
 
 __all__ = [
     "FanContext",
@@ -319,7 +329,6 @@ def resolve_chain_assignment(
     eval_func: EvalFunc,
     apply_op: ApplyOpFunc,
     evaluate_index_operand: IndexEvalFunc,
-    anchor_capture: Optional[Callable[[ShkValue], None]] = None,
 ) -> RebindContext | FanContext:
     """Walk `a.b[0]` and return the final assignable context (object slot, index, etc.)."""
     if not ops:
@@ -336,18 +345,15 @@ def resolve_chain_assignment(
     if isinstance(current, RebindContext):
         current = current.value
 
-    for idx, op in enumerate(ops):
+    for idx, raw_op in enumerate(ops):
         is_last = idx == len(ops) - 1
-        label = tree_label(op)
+        op, label = _unwrap_noanchor(raw_op)
 
-        if anchor_capture is not None and label in {
-            "field_noanchor",
-            "index_noanchor",
-            "method_noanchor",
-        }:
-            anchor_capture(current)
+        # Capture anchor for final noanchor-wrapped segment (handled manually below)
+        if is_last and raw_op is not op:
+            frame.pending_anchor_override = current
 
-        if is_last and label in {"field", "fieldsel", "field_noanchor"}:
+        if is_last and label in {"field", "fieldsel"}:
             field_name = expect_ident_token(op.children[0], "Field access")
             owner = current
             value = get_field_value(owner, field_name, frame)
@@ -362,7 +368,7 @@ def resolve_chain_assignment(
 
             return RebindContext(value, field_setter)
 
-        if is_last and label in {"index", "index_noanchor"}:
+        if is_last and label == "index":
             owner = current
             idx_value = evaluate_index_operand(op, frame, eval_func)
             value = index_value(owner, idx_value, frame)
@@ -380,7 +386,7 @@ def resolve_chain_assignment(
         if is_last and label == "fieldfan":
             return build_fieldfan_context(current, op, frame)
 
-        current = apply_op(current, op, frame, eval_func)
+        current = apply_op(current, raw_op, frame, eval_func)
 
         if isinstance(current, RebindContext):
             current = current.value
@@ -549,10 +555,10 @@ def apply_assign(
         # (contrast with assign_lvalue which assigns same value to all, returns that value)
         return ShkArray([ctx.value for ctx in target.contexts])
 
-    final_op = ops[-1]
-    label = tree_label(final_op)
+    raw_final_op = ops[-1]
+    final_op, label = _unwrap_noanchor(raw_final_op)
     match label:
-        case "field" | "fieldsel" | "field_noanchor":
+        case "field" | "fieldsel":
             field_name = expect_ident_token(final_op.children[0], "Field assignment")
             old_val = get_field_value(target, field_name, frame)
             rhs_frame = Frame(parent=frame, dot=old_val)
@@ -601,22 +607,20 @@ def _apply_over_fancontext(
     eval_func: EvalFunc,
 ) -> None:
     """Apply-assign (`.=`) across all contexts in a FanContext."""
-    label = tree_label(final_op)
+    op, label = _unwrap_noanchor(final_op)
 
     for ctx in fan.contexts:
         base = ctx.value
         match label:
-            case "field" | "fieldsel" | "field_noanchor":
-                field_name = expect_ident_token(
-                    final_op.children[0], "Field assignment"
-                )
+            case "field" | "fieldsel":
+                field_name = expect_ident_token(op.children[0], "Field assignment")
                 old_val = get_field_value(base, field_name, frame)
                 rhs_frame = Frame(parent=frame, dot=old_val)
                 new_val = eval_func(rhs_node, rhs_frame)
                 set_field_value(base, field_name, new_val, frame, create=False)
                 ctx.value = new_val
             case "lv_index":
-                idx_val = evaluate_index_operand(final_op, frame, eval_func)
+                idx_val = evaluate_index_operand(op, frame, eval_func)
                 old_val = index_value(base, idx_val, frame)
                 rhs_frame = Frame(parent=frame, dot=old_val)
                 new_val = eval_func(rhs_node, rhs_frame)
@@ -636,18 +640,16 @@ def _assign_over_fancontext(
     create: bool,
 ) -> None:
     """Assign `value` to each target held in FanContext using final_op."""
-    label = tree_label(final_op)
+    op, label = _unwrap_noanchor(final_op)
 
     for ctx in fan.contexts:
         base = ctx.value
         match label:
-            case "field" | "fieldsel" | "field_noanchor":
-                field_name = expect_ident_token(
-                    final_op.children[0], "Field assignment"
-                )
+            case "field" | "fieldsel":
+                field_name = expect_ident_token(op.children[0], "Field assignment")
                 set_field_value(base, field_name, value, frame, create=create)
             case "lv_index":
-                idx_val = evaluate_index_operand(final_op, frame, eval_func)
+                idx_val = evaluate_index_operand(op, frame, eval_func)
                 set_index_value(base, idx_val, value, frame)
             case _:
                 raise ShakarRuntimeError("Unsupported fan-out assignment target")
@@ -693,11 +695,10 @@ def assign_lvalue(
         )
         return value
 
-    final_op = ops[-1]
-
-    label = tree_label(final_op)
+    raw_final_op = ops[-1]
+    final_op, label = _unwrap_noanchor(raw_final_op)
     match label:
-        case "field" | "fieldsel" | "field_noanchor":
+        case "field" | "fieldsel":
             field_name = expect_ident_token(final_op.children[0], "Field assignment")
             return set_field_value(target, field_name, value, frame, create=create)
         case "lv_index":
@@ -777,11 +778,16 @@ def read_lvalue(
 
     for op in ops[:-1]:
         target = apply_op(target, op, frame, eval_func)
-    final_op = ops[-1]
 
-    label = tree_label(final_op)
+    raw_final_op = ops[-1]
+    final_op, label = _unwrap_noanchor(raw_final_op)
+
+    # Capture anchor for final noanchor-wrapped segment
+    if raw_final_op is not final_op:
+        frame.pending_anchor_override = target
+
     match label:
-        case "field" | "fieldsel" | "field_noanchor":
+        case "field" | "fieldsel":
             field_name = expect_ident_token(final_op.children[0], "Field value access")
             return get_field_value(target, field_name, frame)
         case "lv_index":

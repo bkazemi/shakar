@@ -46,6 +46,7 @@ def eval_program(
                 if _token_kind(child) in skip_tokens:
                     continue
                 result = eval_func(child, frame)
+                frame.pending_anchor_override = None  # clear stale override
         except ShakarBreakSignal:
             if allow_loop_control:
                 raise

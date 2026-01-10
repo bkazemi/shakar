@@ -1025,6 +1025,93 @@ runtime_scenario(
 )
 runtime_scenario(
     lambda: _rt(
+        "noanchor-segment-no-leak",
+        """state := { lines: 6 }
+x := state.$lines
+obj := { val: 10 }
+obj and .val""",
+        ("number", 10),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "noanchor-segment-no-leak-grouped",
+        """state := { lines: 6, val: 99 }
+obj := { val: 10 }
+(state.$lines) and obj and .val""",
+        ("number", 10),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "noanchor-segment-no-leak-call-arg",
+        """state := { lines: 6, val: 99 }
+fn make(x): ({ val: x })
+make(state.$lines) and .val""",
+        ("number", 6),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "noanchor-segment-no-leak-array-literal",
+        """state := { lines: 6 }
+[state.$lines, 1] and .len""",
+        ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "noanchor-segment-no-leak-object-literal",
+        """state := { lines: 6, val: 99 }
+{ val: 9, x: state.$lines } and .val""",
+        ("number", 9),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "noanchor-segment-no-leak-nullish",
+        """state := { obj: { val: 5 }, val: 99 }
+state.$obj ?? { val: 0 } and .val""",
+        ("number", 5),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "noanchor-segment-no-leak-ternary",
+        """state := { obj: { val: 5 }, val: 99 }
+[true ? state.$obj : { val: 0 }] and .len""",
+        ("number", 1),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "noanchor-segment-no-leak-selector",
+        """state := { start: 1, val: 99 }
+stop := 3
+arr := [1,2,3,4,5,6,7]
+arr[`{state.$start}:{stop}`] and .len""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "noanchor-segment-postfix-incr",
+        """obj := { count: 5, val: 10 }
+obj.$count++ and .val""",
+        ("number", 10),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "number-len-typeerror",
         "x := 1\nx.len",
         None,

@@ -15,14 +15,19 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-from ..tree import Tree, is_token, is_tree, tree_children, tree_label
+from ..tree import Node, Tree, is_token, is_tree, tree_children, tree_label
 from .common import (
     expect_ident_token as _expect_ident_token,
     extract_function_signature,
 )
-from .helpers import closure_frame
+from .helpers import closure_frame, isolate_anchor_override
 
 EvalFunc = Callable[[Tree, Frame], ShkValue]
+
+
+def _eval_isolated(node: Node, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    with isolate_anchor_override(frame):
+        return eval_func(node, frame)
 
 
 def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
@@ -142,7 +147,7 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                     slots[name] = method_fn
                     return
                 key = eval_key(key_node, frame, eval_func)
-                val = eval_func(val_node, frame)
+                val = _eval_isolated(val_node, frame, eval_func)
                 slots[str(key)] = val
             case "obj_get":
                 name_tok, body = item.children
@@ -186,7 +191,7 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 spread_expr = item.children[0] if item.children else None
                 if spread_expr is None:
                     raise ShakarRuntimeError("Object spread missing value")
-                spread_val = eval_func(spread_expr, frame)
+                spread_val = _eval_isolated(spread_expr, frame, eval_func)
                 if not isinstance(spread_val, ShkObject):
                     raise ShakarTypeError("Object spread expects an object value")
                 for key, val in spread_val.slots.items():
@@ -222,11 +227,11 @@ def eval_key(k: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue | str:
                 t = k.children[0]
                 if isinstance(t, Tok) and t.type == TT.IDENT:
                     return str(t.value)
-                return eval_func(k, frame)
+                return _eval_isolated(k, frame, eval_func)
             case "key_string":
                 t = k.children[0]
                 if not isinstance(t, Tok) or t.type != TT.STRING:
-                    return eval_func(k, frame)
+                    return _eval_isolated(k, frame, eval_func)
                 s = str(t.value)
 
                 if len(s) >= 2 and (
@@ -235,10 +240,10 @@ def eval_key(k: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue | str:
                     s = s[1:-1]
                 return s
             case "key_expr":
-                v = eval_func(k.children[0], frame)
+                v = _eval_isolated(k.children[0], frame, eval_func)
                 return v.value if isinstance(v, ShkString) else v
 
     if is_token(k) and k.type in {TT.IDENT, TT.STRING}:
         return str(k.value).strip('"').strip("'")
 
-    return eval_func(k, frame)
+    return _eval_isolated(k, frame, eval_func)

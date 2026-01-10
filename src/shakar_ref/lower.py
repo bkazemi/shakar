@@ -19,17 +19,15 @@ def lower(ast: Node) -> Node:
 
 
 def _validate_noanchor_segments(node: Node) -> None:
-    noanchor_ops = {"field_noanchor", "index_noanchor", "method_noanchor"}
-
-    def visit(child: Node, in_no_anchor: bool) -> None:
+    def visit(child: Node, in_no_anchor_expr: bool) -> None:
         if not is_tree(child):
             return
 
         label = tree_label(child)
-        if in_no_anchor and label in noanchor_ops:
+        if in_no_anchor_expr and label == "noanchor":
             raise SyntaxError("No-anchor segments are not allowed inside $expr")
 
-        next_in_no_anchor = in_no_anchor or label == "no_anchor"
+        next_in_no_anchor = in_no_anchor_expr or label == "no_anchor"
 
         for grandchild in tree_children(child):
             visit(grandchild, next_in_no_anchor)
