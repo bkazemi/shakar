@@ -32,7 +32,7 @@ from ..tree import (
     is_token,
 )
 from ..token_types import TT
-from .helpers import isolate_anchor_override
+from .helpers import eval_anchor_scoped
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
@@ -258,16 +258,12 @@ def _eval_selector_atom(
     if node is None:
         return None
 
-    def eval_isolated(expr: Node) -> ShkValue:
-        with isolate_anchor_override(frame):
-            return eval_fn(expr, frame)
-
     if not is_tree(node):
-        return eval_isolated(node)
+        return eval_anchor_scoped(node, frame, eval_fn)
 
     node_children = tree_children(node)
     if not node_children:
-        return eval_isolated(node)
+        return eval_anchor_scoped(node, frame, eval_fn)
 
     child = node_children[0]
 
@@ -283,12 +279,12 @@ def _eval_selector_atom(
         if expr is None:
             raise ShakarRuntimeError("Empty interpolation in selector literal")
         # `` `start:${expr}` `` — evaluate embedded expression on demand.
-        return eval_isolated(expr)
+        return eval_anchor_scoped(expr, frame, eval_fn)
 
     if is_tree(child):
-        return eval_isolated(child)
+        return eval_anchor_scoped(child, frame, eval_fn)
 
-    return eval_isolated(child)
+    return eval_anchor_scoped(child, frame, eval_fn)
 
 
 def _eval_seloptstop(

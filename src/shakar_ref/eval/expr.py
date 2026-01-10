@@ -29,7 +29,12 @@ from ..utils import shk_equals
 from .bind import FanContext, RebindContext, apply_numeric_delta
 from .chains import apply_op as chain_apply_op, evaluate_index_operand
 from .common import require_number, stringify, token_kind
-from .helpers import is_truthy, retargets_anchor, isolate_anchor_override
+from .helpers import (
+    eval_anchor_scoped,
+    is_truthy,
+    isolate_anchor_override,
+    retargets_anchor,
+)
 from .selector import selector_iter_values
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
@@ -336,16 +341,12 @@ def eval_nullish(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
     if not exprs:
         return ShkNull()
 
-    def eval_isolated(node: Tree) -> ShkValue:
-        with isolate_anchor_override(frame):
-            return eval_func(node, frame)
-
-    current = eval_isolated(exprs[0])
+    current = eval_anchor_scoped(exprs[0], frame, eval_func)
 
     for expr in exprs[1:]:
         if not isinstance(current, ShkNull):
             return current
-        current = eval_isolated(expr)
+        current = eval_anchor_scoped(expr, frame, eval_func)
 
     return current
 

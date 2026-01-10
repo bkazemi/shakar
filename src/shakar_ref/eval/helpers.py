@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Iterator, Optional
+from typing import Callable, Iterator, Optional
 
 from ..runtime import (
     Frame,
@@ -65,6 +65,14 @@ def isolate_anchor_override(frame: Frame) -> Iterator[None]:
         yield
     finally:
         frame.pending_anchor_override = saved
+
+
+def eval_anchor_scoped(
+    node: Node, frame: Frame, eval_func: Callable[[Node, Frame], ShkValue]
+) -> ShkValue:
+    """Evaluate a node without leaking anchor overrides into surrounding context."""
+    with isolate_anchor_override(frame):
+        return eval_func(node, frame)
 
 
 def current_function_frame(frame: Frame) -> Optional[Frame]:

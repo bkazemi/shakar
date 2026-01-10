@@ -18,8 +18,8 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-from ..tree import Node, node_meta, tree_children, tree_label, is_token, is_tree
-from .helpers import isolate_anchor_override
+from ..tree import node_meta, tree_children, tree_label, is_token, is_tree
+from .helpers import eval_anchor_scoped
 from .loops import _iterable_values
 from .common import stringify
 
@@ -51,22 +51,18 @@ def eval_keyword_literal(node: Tree) -> ShkValue:
 def eval_array_literal(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
     items: List[ShkValue] = []
 
-    def eval_isolated(expr: Node) -> ShkValue:
-        with isolate_anchor_override(frame):
-            return eval_func(expr, frame)
-
     for child in tree_children(node):
         if is_tree(child) and tree_label(child) == "spread":
             spread_expr = child.children[0] if child.children else None
             if spread_expr is None:
                 raise ShakarRuntimeError("Malformed spread element")
-            spread_val = eval_isolated(spread_expr)
+            spread_val = eval_anchor_scoped(spread_expr, frame, eval_func)
             if isinstance(spread_val, ShkObject):
                 raise ShakarTypeError("Cannot spread object into array literal")
             items.extend(_iterable_values(spread_val))
             continue
 
-        items.append(eval_isolated(child))
+        items.append(eval_anchor_scoped(child, frame, eval_func))
 
     return ShkArray(items)
 
@@ -84,8 +80,7 @@ def eval_string_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkStri
             if expr_node is None:
                 raise ShakarRuntimeError("Empty interpolation expression")
 
-            with isolate_anchor_override(frame):
-                value = eval_func(expr_node, frame)
+            value = eval_anchor_scoped(expr_node, frame, eval_func)
             parts.append(stringify(value))
             continue
 
@@ -108,8 +103,7 @@ def eval_shell_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkComma
         if expr_node is None:
             raise ShakarRuntimeError("Empty interpolation expression")
 
-        with isolate_anchor_override(frame):
-            value = eval_func(expr_node, frame)
+        value = eval_anchor_scoped(expr_node, frame, eval_func)
 
         if label == "shell_interp_expr":
             rendered = _render_shell_safe(value)
@@ -135,8 +129,7 @@ def eval_path_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkPath:
             if expr_node is None:
                 raise ShakarRuntimeError("Empty interpolation expression")
 
-            with isolate_anchor_override(frame):
-                value = eval_func(expr_node, frame)
+            value = eval_anchor_scoped(expr_node, frame, eval_func)
             parts.append(stringify(value))
             continue
 

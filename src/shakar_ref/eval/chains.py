@@ -39,7 +39,7 @@ from ..tree import (
 )
 from .bind import FanContext, RebindContext, apply_fan_op
 from .common import expect_ident_token as _expect_ident_token
-from .helpers import isolate_anchor_override
+from .helpers import eval_anchor_scoped
 from .mutation import get_field_value, index_value, slice_value
 from .selector import evaluate_selectorlist, apply_selectors_to_value
 from .valuefan import eval_valuefan
@@ -88,24 +88,20 @@ def eval_args_node(
 def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[ShkValue]:
     values: List[ShkValue] = []
 
-    def eval_isolated(node: Node) -> ShkValue:
-        with isolate_anchor_override(frame):
-            return eval_func(node, frame)
-
     for node in nodes:
         if _is_namedarg(node):
             # named args: evaluate value once; no auto-spread
             value_expr = node.children[-1] if node.children else None
             if value_expr is None:
                 raise ShakarRuntimeError("Malformed named argument")
-            values.append(eval_isolated(value_expr))
+            values.append(eval_anchor_scoped(value_expr, frame, eval_func))
             continue
 
         if _is_spread(node):
             spread_expr = node.children[0] if is_tree(node) and node.children else None
             if spread_expr is None:
                 raise ShakarRuntimeError("Malformed spread argument")
-            spread_val = eval_isolated(spread_expr)
+            spread_val = eval_anchor_scoped(spread_expr, frame, eval_func)
             if isinstance(spread_val, ShkArray):
                 values.extend(spread_val.items)
                 continue
@@ -115,7 +111,7 @@ def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[Shk
             raise ShakarRuntimeError("Spread argument must be an array or object value")
 
         if _is_raw_fieldfan(node):
-            spread_val = eval_isolated(node)
+            spread_val = eval_anchor_scoped(node, frame, eval_func)
 
             if not isinstance(spread_val, ShkArray):
                 raise ShakarRuntimeError(
@@ -125,7 +121,7 @@ def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[Shk
             values.extend(spread_val.items)
             continue
 
-        values.append(eval_isolated(node))
+        values.append(eval_anchor_scoped(node, frame, eval_func))
 
     return values
 
