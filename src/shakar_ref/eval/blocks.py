@@ -202,14 +202,23 @@ def eval_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkVa
     return ShkNull()
 
 
-def eval_body_node(body_node: Node, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_body_node(
+    body_node: Node,
+    frame: Frame,
+    eval_func: EvalFunc,
+    allow_loop_control: bool = False,
+) -> ShkValue:
     label = tree_label(body_node) if is_tree(body_node) else None
 
     if label == "inlinebody":
-        return eval_inline_body(body_node, frame, eval_func)
+        return eval_inline_body(
+            body_node, frame, eval_func, allow_loop_control=allow_loop_control
+        )
 
     if label == "indentblock":
-        return eval_indent_block(body_node, frame, eval_func)
+        return eval_indent_block(
+            body_node, frame, eval_func, allow_loop_control=allow_loop_control
+        )
 
     return eval_func(body_node, frame)
 

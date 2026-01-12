@@ -21,6 +21,7 @@ from ..runtime import (
 )
 from ..tree import Node, Tree, is_token, is_tree, tree_children, tree_label
 from .blocks import (
+    eval_body_node,
     eval_inline_body,
     eval_indent_block,
     temporary_bindings,
@@ -321,18 +322,6 @@ def _extract_clause(node: Tree, label: str) -> tuple[Optional[Node], Node]:
     return cond_node, body_node
 
 
-def _execute_cond_body(body_node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
-    label = tree_label(body_node) if is_tree(body_node) else None
-
-    if label == "inlinebody":
-        return eval_inline_body(body_node, frame, eval_func, allow_loop_control=True)
-
-    if label == "indentblock":
-        return eval_indent_block(body_node, frame, eval_func, allow_loop_control=True)
-
-    return eval_func(body_node, frame)
-
-
 def eval_if_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     children = tree_children(n)
     cond_node = None
@@ -364,13 +353,15 @@ def eval_if_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         raise ShakarRuntimeError("Malformed if statement")
 
     if _is_truthy(eval_func(cond_node, frame)):
-        return _execute_cond_body(body_node, frame, eval_func)
+        return eval_body_node(body_node, frame, eval_func, allow_loop_control=True)
 
     for clause_cond, clause_body in elif_clauses:
         if _is_truthy(eval_func(clause_cond, frame)):
-            return _execute_cond_body(clause_body, frame, eval_func)
+            return eval_body_node(
+                clause_body, frame, eval_func, allow_loop_control=True
+            )
 
     if else_body is not None:
-        return _execute_cond_body(else_body, frame, eval_func)
+        return eval_body_node(else_body, frame, eval_func, allow_loop_control=True)
 
     return ShkNull()

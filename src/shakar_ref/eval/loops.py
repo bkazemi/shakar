@@ -24,7 +24,7 @@ from ..runtime import (
 from ..tree import Node, child_by_label, is_token, is_tree, tree_children, tree_label
 from ..utils import normalize_object_key, value_in_list
 from .bind import assign_pattern_value
-from .blocks import eval_indent_block, eval_inline_body
+from .blocks import eval_body_node
 from .common import (
     collect_free_identifiers as _collect_free_identifiers,
     token_kind as _token_kind,
@@ -256,18 +256,6 @@ def _iterable_values(value: ShkValue) -> list[ShkValue]:
             raise ShakarTypeError(f"Cannot iterate over {type(value).__name__}")
 
 
-def _execute_loop_body(body_node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
-    label = tree_label(body_node) if is_tree(body_node) else None
-
-    if label == "inlinebody":
-        return eval_inline_body(body_node, frame, eval_func, allow_loop_control=True)
-
-    if label == "indentblock":
-        return eval_indent_block(body_node, frame, eval_func, allow_loop_control=True)
-
-    return eval_func(body_node, frame)
-
-
 def _apply_comp_binders_wrapper(
     binders: list[dict[str, ShkValue]],
     element: ShkValue,
@@ -368,7 +356,7 @@ def eval_while_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     try:
         while _is_truthy(eval_func(cond_node, frame)):
             try:
-                _execute_loop_body(body_node, frame, eval_func)
+                eval_body_node(body_node, frame, eval_func, allow_loop_control=True)
             except ShakarContinueSignal:
                 continue
             except ShakarBreakSignal:
@@ -446,7 +434,9 @@ def eval_for_in(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             )
 
             try:
-                _execute_loop_body(body_node, loop_frame, eval_func)
+                eval_body_node(
+                    body_node, loop_frame, eval_func, allow_loop_control=True
+                )
             except ShakarContinueSignal:
                 continue
             except ShakarBreakSignal:
@@ -481,7 +471,9 @@ def eval_for_subject(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             loop_frame = Frame(parent=frame, dot=value)
 
             try:
-                _execute_loop_body(body_node, loop_frame, eval_func)
+                eval_body_node(
+                    body_node, loop_frame, eval_func, allow_loop_control=True
+                )
             except ShakarContinueSignal:
                 continue
             except ShakarBreakSignal:
@@ -535,7 +527,9 @@ def eval_for_indexed(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
                 )
 
             try:
-                _execute_loop_body(body_node, loop_frame, eval_func)
+                eval_body_node(
+                    body_node, loop_frame, eval_func, allow_loop_control=True
+                )
             except ShakarContinueSignal:
                 continue
             except ShakarBreakSignal:
