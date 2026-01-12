@@ -187,109 +187,7 @@ def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
     if handler is not None:
         return handler(n, frame)
 
-    match d:
-        # common wrapper nodes (delegate to single child)
-        case "start_noindent" | "start_indented" | "stmtlist":
-            return eval_program(n.children, frame, eval_node)
-        case "stmt":
-            # stmt is a wrapper for a single child - unwrap it to preserve loop control
-            if len(n.children) == 1:
-                return eval_node(n.children[0], frame)
-            return eval_program(n.children, frame, eval_node)
-        case "literal" | "primary" | "expr":
-            if len(n.children) == 1:
-                return eval_node(n.children[0], frame)
-
-            if len(n.children) == 0 and d == "literal":
-                return eval_keyword_literal(n)
-            raise ShakarRuntimeError(
-                f"Unsupported wrapper shape {d} with {len(n.children)} children"
-            )
-        case "array":
-            return eval_array_literal(n, frame, eval_node)
-        case "object":
-            return eval_object(n, frame, eval_node)
-        case "unary":
-            op, rhs_node = n.children
-            return eval_unary(op, rhs_node, frame, eval_node)
-        case "pow":
-            return eval_infix(
-                n.children, frame, eval_node, right_assoc_ops={"**", "POW"}
-            )
-        case "mul" | "add":
-            return eval_infix(n.children, frame, eval_node)
-        case "explicit_chain":
-            return eval_explicit_chain(n, frame, eval_node)
-        case "implicit_chain":
-            return _eval_implicit_chain(n.children, frame)
-        case "spread":
-            raise ShakarRuntimeError(
-                "Spread operator is only valid in array/object literals and call arguments"
-            )
-        case "call":
-            args_node = n.children[0] if n.children else None
-            args = eval_args_node(args_node, frame, eval_node)
-            cal = frame.get("")  # unreachable in practice
-            return call_value(cal, args, frame, eval_node)
-        case "and" | "or":
-            return eval_logical(d, n.children, frame, eval_node)
-        case "walrus":
-            return eval_walrus(n.children, frame, eval_node)
-        case "returnstmt":
-            return eval_return_stmt(n.children, frame, eval_func=eval_node)
-        case "returnif":
-            return eval_return_if(n.children, frame, eval_func=eval_node)
-        case "throwstmt":
-            return eval_throw_stmt(n.children, frame, eval_func=eval_node)
-        case "breakstmt":
-            return _eval_break_stmt(frame)
-        case "continuestmt":
-            return _eval_continue_stmt(frame)
-        case "assignstmt":
-            return eval_assign_stmt(
-                n.children, frame, eval_node, apply_op, evaluate_index_operand
-            )
-        case "postfixif":
-            return _postfix_eval_if(
-                n.children, frame, eval_func=eval_node, truthy_fn=is_truthy
-            )
-        case "postfixunless":
-            return _postfix_eval_unless(
-                n.children, frame, eval_func=eval_node, truthy_fn=is_truthy
-            )
-        case "compound_assign":
-            return eval_compound_assign(
-                n.children, frame, eval_node, apply_op, evaluate_index_operand
-            )
-        case "fndef":
-            return eval_fn_def(n.children, frame, eval_node)
-        case "decorator_def":
-            return eval_decorator_def(n.children, frame)
-        case "hook":
-            return eval_hook_stmt(n, frame, eval_node)
-        case "deferstmt":
-            return eval_defer_stmt(n.children, frame, eval_node)
-        case "assert":
-            return eval_assert(n.children, frame, eval_func=eval_node)
-        case "bind":
-            return eval_apply_assign(
-                n.children, frame, eval_node, apply_op, evaluate_index_operand
-            )
-        case "subject":
-            return get_subject(frame)
-        case "keyexpr":
-            return eval_node(n.children[0], frame) if n.children else ShkNull()
-        case "destructure":
-            # plain destructure must not create new names; walrus form does.
-            return eval_destructure(
-                n, frame, eval_node, create=False, allow_broadcast=False
-            )
-        case "destructure_walrus":
-            return eval_destructure(
-                n, frame, eval_node, create=True, allow_broadcast=True
-            )
-        case _:
-            raise ShakarRuntimeError(f"Unknown node: {d}")
+    raise ShakarRuntimeError(f"Unknown node: {d}")
 
 
 # ---------------- Toks ----------------
@@ -349,61 +247,429 @@ def _eval_group(n: Tree, frame: Frame) -> ShkValue:
         frame.dot = saved
 
 
+def _eval_wrapper_node(n: Tree, frame: Frame) -> ShkValue:
+    if len(n.children) == 1:
+        return eval_node(n.children[0], frame)
+
+    if len(n.children) == 0 and n.data == "literal":
+        return eval_keyword_literal(n)
+
+    raise ShakarRuntimeError(
+        f"Unsupported wrapper shape {n.data} with {len(n.children)} children"
+    )
+
+
+def _eval_stmt_node(n: Tree, frame: Frame) -> ShkValue:
+    if len(n.children) == 1:
+        return eval_node(n.children[0], frame)
+
+    return eval_program(n.children, frame, eval_node)
+
+
+def _eval_program_node(n: Tree, frame: Frame) -> ShkValue:
+    return eval_program(n.children, frame, eval_node)
+
+
+# ---- Expression handlers ----
+
+
+def _eval_array(n: Tree, frame: Frame) -> ShkValue:
+    return eval_array_literal(n, frame, eval_node)
+
+
+def _eval_object(n: Tree, frame: Frame) -> ShkValue:
+    return eval_object(n, frame, eval_node)
+
+
+def _eval_unary(n: Tree, frame: Frame) -> ShkValue:
+    return eval_unary(n.children[0], n.children[1], frame, eval_node)
+
+
+def _eval_pow(n: Tree, frame: Frame) -> ShkValue:
+    return eval_infix(n.children, frame, eval_node, right_assoc_ops={"**", "POW"})
+
+
+def _eval_infix(n: Tree, frame: Frame) -> ShkValue:
+    return eval_infix(n.children, frame, eval_node)
+
+
+def _eval_explicit_chain(n: Tree, frame: Frame) -> ShkValue:
+    return eval_explicit_chain(n, frame, eval_node)
+
+
+def _eval_implicit_chain_node(n: Tree, frame: Frame) -> ShkValue:
+    return _eval_implicit_chain(n.children, frame)
+
+
+def _eval_spread(_n: Tree, _frame: Frame) -> ShkValue:
+    raise ShakarRuntimeError(
+        "Spread operator is only valid in array/object literals and call arguments"
+    )
+
+
+def _eval_call(n: Tree, frame: Frame) -> ShkValue:
+    args_node = n.children[0] if n.children else None
+    args = eval_args_node(args_node, frame, eval_node)
+
+    return call_value(frame.get(""), args, frame, eval_node)
+
+
+def _eval_and(n: Tree, frame: Frame) -> ShkValue:
+    return eval_logical("and", n.children, frame, eval_node)
+
+
+def _eval_or(n: Tree, frame: Frame) -> ShkValue:
+    return eval_logical("or", n.children, frame, eval_node)
+
+
+def _eval_walrus(n: Tree, frame: Frame) -> ShkValue:
+    return eval_walrus(n.children, frame, eval_node)
+
+
+def _eval_ternary(n: Tree, frame: Frame) -> ShkValue:
+    return eval_ternary(n, frame, eval_node)
+
+
+def _eval_compare(n: Tree, frame: Frame) -> ShkValue:
+    return eval_compare(n.children, frame, eval_node)
+
+
+def _eval_nullish(n: Tree, frame: Frame) -> ShkValue:
+    return eval_nullish(n.children, frame, eval_node)
+
+
+def _eval_nullsafe(n: Tree, frame: Frame) -> ShkValue:
+    return eval_nullsafe(n, frame, eval_node)
+
+
+def _eval_await_value(n: Tree, frame: Frame) -> ShkValue:
+    return eval_await_value(n, frame, eval_node)
+
+
+def _eval_subject(_n: Tree, frame: Frame) -> ShkValue:
+    return get_subject(frame)
+
+
+def _eval_keyexpr(n: Tree, frame: Frame) -> ShkValue:
+    return eval_node(n.children[0], frame) if n.children else ShkNull()
+
+
+def _eval_slicearm_expr(n: Tree, frame: Frame) -> ShkValue:
+    return eval_node(n.children[0], frame) if n.children else ShkNull()
+
+
+def _eval_slicearm_empty(_n: Tree, _frame: Frame) -> ShkValue:
+    return ShkNull()
+
+
+def _eval_pack(n: Tree, frame: Frame) -> ShkValue:
+    return ShkArray([eval_node(ch, frame) for ch in n.children])
+
+
+# ---- Statement handlers ----
+
+
+def _eval_returnstmt(n: Tree, frame: Frame) -> ShkValue:
+    return eval_return_stmt(n.children, frame, eval_func=eval_node)
+
+
+def _eval_returnif(n: Tree, frame: Frame) -> ShkValue:
+    return eval_return_if(n.children, frame, eval_func=eval_node)
+
+
+def _eval_throwstmt(n: Tree, frame: Frame) -> ShkValue:
+    return eval_throw_stmt(n.children, frame, eval_func=eval_node)
+
+
+def _eval_assignstmt(n: Tree, frame: Frame) -> ShkValue:
+    return eval_assign_stmt(
+        n.children, frame, eval_node, apply_op, evaluate_index_operand
+    )
+
+
+def _eval_postfixif(n: Tree, frame: Frame) -> ShkValue:
+    return _postfix_eval_if(n.children, frame, eval_func=eval_node, truthy_fn=is_truthy)
+
+
+def _eval_postfixunless(n: Tree, frame: Frame) -> ShkValue:
+    return _postfix_eval_unless(
+        n.children, frame, eval_func=eval_node, truthy_fn=is_truthy
+    )
+
+
+def _eval_compound_assign(n: Tree, frame: Frame) -> ShkValue:
+    return eval_compound_assign(
+        n.children, frame, eval_node, apply_op, evaluate_index_operand
+    )
+
+
+def _eval_fndef(n: Tree, frame: Frame) -> ShkValue:
+    return eval_fn_def(n.children, frame, eval_node)
+
+
+def _eval_decorator_def(n: Tree, frame: Frame) -> ShkValue:
+    return eval_decorator_def(n.children, frame)
+
+
+def _eval_hook(n: Tree, frame: Frame) -> ShkValue:
+    return eval_hook_stmt(n, frame, eval_node)
+
+
+def _eval_deferstmt(n: Tree, frame: Frame) -> ShkValue:
+    return eval_defer_stmt(n.children, frame, eval_node)
+
+
+def _eval_assert(n: Tree, frame: Frame) -> ShkValue:
+    return eval_assert(n.children, frame, eval_func=eval_node)
+
+
+def _eval_bind(n: Tree, frame: Frame) -> ShkValue:
+    return eval_apply_assign(
+        n.children, frame, eval_node, apply_op, evaluate_index_operand
+    )
+
+
+def _eval_destructure(n: Tree, frame: Frame) -> ShkValue:
+    return eval_destructure(n, frame, eval_node, create=False, allow_broadcast=False)
+
+
+def _eval_destructure_walrus(n: Tree, frame: Frame) -> ShkValue:
+    return eval_destructure(n, frame, eval_node, create=True, allow_broadcast=True)
+
+
+def _eval_awaitstmt(n: Tree, frame: Frame) -> ShkValue:
+    return eval_await_stmt(n, frame, eval_node)
+
+
+def _eval_awaitanycall(n: Tree, frame: Frame) -> ShkValue:
+    return eval_await_any_call(n, frame, eval_node)
+
+
+def _eval_awaitallcall(n: Tree, frame: Frame) -> ShkValue:
+    return eval_await_all_call(n, frame, eval_node)
+
+
+def _eval_usingstmt(n: Tree, frame: Frame) -> ShkValue:
+    return eval_using_stmt(n, frame, eval_node)
+
+
+def _eval_callstmt(n: Tree, frame: Frame) -> ShkValue:
+    return eval_call_stmt(n, frame, eval_node)
+
+
+def _eval_catchexpr(n: Tree, frame: Frame) -> ShkValue:
+    return eval_catch_expr(n.children, frame, eval_node)
+
+
+def _eval_catchstmt(n: Tree, frame: Frame) -> ShkValue:
+    return eval_catch_stmt(n.children, frame, eval_node)
+
+
+# ---- Control flow handlers ----
+
+
+def _eval_ifstmt(n: Tree, frame: Frame) -> ShkValue:
+    return eval_if_stmt(n, frame, eval_node)
+
+
+def _eval_whilestmt(n: Tree, frame: Frame) -> ShkValue:
+    return eval_while_stmt(n, frame, eval_node)
+
+
+def _eval_breakstmt_node(_n: Tree, frame: Frame) -> ShkValue:
+    return _eval_break_stmt(frame)
+
+
+def _eval_continuestmt_node(_n: Tree, frame: Frame) -> ShkValue:
+    return _eval_continue_stmt(frame)
+
+
+# ---- Loop handlers ----
+
+
+def _eval_forin(n: Tree, frame: Frame) -> ShkValue:
+    return eval_for_in(n, frame, eval_node)
+
+
+def _eval_forsubject(n: Tree, frame: Frame) -> ShkValue:
+    return eval_for_subject(n, frame, eval_node)
+
+
+def _eval_forindexed(n: Tree, frame: Frame) -> ShkValue:
+    return eval_for_indexed(n, frame, eval_node)
+
+
+def _eval_formap2(n: Tree, frame: Frame) -> ShkValue:
+    return eval_for_map2(n, frame, eval_node)
+
+
+# ---- Comprehension/literal handlers ----
+
+
+def _eval_listcomp(n: Tree, frame: Frame) -> ShkValue:
+    return eval_listcomp(n, frame, eval_node)
+
+
+def _eval_setcomp(n: Tree, frame: Frame) -> ShkValue:
+    return eval_setcomp(n, frame, eval_node)
+
+
+def _eval_setliteral(n: Tree, frame: Frame) -> ShkValue:
+    return eval_setliteral(n, frame, eval_node)
+
+
+def _eval_dictcomp(n: Tree, frame: Frame) -> ShkValue:
+    return eval_dictcomp(n, frame, eval_node)
+
+
+def _eval_selectorliteral(n: Tree, frame: Frame) -> ShkValue:
+    return eval_selectorliteral(n, frame, eval_node)
+
+
+def _eval_string_interp(n: Tree, frame: Frame) -> ShkValue:
+    return eval_string_interp(n, frame, eval_node)
+
+
+def _eval_shell_string(n: Tree, frame: Frame) -> ShkValue:
+    return eval_shell_string(n, frame, eval_node)
+
+
+def _eval_path_interp(n: Tree, frame: Frame) -> ShkValue:
+    return eval_path_interp(n, frame, eval_node)
+
+
+# ---- Block/body handlers ----
+
+
+def _eval_inlinebody(n: Tree, frame: Frame) -> ShkValue:
+    return eval_inline_body(n, frame, eval_node)
+
+
+def _eval_indentblock(n: Tree, frame: Frame) -> ShkValue:
+    return eval_indent_block(n, frame, eval_node)
+
+
+def _eval_onelineguard(n: Tree, frame: Frame) -> ShkValue:
+    return eval_guard(n.children, frame, eval_node)
+
+
+def _eval_emitexpr(n: Tree, frame: Frame) -> ShkValue:
+    return eval_emit_expr(n, frame, eval_node)
+
+
+# ---- Fanout/rebind handlers ----
+
+
+def _eval_fanoutblock(n: Tree, frame: Frame) -> ShkValue:
+    return eval_fanout_block(n, frame, eval_node, apply_op, evaluate_index_operand)
+
+
+def _eval_valuefan(n: Tree, frame: Frame) -> ShkValue:
+    return eval_valuefan(eval_node(n.children[0], frame), n, frame, eval_node, apply_op)
+
+
+def _eval_rebind_primary(n: Tree, frame: Frame) -> ShkValue:
+    return eval_rebind_primary(n, frame, eval_node, apply_op, evaluate_index_operand)
+
+
+def _eval_anonfn(n: Tree, frame: Frame) -> ShkValue:
+    return eval_anonymous_fn(n.children, frame)
+
+
+# ---- Dispatch table ----
+
+
 _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
-    "listcomp": lambda n, frame: eval_listcomp(n, frame, eval_node),
-    "setcomp": lambda n, frame: eval_setcomp(n, frame, eval_node),
-    "setliteral": lambda n, frame: eval_setliteral(n, frame, eval_node),
-    "dictcomp": lambda n, frame: eval_dictcomp(n, frame, eval_node),
-    "selectorliteral": lambda n, frame: eval_selectorliteral(n, frame, eval_node),
-    "string_interp": lambda n, frame: eval_string_interp(n, frame, eval_node),
-    "shell_string": lambda n, frame: eval_shell_string(n, frame, eval_node),
-    "path_interp": lambda n, frame: eval_path_interp(n, frame, eval_node),
+    # Structural
+    "start_noindent": _eval_program_node,
+    "start_indented": _eval_program_node,
+    "stmtlist": _eval_program_node,
+    "stmt": _eval_stmt_node,
+    "literal": _eval_wrapper_node,
+    "primary": _eval_wrapper_node,
+    "expr": _eval_wrapper_node,
+    # Expressions
+    "array": _eval_array,
+    "object": _eval_object,
+    "unary": _eval_unary,
+    "pow": _eval_pow,
+    "mul": _eval_infix,
+    "add": _eval_infix,
+    "explicit_chain": _eval_explicit_chain,
+    "implicit_chain": _eval_implicit_chain_node,
+    "spread": _eval_spread,
+    "call": _eval_call,
+    "and": _eval_and,
+    "or": _eval_or,
+    "walrus": _eval_walrus,
+    "ternary": _eval_ternary,
+    "compare": _eval_compare,
+    "nullish": _eval_nullish,
+    "nullsafe": _eval_nullsafe,
+    "await_value": _eval_await_value,
+    "subject": _eval_subject,
+    "keyexpr": _eval_keyexpr,
+    "slicearm_expr": _eval_slicearm_expr,
+    "slicearm_empty": _eval_slicearm_empty,
+    "pack": _eval_pack,
+    # Statements
+    "returnstmt": _eval_returnstmt,
+    "returnif": _eval_returnif,
+    "throwstmt": _eval_throwstmt,
+    "assignstmt": _eval_assignstmt,
+    "postfixif": _eval_postfixif,
+    "postfixunless": _eval_postfixunless,
+    "compound_assign": _eval_compound_assign,
+    "fndef": _eval_fndef,
+    "decorator_def": _eval_decorator_def,
+    "hook": _eval_hook,
+    "deferstmt": _eval_deferstmt,
+    "assert": _eval_assert,
+    "bind": _eval_bind,
+    "destructure": _eval_destructure,
+    "destructure_walrus": _eval_destructure_walrus,
+    "awaitstmt": _eval_awaitstmt,
+    "awaitanycall": _eval_awaitanycall,
+    "awaitallcall": _eval_awaitallcall,
+    "usingstmt": _eval_usingstmt,
+    "callstmt": _eval_callstmt,
+    "catchexpr": _eval_catchexpr,
+    "catchstmt": _eval_catchstmt,
+    # Control flow
+    "ifstmt": _eval_ifstmt,
+    "whilestmt": _eval_whilestmt,
+    "breakstmt": _eval_breakstmt_node,
+    "continuestmt": _eval_continuestmt_node,
+    # Loops
+    "forin": _eval_forin,
+    "forsubject": _eval_forsubject,
+    "forindexed": _eval_forindexed,
+    "formap1": _eval_formap1,
+    "formap2": _eval_formap2,
+    # Comprehensions/literals
+    "listcomp": _eval_listcomp,
+    "setcomp": _eval_setcomp,
+    "setliteral": _eval_setliteral,
+    "dictcomp": _eval_dictcomp,
+    "selectorliteral": _eval_selectorliteral,
+    "string_interp": _eval_string_interp,
+    "shell_string": _eval_shell_string,
+    "path_interp": _eval_path_interp,
+    # Blocks/bodies
     "group": _eval_group,
     "no_anchor": _eval_group,
-    "ternary": lambda n, frame: eval_ternary(n, frame, eval_node),
-    "rebind_primary": lambda n, frame: eval_rebind_primary(
-        n, frame, eval_node, apply_op, evaluate_index_operand
-    ),
-    "rebind_primary_grouped": lambda n, frame: eval_rebind_primary(
-        n, frame, eval_node, apply_op, evaluate_index_operand
-    ),
+    "inlinebody": _eval_inlinebody,
+    "indentblock": _eval_indentblock,
+    "onelineguard": _eval_onelineguard,
+    "emitexpr": _eval_emitexpr,
+    # Fanout/rebind
+    "fanoutblock": _eval_fanoutblock,
+    "valuefan": _eval_valuefan,
+    "rebind_primary": _eval_rebind_primary,
+    "rebind_primary_grouped": _eval_rebind_primary,
+    # Functions
     "amp_lambda": eval_amp_lambda,
-    "anonfn": lambda n, frame: eval_anonymous_fn(n.children, frame),
-    "await_value": lambda n, frame: eval_await_value(n, frame, eval_node),
-    "compare": lambda n, frame: eval_compare(n.children, frame, eval_node),
-    "nullish": lambda n, frame: eval_nullish(n.children, frame, eval_node),
-    "nullsafe": lambda n, frame: eval_nullsafe(n, frame, eval_node),
-    "breakstmt": lambda _, frame: _eval_break_stmt(frame),
-    "continuestmt": lambda _, frame: _eval_continue_stmt(frame),
-    "awaitstmt": lambda n, frame: eval_await_stmt(n, frame, eval_node),
-    "awaitanycall": lambda n, frame: eval_await_any_call(n, frame, eval_node),
-    "awaitallcall": lambda n, frame: eval_await_all_call(n, frame, eval_node),
-    "usingstmt": lambda n, frame: eval_using_stmt(n, frame, eval_node),
-    "callstmt": lambda n, frame: eval_call_stmt(n, frame, eval_node),
-    "ifstmt": lambda n, frame: eval_if_stmt(n, frame, eval_node),
-    "whilestmt": lambda n, frame: eval_while_stmt(n, frame, eval_node),
-    "fanoutblock": lambda n, frame: eval_fanout_block(
-        n, frame, eval_node, apply_op, evaluate_index_operand
-    ),
-    "valuefan": lambda n, frame: eval_valuefan(
-        eval_node(n.children[0], frame), n, frame, eval_node, apply_op
-    ),
-    "catchexpr": lambda n, frame: eval_catch_expr(n.children, frame, eval_node),
-    "catchstmt": lambda n, frame: eval_catch_stmt(n.children, frame, eval_node),
-    "slicearm_expr": lambda n, frame: (
-        eval_node(n.children[0], frame) if n.children else ShkNull()
-    ),
-    "slicearm_empty": lambda _n, _frame: ShkNull(),
-    "forin": lambda n, frame: eval_for_in(n, frame, eval_node),
-    "forsubject": lambda n, frame: eval_for_subject(n, frame, eval_node),
-    "forindexed": lambda n, frame: eval_for_indexed(n, frame, eval_node),
-    "formap1": _eval_formap1,
-    "formap2": lambda n, frame: eval_for_map2(n, frame, eval_node),
-    "inlinebody": lambda n, frame: eval_inline_body(n, frame, eval_node),
-    "indentblock": lambda n, frame: eval_indent_block(n, frame, eval_node),
-    "onelineguard": lambda n, frame: eval_guard(n.children, frame, eval_node),
-    "emitexpr": lambda n, frame: eval_emit_expr(n, frame, eval_node),
-    "pack": lambda n, frame: ShkArray([eval_node(ch, frame) for ch in n.children]),
+    "anonfn": _eval_anonfn,
 }
 
 _TOKEN_DISPATCH: dict[TT, Callable[[Tok, Frame], ShkValue]] = {
