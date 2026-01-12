@@ -274,38 +274,35 @@ class Parser:
         - Return, break, continue
         - etc.
         """
+        # Dispatch table for simple statement starters
+        if not hasattr(self, "_stmt_dispatch"):
+            self._stmt_dispatch = {
+                TT.IF: self.parse_if_stmt,
+                TT.WHILE: self.parse_while_stmt,
+                TT.FOR: self.parse_for_stmt,
+                TT.USING: self.parse_using_stmt,
+                TT.CALL: self.parse_call_stmt,
+                TT.DEFER: self.parse_defer_stmt,
+                TT.HOOK: self.parse_hook_stmt,
+                TT.DECORATOR: self.parse_decorator_stmt,
+                TT.AT: self.parse_fn_stmt,
+                TT.FN: self.parse_fn_stmt,
+                TT.RETURN: self.parse_return_stmt,
+                TT.BREAK: self.parse_break_stmt,
+                TT.CONTINUE: self.parse_continue_stmt,
+                TT.THROW: self.parse_throw_stmt,
+                TT.ASSERT: self.parse_assert_stmt,
+                TT.DBG: self.parse_dbg_stmt,
+            }
 
-        # Control flow
-        if self.check(TT.IF):
-            return self.parse_if_stmt()
-        if self.check(TT.WHILE):
-            return self.parse_while_stmt()
-        if self.check(TT.FOR):
-            return self.parse_for_stmt()
-        if self.check(TT.USING):
-            return self.parse_using_stmt()
-        if self.check(TT.CALL):
-            return self.parse_call_stmt()
-        if self.check(TT.DEFER):
-            return self.parse_defer_stmt()
+        handler = self._stmt_dispatch.get(self.current.type)
+        if handler:
+            return handler()
+
         if self.check(TT.AWAIT):
             # Statement-form await with optional bodies/arms
             return self.parse_await_stmt()
 
-        # Declarations
-        if self.check(TT.HOOK):
-            return self.parse_hook_stmt()
-        if self.check(TT.DECORATOR):
-            return self.parse_decorator_stmt()
-        if self.check(TT.AT):
-            # Decorator list followed by fn statement
-            return self.parse_fn_stmt()
-        if self.check(TT.FN):
-            return self.parse_fn_stmt()
-
-        # Simple statements
-        if self.check(TT.RETURN):
-            return self.parse_return_stmt()
         if (
             self.check(TT.QMARK)
             and self.peek(1).type == TT.IDENT
@@ -315,18 +312,6 @@ class Parser:
             self.advance(2)  # consume "? ret"
             value = self.parse_expr()
             return Tree("returnif", [value])
-        if self.check(TT.BREAK):
-            return self.parse_break_stmt()
-        if self.check(TT.CONTINUE):
-            return self.parse_continue_stmt()
-        if self.check(TT.THROW):
-            return self.parse_throw_stmt()
-        if self.check(TT.ASSERT):
-            return self.parse_assert_stmt()
-        if self.check(TT.DBG):
-            return self.parse_dbg_stmt()
-        if self.check(TT.AWAIT):
-            return self.parse_await_stmt()
 
         # Guard chains (inline if-else)
         # expr : body | expr : body |: else
@@ -850,14 +835,19 @@ class Parser:
 
     def parse_hook_stmt(self) -> Tree:
         """
-        Parse hook statement (stub):
+        Parse hook statement:
         hook "name": body
 
         Grammar: hook: HOOK (STRING | RAW_STRING | RAW_HASH_STRING) ":" (inlinebody | indentblock)
         """
-        _, name, _ = self.expect_seq(
-            TT.HOOK, TT.STRING, TT.COLON
-        )  # TODO: support RAW_STRING, RAW_HASH_STRING
+        self.expect(TT.HOOK)
+
+        if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING):
+            name = self.advance()
+        else:
+            raise ParseError("Expected string name for hook", self.current)
+
+        self.expect(TT.COLON)
         body = self.parse_body()
 
         # Convert inlinebody to amp_lambda if it contains implicit chain

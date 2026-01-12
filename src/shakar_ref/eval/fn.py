@@ -16,14 +16,39 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-from ..tree import is_tree, tree_children, tree_label, child_by_label
+from ..tree import is_tree, tree_children, tree_label, child_by_label, is_token
 from .common import (
     expect_ident_token as _expect_ident_token,
     extract_function_signature,
+    token_string,
 )
 from .helpers import closure_frame
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
+
+
+def eval_hook_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    children = tree_children(n)
+    if len(children) != 2:
+        raise ShakarRuntimeError("Malformed hook statement")
+
+    name_tok = children[0]
+    if not is_token(name_tok):
+        raise ShakarRuntimeError("Hook name must be a string token")
+
+    # Parse the string token to get the actual name (handles raw strings, etc.)
+    # token_string expects (token, frame) but frame is unused for string literals
+    name_val = token_string(name_tok, None)
+    if not isinstance(name_val, ShkValue):  # Should be ShkString
+        # token_string returns ShkString, accessing .value gives the str
+        pass
+
+    # We evaluate the handler (amp_lambda) to ensure it's valid,
+    # but we don't execute it or register it yet.
+    handler_node = children[1]
+    _ = eval_func(handler_node, frame)
+
+    return ShkNull()
 
 
 def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:

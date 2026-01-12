@@ -95,7 +95,13 @@ from .eval.literals import (
     eval_string_interp,
 )
 from .eval.objects import eval_object
-from .eval.fn import eval_fn_def, eval_decorator_def, eval_anonymous_fn, eval_amp_lambda
+from .eval.fn import (
+    eval_fn_def,
+    eval_decorator_def,
+    eval_anonymous_fn,
+    eval_amp_lambda,
+    eval_hook_stmt,
+)
 from .eval.using import eval_using_stmt
 
 from .eval.bind import (
@@ -259,6 +265,8 @@ def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
             return eval_fn_def(n.children, frame, eval_node)
         case "decorator_def":
             return eval_decorator_def(n.children, frame)
+        case "hook":
+            return eval_hook_stmt(n, frame, eval_node)
         case "deferstmt":
             return eval_defer_stmt(n.children, frame, eval_node)
         case "assert":

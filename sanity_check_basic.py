@@ -1885,6 +1885,14 @@ runtime_scenario(
 )
 runtime_scenario(
     lambda: _rt(
+        "hook-raw-string",
+        'hook raw"event": 1',
+        ("null", None),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "no-anchor-preserves-dot",
         """user := { name: "Ada" }
 user and $"skip" and .name""",
