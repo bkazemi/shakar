@@ -121,31 +121,6 @@ def _extract_loop_iter_and_body(
     return iter_expr, body_node
 
 
-def _extract_clause(node: Tree, label: str) -> tuple[Optional[Node], Node]:
-    # Include condition tokens but skip keywords like ELIF, ELSE, COLON
-    nodes = [
-        child
-        for child in tree_children(node)
-        if not is_token(child) or _token_kind(child) not in {"ELIF", "ELSE", "COLON"}
-    ]
-
-    if label == "else":
-        if not nodes:
-            raise ShakarRuntimeError("Malformed else clause")
-        return None, nodes[0]
-
-    cond_node = nodes[0] if nodes else None
-    body_node = nodes[1] if len(nodes) > 1 else None
-
-    if cond_node is None:
-        raise ShakarRuntimeError("Malformed elif clause")
-
-    if body_node is None:
-        raise ShakarRuntimeError("Malformed clause body")
-
-    return cond_node, body_node
-
-
 def _coerce_loop_binder(node: Tree) -> BinderSpec:
     target = node
 
@@ -369,48 +344,6 @@ def _iterate_comprehension(
             yield element, iter_frame
     finally:
         frame.dot = outer_dot
-
-
-def eval_if_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
-    children = tree_children(n)
-    cond_node = None
-    body_node = None
-    elif_clauses: list[tuple[Node | ShkValue, Node | ShkValue]] = []
-    else_body = None
-
-    for child in children:
-        if is_token(child):
-            if cond_node is None and _token_kind(child) not in {"IF", "COLON"}:
-                cond_node = child
-            continue
-
-        label = tree_label(child)
-        if label == "elifclause":
-            clause_cond, clause_body = _extract_clause(child, label="elif")
-            elif_clauses.append((clause_cond, clause_body))
-            continue
-        if label == "elseclause":
-            _, else_body = _extract_clause(child, label="else")
-            continue
-
-        if cond_node is None:
-            cond_node = child
-        elif body_node is None:
-            body_node = child
-
-    if cond_node is None or body_node is None:
-        raise ShakarRuntimeError("Malformed if statement")
-
-    if _is_truthy(eval_func(cond_node, frame)):
-        return _execute_loop_body(body_node, frame, eval_func)
-
-    for clause_cond, clause_body in elif_clauses:
-        if _is_truthy(eval_func(clause_cond, frame)):
-            return _execute_loop_body(clause_body, frame, eval_func)
-
-    if else_body is not None:
-        return _execute_loop_body(else_body, frame, eval_func)
-    return ShkNull()
 
 
 def eval_while_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:

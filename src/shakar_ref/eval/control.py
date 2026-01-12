@@ -32,6 +32,7 @@ from .common import (
     render_expr as _render_expr,
     stringify as _stringify,
 )
+from .common import token_kind as _token_kind
 from .helpers import (
     current_function_frame as _current_function_frame,
     is_truthy as _is_truthy,
@@ -294,3 +295,82 @@ def _assert_source_snippet(node: Node, frame: Frame) -> str:
     rendered: str = _render_expr(node)
 
     return rendered if rendered else "<expr>"
+
+
+def _extract_clause(node: Tree, label: str) -> tuple[Optional[Node], Node]:
+    nodes = [
+        child
+        for child in tree_children(node)
+        if not is_token(child) or _token_kind(child) not in {"ELIF", "ELSE", "COLON"}
+    ]
+
+    if label == "else":
+        if not nodes:
+            raise ShakarRuntimeError("Malformed else clause")
+        return None, nodes[0]
+
+    cond_node = nodes[0] if nodes else None
+    body_node = nodes[1] if len(nodes) > 1 else None
+
+    if cond_node is None:
+        raise ShakarRuntimeError("Malformed elif clause")
+
+    if body_node is None:
+        raise ShakarRuntimeError("Malformed clause body")
+
+    return cond_node, body_node
+
+
+def _execute_cond_body(body_node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    label = tree_label(body_node) if is_tree(body_node) else None
+
+    if label == "inlinebody":
+        return eval_inline_body(body_node, frame, eval_func, allow_loop_control=True)
+
+    if label == "indentblock":
+        return eval_indent_block(body_node, frame, eval_func, allow_loop_control=True)
+
+    return eval_func(body_node, frame)
+
+
+def eval_if_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    children = tree_children(n)
+    cond_node = None
+    body_node = None
+    elif_clauses: list[tuple[Node | ShkValue, Node | ShkValue]] = []
+    else_body = None
+
+    for child in children:
+        if is_token(child):
+            if cond_node is None and _token_kind(child) not in {"IF", "COLON"}:
+                cond_node = child
+            continue
+
+        label = tree_label(child)
+        if label == "elifclause":
+            clause_cond, clause_body = _extract_clause(child, label="elif")
+            elif_clauses.append((clause_cond, clause_body))
+            continue
+        if label == "elseclause":
+            _, else_body = _extract_clause(child, label="else")
+            continue
+
+        if cond_node is None:
+            cond_node = child
+        elif body_node is None:
+            body_node = child
+
+    if cond_node is None or body_node is None:
+        raise ShakarRuntimeError("Malformed if statement")
+
+    if _is_truthy(eval_func(cond_node, frame)):
+        return _execute_cond_body(body_node, frame, eval_func)
+
+    for clause_cond, clause_body in elif_clauses:
+        if _is_truthy(eval_func(clause_cond, frame)):
+            return _execute_cond_body(clause_body, frame, eval_func)
+
+    if else_body is not None:
+        return _execute_cond_body(else_body, frame, eval_func)
+
+    return ShkNull()

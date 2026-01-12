@@ -28,6 +28,7 @@ from .eval.common import (
 from .eval.selector import eval_selectorliteral
 from .eval.control import (
     eval_assert,
+    eval_if_stmt,
     eval_return_if,
     eval_return_stmt,
     eval_throw_stmt,
@@ -55,7 +56,6 @@ from .eval.postfix import (
 )
 
 from .eval.loops import (
-    eval_if_stmt,
     eval_while_stmt,
     eval_for_in,
     eval_for_subject,
