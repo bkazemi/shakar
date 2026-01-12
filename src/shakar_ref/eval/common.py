@@ -20,7 +20,6 @@ from ..types import (
 )
 from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
 from ..tree import token_kind
-from ..param_utils import param_default_expr
 
 SourceSpan: TypeAlias = tuple[int, int] | tuple[None, None]
 
@@ -148,6 +147,29 @@ def _param_contract_expr(node: Tree) -> Optional[Node]:
                 return contract_children[0]
             return None
     return None
+
+
+def param_default_expr(
+    node: Node, *, on_error: Optional[Callable[[str], None]] = None
+) -> Optional[Node]:
+    if not is_tree(node) or tree_label(node) != "param":
+        return None
+
+    default: Optional[Node] = None
+
+    for child in tree_children(node):
+        if is_token(child) and child.type == TT.IDENT:
+            continue
+        if is_tree(child) and tree_label(child) == "contract":
+            continue
+        if default is None:
+            default = child
+            continue
+        if on_error is not None:
+            on_error("Parameter has multiple default values")
+        break
+
+    return default
 
 
 def is_literal_node(node: Node) -> bool:

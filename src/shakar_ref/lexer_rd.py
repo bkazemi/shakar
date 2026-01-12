@@ -280,52 +280,44 @@ class Lexer:
     def scan_string(self):
         """Scan string literal: "..." or '...'"""
         start_line, start_col = self.line, self.column
+        start_pos = self.pos
         quote = self.advance()
-        value = quote  # Keep opening quote
-
-        while self.pos < len(self.source) and self.peek() != quote:
-            if self.peek() == "\\":
-                # Keep escape sequence as-is
-                value += self.advance()
-                if self.pos < len(self.source):
-                    value += self.advance()
-            else:
-                value += self.advance()
-
+        self.scan_quoted_content(quote, allow_escapes=True)
         if self.pos >= len(self.source):
             raise LexError(f"Unterminated string at line {start_line}")
 
-        value += self.advance()  # Closing quote
+        self.advance()  # Closing quote
+        value = self.source[start_pos : self.pos]
         self.emit(TT.STRING, value, start_line=start_line, start_col=start_col)
 
     def scan_quoted_content(self, quote: str, allow_escapes: bool = False) -> str:
         """Helper to scan content between quotes"""
-        content = ""
+        start_pos = self.pos
         while self.pos < len(self.source) and self.peek() != quote:
             if allow_escapes and self.peek() == "\\":
-                content += self.advance()
+                self.advance()
                 if self.pos < len(self.source):
-                    content += self.advance()
+                    self.advance()
             else:
-                content += self.advance()
-        return content
+                self.advance()
+        return self.source[start_pos : self.pos]
 
     def scan_raw_string(self):
         """Scan raw string: raw"..." or raw'...' or raw#"..."#"""
         # 'raw' keyword already consumed - start_col is 3 chars back
         start_line, start_col = self.line, self.column - 3
+        start_pos = self.pos - 3
 
         if self.peek() == "#":
             # Hash-delimited raw string: raw#"..."#
             self.advance()  # consume #
             quote = self.advance()
-            content = ""
 
             # Scan until we find quote followed by #
             while self.pos < len(self.source):
                 if self.peek() == quote and self.peek(1) == "#":
                     self.advance(2)  # consume quote and #
-                    full_value = f"raw#{quote}{content}{quote}#"
+                    full_value = self.source[start_pos : self.pos]
                     self.emit(
                         TT.RAW_HASH_STRING,
                         full_value,
@@ -333,19 +325,18 @@ class Lexer:
                         start_col=start_col,
                     )
                     return
-                content += self.advance()
+                self.advance()
 
             raise LexError(f"Unterminated hash raw string at line {self.line}")
         else:
             # Regular raw string: raw"..." or raw'...'
             quote = self.advance()
-            content = self.scan_quoted_content(quote)
-
+            self.scan_quoted_content(quote)
             if self.pos >= len(self.source):
                 raise LexError(f"Unterminated raw string at line {self.line}")
 
             self.advance()  # Closing quote
-            full_value = f"raw{quote}{content}{quote}"
+            full_value = self.source[start_pos : self.pos]
             self.emit(
                 TT.RAW_STRING, full_value, start_line=start_line, start_col=start_col
             )
@@ -355,11 +346,13 @@ class Lexer:
         # 'sh' keyword already consumed - start_col is 2 chars back
         start_line, start_col = self.line, self.column - 2
         quote = self.advance()
-        content = self.scan_quoted_content(quote)
+        start_pos = self.pos
+        self.scan_quoted_content(quote)
 
         if self.pos >= len(self.source):
             raise LexError(f"Unterminated shell string at line {self.line}")
 
+        content = self.source[start_pos : self.pos]
         self.advance()  # Closing quote
         self.emit(TT.SHELL_STRING, content, start_line=start_line, start_col=start_col)
 
@@ -367,22 +360,14 @@ class Lexer:
         """Scan path string: p"..." or p'...'"""
         # 'p' already consumed - start_col is 1 char back
         start_line, start_col = self.line, self.column - 1
+        start_pos = self.pos - 1
         quote = self.advance()
-        value = quote  # keep opening quote
-
-        while self.pos < len(self.source) and self.peek() != quote:
-            if self.peek() == "\\":
-                value += self.advance()
-                if self.pos < len(self.source):
-                    value += self.advance()
-            else:
-                value += self.advance()
-
+        self.scan_quoted_content(quote, allow_escapes=True)
         if self.pos >= len(self.source):
             raise LexError(f"Unterminated path string at line {start_line}")
 
-        value += self.advance()  # Closing quote
-        full_value = f"p{value}"
+        self.advance()  # Closing quote
+        full_value = self.source[start_pos : self.pos]
         self.emit(
             TT.PATH_STRING, full_value, start_line=start_line, start_col=start_col
         )
@@ -392,21 +377,22 @@ class Lexer:
         start_line, start_col = self.line, self.column
         self.advance()  # consume 'r'
         quote = self.advance()
-        pattern = ""
+        start_pos = self.pos
 
         while self.pos < len(self.source) and self.peek() != quote:
             if self.peek() in ("\n", "\r"):
                 raise LexError(f"Unterminated regex literal at line {start_line}")
             if self.peek() == "\\":
-                pattern += self.advance()
+                self.advance()
                 if self.pos < len(self.source):
-                    pattern += self.advance()
+                    self.advance()
             else:
-                pattern += self.advance()
+                self.advance()
 
         if self.pos >= len(self.source):
             raise LexError(f"Unterminated regex literal at line {start_line}")
 
+        pattern = self.source[start_pos : self.pos]
         self.advance()  # Closing quote
 
         flags = ""
@@ -426,38 +412,40 @@ class Lexer:
     def scan_number(self):
         """Scan number literal"""
         start_line, start_col = self.line, self.column
-        value = ""
+        start_pos = self.pos
 
         # Integer part
         while self.peek().isdigit():
-            value += self.advance()
+            self.advance()
 
         # Decimal part
         if self.peek() == "." and self.peek(1).isdigit():
-            value += self.advance()  # .
+            self.advance()  # .
             while self.peek().isdigit():
-                value += self.advance()
+                self.advance()
 
         # Scientific notation
         if self.peek() in ("e", "E"):
-            value += self.advance()
+            self.advance()
             if self.peek() in ("+", "-"):
-                value += self.advance()
+                self.advance()
             while self.peek().isdigit():
-                value += self.advance()
+                self.advance()
 
         # Keep as string to match Lark
+        value = self.source[start_pos : self.pos]
         self.emit(TT.NUMBER, value, start_line=start_line, start_col=start_col)
 
     def scan_identifier(self):
         """Scan identifier or keyword"""
         start_line, start_col = self.line, self.column
-        value = ""
+        start_pos = self.pos
 
         while self.peek().isalnum() or self.peek() == "_":
-            value += self.advance()
+            self.advance()
 
         # Check if keyword
+        value = self.source[start_pos : self.pos]
         token_type = self.KEYWORDS.get(value, TT.IDENT)
         self.emit(token_type, value, start_line=start_line, start_col=start_col)
 

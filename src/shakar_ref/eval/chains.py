@@ -224,30 +224,25 @@ def apply_op(
         frame.pending_anchor_override = recv
         op = op.children[0]
 
-    op_handlers: dict[str, Callable[[], EvalResult]] = {
-        "field": lambda: _get_field(recv, op, frame),
-        "fieldsel": lambda: _get_field(recv, op, frame),
-        "index": lambda: apply_index_operation(recv, op, frame, eval_func),
-        "lv_index": lambda: apply_index_operation(recv, op, frame, eval_func),
-        "slicesel": lambda: apply_slice(recv, op.children, frame, eval_func),
-        "fieldfan": lambda: apply_fan_op(
-            recv, op, frame, apply_op=apply_op, eval_func=eval_func
-        ),
-        "valuefan": lambda: _valuefan(recv, op, frame, eval_func),
-        "call": lambda: call_value(
-            recv,
-            eval_args_node(op.children[0] if op.children else None, frame, eval_func),
-            frame,
-            eval_func,
-        ),
-        "method": lambda: _call_method(recv, op, frame, eval_func),
-    }
-
-    handler = op_handlers.get(op.data)
-    if handler is None:
+    op_name = op.data
+    if op_name in {"field", "fieldsel"}:
+        result = _get_field(recv, op, frame)
+    elif op_name in {"index", "lv_index"}:
+        result = apply_index_operation(recv, op, frame, eval_func)
+    elif op_name == "slicesel":
+        result = apply_slice(recv, op.children, frame, eval_func)
+    elif op_name == "fieldfan":
+        result = apply_fan_op(recv, op, frame, apply_op=apply_op, eval_func=eval_func)
+    elif op_name == "valuefan":
+        result = _valuefan(recv, op, frame, eval_func)
+    elif op_name == "call":
+        args_node = op.children[0] if op.children else None
+        args = eval_args_node(args_node, frame, eval_func)
+        result = call_value(recv, args, frame, eval_func)
+    elif op_name == "method":
+        result = _call_method(recv, op, frame, eval_func)
+    else:
         raise ShakarRuntimeError(f"Unknown chain op: {op.data}")
-
-    result = handler()
 
     if context is not None:
         context.value = result
@@ -332,9 +327,11 @@ def call_value(
 
 def _index_expr_from_children(children: List[Node]) -> Tree:
     queue = list(children)
+    idx = 0
 
-    while queue:
-        node = queue.pop(0)
+    while idx < len(queue):
+        node = queue[idx]
+        idx += 1
 
         if is_token(node):
             continue

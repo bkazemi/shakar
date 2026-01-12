@@ -21,7 +21,7 @@ from .tree import (
     tree_children,
 )
 from .parser_rd import parse_expr_fragment
-from .param_utils import param_default_expr
+from .eval.common import param_default_expr
 
 InterpolationSegment: TypeAlias = tuple[str, str | Node]
 

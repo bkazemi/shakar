@@ -175,6 +175,14 @@ class Parser:
             last = _advance_once()
         return last
 
+    def _rewind(self, pos: int) -> None:
+        self.pos = pos
+        self.current = (
+            self.tokens[self.pos]
+            if self.pos < len(self.tokens)
+            else Tok(TT.EOF, None, 0, 0)
+        )
+
     def check(self, *types: TT) -> bool:
         """Check if current token matches any of the given types"""
         return self.current.type in types
@@ -274,6 +282,20 @@ class Parser:
         - Return, break, continue
         - etc.
         """
+        stmt = self._parse_statement_prefix()
+        if stmt is not None:
+            return stmt
+
+        expr_start = self.pos
+
+        stmt = self._parse_destructure_with_contracts()
+        if stmt is not None:
+            return stmt
+
+        expr = self.parse_expr()
+        return self._parse_statement_from_expr(expr_start, expr)
+
+    def _parse_statement_prefix(self) -> Optional[Tree]:
         # Dispatch table for simple statement starters
         if not hasattr(self, "_stmt_dispatch"):
             self._stmt_dispatch = {
@@ -313,81 +335,43 @@ class Parser:
             value = self.parse_expr()
             return Tree("returnif", [value])
 
-        # Guard chains (inline if-else)
-        # expr : body | expr : body |: else
-        expr_start = self.pos
+        return None
 
+    def _parse_destructure_with_contracts(self) -> Optional[Tree]:
         # Lookahead for destructuring with contracts
         # Scan ahead to detect pattern: "ident [~ contract] (, ident [~ contract])* (:=|=)"
-        if self.check(TT.IDENT) and self._is_destructure_with_contracts():
-            # Parse pattern(s) using general parse_pattern() to support nested patterns
-            patterns = [self.parse_pattern()]
+        if not (self.check(TT.IDENT) and self._is_destructure_with_contracts()):
+            return None
 
-            while self.match(TT.COMMA):
-                patterns.append(self.parse_pattern())
+        # Parse pattern(s) using general parse_pattern() to support nested patterns
+        patterns = [self.parse_pattern()]
 
-            # Always wrap in pattern_list for evaluator consistency
-            pattern_node = Tree("pattern_list", patterns)
+        while self.match(TT.COMMA):
+            patterns.append(self.parse_pattern())
 
-            if self.match(TT.ASSIGN):
-                rhs = self.parse_destructure_rhs()
-                return Tree("destructure", [pattern_node, rhs])
-            elif self.match(TT.WALRUS):
-                rhs = self.parse_destructure_rhs()
-                return Tree("destructure_walrus", [pattern_node, rhs])
-            else:
-                raise ParseError("Expected = or := after pattern", self.current)
+        # Always wrap in pattern_list for evaluator consistency
+        pattern_node = Tree("pattern_list", patterns)
 
-        expr = self.parse_expr()
+        if self.match(TT.ASSIGN):
+            rhs = self.parse_destructure_rhs()
+            return Tree("destructure", [pattern_node, rhs])
+        if self.match(TT.WALRUS):
+            rhs = self.parse_destructure_rhs()
+            return Tree("destructure_walrus", [pattern_node, rhs])
+        raise ParseError("Expected = or := after pattern", self.current)
 
-        # Check for destructuring: a, b, c = ... or a, b, c := ...
-        if self.check(TT.COMMA):
-            first_tok = (
-                self.tokens[expr_start] if expr_start < len(self.tokens) else None
-            )
-            if first_tok is None or first_tok.type not in {TT.IDENT, TT.LPAR}:
-                # Not a valid pattern start; comma belongs to surrounding expression (e.g., anon fn body)
-                pass
-            else:
-                # Backtrack and parse as pattern_list
-                self.pos = expr_start
-                self.current = (
-                    self.tokens[self.pos]
-                    if self.pos < len(self.tokens)
-                    else Tok(TT.EOF, None, 0, 0)
-                )
-                pattern_list = self.parse_pattern_list()
+    def _parse_statement_from_expr(self, expr_start: int, expr: Node) -> Tree:
+        stmt = self._parse_destructure_after_expr(expr_start)
+        if stmt is not None:
+            return stmt
 
-                if self.match(TT.ASSIGN):
-                    rhs = self.parse_destructure_rhs()
-                    return Tree("destructure", [pattern_list, rhs])
-                elif self.match(TT.WALRUS):
-                    rhs = self.parse_destructure_rhs()
-                    return Tree("destructure_walrus", [pattern_list, rhs])
-                else:
-                    raise ParseError(
-                        "Expected = or := after pattern list", self.current
-                    )
+        stmt = self._parse_guard_chain_after_expr(expr_start)
+        if stmt is not None:
+            return stmt
 
-        # Guard chain inline form
-        if self.check(TT.COLON):
-            self.pos = expr_start
-            self.current = (
-                self.tokens[self.pos]
-                if self.pos < len(self.tokens)
-                else Tok(TT.EOF, None, 0, 0)
-            )
-            return self.parse_guard_chain()
-
-        # Catch statement form: expr catch ... : body
-        if self.check(TT.CATCH) or (self.check(TT.AT) and self.peek(1).type == TT.AT):
-            self.pos = expr_start
-            self.current = (
-                self.tokens[self.pos]
-                if self.pos < len(self.tokens)
-                else Tok(TT.EOF, None, 0, 0)
-            )
-            return self.parse_catch_stmt()
+        stmt = self._parse_catch_stmt_after_expr(expr_start)
+        if stmt is not None:
+            return stmt
 
         # Fanout block form: expr { .field = value; ... }
         if self.check(TT.LBRACE):
@@ -445,6 +429,44 @@ class Parser:
         if isinstance(base_stmt, Tree):
             return base_stmt
         return Tree("expr", [base_stmt])
+
+    def _parse_destructure_after_expr(self, expr_start: int) -> Optional[Tree]:
+        # Check for destructuring: a, b, c = ... or a, b, c := ...
+        if not self.check(TT.COMMA):
+            return None
+
+        first_tok = self.tokens[expr_start] if expr_start < len(self.tokens) else None
+        if first_tok is None or first_tok.type not in {TT.IDENT, TT.LPAR}:
+            # Not a valid pattern start; comma belongs to surrounding expression (e.g., anon fn body)
+            return None
+
+        # Backtrack and parse as pattern_list
+        self._rewind(expr_start)
+        pattern_list = self.parse_pattern_list()
+
+        if self.match(TT.ASSIGN):
+            rhs = self.parse_destructure_rhs()
+            return Tree("destructure", [pattern_list, rhs])
+        if self.match(TT.WALRUS):
+            rhs = self.parse_destructure_rhs()
+            return Tree("destructure_walrus", [pattern_list, rhs])
+        raise ParseError("Expected = or := after pattern list", self.current)
+
+    def _parse_guard_chain_after_expr(self, expr_start: int) -> Optional[Tree]:
+        # Guard chain inline form
+        if not self.check(TT.COLON):
+            return None
+        self._rewind(expr_start)
+        return self.parse_guard_chain()
+
+    def _parse_catch_stmt_after_expr(self, expr_start: int) -> Optional[Tree]:
+        # Catch statement form: expr catch ... : body
+        if not (
+            self.check(TT.CATCH) or (self.check(TT.AT) and self.peek(1).type == TT.AT)
+        ):
+            return None
+        self._rewind(expr_start)
+        return self.parse_catch_stmt()
 
     def parse_if_stmt(self) -> Tree:
         """
