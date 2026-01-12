@@ -41,6 +41,7 @@ This is a living technical spec. Every surface sugar has a deterministic desugar
 - **Statement-subject** `=LHS<tail>` at statement start: inside the statement, `.` is the pre-update value of `LHS`; result writes back to `LHS`.
 - **Apply-assign** `LHS .= RHS`: inside `RHS`, `.` is the old value of `LHS`; result writes back to `LHS`.
 - **Subjectful loop** `for Expr:` / `for[i] Expr:`: per iteration, `.` is the element (and `i` the view index if present).
+  - If `Expr` is a number, it must be a non-negative integer; it iterates `0..n-1` with `.` as the index.
 - **Lambda callee sigil** (e.g., `map&(...)`): inside the lambda body, `.` is the parameter.
 - **`await(expr)` / `await expr`**: trailing body runs with `.` = resolved value; without a body, returns the value with no binder.
 - **`await[any]`**: per-arm body uses `.` = that arm’s result; trailing body uses `.` = winning value and `winner` label.

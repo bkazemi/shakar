@@ -2370,6 +2370,32 @@ acc""",
 )
 runtime_scenario(
     lambda: _rt(
+        "for-subject-number-int",
+        """sum := 0
+for 3: sum += .
+sum""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "for-subject-number-float",
+        """for 2.5: print(.)""",
+        None,
+        ShakarTypeError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "for-subject-number-negative",
+        """for -2: print(.)""",
+        None,
+        ShakarTypeError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "for-subject-in-call-block",
         """log := ""
 fn out(s): log = log + s

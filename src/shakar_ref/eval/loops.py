@@ -242,6 +242,14 @@ def _iterable_values(value: ShkValue) -> list[ShkValue]:
     match value:
         case ShkNull():
             return []
+        case ShkNumber(value=num):
+            num_val = float(num)
+            if not num_val.is_integer():
+                raise ShakarTypeError("Cannot iterate over non-integer number")
+            count = int(num_val)
+            if count < 0:
+                raise ShakarTypeError("Cannot iterate over negative number")
+            return [ShkNumber(float(i)) for i in range(count)]
         case ShkArray(items=items):
             return list(items)
         case ShkString(value=s):

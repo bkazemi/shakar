@@ -74,6 +74,9 @@ user.name .= .trim()
 for orders:
   .status == "open" and .total > 100:
     notify(.customer)
+
+# numeric subject loop iterates 0..n-1 with '.' as the index.
+for 10: print(.)
 ```
 
 Within a grouping that has an anchor, leading-dot chains hang off that anchor:
