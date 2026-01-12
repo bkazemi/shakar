@@ -206,6 +206,12 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
     """Fetch `recv.name`, resolving descriptors and builtin method sugar."""
     match recv:
         case ShkObject(slots=slots):
+            if name == "len":
+                return ShkNumber(float(len(slots)))
+
+            if name in Builtins.object_methods:
+                return BuiltinMethod(name=name, subject=recv)
+
             if name in slots:
                 slot = slots[name]
 

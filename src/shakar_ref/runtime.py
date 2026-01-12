@@ -190,6 +190,29 @@ def _regex_arg(method: str, arg: ShkValue) -> str:
     raise ShakarTypeError(f"regex.{method} expects a string argument")
 
 
+@register_array("push")
+def _array_push(_frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkNull:
+    if len(args) != 1:
+        raise ShakarArityError(f"array.push expects 1 argument; got {len(args)}")
+    recv.items.append(args[0])
+    return ShkNull()
+
+
+@register_array("append")
+def _array_append(_frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkNull:
+    # Alias for push
+    return _array_push(_frame, recv, args)
+
+
+@register_array("pop")
+def _array_pop(_frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkValue:
+    if len(args) != 0:
+        raise ShakarArityError(f"array.pop expects 0 arguments; got {len(args)}")
+    if not recv.items:
+        raise ShakarRuntimeError("pop from empty array")
+    return recv.items.pop()
+
+
 @register_string("join")
 def _string_join(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkString:
     items: List[ShkValue]
@@ -250,6 +273,35 @@ def _string_is_ascii(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> Sh
     _string_expect_arity("isAscii", args, 0)
 
     return ShkBool(recv.value.isascii())
+
+
+@register_string("split")
+def _string_split(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkArray:
+    _string_expect_arity("split", args, 1)
+    sep_val = args[0]
+    if not isinstance(sep_val, ShkString):
+        raise ShakarTypeError("string.split separator must be a string")
+
+    sep = sep_val.value
+    if not sep:
+        raise ShakarRuntimeError("empty separator")
+
+    parts = recv.value.split(sep)
+    return ShkArray([ShkString(p) for p in parts])
+
+
+@register_object("keys")
+def _object_keys(_frame: Frame, recv: ShkObject, args: List[ShkValue]) -> ShkArray:
+    if len(args) != 0:
+        raise ShakarArityError(f"object.keys expects 0 arguments; got {len(args)}")
+    return ShkArray([ShkString(k) for k in recv.slots.keys()])
+
+
+@register_object("values")
+def _object_values(_frame: Frame, recv: ShkObject, args: List[ShkValue]) -> ShkArray:
+    if len(args) != 0:
+        raise ShakarArityError(f"object.values expects 0 arguments; got {len(args)}")
+    return ShkArray(list(recv.slots.values()))
 
 
 @register_command("run")

@@ -1152,6 +1152,38 @@ runtime_scenario(
 )
 runtime_scenario(
     lambda: _rt(
+        "array-push",
+        "arr := [1]; arr.push(2); arr.len",
+        ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "array-append",
+        "arr := [1]; arr.append(2); arr[1]",
+        ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "array-pop",
+        "arr := [1, 2, 3]; arr.pop() + arr.len",
+        ("number", 5),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "array-pop-empty",
+        "[].pop()",
+        None,
+        ShakarRuntimeError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "array-high",
         """xs := [10, 20, 30]
 xs.high""",
@@ -1175,6 +1207,22 @@ runtime_scenario(
 )
 runtime_scenario(
     lambda: _rt("join-mixed", '"|".join("a", 1, true)', ("string", "a|1|true"), None)
+)
+runtime_scenario(
+    lambda: _rt(
+        "string-split",
+        '"a,b,c".split(",")',
+        ("array", ["a", "b", "c"]),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "string-split-empty",
+        '"abc".split("")',
+        None,
+        ShakarRuntimeError,
+    )
 )
 runtime_scenario(
     lambda: _rt(
@@ -1232,6 +1280,30 @@ runtime_scenario(
         "string-high-empty",
         ' "".high',
         ("number", -1),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "object-len",
+        "obj := {a: 1, b: 2}; obj.len",
+        ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "object-keys",
+        "{a: 1, b: 2}.keys()",
+        ("array", ["a", "b"]),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "object-values",
+        "{a: 1, b: 2}.values()",
+        ("array", [1, 2]),
         None,
     )
 )
