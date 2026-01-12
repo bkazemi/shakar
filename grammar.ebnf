@@ -1,0 +1,540 @@
+(* Shakar Grammar - EBNF Specification *)
+(* Status: Reflects current implementation as of latest commits *)
+(* Sources: tree-sitter-shakar/grammar.js, grammar.lark, docs/shakar-design-notes.md *)
+
+(* ===== LEXICAL TOKENS ===== *)
+
+(* Identifiers and Keywords *)
+IDENT = letter ( letter | digit | "_" )* ;
+letter = "A" | "B" | ... | "Z" | "a" | "b" | ... | "z" | "_" ;
+digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+
+(* Reserved keywords *)
+(* and, or, not, if, elif, else, for, in, break, continue, return, assert, *)
+(* using, call, defer, catch, decorator, decorate, hook, fn, get, set, bind, over, *)
+(* true, false, nil, await, any, all, while, throw, dbg, is, ?ret *)
+
+(* Contextual keywords - valid as identifiers in most contexts *)
+(* unless, default, after, timeout, ret *)
+(* These are only keywords in specific grammatical positions and can be *)
+(* used as regular identifiers elsewhere. *)
+
+(* Literals *)
+STRING = '"' ( string_char | escape_seq )* '"'
+       | "'" ( string_char | escape_seq )* "'" ;
+RAW_STRING = 'raw"' raw_char* '"'
+           | "raw'" raw_char* "'" ;
+RAW_HASH_STRING = 'raw#"' raw_char* '"#' ;
+SHELL_STRING = 'sh"' ( string_char | escape_seq )* '"'
+             | "sh'" ( string_char | escape_seq )* "'" ;
+PATH_STRING = 'p"' ( string_char | escape_seq )* '"'
+            | "p'" ( string_char | escape_seq )* "'" ;
+REGEX = 'r"' ( string_char | escape_seq )* '"' [ "/" , regex_flags ]
+      | "r'" ( string_char | escape_seq )* "'" [ "/" , regex_flags ] ;
+regex_flags = regex_flag , { regex_flag } ;
+regex_flag = "i" | "m" | "s" | "x" | "f" ;
+
+NUMBER = [ "-" ] ( float | integer ) ;
+integer = digit+ ;
+float = digit+ "." digit* | digit* "." digit+ ;
+
+(* Layout tokens *)
+NEWLINE = ? newline character with indentation tracking ? ;
+INDENT = ? increase in indentation level ? ;
+DEDENT = ? decrease in indentation level ? ;
+
+(* Comment *)
+COMMENT = "#" ? any character except newline ?* ;
+
+(* Punctuation and operators *)
+LPAR = "(" ;
+RPAR = ")" ;
+LSQB = "[" ;
+RSQB = "]" ;
+LBRACE = "{" ;
+RBRACE = "}" ;
+DOT = "." ;
+SPREAD = "..." ;
+COMMA = "," ;
+SEMI = ";" ;
+COLON = ":" ;
+AT = "@" ;
+AMP = "&" ;
+DOLLAR = "$" ;
+BACKQUOTE = "`" ;
+PIPE = "|" ;
+
+(* Assignment operators *)
+WALRUS = ":=" ;
+APPLYASSIGN = ".=" ;
+DEEPMERGE = "+>" ;
+
+(* Comparison operators *)
+EQ = "==" ;
+NEQ = "!=" ;
+LT = "<" ;
+LTE = "<=" ;
+GT = ">" ;
+GTE = ">=" ;
+
+(* Arithmetic operators *)
+PLUS = "+" ;
+MINUS = "-" ;
+STAR = "*" ;
+SLASH = "/" ;
+FLOORDIV = "//" ;
+MOD = "%" ;
+POW = "**" ;
+CARET = "^" ;
+INCR = "++" ;
+DECR = "--" ;
+
+(* Compound assignment *)
+PLUSEQ = "+=" ;
+MINUSEQ = "-=" ;
+STAREQ = "*=" ;
+SLASHEQ = "/=" ;
+FLOORDIVEQ = "//=" ;
+MODEQ = "%=" ;
+POWEQ = "**=" ;
+
+(* Other operators *)
+QMARK = "?" ;
+NULLISH = "??" ;
+NEG = "!" ;
+TILDE = "~" ;
+
+(* ===== PROGRAM STRUCTURE ===== *)
+
+source_file = { statement [ NEWLINE ] } ;
+
+statement = expression_statement
+          | assignment_statement
+          | destructure_statement
+          | return_statement
+          | throw_statement
+          | break_statement
+          | continue_statement
+          | assert_statement
+          | dbg_statement
+          | if_statement
+          | while_statement
+          | for_statement
+          | guard_statement
+          | await_statement
+          | await_any_statement
+          | await_all_statement
+          | using_statement
+          | call_statement
+          | defer_statement
+          | hook_statement
+          | fanout_block_statement
+          | decorator_statement
+          | function_statement
+          | catch_statement
+          | NEWLINE
+          | COMMENT ;
+
+(* ===== EXPRESSIONS ===== *)
+
+expression = catch_expression
+           | catch_sugar_expression
+           | ternary_expression
+           | walrus_expression
+           | application_expression
+           | or_expression ;
+
+(* Catch expressions *)
+catch_expression = catch_base , "catch" , [ catch_tail ] , catch_handler ;
+catch_sugar_expression = catch_base , "@@" , [ catch_tail ] , catch_handler ;
+catch_base = ternary_expression | anonymous_function | anonymous_function_auto ;
+catch_handler = ":" , ( inline_body | expression ) ;
+catch_tail = catch_typed | catch_binder_simple ;
+catch_typed = catch_types , [ catch_binder_kw ] ;
+catch_binder_simple = IDENT ;
+catch_binder_kw = "bind" , IDENT ;
+catch_types = "(" , IDENT , { "," , IDENT } , ")" ;
+
+(* Ternary conditional *)
+ternary_expression = or_expression , [ "?" , expression , ":" , ternary_expression ] ;
+
+(* Boolean operators *)
+or_expression = and_expression , { "or" , and_expression } ;
+and_expression = bind_expression , { "and" , bind_expression } ;
+
+(* Binding expressions *)
+bind_expression = walrus_expression | ( lvalue , APPLYASSIGN , bind_expression ) ;
+walrus_expression = nullish_expression | ( IDENT , WALRUS , walrus_rhs ) ;
+walrus_rhs = expression | catch_expression ;
+
+(* Nullish coalescing *)
+nullish_expression = compare_expression , { NULLISH , compare_expression } ;
+
+(* Comparison and chained comparisons (CCC) *)
+(* Note: CCC comma disambiguation is context-sensitive. Commas in CCC chains *)
+(* are only recognized in NORMAL parsing context. Inside function arguments, *)
+(* array literals, or destructure packs, commas are separators, not CCC. *)
+(* Implementation uses ParseContext enum to track this. *)
+compare_expression = add_expression , [ ccc_trailer ] ;
+ccc_trailer = cmp_op , add_expression , [ ccc_chain ] ;
+ccc_chain = "," , ccc_leg , { "," , ccc_leg } ;
+ccc_leg = ccc_or_leg | ccc_and_leg ;
+ccc_or_leg = "or" , cmp_op , add_expression ;
+ccc_and_leg = [ "and" ] , ccc_and_payload ;
+ccc_and_payload = ( cmp_op , add_expression ) | add_expression ;
+
+cmp_op = EQ | NEQ | LT | LTE | GT | GTE
+       | ( "is" , "not" ) | ( NEG , "is" ) | ( "not" , "in" )
+       | "is" | "in" | ( NEG , "in" ) | "~" | "~~" ;
+
+(* Arithmetic operators *)
+add_expression = mul_expression , { add_op , mul_expression } ;
+add_op = DEEPMERGE | CARET | PLUS | MINUS ;
+
+mul_expression = pow_expression , { mul_op , pow_expression } ;
+mul_op = STAR | SLASH | FLOORDIV | MOD ;
+
+pow_expression = unary_expression , [ POW , pow_expression ] ;
+
+(* Unary operators *)
+unary_expression = await_value
+                 | ( "throw" , [ unary_expression ] )
+                 | ( "$" , unary_expression )
+                 | ( SPREAD , unary_expression )
+                 | ( unary_prefix_op , unary_expression )
+                 | postfix_expression ;
+
+unary_prefix_op = MINUS | "not" | NEG | "++" | "--" | PLUS ;
+await_value = "await" , ( ( "(" , expression , ")" ) | expression ) ;
+
+(* Postfix expressions *)
+postfix_expression = ( primary , chain_suffix )
+                   | ( implicit_head , chain_suffix )
+                   | DOT ;
+
+chain_suffix = [ postfix ]* , [ postfix_incr ] ;
+
+postfix = postfix_field
+        | postfix_index
+        | postfix_call
+        | postfix_lambda1
+        | postfix_lambdan
+        | field_fan
+        | value_fan ;
+
+postfix_field = DOT , [ "$" ] , ( IDENT | "over" ) ;
+postfix_index = [ "$" ] , LSQB , selector_list , [ "," , "default" , ":" , expression ] , RSQB ;
+postfix_call = "(" , [ arglist_named_mixed ] , ")" ;
+postfix_lambda1 = "&" , "(" , expression , ")" ;
+postfix_lambdan = "&" , "[" , param_list , "]" , "(" , expression , ")" ;
+
+postfix_incr = "++" | "--" ;
+
+(* Implicit chain heads *)
+implicit_head = ( DOT , IDENT )
+              | ( DOT , "over" )
+              | ( DOT , "(" , [ arglist ] , ")" )
+              | ( DOT , LSQB , selector_list , [ "," , "default" , ":" , expression ] , RSQB ) ;
+
+(* Primary expressions *)
+primary = rebind_primary
+        | IDENT
+        | "any"
+        | "all"
+        | literal
+        | object_literal
+        | array_literal
+        | list_comprehension
+        | set_literal
+        | set_comprehension
+        | dict_comprehension
+        | "(" , expression , ")"
+        | selector_literal
+        | nullsafe_expression
+        | emit_expression
+        | hole_expression ;
+
+(* Literals *)
+literal = STRING | RAW_STRING | RAW_HASH_STRING | SHELL_STRING | PATH_STRING | REGEX
+        | NUMBER | "nil" | "true" | "false" ;
+
+(* Selector literals *)
+selector_literal = "`" , sel_list , "`" ;
+sel_list = sel_item , { "," , sel_item } ;
+sel_item = slice_item | index_item ;
+slice_item = [ sel_atom ] , ":" , sel_optstop , [ ":" , sel_atom ] ;
+sel_optstop = ( "<" , sel_atom ) | [ sel_atom ] ;
+index_item = sel_atom ;
+sel_atom = interp | IDENT | NUMBER ;
+interp = "{" , expression , "}" ;
+
+(* Nullsafe expression *)
+nullsafe_expression = NULLISH , "(" , expression , ")" ;
+emit_expression = GT , [ arglist_named_mixed ] ;
+
+(* Rebind expressions *)
+rebind_primary = ( "=" , IDENT ) | ( "=" , "(" , rebind_lvalue , ")" ) ;
+rebind_lvalue = IDENT , { postfix_field | postfix_index }* , [ field_fan ] ;
+
+(* Hole expression for partial application *)
+hole_expression = QMARK ;
+
+(* Array literals *)
+array_literal = "[" , [ NEWLINE ] , [ expression , { [ NEWLINE ] , "," , [ NEWLINE ] , expression } , [ NEWLINE ] , [ "," ] ] , "]" ;
+
+(* Selectors *)
+selector_list = selector , { "," , selector } ;
+selector = index_selector | slice_selector ;
+index_selector = expression ;
+slice_selector = slice_arm , ":" , slice_arm , [ ":" , slice_arm ] ;
+slice_arm = expression | (* empty *) ;
+
+(* L-values *)
+lvalue = primary , { postfix_field | lv_index | field_fan }* ;
+lv_index = [ "$" ] , "[" , selector_list , "]" ;
+
+(* Field and value fans *)
+field_list = IDENT , { "," , IDENT } ;
+field_fan = DOT , "{" , field_list , "}" ;
+value_fan = DOT , "{" , value_fan_list , "}" ;
+value_fan_list = value_fan_item , { "," , value_fan_item } ;
+value_fan_item = IDENT | ident_chain ;
+ident_chain = IDENT , postfix+ ;
+
+(* Object literals *)
+object_literal = "{" , [ object_items ] , "}" ;
+object_items = [ obj_sep ]* , object_item , { [ obj_sep ]* , object_item } , [ obj_sep ]* ;
+obj_sep = COMMA | SEMI | NEWLINE | INDENT | DEDENT ;
+
+object_item = ( ( IDENT | "over" ) , [ QMARK ] , ":" , ( obj_body | ( [ NEWLINE ] , expression ) ) )
+            | ( SPREAD , expression )
+            | ( ( STRING | RAW_STRING | RAW_HASH_STRING ) , ":" , ( obj_body | ( [ NEWLINE ] , expression ) ) )
+            | ( key_expr , ":" , ( obj_body | ( [ NEWLINE ] , expression ) ) )
+            | ( "get" , IDENT , [ "(" , ")" ] , ":" , ( obj_body | ( [ NEWLINE ] , expression ) ) )
+            | ( "set" , IDENT , "(" , IDENT , ")" , ":" , ( obj_body | ( [ NEWLINE ] , expression ) ) )
+            | ( ( IDENT | "over" ) , "(" , [ param_list ] , ")" , ":" , ( obj_body | ( [ NEWLINE ] , expression ) ) ) ;
+
+obj_body = obj_block_body | inline_body ;
+obj_block_body = NEWLINE , INDENT , { [ statement_list ] , NEWLINE+ }* , [ statement_list ] , DEDENT ;
+key_expr = compare_expression ;
+
+(* Set literals *)
+set_literal = "set" , "{" , "}"
+            | "set" , "{" , expression , { "," , expression } , [ "," ] , "}" ;
+
+(* Comprehensions *)
+list_comprehension = "[" , expression , comp_head , [ if_clause ] , "]" ;
+set_comprehension = "set" , "{" , expression , comp_head , [ if_clause ] , "}" ;
+dict_comprehension = "{" , expression , ":" , expression , comp_head , [ if_clause ] , "}" ;
+
+comp_head = ( "over" | "for" ) , overspec ;
+overspec = ( "[" , binder_list , "]" , expression )
+         | ( pattern , "in" , expression )
+         | ( expression , [ "bind" , pattern ] ) ;
+
+binder_list = binder_pattern , { "," , binder_pattern } ;
+binder_pattern = ( "^" , IDENT ) | pattern ;
+
+if_clause = "if" , expression ;
+
+(* Patterns for destructuring *)
+pattern = IDENT , [ "~" , compare_expression ] | ( "(" , pattern_list , ")" ) ;
+pattern_list = pattern , "," , pattern , { "," , pattern } ;
+
+(* Lambdas and anonymous functions *)
+amp_lambda1 = "&" , "(" , expression , ")" ;
+amp_lambdan = "&" , "[" , param_list , "]" , "(" , expression , ")" ;
+
+anonymous_function = "fn" , "(" , [ param_list ] , ")" , [ "~" , expression ] , ":" , ( inline_body | indent_block ) ;
+anonymous_function_auto = "fn" , "(" , "(" , ")" , ")" , [ "~" , expression ] , ":" , ( inline_body | indent_block ) ;
+
+param_list = param , { "," , param } ;
+param = param_item , [ "=" , expression ] , [ "~" , compare_expression ] ;
+param_item = ( SPREAD , IDENT )
+           | IDENT
+           | "(" , IDENT , ")"                                  (* isolation *)
+           | "(" , IDENT , [ "=" , expression ] , [ "~" , compare_expression ] , ")"
+           | "(" , IDENT , "," , IDENT , { "," , IDENT } , ")" , "~" , compare_expression ;
+
+(* ===== STATEMENTS ===== *)
+
+(* Expression statements *)
+expression_statement = expression , [ terminator ] ;
+terminator = SEMI ;
+
+(* Assignment statements *)
+assignment_statement = lvalue , assignment_op , expression , [ terminator ] ;
+assignment_op = "=" | WALRUS | APPLYASSIGN | PLUSEQ | MINUSEQ | STAREQ | SLASHEQ | FLOORDIVEQ
+              | MODEQ | POWEQ | "or=" | "+>=" ;
+
+(* Compound assignments *)
+compound_assign = lvalue , ( PLUSEQ | MINUSEQ | STAREQ | SLASHEQ | FLOORDIVEQ | MODEQ | POWEQ ) , expression ;
+
+(* Deep merge assignment *)
+deep_merge_assign = lvalue , "+>=" , expression ;
+assignor = lvalue , "or=" , expression ;
+
+(* Destructuring *)
+destructure_statement = ( pattern_list | pattern ) , ( "=" | WALRUS ) , ( destr_rhs | expression ) , [ terminator ] ;
+destr_rhs = expression , ( "," , expression )+ ;
+
+(* Control flow statements *)
+return_statement = "return" , [ destr_rhs | expression ] , [ terminator ] ;
+throw_statement = "throw" , expression , [ terminator ] ;
+break_statement = "break" , [ terminator ] ;
+continue_statement = "continue" , [ terminator ] ;
+return_if = "?ret" , expression ;
+
+(* Assertion and debugging *)
+assert_statement = "assert" , expression , [ "," , expression ] , [ terminator ] ;
+dbg_statement = "dbg" , expression , [ "," , expression ] , [ terminator ] ;
+
+(* Conditional statements *)
+if_statement = "if" , expression , ":" , ( inline_body | indent_block ) ,
+               { [ NEWLINE ] , elif_clause } ,
+               [ [ NEWLINE ] , else_clause ] ;
+elif_clause = "elif" , expression , ":" , ( inline_body | indent_block ) ;
+else_clause = "else" , ":" , ( inline_body | indent_block ) ;
+
+(* While loops *)
+while_statement = "while" , expression , ":" , ( inline_body | indent_block ) ;
+
+(* For loops *)
+for_statement = for_in | for_subject | for_indexed | for_map1 | for_map2 ;
+
+for_in = "for" , forin_pattern , "in" , expression , ":" , ( inline_body | indent_block ) ;
+forin_pattern = pattern | pattern_list_inline ;
+pattern_list_inline = IDENT , ( "," , IDENT )+ ;
+
+for_subject = "for" , expression , ":" , ( inline_body | indent_block ) ;
+
+for_indexed = "for" , "[" , binder_pattern , "]" , expression , ":" , ( inline_body | indent_block ) ;
+for_map1 = for_indexed ;
+for_map2 = "for" , "[" , binder_pattern , "," , binder_pattern , "]" , expression , ":" , ( inline_body | indent_block ) ;
+
+(* Guard statements *)
+guard_statement = ( guard_chain | oneline_guard | await_guard_chain ) , [ terminator ] ;
+
+guard_chain = guard_head , { [ NEWLINE ] , guard_or } , [ [ NEWLINE ] , guard_else ] ;
+guard_head = expression , ":" , indent_block ;
+guard_or = "|" , expression , ":" , indent_block ;
+guard_else = "|:" , indent_block ;
+
+oneline_guard = guard_branch_inline , { "|" , guard_branch_inline } , [ "|:" , inline_body ] ;
+guard_branch_inline = expression , ":" , inline_body ;
+
+await_guard_chain = "await" , ( ( "(" , expression , ")" ) | expression ) , ":" , inline_body ;
+
+(* Postfix conditionals *)
+postfix_if = base_statement , "if" , expression ;
+postfix_unless = base_statement , "unless" , expression ;
+
+base_statement = return_statement
+               | throw_statement
+               | assignor
+               | compound_assign
+               | function_statement
+               | decorator_statement
+               | assignment_statement
+               | destructure_statement
+               | guard_chain
+               | oneline_guard
+               | return_if
+               | break_statement
+               | continue_statement
+               | dbg_statement
+               | assert_statement
+               | using_statement
+               | call_statement
+               | defer_statement
+               | hook_statement
+               | fanout_block_statement
+               | catch_statement
+               | await_statement
+               | while_statement
+               | if_statement
+               | expression ;
+
+simple_statement = base_statement | postfix_if | postfix_unless ;
+
+(* Await statements *)
+await_statement = "await" , await_body ;
+await_body = ( ( "(" , expression , ")" ) | expression ) , ":" , ( inline_body | indent_block ) ;
+
+await_any_statement = "await" , "[" , "any" , "]" , "(" , anyarm_list , [ optcomma ] , ")" ,
+                      [ ":" , ( inline_body | indent_block ) ] ;
+
+await_all_statement = "await" , "[" , "all" , "]" , "(" , allarm_list , [ optcomma ] , ")" ,
+                      [ ":" , ( inline_body | indent_block ) ] ;
+
+anyarm_list = anyarm , { "," , anyarm } ;
+allarm_list = anyarm , { "," , anyarm } ;
+anyarm = ( [ IDENT , ":" ] , expression , [ ":" , ( inline_body | indent_block ) ] )
+       | ( "timeout" , expression , [ ":" , ( inline_body | indent_block ) ] ) ;
+optcomma = [ "," ] ;
+
+(* Catch statements *)
+catch_statement = expression , "catch" , [ catch_tail ] , ":" , ( inline_body | indent_block ) , [ terminator ] ;
+
+(* Using statements *)
+using_statement = "using" , [ "[" , IDENT , "]" ] , expression , [ "bind" , IDENT ] , ":" , ( inline_body | indent_block ) ;
+
+(* Call statements *)
+call_statement = "call" , [ "[" , IDENT , "]" ] , expression , [ "bind" , IDENT ] , ":" , ( inline_body | indent_block ) ;
+
+(* Defer statements *)
+defer_statement = "defer" , ( ( simple_call , [ defer_after ] ) | ( [ defer_label ] , [ defer_after ] , defer_body ) ) , [ terminator ] ;
+defer_label = IDENT ;
+defer_body = ":" , ( inline_body | indent_block ) ;
+defer_after = "after" , ( IDENT | ( "(" , [ IDENT , { "," , IDENT } ] , ")" ) ) ;
+
+simple_call = callee , "(" , [ arglist_named_mixed ] , ")" ;
+callee = postfix_expression ;
+
+(* Hook statements *)
+hook_statement = "hook" , ( STRING | RAW_STRING | RAW_HASH_STRING ) , ":" , ( inline_body | indent_block ) ;
+
+(* Fanout block statements *)
+(* Selector broadcasting: when a path segment contains a multi-selector (slice *)
+(* or multiple indices), the operation broadcasts to each selected element. *)
+(* Example: state{ .rows[1:3].v = 0 } updates v in rows 1 and 2. *)
+(* Single-index selectors behave as single targets without broadcasting. *)
+(* Single-clause validation: fanout blocks with only one clause must contain a *)
+(* multi-selector (slice or multi-index) to justify the block form. *)
+fanout_block_statement = expression , fan_block , [ terminator ] ;
+fan_block = "{" , [ fan_clause , { fan_clause_sep , fan_clause } , [ fan_clause_sep ] ] , "}" ;
+fan_clause_sep = NEWLINE+ | SEMI | "," ;
+fan_clause = DOT , fan_path , fan_assign_op , expression ;
+fan_path = fan_seg+ ;
+fan_seg = IDENT | ( "[" , selector_list , "]" ) ;
+fan_assign_op = "=" | APPLYASSIGN | PLUSEQ | MINUSEQ | STAREQ | SLASHEQ
+              | FLOORDIVEQ | MODEQ | POWEQ ;
+
+(* Decorator statements *)
+decorator_statement = "decorator" , IDENT , "(" , [ param_list ] , ")" , ":" , ( inline_body | indent_block ) ;
+
+(* Function statements *)
+function_statement = [ decorator_list ] , "fn" , IDENT , "(" , [ param_list ] , ")" , [ "~" , expression ] , ":" , ( inline_body | indent_block ) ;
+
+decorator_list = decorator_entry+ ;
+decorator_entry = AT , expression , NEWLINE+ ;
+
+(* Function calls *)
+call = callee , "(" , [ arglist_named_mixed ] , ")" ;
+arglist = arg , { "," , arg } ;
+arg = expression | hole_expression ;
+arglist_named_mixed = argitem , { "," , argitem } ;
+argitem = named_arg | arg ;
+named_arg = IDENT , ":" , expression ;
+
+(* Blocks and bodies *)
+indent_block = NEWLINE , INDENT , { [ statement_list ] , NEWLINE+ }* , [ statement_list ] , DEDENT ;
+inline_body = inline_call | simple_statement | ( "{" , [ statement_list ] , "}" ) ;
+inline_call = callee , "(" , [ arglist_named_mixed ] , ")" ;
+
+statement_list = statement , { SEMI , statement } , [ SEMI ] ;
+
+(* Application expression *)
+application_expression = lvalue , APPLYASSIGN , expression ;
+
+(* ===== END OF GRAMMAR ===== *)
