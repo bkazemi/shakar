@@ -10,6 +10,8 @@ from .types import (
     ShkNumber,
     ShkString,
     ShkBool,
+    ShkDuration,
+    ShkSize,
     ShkArray,
     ShkObject,
     ShkPath,
@@ -38,6 +40,10 @@ def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
         case (ShkString(value=a), ShkString(value=b)):
             return a == b
         case (ShkBool(value=a), ShkBool(value=b)):
+            return a == b
+        case (ShkDuration(nanos=a), ShkDuration(nanos=b)):
+            return a == b
+        case (ShkSize(byte_count=a), ShkSize(byte_count=b)):
             return a == b
         case (ShkArray(items=items_a), ShkArray(items=items_b)):
             return len(items_a) == len(items_b) and all(

@@ -13,6 +13,8 @@ from ..types import (
     ShkPath,
     ShkString,
     ShkRegex,
+    ShkDuration,
+    ShkSize,
     ShakarRuntimeError,
     ShakarTypeError,
     ShkValue,
@@ -22,6 +24,29 @@ from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
 from ..tree import token_kind
 
 SourceSpan: TypeAlias = tuple[int, int] | tuple[None, None]
+
+DURATION_UNITS: Dict[str, int] = {
+    "nsec": 1,
+    "usec": 1_000,
+    "msec": 1_000_000,
+    "sec": 1_000_000_000,
+    "min": 60_000_000_000,
+    "hr": 3_600_000_000_000,
+    "day": 86_400_000_000_000,
+    "wk": 604_800_000_000_000,
+}
+
+SIZE_UNITS: Dict[str, int] = {
+    "b": 1,
+    "kb": 1_000,
+    "mb": 1_000_000,
+    "gb": 1_000_000_000,
+    "tb": 1_000_000_000_000,
+    "kib": 1_024,
+    "mib": 1_048_576,
+    "gib": 1_073_741_824,
+    "tib": 1_099_511_627_776,
+}
 
 
 def is_token_type(node: Node, kind: str) -> bool:
@@ -237,6 +262,16 @@ def require_number(value: ShkValue) -> ShkNumber:
 
 def token_number(token: Tok, _: None) -> ShkNumber:
     return ShkNumber(float(token.value))
+
+
+def token_duration(token: Tok, _: None) -> ShkDuration:
+    raw, nanos = token.value
+    return ShkDuration(nanos=nanos, display=raw)
+
+
+def token_size(token: Tok, _: None) -> ShkSize:
+    raw, byte_count = token.value
+    return ShkSize(byte_count=byte_count, display=raw)
 
 
 def token_string(token: Tok, _: None) -> ShkString:

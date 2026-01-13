@@ -2190,9 +2190,9 @@ class Parser:
             return Tree("emitexpr", args)
 
         # Literals - just return tokens, Prune() will wrap if needed
-        if self.check(TT.NUMBER):
+        if self.check(TT.NUMBER, TT.DURATION, TT.SIZE):
             tok = self.advance()
-            return self._tok("NUMBER", tok.value)
+            return self._tok(tok.type.name, tok.value)
 
         # Hole placeholder for partial application
         if self.match(TT.QMARK):

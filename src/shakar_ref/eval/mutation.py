@@ -14,6 +14,8 @@ from ..runtime import (
     ShkFn,
     ShkNull,
     ShkNumber,
+    ShkDuration,
+    ShkSize,
     ShkObject,
     ShkSelector,
     SelectorIndex,
@@ -34,6 +36,7 @@ from .selector import (
     _selector_index_to_int,
     _selector_slice_to_slice,
 )
+from .common import DURATION_UNITS, SIZE_UNITS
 
 
 def set_field_value(
@@ -248,6 +251,18 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
             if name in Builtins.string_methods:
                 return BuiltinMethod(name=name, subject=recv)
             raise ShakarTypeError(f"String has no field '{name}'")
+        case ShkDuration(nanos=nanos):
+            if name == "total_nsec":
+                return ShkNumber(float(nanos))
+            if name in DURATION_UNITS:
+                return ShkNumber(float(nanos) / DURATION_UNITS[name])
+            raise ShakarTypeError(f"Duration has no field '{name}'")
+        case ShkSize(byte_count=bytes_val):
+            if name == "total_bytes":
+                return ShkNumber(float(bytes_val))
+            if name in SIZE_UNITS:
+                return ShkNumber(float(bytes_val) / SIZE_UNITS[name])
+            raise ShakarTypeError(f"Size has no field '{name}'")
         case ShkRegex():
             if name in Builtins.regex_methods:
                 return BuiltinMethod(name=name, subject=recv)

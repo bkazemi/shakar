@@ -20,6 +20,8 @@ from .runtime import (
 from .eval.common import (
     is_literal_node,
     token_number,
+    token_duration,
+    token_size,
     token_path,
     token_regex,
     token_string,
@@ -674,6 +676,8 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
 
 _TOKEN_DISPATCH: dict[TT, Callable[[Tok, Frame], ShkValue]] = {
     TT.NUMBER: token_number,
+    TT.DURATION: token_duration,
+    TT.SIZE: token_size,
     TT.STRING: token_string,
     TT.RAW_STRING: token_string,
     TT.RAW_HASH_STRING: token_string,

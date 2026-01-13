@@ -206,7 +206,7 @@ if user.is_admin:
 
 ### Core types
 
-- **Int** (`i64`, overflow throws), **Float** (`f64`), **Bool**, **Str** (immutable UTF-8), **Array**, **Object** (map with descriptors), **Func**, **Selector literal** (iterable numeric range), **Nil**. Type predicates live in the stdlib (`isInt`, `typeOf`); no type grammar.
+- **Int** (`i64`, overflow throws), **Float** (`f64`), **Bool**, **Str** (immutable UTF-8), **Array**, **Object** (map with descriptors), **Func**, **Selector literal** (iterable numeric range), **Duration** (nanosecond-precision time span), **Size** (byte quantity), **Nil**. Type predicates live in the stdlib (`isInt`, `typeOf`); no type grammar.
 
 ### Primitive literals
 
@@ -217,6 +217,69 @@ if user.is_admin:
 - **Arrays**: `[1, 2, 3]`.
 - **Objects**: `{ key: value }` (getters/setters contextual, below).
 - **Selector literals (values)**: backtick selectors like `` `1:10` `` produce Selector values (views/iterables). Default stop is inclusive; use `<stop` for exclusive (e.g., `` `[1:<10]` ``).
+
+### Duration literals
+
+Typed literals representing time spans. Distinct from integers—cannot accidentally mix with raw numbers.
+
+- **Syntax**: `NUMBER UNIT` for simple, `INTEGER UNIT (INTEGER UNIT)+` for compound (no whitespace between segments).
+- **Units**: `nsec` (nanoseconds), `usec` (microseconds), `msec` (milliseconds), `sec` (seconds), `min` (minutes), `hr` (hours), `day` (days), `wk` (weeks).
+- **Decimals**: allowed in simple durations (`1.5min`); forbidden in compound durations (`1.5min30sec` is invalid).
+- **Internal representation**: nanoseconds (`int64`); max ~292 years; overflow throws.
+- **Display**: original format preserved for stringification (`5min30sec` displays as `5min30sec`).
+- **Type system**:
+  - `Duration + Duration` → `Duration`
+  - `Duration - Duration` → `Duration`
+  - `Duration * Number` → `Duration`
+  - `Duration / Number` → `Duration`
+  - `Duration / Duration` → `Float` (ratio)
+  - `Duration + Int` → **Type Error**
+  - `Duration < Duration` → `Bool` (comparison works)
+- **Extraction methods**: `.nsec`, `.usec`, `.msec`, `.sec`, `.min`, `.hr`, `.day`, `.wk` → `Float` (value in that unit); `.total_nsec` → `Int` (raw nanoseconds).
+- **Examples**:
+  ```shakar
+  timeout := 5min30sec
+  sleep(timeout)
+
+  if elapsed > 1hr:
+    warn("taking too long")
+
+  rate := bytes_transferred / elapsed.sec  # bytes per second (Float)
+
+  # Arithmetic
+  extended := timeout * 2          # 11min (Duration)
+  remaining := deadline - now()    # Duration
+  halfway := duration / 2          # Duration
+  ```
+
+### Size literals
+
+Typed literals representing byte quantities. Distinct from integers and durations.
+
+- **Syntax**: `NUMBER UNIT` for simple, `INTEGER UNIT (INTEGER UNIT)+` for compound.
+- **Decimal units**: `b` (bytes), `kb` (1,000), `mb` (1,000,000), `gb` (1,000,000,000), `tb` (1,000,000,000,000).
+- **Binary units**: `kib` (1,024), `mib` (1,048,576), `gib` (1,073,741,824), `tib` (1,099,511,627,776).
+- **Decimals**: same rule as durations—allowed in simple, forbidden in compound.
+- **Internal representation**: bytes (`int64`); max ~9.2 exabytes.
+- **Type system**:
+  - `Size + Size` → `Size`
+  - `Size - Size` → `Size`
+  - `Size * Number` → `Size`
+  - `Size / Number` → `Size`
+  - `Size / Size` → `Float` (ratio)
+  - `Size + Int` → **Type Error**
+  - `Size + Duration` → **Type Error**
+- **Extraction methods**: `.b`, `.kb`, `.mb`, `.gb`, `.tb`, `.kib`, `.mib`, `.gib`, `.tib` → `Float`; `.total_bytes` → `Int`.
+- **Examples**:
+  ```shakar
+  max_upload := 10mb
+  chunk_size := 64kib
+
+  if file.size > 2gb:
+    use_streaming()
+
+  progress := downloaded / total  # Float ratio
+  ```
 
 ### Strings & interpolation
 
@@ -906,7 +969,11 @@ Primary         ::= IDENT
 
                   ;
 
-Literal         ::= STRING | NUMBER | "nil" | "true" | "false" ;
+Literal         ::= STRING | NUMBER | DURATION | SIZE | "nil" | "true" | "false" ;
+DURATION        ::= NUMBER DURATION_UNIT ( INTEGER DURATION_UNIT )* ;
+SIZE            ::= NUMBER SIZE_UNIT ( INTEGER SIZE_UNIT )* ;
+DURATION_UNIT   ::= "nsec" | "usec" | "msec" | "sec" | "min" | "hr" | "day" | "wk" ;
+SIZE_UNIT       ::= "b" | "kb" | "mb" | "gb" | "tb" | "kib" | "mib" | "gib" | "tib" ;
 SelectorLiteral ::= "`" SelList "`" ;  (* backtick selector literal; first-class value with {expr} interpolation *)
 SelList         ::= SelItem ("," SelItem)* ;
 SelItem         ::= SliceItem | IndexItem ;

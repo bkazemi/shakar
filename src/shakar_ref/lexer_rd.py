@@ -10,7 +10,8 @@ Features:
 - String literal handling (raw, shell, etc.)
 """
 
-from typing import List, Optional
+from decimal import Decimal, InvalidOperation
+from typing import Dict, List, Optional, Tuple
 
 from .token_types import TT, Tok
 
@@ -121,6 +122,31 @@ class Lexer:
         ("|", TT.PIPE),
         ("~", TT.TILDE),
     ]
+
+    DURATION_UNITS = ["nsec", "usec", "msec", "sec", "min", "hr", "day", "wk"]
+    DURATION_VALUES: Dict[str, int] = {
+        "nsec": 1,
+        "usec": 1_000,
+        "msec": 1_000_000,
+        "sec": 1_000_000_000,
+        "min": 60_000_000_000,
+        "hr": 3_600_000_000_000,
+        "day": 86_400_000_000_000,
+        "wk": 604_800_000_000_000,
+    }
+
+    SIZE_UNITS = ["tib", "gib", "mib", "kib", "tb", "gb", "mb", "kb", "b"]
+    SIZE_VALUES: Dict[str, int] = {
+        "b": 1,
+        "kb": 1_000,
+        "mb": 1_000_000,
+        "gb": 1_000_000_000,
+        "tb": 1_000_000_000_000,
+        "kib": 1_024,
+        "mib": 1_048_576,
+        "gib": 1_073_741_824,
+        "tib": 1_099_511_627_776,
+    }
 
     def __init__(self, source: str, track_indentation: bool = False):
         self.source = source
@@ -410,7 +436,7 @@ class Lexer:
         )
 
     def scan_number(self):
-        """Scan number literal"""
+        """Scan number literal, including duration/size literals."""
         start_line, start_col = self.line, self.column
         start_pos = self.pos
 
@@ -432,9 +458,56 @@ class Lexer:
             while self.peek().isdigit():
                 self.advance()
 
-        # Keep as string to match Lark
         value = self.source[start_pos : self.pos]
-        self.emit(TT.NUMBER, value, start_line=start_line, start_col=start_col)
+        unit = self._match_unit(self.DURATION_UNITS)
+        literal_type = TT.DURATION
+
+        if unit is None:
+            unit = self._match_unit(self.SIZE_UNITS)
+            literal_type = TT.SIZE
+
+        if unit is None:
+            self.emit(TT.NUMBER, value, start_line=start_line, start_col=start_col)
+            return
+
+        if self.peek().isalpha() or self.peek() == "_":
+            raise LexError(
+                f"Invalid duration/size literal at line {start_line}, col {start_col}"
+            )
+
+        has_decimal = "." in value or "e" in value.lower()
+
+        if has_decimal and self.peek().isdigit():
+            raise LexError(
+                f"Decimal component in compound literal at line {start_line}, col {start_col}"
+            )
+
+        unit_list = (
+            self.DURATION_UNITS if literal_type == TT.DURATION else self.SIZE_UNITS
+        )
+        while self.peek().isdigit():
+            while self.peek().isdigit():
+                self.advance()
+            unit = self._match_unit(unit_list)
+            if unit is None:
+                raise LexError(
+                    f"Expected unit in compound literal at line {start_line}, col {start_col}"
+                )
+
+        literal_value = self.source[start_pos : self.pos]
+        unit_values = (
+            self.DURATION_VALUES if literal_type == TT.DURATION else self.SIZE_VALUES
+        )
+        kind = "duration" if literal_type == TT.DURATION else "size"
+        total = self._compute_compound_value(
+            literal_value, unit_values, kind, start_line
+        )
+        self.emit(
+            literal_type,
+            (literal_value, total),
+            start_line=start_line,
+            start_col=start_col,
+        )
 
     def scan_identifier(self):
         """Scan identifier or keyword"""
@@ -515,6 +588,75 @@ class Lexer:
         """Skip comment until end of line"""
         while self.peek() not in ("\n", "\r", "\0"):
             self.advance()
+
+    def _match_unit(self, units: List[str]) -> Optional[str]:
+        for unit in units:
+            if self.source.startswith(unit, self.pos):
+                self.advance(len(unit))
+                return unit
+        return None
+
+    def _compute_compound_value(
+        self, raw: str, unit_values: Dict[str, int], kind: str, line: int
+    ) -> int:
+        """Parse compound literal and compute total value."""
+        unit_keys = sorted(unit_values.keys(), key=len, reverse=True)
+        parts: List[Tuple[str, str]] = []
+        pos = 0
+
+        while pos < len(raw):
+            start = pos
+            while pos < len(raw) and raw[pos].isdigit():
+                pos += 1
+
+            if pos < len(raw) and raw[pos] == ".":
+                pos += 1
+                while pos < len(raw) and raw[pos].isdigit():
+                    pos += 1
+
+            if pos < len(raw) and raw[pos] in ("e", "E"):
+                pos += 1
+                if pos < len(raw) and raw[pos] in ("+", "-"):
+                    pos += 1
+                while pos < len(raw) and raw[pos].isdigit():
+                    pos += 1
+
+            num_str = raw[start:pos]
+            unit = None
+            for u in unit_keys:
+                if raw.startswith(u, pos):
+                    unit = u
+                    pos += len(u)
+                    break
+            if unit is None:
+                raise LexError(f"Malformed {kind} literal at line {line}")
+            parts.append((num_str, unit))
+
+        if len(parts) > 1 and any("." in n or "e" in n.lower() for n, _ in parts):
+            raise LexError(
+                f"Decimal component in compound {kind} literal at line {line}"
+            )
+
+        total = Decimal(0)
+        for num_str, unit in parts:
+            try:
+                num = Decimal(num_str)
+            except InvalidOperation as exc:
+                raise LexError(f"Malformed {kind} literal at line {line}") from exc
+            total += num * Decimal(unit_values[unit])
+
+        if total != total.to_integral_value():
+            raise LexError(
+                f"{kind.capitalize()} literal not representable at line {line}"
+            )
+
+        total_int = int(total)
+        if total_int < -(2**63) or total_int > 2**63 - 1:
+            raise LexError(
+                f"{kind.capitalize()} literal overflows int64 at line {line}"
+            )
+
+        return total_int
 
     def emit(
         self,

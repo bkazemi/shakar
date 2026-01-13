@@ -7,6 +7,8 @@ from .tree import Node
 from .types import (
     ShkNull,
     ShkNumber,
+    ShkDuration,
+    ShkSize,
     ShkString,
     ShkRegex,
     ShkBool,
@@ -57,6 +59,8 @@ __all__ = [
     "Frame",
     "ShkNull",
     "ShkNumber",
+    "ShkDuration",
+    "ShkSize",
     "ShkString",
     "ShkRegex",
     "ShkBool",
@@ -715,6 +719,8 @@ def _coerce_decorator_args(value: ShkValue) -> ShkArray:
 # Runtime type constants for structural matching
 TYPE_INT = ShkType("Int", ShkNumber)
 TYPE_FLOAT = ShkType("Float", ShkNumber)
+TYPE_DURATION = ShkType("Duration", ShkDuration)
+TYPE_SIZE = ShkType("Size", ShkSize)
 TYPE_STR = ShkType("Str", ShkString)
 TYPE_BOOL = ShkType("Bool", ShkBool)
 TYPE_ARRAY = ShkType("Array", ShkArray)
@@ -725,6 +731,8 @@ TYPE_PATH = ShkType("Path", ShkPath)
 Builtins.type_constants = {
     "Int": TYPE_INT,
     "Float": TYPE_FLOAT,
+    "Duration": TYPE_DURATION,
+    "Size": TYPE_SIZE,
     "Str": TYPE_STR,
     "Bool": TYPE_BOOL,
     "Array": TYPE_ARRAY,

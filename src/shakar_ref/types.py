@@ -35,6 +35,46 @@ class ShkNumber:
 
 
 @dataclass
+class ShkDuration:
+    nanos: int
+    display: Optional[str] = None
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ShkDuration):
+            return False
+        return self.nanos == other.nanos
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+    def __str__(self) -> str:
+        text = self.display if self.display is not None else f"{self.nanos}nsec"
+        if self.nanos < 0 and not text.startswith("-"):
+            return "-" + text
+        return text
+
+
+@dataclass
+class ShkSize:
+    byte_count: int
+    display: Optional[str] = None
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ShkSize):
+            return False
+        return self.byte_count == other.byte_count
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+    def __str__(self) -> str:
+        text = self.display if self.display is not None else f"{self.byte_count}b"
+        if self.byte_count < 0 and not text.startswith("-"):
+            return "-" + text
+        return text
+
+
+@dataclass
 class ShkString:
     value: str
 
@@ -282,6 +322,8 @@ class StdlibFunction:
 ShkValue: TypeAlias = Union[
     ShkNull,
     ShkNumber,
+    ShkDuration,
+    ShkSize,
     ShkString,
     ShkRegex,
     ShkBool,
@@ -496,6 +538,8 @@ class ShakarContinueSignal(Exception):
 _SHK_VALUE_TYPES: Tuple[type, ...] = (
     ShkNull,
     ShkNumber,
+    ShkDuration,
+    ShkSize,
     ShkString,
     ShkRegex,
     ShkBool,

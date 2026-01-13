@@ -1797,6 +1797,126 @@ runtime_scenario(
 )
 runtime_scenario(
     lambda: _rt(
+        "duration-total-nsec",
+        "5min30sec.total_nsec",
+        ("number", 330000000000),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "duration-unit-sec",
+        "(1min + 30sec).sec",
+        ("number", 90),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "size-total-bytes",
+        "2gb500mb.total_bytes",
+        ("number", 2500000000),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "size-unit-gb",
+        "(1gb * 2).gb",
+        ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "duration-compound-multi",
+        "1hr30min15sec.sec",
+        ("number", 5415),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "duration-div-ratio",
+        "5sec / 2sec",
+        ("number", 2.5),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "size-div-ratio",
+        "6gb / 2gb",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "duration-compare-gt",
+        "5min > 3min",
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "duration-compare-lte",
+        "2sec <= 2sec",
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "size-compare-lt",
+        "1mb < 2mb",
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "size-compare-gte",
+        "5gb >= 4gb",
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "duration-negate",
+        "(-5sec).total_nsec",
+        ("number", -5000000000),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "size-negate",
+        "(-2kb).total_bytes",
+        ("number", -2000),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "duration-sub",
+        "(10sec - 3sec).sec",
+        ("number", 7),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "size-sub",
+        "(5mb - 2mb).mb",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "listcomp-filter",
         """src := [1, 2, 3, 4]
 odds := [ n over src if n % 2 == 1 ]

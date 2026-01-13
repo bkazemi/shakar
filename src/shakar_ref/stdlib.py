@@ -10,6 +10,7 @@ from .runtime import (
     ShkNull,
     ShkString,
     ShkNumber,
+    ShkDuration,
     ShkBool,
     ShkValue,
     ShakarTypeError,
@@ -68,10 +69,13 @@ def std_sleep(_frame, args: List[ShkValue]):
         raise ShakarTypeError("sleep expects exactly one argument")
     duration = args[0]
 
-    if not isinstance(duration, ShkNumber):
+    if isinstance(duration, ShkDuration):
+        seconds = max(0.0, float(duration.nanos) / 1_000_000_000.0)
+    elif isinstance(duration, ShkNumber):
+        milliseconds = max(0.0, float(duration.value))
+        seconds = milliseconds / 1000.0
+    else:
         raise ShakarTypeError("sleep expects a numeric duration")
-    milliseconds = max(0.0, float(duration.value))
-    seconds = milliseconds / 1000.0
 
     async def _sleep_coro() -> ShkNull:
         await asyncio.sleep(seconds)

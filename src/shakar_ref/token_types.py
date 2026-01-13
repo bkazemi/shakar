@@ -14,6 +14,8 @@ class TT(Enum):
 
     # Literals
     NUMBER = auto()
+    DURATION = auto()
+    SIZE = auto()
     STRING = auto()
     RAW_STRING = auto()
     RAW_HASH_STRING = auto()
