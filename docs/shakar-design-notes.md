@@ -211,8 +211,11 @@ if user.is_admin:
 ### Primitive literals
 
 - `nil`, `true`, `false`.
-- **Integers**: 64-bit signed; underscores allowed; bases `0b 0o 0x`; overflow throws.
-- **Floats**: IEEE-754 double; leading zero required (`0.5`, not `.5`).
+- **Integers**: 64-bit signed.
+  - **Bases**: Decimal (default), Binary (`0b`), Octal (`0o`), and Hexadecimal (`0x`). Prefixes are lowercase only (`0B`/`0O`/`0X` are invalid). Base-prefixed integers apply only to plain integer literals; duration/size literals remain decimal-only.
+  - **Underscores**: Allowed between digits for readability (e.g., `1_000_000`, `0xdead_beef`). Cannot be placed immediately after a base prefix, at the start of a decimal number, or at the very end of any number.
+  - **Overflow**: Values outside the signed 64-bit range throw an error at parse/evaluation time.
+- **Floats**: IEEE-754 double; leading zero required (`0.5`, not `.5`). Underscores allowed between digits. Base prefixes are NOT supported for floats.
 - **Strings**: `"…"`, `'…'` with escapes `\n \t \\ \" \u{…}`. Multiline ❓.
 - **Arrays**: `[1, 2, 3]`.
 - **Objects**: `{ key: value }` (getters/setters contextual, below).
@@ -223,6 +226,7 @@ if user.is_admin:
 Typed literals representing time spans. Distinct from integers—cannot accidentally mix with raw numbers.
 
 - **Syntax**: `NUMBER UNIT` for simple, `INTEGER UNIT (INTEGER UNIT)+` for compound (no whitespace between segments).
+- **Base Restriction**: Duration literals must be decimal-only. Base prefixes (`0b`, `0o`, `0x`) are not allowed.
 - **Units**: `nsec` (nanoseconds), `usec` (microseconds), `msec` (milliseconds), `sec` (seconds), `min` (minutes), `hr` (hours), `day` (days), `wk` (weeks).
 - **Decimals**: allowed in simple durations (`1.5min`); forbidden in compound durations (`1.5min30sec` is invalid).
 - **Internal representation**: nanoseconds (`int64`); max ~292 years; overflow throws.
@@ -257,6 +261,7 @@ Typed literals representing time spans. Distinct from integers—cannot accident
 Typed literals representing byte quantities. Distinct from integers and durations.
 
 - **Syntax**: `NUMBER UNIT` for simple, `INTEGER UNIT (INTEGER UNIT)+` for compound.
+- **Base Restriction**: Size literals must be decimal-only. Base prefixes (`0b`, `0o`, `0x`) are not allowed.
 - **Decimal units**: `b` (bytes), `kb` (1,000), `mb` (1,000,000), `gb` (1,000,000,000), `tb` (1,000,000,000,000).
 - **Binary units**: `kib` (1,024), `mib` (1,048,576), `gib` (1,073,741,824), `tib` (1,099,511,627,776).
 - **Decimals**: same rule as durations—allowed in simple, forbidden in compound.

@@ -40,6 +40,8 @@ def _load_shakar_modules():
         ShkString,
         ShkBool,
         ShkArray,
+        ShkDuration,
+        ShkSize,
         ShakarArityError,
         ShakarAssertionError,
         ShakarRuntimeError,
@@ -61,6 +63,8 @@ def _load_shakar_modules():
         ShkString,
         ShkBool,
         ShkArray,
+        ShkDuration,
+        ShkSize,
         ShakarArityError,
         ShakarAssertionError,
         ShakarRuntimeError,
@@ -83,6 +87,8 @@ def _load_shakar_modules():
     ShkString,
     ShkBool,
     ShkArray,
+    ShkDuration,
+    ShkSize,
     ShakarArityError,
     ShakarAssertionError,
     ShakarRuntimeError,
@@ -1795,6 +1801,117 @@ runtime_scenario(
         None,
     )
 )
+runtime_scenario(
+    lambda: _rt("base-prefix-binary", "0b1010_0011", ("number", 163), None)
+)
+runtime_scenario(lambda: _rt("base-prefix-octal", "0o755", ("number", 493), None))
+runtime_scenario(
+    lambda: _rt("base-prefix-hex", "0xdead_beef", ("number", 3735928559), None)
+)
+runtime_scenario(
+    lambda: _rt(
+        "base-prefix-binary-63bit",
+        "0b111111111111111111111111111111111111111111111111111111111111111",
+        ("number", 9223372036854775807),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "base-prefix-hex-max",
+        "0x7fffffffffffffff",
+        ("number", 9223372036854775807),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "base-prefix-binary-overflow",
+        "0b1000000000000000000000000000000000000000000000000000000000000000",
+        None,
+        LexError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "base-prefix-octal-overflow",
+        "0o1000000000000000000000",
+        None,
+        LexError,
+    )
+)
+runtime_scenario(
+    lambda: _rt("base-prefix-hex-overflow", "0x8000000000000000", None, LexError)
+)
+runtime_scenario(lambda: _rt("base-prefix-invalid-bin", "0b102", None, LexError))
+runtime_scenario(lambda: _rt("base-prefix-invalid-oct", "0o9", None, LexError))
+runtime_scenario(lambda: _rt("base-prefix-invalid-hex", "0xG", None, LexError))
+runtime_scenario(lambda: _rt("base-prefix-incomplete", "0b", None, LexError))
+runtime_scenario(lambda: _rt("base-prefix-uppercase", "0X10", None, LexError))
+runtime_scenario(lambda: _rt("base-prefix-underscore-start", "0b_101", None, LexError))
+runtime_scenario(lambda: _rt("base-prefix-underscore-end", "0b101_", None, LexError))
+runtime_scenario(
+    lambda: _rt("base-prefix-underscore-double", "0b10__01", None, LexError)
+)
+runtime_scenario(lambda: _rt("base-prefix-duration", "0x10ms", None, LexError))
+runtime_scenario(lambda: _rt("base-prefix-duration-bin", "0b10s", None, LexError))
+runtime_scenario(lambda: _rt("base-prefix-size", "0o755kb", None, LexError))
+runtime_scenario(
+    lambda: _rt(
+        "base-prefix-duration-mul", "0x10 * 1msec", ("duration", 16000000), None
+    )
+)
+runtime_scenario(
+    lambda: _rt("duration-underscore", "1_000msec", ("duration", 1000000000), None)
+)
+runtime_scenario(
+    lambda: _rt(
+        "duration-compound-underscore",
+        "1sec500_000usec",
+        ("duration", 1500000000),
+        None,
+    )
+)
+runtime_scenario(lambda: _rt("size-underscore", "1_000kb", ("size", 1000000), None))
+runtime_scenario(
+    lambda: _rt("size-compound-underscore", "1mb500_000b", ("size", 1500000), None)
+)
+
+# Decimal underscore tests
+runtime_scenario(lambda: _rt("decimal-underscore", "1_000", ("number", 1000), None))
+runtime_scenario(
+    lambda: _rt("decimal-underscore-multi", "1_000_000", ("number", 1000000), None)
+)
+runtime_scenario(lambda: _rt("decimal-underscore-trailing", "100_", None, LexError))
+runtime_scenario(lambda: _rt("decimal-underscore-double", "1__0", None, LexError))
+# Float underscore tests
+runtime_scenario(
+    lambda: _rt("float-underscore-int", "1_000.5", ("number", 1000.5), None)
+)
+runtime_scenario(
+    lambda: _rt("float-underscore-frac", "1.000_001", ("number", 1.000001), None)
+)
+runtime_scenario(
+    lambda: _rt("float-underscore-both", "1_000.000_5", ("number", 1000.0005), None)
+)
+runtime_scenario(lambda: _rt("float-underscore-leading-frac", "1._5", None, LexError))
+runtime_scenario(lambda: _rt("float-underscore-trailing-frac", "1.5_", None, LexError))
+# Float exponent tests
+runtime_scenario(lambda: _rt("float-exponent", "1e10", ("number", 1e10), None))
+runtime_scenario(lambda: _rt("float-exponent-upper", "1E10", ("number", 1e10), None))
+runtime_scenario(lambda: _rt("float-exponent-neg", "1.5e-3", ("number", 1.5e-3), None))
+runtime_scenario(lambda: _rt("float-exponent-pos", "1E+5", ("number", 1e5), None))
+runtime_scenario(
+    lambda: _rt("float-exponent-underscore", "1_000e2", ("number", 1000e2), None)
+)
+runtime_scenario(
+    lambda: _rt("float-exponent-underscore-exp", "1e1_0", ("number", 1e10), None)
+)
+runtime_scenario(
+    lambda: _rt("float-exponent-leading-underscore", "1e_5", None, LexError)
+)
+runtime_scenario(lambda: _rt("float-dot-no-frac", "1.e5", None, LexError))
+runtime_scenario(lambda: _rt("float-trailing-dot", "1e5.", None, LexError))
 runtime_scenario(
     lambda: _rt(
         "duration-total-nsec",
@@ -3568,6 +3685,18 @@ class SanitySuite:
             ]
             if actual_items != expected:
                 return f"expected {expected!r}, got {actual_items!r}"
+            return None
+        if kind == "duration":
+            if not isinstance(value, ShkDuration):
+                return f"expected ShkDuration, got {type(value).__name__}"
+            if value.nanos != expected:
+                return f"expected {expected}, got {value.nanos}"
+            return None
+        if kind == "size":
+            if not isinstance(value, ShkSize):
+                return f"expected ShkSize, got {type(value).__name__}"
+            if value.byte_count != expected:
+                return f"expected {expected}, got {value.byte_count}"
             return None
         return f"unknown expectation kind {kind}"
 

@@ -440,23 +440,48 @@ class Lexer:
         start_line, start_col = self.line, self.column
         start_pos = self.pos
 
-        # Integer part
-        while self.peek().isdigit():
-            self.advance()
+        if self._scan_prefixed_integer(start_line, start_col, start_pos):
+            return
 
-        # Decimal part
-        if self.peek() == "." and self.peek(1).isdigit():
-            self.advance()  # .
-            while self.peek().isdigit():
-                self.advance()
+        # Integer part (with underscore support)
+        self._scan_digits_with_underscores(start_line, start_col)
 
-        # Scientific notation
+        # Decimal part (with underscore support)
+        if self.peek() == ".":
+            next_ch = self.peek(1)
+            if next_ch in ("e", "E"):
+                raise LexError(
+                    f"Fractional digits required after decimal point at line {start_line}, col {start_col}"
+                )
+            if next_ch.isdigit() or next_ch == "_":
+                self.advance()  # .
+                # Check for leading underscore in fractional part
+                if self.peek() == "_":
+                    raise LexError(
+                        f"Leading underscore in fractional part at line {start_line}, col {start_col}"
+                    )
+                self._scan_digits_with_underscores(start_line, start_col)
+
+        # Scientific notation (with underscore support)
         if self.peek() in ("e", "E"):
             self.advance()
             if self.peek() in ("+", "-"):
                 self.advance()
-            while self.peek().isdigit():
-                self.advance()
+            # Check for leading underscore in exponent
+            if self.peek() == "_":
+                raise LexError(
+                    f"Leading underscore in exponent at line {start_line}, col {start_col}"
+                )
+            if not self._scan_digits_with_underscores(start_line, start_col):
+                raise LexError(
+                    f"Missing digits in exponent at line {start_line}, col {start_col}"
+                )
+
+        # Check for trailing dot (invalid: 1e5. or 1.5.)
+        if self.peek() == "." and not self.peek(1).isalpha() and self.peek(1) != "_":
+            raise LexError(
+                f"Trailing dot after number literal at line {start_line}, col {start_col}"
+            )
 
         value = self.source[start_pos : self.pos]
         unit = self._match_unit(self.DURATION_UNITS)
@@ -486,8 +511,7 @@ class Lexer:
             self.DURATION_UNITS if literal_type == TT.DURATION else self.SIZE_UNITS
         )
         while self.peek().isdigit():
-            while self.peek().isdigit():
-                self.advance()
+            self._scan_digits_with_underscores(start_line, start_col)
             unit = self._match_unit(unit_list)
             if unit is None:
                 raise LexError(
@@ -508,6 +532,122 @@ class Lexer:
             start_line=start_line,
             start_col=start_col,
         )
+
+    def _scan_prefixed_integer(
+        self, start_line: int, start_col: int, start_pos: int
+    ) -> bool:
+        if self.peek() != "0":
+            return False
+
+        prefix = self.peek(1)
+        if prefix in ("B", "O", "X"):
+            raise LexError(
+                f"Uppercase base prefixes are not allowed at line {start_line}, col {start_col}"
+            )
+
+        base = {"b": 2, "o": 8, "x": 16}.get(prefix)
+        if base is None:
+            return False
+
+        self.advance(2)
+
+        saw_digit = False
+        prev_underscore = False
+
+        while True:
+            ch = self.peek()
+            if ch == "_":
+                if not saw_digit or prev_underscore:
+                    raise LexError(
+                        f"Invalid underscore in base-prefixed integer at line {start_line}, col {start_col}"
+                    )
+                prev_underscore = True
+                self.advance()
+                continue
+
+            if self._is_valid_prefixed_digit(ch, base):
+                saw_digit = True
+                prev_underscore = False
+                self.advance()
+                continue
+
+            break
+
+        if not saw_digit:
+            raise LexError(
+                f"Incomplete base-prefixed integer at line {start_line}, col {start_col}"
+            )
+        if prev_underscore:
+            raise LexError(
+                f"Trailing underscore in base-prefixed integer at line {start_line}, col {start_col}"
+            )
+
+        if self.peek() == "." and self.peek(1).isdigit():
+            raise LexError(
+                f"Base-prefixed integers cannot be floats at line {start_line}, col {start_col}"
+            )
+
+        if self.peek().isalnum() or self.peek() == "_":
+            raise LexError(
+                f"Base-prefixed integers cannot have unit suffixes at line {start_line}, col {start_col}"
+            )
+
+        literal = self.source[start_pos : self.pos]
+        self._validate_prefixed_int_range(literal, base, start_line, start_col)
+        self.emit(TT.NUMBER, literal, start_line=start_line, start_col=start_col)
+        return True
+
+    def _is_valid_prefixed_digit(self, ch: str, base: int) -> bool:
+        if ch.isdigit():
+            return int(ch) < base
+        if base == 16 and ch.lower() in "abcdef":
+            return True
+        return False
+
+    def _scan_digits_with_underscores(self, line: int, col: int) -> bool:
+        """Scan digits allowing underscores between them. Returns True if any digits scanned."""
+        saw_digit = False
+        prev_underscore = False
+
+        while True:
+            ch = self.peek()
+            if ch == "_":
+                if not saw_digit or prev_underscore:
+                    raise LexError(
+                        f"Invalid underscore in number literal at line {line}, col {col}"
+                    )
+                prev_underscore = True
+                self.advance()
+                continue
+
+            if ch.isdigit():
+                saw_digit = True
+                prev_underscore = False
+                self.advance()
+                continue
+
+            break
+
+        if prev_underscore:
+            raise LexError(
+                f"Trailing underscore in number literal at line {line}, col {col}"
+            )
+
+        return saw_digit
+
+    def _validate_prefixed_int_range(
+        self, literal: str, base: int, line: int, col: int
+    ) -> None:
+        digits = literal[2:].replace("_", "")
+        try:
+            value = int(digits, base)
+        except ValueError as exc:
+            raise LexError(
+                f"Invalid base-prefixed integer at line {line}, col {col}"
+            ) from exc
+
+        if value < 0 or value > 2**63 - 1:
+            raise LexError(f"Integer literal overflows int64 at line {line}, col {col}")
 
     def scan_identifier(self):
         """Scan identifier or keyword"""
@@ -606,19 +746,19 @@ class Lexer:
 
         while pos < len(raw):
             start = pos
-            while pos < len(raw) and raw[pos].isdigit():
+            while pos < len(raw) and (raw[pos].isdigit() or raw[pos] == "_"):
                 pos += 1
 
             if pos < len(raw) and raw[pos] == ".":
                 pos += 1
-                while pos < len(raw) and raw[pos].isdigit():
+                while pos < len(raw) and (raw[pos].isdigit() or raw[pos] == "_"):
                     pos += 1
 
             if pos < len(raw) and raw[pos] in ("e", "E"):
                 pos += 1
                 if pos < len(raw) and raw[pos] in ("+", "-"):
                     pos += 1
-                while pos < len(raw) and raw[pos].isdigit():
+                while pos < len(raw) and (raw[pos].isdigit() or raw[pos] == "_"):
                     pos += 1
 
             num_str = raw[start:pos]

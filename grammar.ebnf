@@ -35,8 +35,22 @@ regex_flags = regex_flag , { regex_flag } ;
 regex_flag = "i" | "m" | "s" | "x" | "f" ;
 
 NUMBER = [ "-" ] ( float | integer ) ;
-integer = digit+ ;
-float = digit+ "." digit* | digit* "." digit+ ;
+integer = decimal | binary | octal | hex ;
+(* Base prefixes are lowercase-only; underscores must separate digits. *)
+decimal = digit { [ "_" ] digit } ;
+binary = "0b" bindigit { [ "_" ] bindigit } ;
+octal = "0o" octdigit { [ "_" ] octdigit } ;
+hex = "0x" hexdigit { [ "_" ] hexdigit } ;
+
+bindigit = "0" | "1" ;
+octdigit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" ;
+hexdigit = digit | "a" | "b" | "c" | "d" | "e" | "f" | "A" | "B" | "C" | "D" | "E" | "F" ;
+
+float = decimal "." frac_part [ exponent ]
+      | decimal exponent ;
+(* Dot requires fractional digits after it; 1.e5 and 1e5. are invalid. *)
+frac_part = digit { [ "_" ] digit } ;
+exponent = ( "e" | "E" ) [ "+" | "-" ] decimal ;
 
 (* Layout tokens *)
 NEWLINE = ? newline character with indentation tracking ? ;
