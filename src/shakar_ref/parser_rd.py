@@ -3061,6 +3061,12 @@ class Parser:
             self.expect(TT.RBRACE)
             return Tree("interp", [expr])
 
+        # Allow signed numeric atoms in selector literals (minus is not part of NUMBER tokens).
+        if self.check(TT.MINUS) and self.peek(1).type == TT.NUMBER:
+            self.advance()
+            tok = self.expect(TT.NUMBER)
+            return self._parse_selector_number(tok, negate=True)
+
         # IDENT - convert to AST token with string type
         if self.check(TT.IDENT):
             tok = self.advance()
@@ -3069,16 +3075,34 @@ class Parser:
         # NUMBER - convert to AST token with string type
         if self.check(TT.NUMBER):
             tok = self.advance()
-            value = self._parse_number_literal(tok.value)
-            if isinstance(value, int) and value > 2**63 - 1:
+            return self._parse_selector_number(tok, negate=False)
+
+        raise ParseError(
+            "Expected selector atom (number, identifier, or {expr})", self.current
+        )
+
+    def _parse_selector_number(self, tok: Tok, negate: bool) -> Tok:
+        value = self._parse_number_literal(tok.value)
+
+        if isinstance(value, int):
+            if negate:
+                # Allow -2**63 but reject larger magnitude.
+                if value > 2**63:
+                    raise LexError(
+                        f"Integer literal overflows int64 at line {tok.line}, col {tok.column}"
+                    )
+                return self._tok("NUMBER", -value, line=tok.line, column=tok.column)
+
+            if value > 2**63 - 1:
                 raise LexError(
                     f"Integer literal overflows int64 at line {tok.line}, col {tok.column}"
                 )
             return self._tok("NUMBER", tok.value, line=tok.line, column=tok.column)
 
-        raise ParseError(
-            "Expected selector atom (number, identifier, or {expr})", self.current
-        )
+        if negate:
+            return self._tok("NUMBER", -value, line=tok.line, column=tok.column)
+
+        return self._tok("NUMBER", tok.value, line=tok.line, column=tok.column)
 
     def is_slice_selector_literal(self) -> bool:
         """Check if next tokens form a slice selector in literal context"""
@@ -3097,6 +3121,12 @@ class Parser:
                     depth -= 1
                 _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
         elif self._lookahead_check(idx, TT.IDENT, TT.NUMBER):
+            _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+        # Treat a leading "-NUMBER" as an atom for slice lookahead.
+        elif self._lookahead_check(idx, TT.MINUS) and self._lookahead_check(
+            idx + 1, TT.NUMBER
+        ):
+            _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
             _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
 
         # Check if colon follows

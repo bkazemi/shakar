@@ -2437,8 +2437,20 @@ runtime_scenario(
         """sel := `5::-2`
 arr := [0, 1, 2, 3, 4, 5]
 picked := arr[sel]
+picked.len""",
+        # Clamped selector lists normalize open-stop negative steps to empty.
+        ("number", 0),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-literal-open-start-neg-step",
+        """sel := `:1:-2`
+arr := [0, 1, 2, 3, 4, 5]
+picked := arr[sel]
 picked[0] + picked[1] + picked[2]""",
-        ("number", 6),
+        ("number", 9),
         None,
     )
 )
@@ -2493,6 +2505,14 @@ runtime_scenario(
     lambda: _rt(
         "selector-literal-slice-step-overflow",
         "arr := [0]\narr[`0:1:0x8000000000000000`]",
+        None,
+        LexError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-literal-slice-step-neg-overflow",
+        "arr := [0]\narr[`0:1:-0x8000000000000001`]",
         None,
         LexError,
     )
