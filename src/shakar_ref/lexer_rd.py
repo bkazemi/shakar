@@ -673,7 +673,8 @@ class Lexer:
                 f"Invalid base-prefixed integer at line {line}, col {col}"
             ) from exc
 
-        if value < 0 or value > 2**63 - 1:
+        # Allow i64 min magnitude here; unary minus folds it into a signed literal later.
+        if value < 0 or value > 2**63:
             raise LexError(f"Integer literal overflows int64 at line {line}, col {col}")
 
     def scan_identifier(self):

@@ -17,6 +17,7 @@ from enum import Enum
 from .tree import Tree, Node
 
 from .token_types import TT, Tok
+from .lexer_rd import LexError
 
 
 class ParseContext(Enum):
@@ -79,6 +80,50 @@ class Parser:
 
     def _tok(self, type_name: str, value: str, line: int = 0, column: int = 0) -> Tok:
         return Tok(TT[type_name], value, line, column)
+
+    def _prefixed_int_value(self, literal: object) -> Optional[int]:
+        # Return parsed value for 0b/0o/0x literals, otherwise None.
+        if not isinstance(literal, str):
+            return None
+        if not literal.startswith(("0b", "0o", "0x")):
+            return None
+        digits = literal[2:].replace("_", "")
+        base = {"0b": 2, "0o": 8, "0x": 16}[literal[:2]]
+        return int(digits, base)
+
+    def _is_prefixed_int_min(self, literal: object) -> bool:
+        value = self._prefixed_int_value(literal)
+        return value == 2**63
+
+    def _try_consume_prefixed_int_min_literal(self) -> Optional[Tok]:
+        # Consume optional parens around a prefixed int literal, if it is the i64 min magnitude.
+        idx = self.pos
+        depth = 0
+
+        while self._lookahead_check(idx, TT.LPAR):
+            depth += 1
+            idx += 1
+
+        if not self._lookahead_check(idx, TT.NUMBER):
+            return None
+
+        tok = self._lookahead_peek(idx)
+        if not self._is_prefixed_int_min(tok.value):
+            return None
+
+        idx += 1
+        for _ in range(depth):
+            if not self._lookahead_check(idx, TT.RPAR):
+                return None
+            idx += 1
+
+        for _ in range(depth):
+            self.advance()
+        self.advance()
+        for _ in range(depth):
+            self.advance()
+
+        return tok
 
     def _take_noanchor_once(self, seen: list[bool]) -> bool:
         if not self.match(TT.DOLLAR):
@@ -1856,6 +1901,16 @@ class Parser:
         # Unary prefix operators
         if self.check(TT.MINUS, TT.NOT, TT.NEG, TT.INCR, TT.DECR):
             op = self.advance()
+            if op.type == TT.MINUS:
+                # Allow -0x8000... by folding into a single signed literal.
+                tok = self._try_consume_prefixed_int_min_literal()
+                if tok is not None:
+                    return self._tok(
+                        "NUMBER",
+                        -(2**63),
+                        line=tok.line,
+                        column=tok.column,
+                    )
             expr = self.parse_unary_expr()
             op_tree = Tree("unaryprefixop", [self._tok(op.type.name, op.value)])
             return Tree("unary", [op_tree, expr])
@@ -2192,7 +2247,17 @@ class Parser:
         # Literals - just return tokens, Prune() will wrap if needed
         if self.check(TT.NUMBER, TT.DURATION, TT.SIZE):
             tok = self.advance()
-            return self._tok(tok.type.name, tok.value)
+            # Bare 0x8000... stays invalid; only the unary minus fold allows i64 min.
+            if tok.type == TT.NUMBER and self._is_prefixed_int_min(tok.value):
+                raise LexError(
+                    f"Integer literal overflows int64 at line {tok.line}, col {tok.column}"
+                )
+            return self._tok(
+                tok.type.name,
+                tok.value,
+                line=tok.line,
+                column=tok.column,
+            )
 
         # Hole placeholder for partial application
         if self.match(TT.QMARK):

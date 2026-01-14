@@ -1826,6 +1826,14 @@ runtime_scenario(
 )
 runtime_scenario(
     lambda: _rt(
+        "base-prefix-hex-min-neg",
+        "-0x8000000000000000",
+        ("number", -9223372036854775808),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "base-prefix-binary-overflow",
         "0b1000000000000000000000000000000000000000000000000000000000000000",
         None,
