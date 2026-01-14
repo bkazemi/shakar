@@ -101,7 +101,7 @@ def _flatten_tokens(node: Node) -> List[str]:
             for ch in tree_children(n):
                 walk(ch)
         else:
-            tokens.append(getattr(n, "value", ""))
+            tokens.append(str(getattr(n, "value", "")))
 
     walk(node)
     return tokens

@@ -1834,6 +1834,22 @@ runtime_scenario(
 )
 runtime_scenario(
     lambda: _rt(
+        "decimal-int64-min-neg",
+        "-9223372036854775808",
+        ("number", -9223372036854775808),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "decimal-int64-overflow",
+        "9223372036854775808",
+        None,
+        LexError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "base-prefix-binary-overflow",
         "0b1000000000000000000000000000000000000000000000000000000000000000",
         None,
@@ -2391,6 +2407,94 @@ picked := arr[sel]
 picked[0] + picked[1]""",
         ("number", 40),
         None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-literal-open-start",
+        """sel := `:3`
+arr := [10, 20, 30, 40]
+picked := arr[sel]
+picked[0] + picked[1] + picked[2]""",
+        ("number", 60),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-literal-open-stop",
+        """sel := `2:`
+arr := [1, 2, 3, 4, 5]
+picked := arr[sel]
+picked[0] + picked[1] + picked[2]""",
+        ("number", 12),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-literal-open-stop-neg-step",
+        """sel := `5::-2`
+arr := [0, 1, 2, 3, 4, 5]
+picked := arr[sel]
+picked[0] + picked[1] + picked[2]""",
+        ("number", 6),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-literal-slice-step",
+        """sel := `1:7:2`
+arr := [0, 1, 2, 3, 4, 5, 6, 7]
+picked := arr[sel]
+picked[0] + picked[1] + picked[2]""",
+        ("number", 9),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-literal-slice-step-interp-neg",
+        """step := -1
+sel := `5:1:{step}`
+arr := [0, 1, 2, 3, 4, 5]
+picked := arr[sel]
+picked[0] + picked[1] + picked[2] + picked[3]""",
+        ("number", 14),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-literal-hex-overflow",
+        "arr := [0]\narr[`0x8000000000000000`]",
+        None,
+        LexError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-literal-dec-overflow",
+        "arr := [0]\narr[`9223372036854775808`]",
+        None,
+        LexError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-literal-slice-stop-overflow",
+        "arr := [0]\narr[`0:0x8000000000000000`]",
+        None,
+        LexError,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "selector-literal-slice-step-overflow",
+        "arr := [0]\narr[`0:1:0x8000000000000000`]",
+        None,
+        LexError,
     )
 )
 runtime_scenario(

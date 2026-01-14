@@ -81,22 +81,31 @@ class Parser:
     def _tok(self, type_name: str, value: str, line: int = 0, column: int = 0) -> Tok:
         return Tok(TT[type_name], value, line, column)
 
-    def _prefixed_int_value(self, literal: object) -> Optional[int]:
-        # Return parsed value for 0b/0o/0x literals, otherwise None.
-        if not isinstance(literal, str):
-            return None
-        if not literal.startswith(("0b", "0o", "0x")):
-            return None
-        digits = literal[2:].replace("_", "")
-        base = {"0b": 2, "0o": 8, "0x": 16}[literal[:2]]
-        return int(digits, base)
+    def _parse_number_literal(self, literal: object) -> int | float:
+        """Parse NUMBER token value, handling bases and underscores."""
+        if isinstance(literal, (int, float)):
+            return literal
 
-    def _is_prefixed_int_min(self, literal: object) -> bool:
-        value = self._prefixed_int_value(literal)
-        return value == 2**63
+        text = str(literal)
+        clean = text.replace("_", "")
 
-    def _try_consume_prefixed_int_min_literal(self) -> Optional[Tok]:
-        # Consume optional parens around a prefixed int literal, if it is the i64 min magnitude.
+        if text.startswith(("0b", "0o", "0x")):
+            base = {"0b": 2, "0o": 8, "0x": 16}[text[:2]]
+            return int(clean[2:], base)
+
+        if "." in clean or "e" in clean.lower():
+            return float(clean)
+        return int(clean)
+
+    def _is_int64_min_magnitude(self, literal: object) -> bool:
+        """Check if literal equals 2^63 (magnitude of i64 min)."""
+        if isinstance(literal, float):
+            return False
+        value = self._parse_number_literal(literal)
+        return isinstance(value, int) and value == 2**63
+
+    def _try_consume_int64_min_literal(self) -> Optional[Tok]:
+        """Consume optional parens around an integer literal equal to 2^63."""
         idx = self.pos
         depth = 0
 
@@ -108,7 +117,7 @@ class Parser:
             return None
 
         tok = self._lookahead_peek(idx)
-        if not self._is_prefixed_int_min(tok.value):
+        if not self._is_int64_min_magnitude(tok.value):
             return None
 
         idx += 1
@@ -1902,8 +1911,8 @@ class Parser:
         if self.check(TT.MINUS, TT.NOT, TT.NEG, TT.INCR, TT.DECR):
             op = self.advance()
             if op.type == TT.MINUS:
-                # Allow -0x8000... by folding into a single signed literal.
-                tok = self._try_consume_prefixed_int_min_literal()
+                # Allow -2^63 (i64 min) by folding into a single signed literal.
+                tok = self._try_consume_int64_min_literal()
                 if tok is not None:
                     return self._tok(
                         "NUMBER",
@@ -2244,20 +2253,28 @@ class Parser:
                 args = []
             return Tree("emitexpr", args)
 
-        # Literals - just return tokens, Prune() will wrap if needed
+        # Literals - parse, validate overflow, store computed value
         if self.check(TT.NUMBER, TT.DURATION, TT.SIZE):
             tok = self.advance()
-            # Bare 0x8000... stays invalid; only the unary minus fold allows i64 min.
-            if tok.type == TT.NUMBER and self._is_prefixed_int_min(tok.value):
-                raise LexError(
-                    f"Integer literal overflows int64 at line {tok.line}, col {tok.column}"
+            if tok.type == TT.NUMBER:
+                value = self._parse_number_literal(tok.value)
+                # Check overflow for integers (floats can't overflow to error)
+                if isinstance(value, int) and value > 2**63 - 1:
+                    raise LexError(
+                        f"Integer literal overflows int64 at line {tok.line}, col {tok.column}"
+                    )
+                return self._tok("NUMBER", value, line=tok.line, column=tok.column)
+            else:
+                # DURATION or SIZE - check pre-computed overflow
+                raw, total = tok.value
+                if total < -(2**63) or total > 2**63 - 1:
+                    kind = "Duration" if tok.type == TT.DURATION else "Size"
+                    raise LexError(
+                        f"{kind} literal overflows int64 at line {tok.line}, col {tok.column}"
+                    )
+                return self._tok(
+                    tok.type.name, tok.value, line=tok.line, column=tok.column
                 )
-            return self._tok(
-                tok.type.name,
-                tok.value,
-                line=tok.line,
-                column=tok.column,
-            )
 
         # Hole placeholder for partial application
         if self.match(TT.QMARK):
@@ -3052,7 +3069,12 @@ class Parser:
         # NUMBER - convert to AST token with string type
         if self.check(TT.NUMBER):
             tok = self.advance()
-            return self._tok("NUMBER", tok.value)
+            value = self._parse_number_literal(tok.value)
+            if isinstance(value, int) and value > 2**63 - 1:
+                raise LexError(
+                    f"Integer literal overflows int64 at line {tok.line}, col {tok.column}"
+                )
+            return self._tok("NUMBER", tok.value, line=tok.line, column=tok.column)
 
         raise ParseError(
             "Expected selector atom (number, identifier, or {expr})", self.current

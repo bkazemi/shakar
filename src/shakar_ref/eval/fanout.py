@@ -326,7 +326,7 @@ def _seg_fingerprint(seg: Tree) -> str:
             for ch in tree_children(node):
                 walk(ch)
         elif isinstance(node, Tok):
-            buf.append(node.value)
+            buf.append(str(node.value))
 
     walk(seg)
     return "|".join(buf)

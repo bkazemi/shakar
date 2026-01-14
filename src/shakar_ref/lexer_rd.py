@@ -612,7 +612,6 @@ class Lexer:
             )
 
         literal = self.source[start_pos : self.pos]
-        self._validate_prefixed_int_range(literal, base, start_line, start_col)
         self.emit(TT.NUMBER, literal, start_line=start_line, start_col=start_col)
 
         return True
@@ -660,22 +659,6 @@ class Lexer:
             )
 
         return saw_digit
-
-    def _validate_prefixed_int_range(
-        self, literal: str, base: int, line: int, col: int
-    ) -> None:
-        """Validate that a base-prefixed integer fits in signed 64-bit range."""
-        digits = literal[2:].replace("_", "")  # strip "0x" prefix and underscores
-        try:
-            value = int(digits, base)
-        except ValueError as exc:
-            raise LexError(
-                f"Invalid base-prefixed integer at line {line}, col {col}"
-            ) from exc
-
-        # Allow i64 min magnitude here; unary minus folds it into a signed literal later.
-        if value < 0 or value > 2**63:
-            raise LexError(f"Integer literal overflows int64 at line {line}, col {col}")
 
     def scan_identifier(self):
         """Scan identifier or keyword"""
@@ -818,13 +801,7 @@ class Lexer:
                 f"{kind.capitalize()} literal not representable at line {line}"
             )
 
-        total_int = int(total)
-        if total_int < -(2**63) or total_int > 2**63 - 1:
-            raise LexError(
-                f"{kind.capitalize()} literal overflows int64 at line {line}"
-            )
-
-        return total_int
+        return int(total)
 
     def emit(
         self,
