@@ -436,17 +436,25 @@ class Lexer:
         )
 
     def scan_number(self):
-        """Scan number literal, including duration/size literals."""
+        """Scan number literal, including duration/size literals.
+
+        Handles: integers (decimal, 0b, 0o, 0x), floats, scientific notation,
+        and duration/size literals with unit suffixes. Underscores allowed
+        between digits for readability (e.g., 1_000_000, 0xdead_beef).
+        """
         start_line, start_col = self.line, self.column
         start_pos = self.pos
 
+        # Try base-prefixed integer first (0b, 0o, 0x)
         if self._scan_prefixed_integer(start_line, start_col, start_pos):
             return
 
-        # Integer part (with underscore support)
+        # Decimal integer part
         self._scan_digits_with_underscores(start_line, start_col)
 
-        # Decimal part (with underscore support)
+        # Optional fractional part (.digits)
+        # Reject 1.e5 (dot followed by exponent without digits).
+        # Allow 1.foo (member access) by only entering if next is digit/underscore.
         if self.peek() == ".":
             next_ch = self.peek(1)
             if next_ch in ("e", "E"):
@@ -454,15 +462,14 @@ class Lexer:
                     f"Fractional digits required after decimal point at line {start_line}, col {start_col}"
                 )
             if next_ch.isdigit() or next_ch == "_":
-                self.advance()  # .
-                # Check for leading underscore in fractional part
+                self.advance()  # consume '.'
                 if self.peek() == "_":
                     raise LexError(
                         f"Leading underscore in fractional part at line {start_line}, col {start_col}"
                     )
                 self._scan_digits_with_underscores(start_line, start_col)
 
-        # Scientific notation (with underscore support)
+        # Optional exponent (e+/-digits)
         if self.peek() in ("e", "E"):
             self.advance()
             if self.peek() in ("+", "-"):
@@ -477,7 +484,8 @@ class Lexer:
                     f"Missing digits in exponent at line {start_line}, col {start_col}"
                 )
 
-        # Check for trailing dot (invalid: 1e5. or 1.5.)
+        # Reject trailing dot without member name (1e5., 1.5.)
+        # Allow 1.foo and 1e5.bar (member access on numeric literals).
         if self.peek() == "." and not self.peek(1).isalpha() and self.peek(1) != "_":
             raise LexError(
                 f"Trailing dot after number literal at line {start_line}, col {start_col}"
@@ -536,6 +544,12 @@ class Lexer:
     def _scan_prefixed_integer(
         self, start_line: int, start_col: int, start_pos: int
     ) -> bool:
+        """Try to scan a base-prefixed integer (0b, 0o, 0x).
+
+        Returns True if a prefixed integer was found and emitted.
+        Returns False if current position is not a base prefix (caller continues).
+        Raises LexError on malformed prefixed integers.
+        """
         if self.peek() != "0":
             return False
 
@@ -547,10 +561,13 @@ class Lexer:
 
         base = {"b": 2, "o": 8, "x": 16}.get(prefix)
         if base is None:
-            return False
+            return False  # not a base prefix (e.g., 0.5 or plain 0)
 
-        self.advance(2)
+        self.advance(2)  # consume '0' and prefix letter
 
+        # Scan digits with underscore validation:
+        # - Must have at least one digit after prefix
+        # - Underscores only between digits (no leading/trailing/consecutive)
         saw_digit = False
         prev_underscore = False
 
@@ -573,7 +590,7 @@ class Lexer:
 
             break
 
-        if not saw_digit:
+        if not saw_digit:  # e.g., bare "0b" or "0x"
             raise LexError(
                 f"Incomplete base-prefixed integer at line {start_line}, col {start_col}"
             )
@@ -582,11 +599,13 @@ class Lexer:
                 f"Trailing underscore in base-prefixed integer at line {start_line}, col {start_col}"
             )
 
+        # Base-prefixed integers cannot have decimal points (0x1.5 invalid)
         if self.peek() == "." and self.peek(1).isdigit():
             raise LexError(
                 f"Base-prefixed integers cannot be floats at line {start_line}, col {start_col}"
             )
 
+        # Base-prefixed integers cannot have duration/size suffixes (0x10sec invalid)
         if self.peek().isalnum() or self.peek() == "_":
             raise LexError(
                 f"Base-prefixed integers cannot have unit suffixes at line {start_line}, col {start_col}"
@@ -595,17 +614,24 @@ class Lexer:
         literal = self.source[start_pos : self.pos]
         self._validate_prefixed_int_range(literal, base, start_line, start_col)
         self.emit(TT.NUMBER, literal, start_line=start_line, start_col=start_col)
+
         return True
 
     def _is_valid_prefixed_digit(self, ch: str, base: int) -> bool:
+        """Check if character is valid digit for given base (2, 8, or 16)."""
         if ch.isdigit():
             return int(ch) < base
         if base == 16 and ch.lower() in "abcdef":
             return True
+
         return False
 
     def _scan_digits_with_underscores(self, line: int, col: int) -> bool:
-        """Scan digits allowing underscores between them. Returns True if any digits scanned."""
+        """Scan decimal digits with optional underscore separators.
+
+        Underscores must appear between digits only (no leading/trailing/consecutive).
+        Returns True if at least one digit was scanned, False otherwise.
+        """
         saw_digit = False
         prev_underscore = False
 
@@ -638,7 +664,8 @@ class Lexer:
     def _validate_prefixed_int_range(
         self, literal: str, base: int, line: int, col: int
     ) -> None:
-        digits = literal[2:].replace("_", "")
+        """Validate that a base-prefixed integer fits in signed 64-bit range."""
+        digits = literal[2:].replace("_", "")  # strip "0x" prefix and underscores
         try:
             value = int(digits, base)
         except ValueError as exc:

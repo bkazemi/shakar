@@ -261,12 +261,16 @@ def require_number(value: ShkValue) -> ShkNumber:
 
 
 def token_number(token: Tok, _: None) -> ShkNumber:
+    """Convert NUMBER token to ShkNumber.
+
+    Handles decimal, base-prefixed (0b/0o/0x), and underscore-separated literals.
+    """
     raw = token.value
     if isinstance(raw, (int, float)):
         return ShkNumber(float(raw))
 
     text = str(raw)
-    clean = text.replace("_", "")
+    clean = text.replace("_", "")  # strip underscore separators
 
     if text.startswith(("0b", "0o", "0x")):
         base = {"0b": 2, "0o": 8, "0x": 16}[text[:2]]
