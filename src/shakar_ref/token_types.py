@@ -28,6 +28,7 @@ class TT(Enum):
     IF = auto()
     ELIF = auto()
     ELSE = auto()
+    UNLESS = auto()
     WHILE = auto()
     FOR = auto()
     IN = auto()
@@ -39,6 +40,7 @@ class TT(Enum):
     USING = auto()
     CALL = auto()
     DEFER = auto()
+    AFTER = auto()
     THROW = auto()
     CATCH = auto()
     ASSERT = auto()
@@ -48,6 +50,7 @@ class TT(Enum):
     SET = auto()
     HOOK = auto()
     OVER = auto()
+    BIND = auto()
     ANY = auto()
     ALL = auto()
 
@@ -124,9 +127,6 @@ class TT(Enum):
 
     # Pipe (for guard chains)
     PIPE = auto()  # |
-
-    # Binding
-    BIND = auto()  # ::
 
     # Spread
     SPREAD = auto()  # ...

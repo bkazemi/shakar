@@ -10,12 +10,12 @@ letter = "A" | "B" | ... | "Z" | "a" | "b" | ... | "z" | "_" ;
 digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
 
 (* Reserved keywords *)
-(* and, or, not, if, elif, else, for, in, break, continue, return, assert, *)
-(* using, call, defer, catch, decorator, decorate, hook, fn, get, set, bind, over, *)
+(* and, or, not, if, elif, else, unless, for, in, break, continue, return, assert, *)
+(* using, call, defer, after, catch, decorator, decorate, hook, fn, get, set, bind, over, *)
 (* true, false, nil, await, any, all, while, throw, dbg, is, ?ret *)
 
 (* Contextual keywords - valid as identifiers in most contexts *)
-(* unless, default, after, timeout, ret *)
+(* default, timeout, ret *)
 (* These are only keywords in specific grammatical positions and can be *)
 (* used as regular identifiers elsewhere. *)
 

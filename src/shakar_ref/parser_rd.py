@@ -241,10 +241,6 @@ class Parser:
         """Check if current token matches any of the given types"""
         return self.current.type in types
 
-    def check_contextual(self, keyword: str) -> bool:
-        """Check if current token is a contextual keyword (IDENT with specific value)"""
-        return self.check(TT.IDENT) and getattr(self.current, "value", "") == keyword
-
     def match(self, *types: TT) -> bool:
         """Check and consume if current token matches"""
         if self.check(*types):
@@ -338,7 +334,7 @@ class Parser:
         """
         stmt = self._parse_statement_prefix()
         if stmt is not None:
-            return stmt
+            return self._wrap_postfix(stmt) or stmt
 
         expr_start = self.pos
 
@@ -388,6 +384,25 @@ class Parser:
             self.advance(2)  # consume "? ret"
             value = self.parse_expr()
             return Tree("returnif", [value])
+
+        return None
+
+    def _wrap_postfix(self, stmt: Tree | Tok) -> Optional[Tree]:
+        """Wrap statement with postfix if/unless guard if present."""
+        wrapped = stmt if isinstance(stmt, Tree) else Tree("expr", [stmt])
+
+        if self.match(TT.IF):
+            cond = self.parse_expr()
+            return Tree(
+                "postfixif", [wrapped, self._tok("IF", "if"), Tree("expr", [cond])]
+            )
+
+        if self.match(TT.UNLESS):
+            cond = self.parse_expr()
+            return Tree(
+                "postfixunless",
+                [wrapped, self._tok("UNLESS", "unless"), Tree("expr", [cond])],
+            )
 
         return None
 
@@ -462,22 +477,9 @@ class Parser:
                 )
 
         # Postfix if/unless wraps the base statement
-        if self.check(TT.IF):
-            self.advance()
-            cond = self.parse_expr()
-            wrapped_base = (
-                base_stmt if isinstance(base_stmt, Tree) else Tree("expr", [base_stmt])
-            )
-            return Tree(
-                "postfixif", [wrapped_base, self._tok("IF", "if"), Tree("expr", [cond])]
-            )
-        if self.check_contextual("unless"):
-            self.advance()
-            cond = self.parse_expr()
-            wrapped_base = (
-                base_stmt if isinstance(base_stmt, Tree) else Tree("expr", [base_stmt])
-            )
-            return Tree("postfixunless", [wrapped_base, Tree("expr", [cond])])
+        postfix = self._wrap_postfix(base_stmt)
+        if postfix is not None:
+            return postfix
 
         # Just a statement/expression
         if isinstance(base_stmt, Tree):
@@ -688,8 +690,7 @@ class Parser:
         resource = self.parse_expr()
 
         binder = None
-        if self.check_contextual("bind"):
-            self.advance()
+        if self.match(TT.BIND):
             binder = self.expect(TT.IDENT)
 
         self.expect(TT.COLON)
@@ -722,8 +723,7 @@ class Parser:
         target = self.parse_expr()
 
         binder = None
-        if self.check_contextual("bind"):
-            self.advance()
+        if self.match(TT.BIND):
             binder = self.expect(TT.IDENT)
 
         if handle is not None and binder is not None:
@@ -787,8 +787,7 @@ class Parser:
                 )
 
             # Optional deferafter
-            if self.check_contextual("after"):
-                self.advance()
+            if self.match(TT.AFTER):
                 defer_children.append(self._parse_defer_after())
 
             self.expect(TT.COLON)
@@ -802,8 +801,7 @@ class Parser:
             raise ParseError("defer expects a call expression or block", self.current)
 
         # Optional deferafter
-        if self.check_contextual("after"):
-            self.advance()
+        if self.match(TT.AFTER):
             defer_children.append(self._parse_defer_after())
         defer_children.append(call_expr)
 
@@ -1425,8 +1423,7 @@ class Parser:
 
             # Optional binder: either bare IDENT or 'bind' IDENT
             binder: Optional[Tok] = None
-            if self.check_contextual("bind"):
-                self.advance()
+            if self.match(TT.BIND):
                 binder = self.expect(TT.IDENT)
             elif self.check(TT.IDENT) and not types:
                 # binder_simple form when no typed list
@@ -1479,8 +1476,7 @@ class Parser:
             self.expect(TT.RPAR)
 
         binder_tok = None
-        if self.check_contextual("bind"):
-            self.advance()
+        if self.match(TT.BIND):
             binder_tok = self.expect(TT.IDENT)
         elif self.check(TT.IDENT) and not types:
             binder_tok = self.advance()
@@ -2833,8 +2829,7 @@ class Parser:
             # Otherwise: expr [bind pattern]
             iter_expr = self.parse_expr()
             children.append(iter_expr)
-            if self.check_contextual("bind"):
-                self.advance()
+            if self.match(TT.BIND):
                 pattern = self.parse_pattern()
                 children.append(pattern)
             return Tree("overspec", children)
@@ -2917,7 +2912,7 @@ class Parser:
             TT.IF,
         ):
             return True
-        if self.check_contextual("unless"):
+        if self.check(TT.UNLESS):
             return True
         return False
 

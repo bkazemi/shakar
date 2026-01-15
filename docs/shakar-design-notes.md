@@ -30,7 +30,7 @@ This is a living technical spec. Every surface sugar has a deterministic desugar
 - **Whitespace & layout**: indentation (spaces only) after `:` starts blocks.
 - **Semicolons**: hard statement delimiters at top level and inside braced inline suites `{ ... }`. Multiple statements may share a line. Grammar shape: `stmtlist := stmt (SEMI stmt)* SEMI?`.
 - **Inline suites after `:`**: exactly one simple statement. Wrap a braced inline suite on the right of the colon for multiple statements.
-- **Reserved keywords**: `and, or, not, if, elif, else, for, in, break, continue, return, assert, using, call, defer, catch, decorator, decorate, hook, fn, get, set, bind, over, true, false, nil`.
+- **Reserved keywords**: `and, or, not, if, elif, else, unless, for, in, break, continue, return, assert, using, call, defer, after, catch, decorator, decorate, hook, fn, get, set, bind, over, true, false, nil`.
 - **Contextual keywords**: `for` (in comprehensions), `get`/`set` (inside object literals).
 - **Punctuation tokens**: `.=` (apply-assign), `|`/`|:` (guards), `?ret` (statement head), `??(expr)` (nil-safe chain), `:=` (walrus).
 
