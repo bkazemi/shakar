@@ -2432,6 +2432,17 @@ verdict""",
 )
 runtime_scenario(
     lambda: _rt(
+        "selector-compare-eq-any",
+        """v1 := 1 == `1, 2`
+v2 := 1 != `2, 3`
+v3 := 1 != `1, 2`
+[v1, v2, v3]""",
+        ("array", [True, True, False]),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
         "selector-literal-pick",
         """sel := `0, 2`
 arr := [10, 20, 30]

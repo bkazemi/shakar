@@ -659,10 +659,10 @@ def _compare_with_selector(op: str, lhs: ShkValue, selector: ShkSelector) -> boo
     values = _selector_values(selector)
 
     if op == "==":
-        return all(shk_equals(lhs, val) for val in values)
+        return any(shk_equals(lhs, val) for val in values)
 
     if op == "!=":
-        return any(not shk_equals(lhs, val) for val in values)
+        return all(not shk_equals(lhs, val) for val in values)
 
     lhs_num = _coerce_number(lhs)
     rhs_nums = [_coerce_number(val) for val in values]
