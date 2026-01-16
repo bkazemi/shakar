@@ -91,6 +91,8 @@ from .eval.expr import (
 )
 from .eval.literals import (
     eval_array_literal,
+    eval_env_interp,
+    eval_env_string,
     eval_keyword_literal,
     eval_path_interp,
     eval_shell_string,
@@ -540,6 +542,14 @@ def _eval_path_interp(n: Tree, frame: Frame) -> ShkValue:
     return eval_path_interp(n, frame, eval_node)
 
 
+def _eval_env_string(n: Tree, frame: Frame) -> ShkValue:
+    return eval_env_string(n, frame, eval_node)
+
+
+def _eval_env_interp(n: Tree, frame: Frame) -> ShkValue:
+    return eval_env_interp(n, frame, eval_node)
+
+
 # ---- Block/body handlers ----
 
 
@@ -657,6 +667,8 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "string_interp": _eval_string_interp,
     "shell_string": _eval_shell_string,
     "path_interp": _eval_path_interp,
+    "env_string": _eval_env_string,
+    "env_interp": _eval_env_interp,
     # Blocks/bodies
     "group": _eval_group,
     "no_anchor": _eval_group,

@@ -1801,6 +1801,38 @@ runtime_scenario(
         None,
     )
 )
+# Environment string tests
+runtime_scenario(lambda: _rt("env-basic", 'env"PATH" != nil', ("bool", True), None))
+runtime_scenario(
+    lambda: _rt(
+        "env-missing",
+        'env"SHAKAR_TEST_NONEXISTENT_VAR_12345"',
+        ("null", None),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "env-coalesce",
+        'env"SHAKAR_TEST_NONEXISTENT_VAR_12345" ?? "fallback"',
+        ("string", "fallback"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "env-interp",
+        'x := "PATH"; env"{x}" != nil',
+        ("bool", True),
+        None,
+    )
+)
+# Non-reserved prefix keywords usable as identifiers
+runtime_scenario(lambda: _rt("ident-env", "env := 1; env + 1", ("number", 2), None))
+runtime_scenario(lambda: _rt("ident-sh", "sh := 2; sh + 1", ("number", 3), None))
+runtime_scenario(lambda: _rt("ident-raw", "raw := 3; raw + 1", ("number", 4), None))
+runtime_scenario(lambda: _rt("ident-p", "p := 4; p + 1", ("number", 5), None))
+runtime_scenario(lambda: _rt("ident-r", "r := 5; r + 1", ("number", 6), None))
 runtime_scenario(
     lambda: _rt("base-prefix-binary", "0b1010_0011", ("number", 163), None)
 )

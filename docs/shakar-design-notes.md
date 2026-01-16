@@ -216,7 +216,7 @@ if user.is_admin:
   - **Underscores**: Allowed between digits for readability (e.g., `1_000_000`, `0xdead_beef`). Cannot be placed immediately after a base prefix, at the start of a decimal number, or at the very end of any number.
   - **Overflow**: Values outside the signed 64-bit range throw an error at parse/evaluation time.
 - **Floats**: IEEE-754 double; leading zero required (`0.5`, not `.5`). Underscores allowed between digits. Base prefixes are NOT supported for floats.
-- **Strings**: `"…"`, `'…'` with escapes `\n \t \\ \" \u{…}`. Multiline ❓.
+- **Strings**: `"…"`, `'…'` with escapes `\n \t \\ \" \u{…}`. Multiline ❓. Environment strings: `env"VAR"`/`env'VAR'` (interpolation allowed) evaluate to a string or `nil`.
 - **Arrays**: `[1, 2, 3]`.
 - **Objects**: `{ key: value }` (getters/setters contextual, below).
 - **Selector literals (values)**: backtick selectors like `` `1:10` `` produce Selector values (views/iterables). Default stop is inclusive; use `<stop` for exclusive (e.g., `` `[1:<10]` ``).
@@ -310,6 +310,18 @@ Typed literals representing byte quantities. Distinct from integers and duration
   files := ["a.txt", "b 1.txt"]
   cmd := sh"ls -l {files} | grep 'x' > {outfile}"
   res := cmd.run()
+  ```
+
+### Environment strings (`env"..."`)
+
+- Literal: `env"..."` or `env'...'`; evaluates to environment lookup of the resolved name.
+- Interpolation: `{expr}` allowed; parts are stringified and concatenated to form the variable name.
+- Missing vars: returns `nil` when the environment variable is not set.
+- Example:
+  ```shakar
+  home := env"HOME"
+  var := "PATH"; path := env"{var}"
+  port := env"PORT" ?? "3000"
   ```
 
 ### Selector values, slices, and selectors

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 from typing import Callable, List
 
@@ -136,6 +137,47 @@ def eval_path_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkPath:
         raise ShakarRuntimeError("Unexpected node in path interpolation literal")
 
     return ShkPath("".join(parts))
+
+
+def eval_env_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    """Evaluate simple env string (no interpolation)."""
+    children = tree_children(node)
+    if not children or not is_token(children[0]):
+        raise ShakarRuntimeError("Malformed env_string node")
+
+    var_name = children[0].value
+    value = os.environ.get(var_name)
+
+    if value is None:
+        return ShkNull()
+    return ShkString(value)
+
+
+def eval_env_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    """Evaluate interpolated env string."""
+    parts: List[str] = []
+
+    for part in tree_children(node):
+        if is_token(part):
+            parts.append(part.value)
+            continue
+
+        if tree_label(part) == "env_interp_expr":
+            expr_node = part.children[0] if tree_children(part) else None
+            if expr_node is None:
+                raise ShakarRuntimeError("Empty interpolation expression")
+            value = eval_anchor_scoped(expr_node, frame, eval_func)
+            parts.append(stringify(value))
+            continue
+
+        raise ShakarRuntimeError("Unexpected node in env string")
+
+    var_name = "".join(parts)
+    value = os.environ.get(var_name)
+
+    if value is None:
+        return ShkNull()
+    return ShkString(value)
 
 
 def _render_shell_safe(value: ShkValue) -> str:

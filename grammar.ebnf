@@ -29,6 +29,8 @@ SHELL_STRING = 'sh"' ( string_char | escape_seq )* '"'
              | "sh'" ( string_char | escape_seq )* "'" ;
 PATH_STRING = 'p"' ( string_char | escape_seq )* '"'
             | "p'" ( string_char | escape_seq )* "'" ;
+ENV_STRING = 'env"' ( string_char | escape_seq )* '"'
+           | "env'" ( string_char | escape_seq )* "'" ;
 REGEX = 'r"' ( string_char | escape_seq )* '"' [ "/" , regex_flags ]
       | "r'" ( string_char | escape_seq )* "'" [ "/" , regex_flags ] ;
 regex_flags = regex_flag , { regex_flag } ;
@@ -269,7 +271,7 @@ primary = rebind_primary
         | hole_expression ;
 
 (* Literals *)
-literal = STRING | RAW_STRING | RAW_HASH_STRING | SHELL_STRING | PATH_STRING | REGEX
+literal = STRING | RAW_STRING | RAW_HASH_STRING | SHELL_STRING | PATH_STRING | ENV_STRING | REGEX
         | NUMBER | "nil" | "true" | "false" ;
 
 (* Selector literals *)

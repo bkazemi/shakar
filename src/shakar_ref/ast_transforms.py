@@ -180,6 +180,9 @@ class Prune(Transformer):
 
             if token_type == TT.SHELL_STRING:
                 return self._transform_shell_string_token(node)
+
+            if token_type == TT.ENV_STRING:
+                return self._transform_env_string_token(node)
         return node
 
     # Canonicalize fields to a single node shape: obj_field(key, value)
@@ -303,6 +306,48 @@ class Prune(Transformer):
             nodes.append(Tree("path_interp_expr", [payload]))
 
         result = Tree("path_interp", nodes)
+        meta = getattr(token, "meta", None)
+        if meta is not None:
+            result.meta = meta
+        return result
+
+    def _transform_env_string_token(self, token: Tok) -> Node:
+        """Transform env string token, handling interpolation."""
+        raw = token.value
+
+        # Strip prefix and quotes: env"..." -> body
+        if raw.startswith('env"') and raw.endswith('"'):
+            body = raw[4:-1]
+        elif raw.startswith("env'") and raw.endswith("'"):
+            body = raw[4:-1]
+        else:
+            body = raw
+
+        if "{" not in body:
+            # No interpolation - simple env_string
+            result = Tree("env_string", [Tok(TT.STRING, body)])
+            meta = getattr(token, "meta", None)
+            if meta is not None:
+                result.meta = meta
+            return result
+
+        segments = self._split_interpolation_segments(body, token)
+        if not segments:
+            result = Tree("env_string", [Tok(TT.STRING, body)])
+            meta = getattr(token, "meta", None)
+            if meta is not None:
+                result.meta = meta
+            return result
+
+        nodes: List[Node] = []
+        for kind, payload in segments:
+            if kind == "text":
+                if payload:
+                    nodes.append(Tok(TT.STRING, payload))
+                continue
+            nodes.append(Tree("env_interp_expr", [payload]))
+
+        result = Tree("env_interp", nodes)
         meta = getattr(token, "meta", None)
         if meta is not None:
             result.meta = meta

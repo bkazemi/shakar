@@ -209,15 +209,23 @@ class Lexer:
             self.scan_string()
             return
 
-        # Raw strings
-        if self.match_keyword("raw"):
-            self.scan_raw_string()
-            return
+        # Raw strings (raw"..." or raw#"..."#)
+        if self.peek() == "r" and self.peek(1) == "a" and self.peek(2) == "w":
+            if self.peek(3) in ('"', "'", "#"):
+                self.advance(3)
+                self.scan_raw_string()
+                return
 
         # Shell strings
-        if self.match_keyword("sh"):
+        if self.match_string_prefix("sh"):
             self.scan_shell_string()
             return
+
+        # Environment strings
+        if self.match_string_prefix("env"):
+            self.scan_env_string()
+            return
+
         # Path strings
         if self.peek() == "p" and self.peek(1) in ('"', "'"):
             self.advance()  # consume 'p'
@@ -400,6 +408,21 @@ class Lexer:
         self.emit(
             TT.PATH_STRING, full_value, start_line=start_line, start_col=start_col
         )
+
+    def scan_env_string(self):
+        """Scan environment string: env"..." or env'...'"""
+        # 'env' keyword already consumed - start is 3 chars back
+        start_line, start_col = self.line, self.column - 3
+        start_pos = self.pos - 3
+        quote = self.advance()
+        self.scan_quoted_content(quote, allow_escapes=True)
+
+        if self.pos >= len(self.source):
+            raise LexError(f"Unterminated env string at line {start_line}")
+
+        self.advance()  # Closing quote
+        full_value = self.source[start_pos : self.pos]
+        self.emit(TT.ENV_STRING, full_value, start_line=start_line, start_col=start_col)
 
     def scan_regex_literal(self):
         """Scan regex literal: r"..." or r'...' with optional /flags."""
@@ -728,6 +751,19 @@ class Lexer:
         for _ in keyword:
             self.advance()
 
+        return True
+
+    def match_string_prefix(self, prefix: str) -> bool:
+        """Match a prefix string keyword only if followed by a quote."""
+        n = len(prefix)
+        for i, ch in enumerate(prefix):
+            if self.peek(i) != ch:
+                return False
+
+        if self.peek(n) not in ('"', "'"):
+            return False
+
+        self.advance(n)
         return True
 
     def skip_whitespace(self) -> bool:
