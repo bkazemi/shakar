@@ -16,6 +16,7 @@ from .types import (
     ShkObject,
     ShkCommand,
     ShkPath,
+    ShkEnvVar,
     ShkSelector,
     SelectorIndex,
     SelectorSlice,
@@ -54,6 +55,7 @@ from .types import (
     _ensure_shk_value,
     StdlibFn,
 )
+from .utils import envvar_value_by_name
 
 __all__ = [
     "Frame",
@@ -68,6 +70,7 @@ __all__ = [
     "ShkObject",
     "ShkCommand",
     "ShkPath",
+    "ShkEnvVar",
     "ShkSelector",
     "SelectorIndex",
     "SelectorSlice",
@@ -156,6 +159,10 @@ def register_command(name: str):
 
 def register_path(name: str):
     return register_method(Builtins.path_methods, name)
+
+
+def register_envvar(name: str):
+    return register_method(Builtins.envvar_methods, name)
 
 
 def register_stdlib(name: str, *, arity: Optional[int] = None):
@@ -420,9 +427,64 @@ def _path_chmod(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNull:
     return ShkNull()
 
 
+# ---------- EnvVar methods ----------
+
+import os as _os
+
+
+def _envvar_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
+    if len(args) != expected:
+        raise ShakarArityError(
+            f"envvar.{method} expects {expected} args; got {len(args)}"
+        )
+
+
+@register_envvar("assign")
+def _envvar_assign(_frame: Frame, recv: ShkEnvVar, args: List[ShkValue]) -> ShkEnvVar:
+    """Set the environment variable to a new value."""
+    _envvar_expect_arity("assign", args, 1)
+    val = args[0]
+    if isinstance(val, ShkString):
+        str_val = val.value
+    elif isinstance(val, ShkEnvVar):
+        env_val = _os.environ.get(val.name)
+        if env_val is None:
+            _os.environ.pop(recv.name, None)
+            return recv
+        str_val = env_val
+    elif isinstance(val, ShkNull):
+        # Setting to nil is equivalent to unset
+        _os.environ.pop(recv.name, None)
+        return recv
+    else:
+        str_val = str(val)
+    _os.environ[recv.name] = str_val
+    return recv
+
+
+@register_envvar("unset")
+def _envvar_unset(_frame: Frame, recv: ShkEnvVar, args: List[ShkValue]) -> ShkNull:
+    """Remove the environment variable."""
+    _envvar_expect_arity("unset", args, 0)
+    _os.environ.pop(recv.name, None)
+    return ShkNull()
+
+
 def call_builtin_method(
     recv: ShkValue, name: str, args: List[ShkValue], frame: "Frame"
 ) -> ShkValue:
+    if isinstance(recv, ShkEnvVar):
+        handler = Builtins.envvar_methods.get(name)
+        if handler is not None:
+            return handler(frame, recv, args)
+
+        str_handler = Builtins.string_methods.get(name)
+        if str_handler is not None:
+            env_val = envvar_value_by_name(recv.name)
+            if env_val is None:
+                raise ShakarTypeError(f"Env var '{recv.name}' has no value")
+            return str_handler(frame, ShkString(env_val), args)
+
     registry_by_type: Dict[type, MethodRegistry] = {
         ShkArray: Builtins.array_methods,
         ShkString: Builtins.string_methods,
@@ -430,6 +492,7 @@ def call_builtin_method(
         ShkObject: Builtins.object_methods,
         ShkCommand: Builtins.command_methods,
         ShkPath: Builtins.path_methods,
+        ShkEnvVar: Builtins.envvar_methods,
     }
 
     registry = registry_by_type.get(type(recv))

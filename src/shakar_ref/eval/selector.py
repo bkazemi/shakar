@@ -5,6 +5,7 @@ from typing import Callable, Iterable, List, Optional
 from ..runtime import (
     Frame,
     ShkArray,
+    ShkEnvVar,
     ShkString,
     ShkNumber,
     ShkNull,
@@ -18,7 +19,7 @@ from ..runtime import (
     ShakarIndexError,
 )
 
-from ..utils import sequence_items
+from ..utils import sequence_items, envvar_value_by_name
 from ..tree import (
     Node,
     Tree,
@@ -126,6 +127,12 @@ def apply_selectors_to_value(recv: ShkValue, selectors: List[SelectorPart]) -> S
 
     if isinstance(recv, ShkString):
         return _apply_selectors_to_string(recv, selectors)
+
+    if isinstance(recv, ShkEnvVar):
+        env_val = envvar_value_by_name(recv.name)
+        if env_val is None:
+            raise ShakarTypeError(f"Env var '{recv.name}' has no value for selector")
+        return _apply_selectors_to_string(ShkString(env_val), selectors)
 
     raise ShakarTypeError("Complex selectors only supported on arrays or strings")
 

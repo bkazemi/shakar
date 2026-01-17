@@ -1801,13 +1801,13 @@ runtime_scenario(
         None,
     )
 )
-# Environment string tests
-runtime_scenario(lambda: _rt("env-basic", 'env"PATH" != nil', ("bool", True), None))
+# Environment string tests - ShkEnvVar is nil-transparent
+runtime_scenario(lambda: _rt("env-exists", 'env"PATH" != nil', ("bool", True), None))
 runtime_scenario(
     lambda: _rt(
-        "env-missing",
-        'env"SHAKAR_TEST_NONEXISTENT_VAR_12345"',
-        ("null", None),
+        "env-missing-is-nil",
+        'env"SHAKAR_TEST_NONEXISTENT_VAR_12345" == nil',
+        ("bool", True),
         None,
     )
 )
@@ -1824,6 +1824,101 @@ runtime_scenario(
         "env-interp",
         'x := "PATH"; env"{x}" != nil',
         ("bool", True),
+        None,
+    )
+)
+runtime_scenario(lambda: _rt("env-name", 'env"PATH".name', ("string", "PATH"), None))
+runtime_scenario(
+    lambda: _rt("env-exists-prop", 'env"PATH".exists', ("bool", True), None)
+)
+runtime_scenario(
+    lambda: _rt(
+        "env-exists-false",
+        'env"SHAKAR_TEST_NONEXISTENT_VAR_12345".exists',
+        ("bool", False),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt("env-value-prop", 'env"PATH".value != nil', ("bool", True), None)
+)
+runtime_scenario(
+    lambda: _rt(
+        "env-assign-unset",
+        'env"SHAKAR_TEST_VAR".assign("hello"); v := env"SHAKAR_TEST_VAR".value; env"SHAKAR_TEST_VAR".unset(); v',
+        ("string", "hello"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "env-as-object-key",
+        'env"SHAKAR_TEST_VAR".assign("foo"); obj := {foo: 42}; v := obj[env"SHAKAR_TEST_VAR"]; env"SHAKAR_TEST_VAR".unset(); v',
+        ("number", 42),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "env-in-string",
+        'env"SHAKAR_TEST_VAR".assign("world"); r := "world" in env"SHAKAR_TEST_VAR"; env"SHAKAR_TEST_VAR".unset(); r',
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "env-substring-in-env",
+        'env"SHAKAR_TEST_VAR".assign("hello world"); r := "wor" in env"SHAKAR_TEST_VAR"; env"SHAKAR_TEST_VAR".unset(); r',
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "env-slicing",
+        'env"SHAKAR_TEST_VAR".assign("hello"); v := env"SHAKAR_TEST_VAR"[0:3]; env"SHAKAR_TEST_VAR".unset(); v',
+        ("string", "hel"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "env-len-prop",
+        'env"SHAKAR_TEST_VAR".assign("hello"); v := env"SHAKAR_TEST_VAR".len; env"SHAKAR_TEST_VAR".unset(); v',
+        ("number", 5),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "env-compare-envs",
+        'env"SHAKAR_TEST_A".assign("same"); env"SHAKAR_TEST_B".assign("same"); r := env"SHAKAR_TEST_A" == env"SHAKAR_TEST_B"; env"SHAKAR_TEST_A".unset(); env"SHAKAR_TEST_B".unset(); r',
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "env-compare-envs-diff",
+        'env"SHAKAR_TEST_A".assign("one"); env"SHAKAR_TEST_B".assign("two"); r := env"SHAKAR_TEST_A" != env"SHAKAR_TEST_B"; env"SHAKAR_TEST_A".unset(); env"SHAKAR_TEST_B".unset(); r',
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "env-concat-envs",
+        'env"SHAKAR_TEST_A".assign("hello"); env"SHAKAR_TEST_B".assign("world"); r := env"SHAKAR_TEST_A" + env"SHAKAR_TEST_B"; env"SHAKAR_TEST_A".unset(); env"SHAKAR_TEST_B".unset(); r',
+        ("string", "helloworld"),
+        None,
+    )
+)
+runtime_scenario(
+    lambda: _rt(
+        "env-concat-string",
+        'env"SHAKAR_TEST_VAR".assign("hello"); r := env"SHAKAR_TEST_VAR" + " world"; env"SHAKAR_TEST_VAR".unset(); r',
+        ("string", "hello world"),
         None,
     )
 )

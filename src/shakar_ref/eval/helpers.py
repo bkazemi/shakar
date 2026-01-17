@@ -7,13 +7,33 @@ from ..runtime import (
     Frame,
     ShkArray,
     ShkBool,
+    ShkCommand,
+    ShkDecorator,
+    DecoratorConfigured,
+    DecoratorContinuation,
+    Descriptor,
+    ShkDuration,
+    ShkEnvVar,
+    ShkFn,
     ShkNull,
     ShkNumber,
     ShkObject,
+    ShkOptional,
+    ShkPath,
+    ShkRegex,
+    ShkSelector,
+    ShkSize,
     ShkString,
+    ShkType,
+    ShkUnion,
     ShkValue,
+    BoundMethod,
+    BuiltinMethod,
+    StdlibFunction,
+    ShakarTypeError,
 )
 from ..tree import Node, is_token, is_tree, tree_label
+from ..utils import envvar_value_by_name
 from .common import token_kind as _token_kind
 
 
@@ -25,14 +45,40 @@ def is_truthy(val: ShkValue) -> bool:
             return False
         case ShkNumber(value=num):
             return num != 0
+        case ShkDuration(nanos=nanos):
+            return nanos != 0
+        case ShkSize(byte_count=byte_count):
+            return byte_count != 0
         case ShkString(value=s):
             return bool(s)
         case ShkArray(items=items):
             return bool(items)
         case ShkObject(slots=slots):
             return bool(slots)
+        case ShkPath(value=path):
+            return bool(path)
+        case ShkCommand() as cmd:
+            return bool(cmd.render())
+        case ShkEnvVar(name=name):
+            return bool(envvar_value_by_name(name))
+        case (
+            ShkRegex()
+            | ShkSelector()
+            | ShkFn()
+            | ShkDecorator()
+            | DecoratorConfigured()
+            | DecoratorContinuation()
+            | Descriptor()
+            | BoundMethod()
+            | BuiltinMethod()
+            | StdlibFunction()
+            | ShkType()
+            | ShkOptional()
+            | ShkUnion()
+        ):
+            raise ShakarTypeError("Non-boolean value used in condition")
         case _:
-            return True
+            raise ShakarTypeError("Unknown value type in condition")
 
 
 def retargets_anchor(node: Node) -> bool:

@@ -11,6 +11,7 @@ from ..runtime import (
     ShkArray,
     ShkBool,
     ShkCommand,
+    ShkEnvVar,
     ShkNull,
     ShkObject,
     ShkPath,
@@ -139,21 +140,17 @@ def eval_path_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkPath:
     return ShkPath("".join(parts))
 
 
-def eval_env_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_env_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkEnvVar:
     """Evaluate simple env string (no interpolation)."""
     children = tree_children(node)
     if not children or not is_token(children[0]):
         raise ShakarRuntimeError("Malformed env_string node")
 
     var_name = children[0].value
-    value = os.environ.get(var_name)
-
-    if value is None:
-        return ShkNull()
-    return ShkString(value)
+    return ShkEnvVar(var_name)
 
 
-def eval_env_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_env_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkEnvVar:
     """Evaluate interpolated env string."""
     parts: List[str] = []
 
@@ -173,11 +170,7 @@ def eval_env_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         raise ShakarRuntimeError("Unexpected node in env string")
 
     var_name = "".join(parts)
-    value = os.environ.get(var_name)
-
-    if value is None:
-        return ShkNull()
-    return ShkString(value)
+    return ShkEnvVar(var_name)
 
 
 def _render_shell_safe(value: ShkValue) -> str:

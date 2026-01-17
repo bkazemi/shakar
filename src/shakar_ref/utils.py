@@ -6,6 +6,7 @@ from .types import (
     ShkValue,
     DecoratorConfigured,
     DecoratorContinuation,
+    ShkEnvVar,
     ShkNull,
     ShkNumber,
     ShkString,
@@ -31,10 +32,54 @@ def value_in_list(seq: List[ShkValue], value: ShkValue) -> bool:
     return False
 
 
+import os as _os
+
+
+def envvar_is_nil(env: ShkEnvVar) -> bool:
+    """Check if an env var has no value (doesn't exist)."""
+    return env.name not in _os.environ
+
+
+def envvar_value(env: ShkEnvVar) -> Optional[str]:
+    """Get the current value of an env var, or None if missing."""
+    return _os.environ.get(env.name)
+
+
+def envvar_value_by_name(name: str) -> Optional[str]:
+    """Get the current value of an env var by name, or None if missing."""
+    return _os.environ.get(name)
+
+
+def is_nil_like(value: ShkValue) -> bool:
+    """Check if a value is nil or an env var with missing value."""
+    if isinstance(value, ShkNull):
+        return True
+    if isinstance(value, ShkEnvVar):
+        return envvar_is_nil(value)
+    return False
+
+
 def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
     match (lhs, rhs):
         case (ShkNull(), ShkNull()):
             return True
+        # EnvVar compared with nil: true if env var doesn't exist
+        case (ShkEnvVar() as env, ShkNull()) | (ShkNull(), ShkEnvVar() as env):
+            return envvar_is_nil(env)
+        # EnvVar compared with EnvVar: compare resolved values (nil if missing)
+        case (ShkEnvVar() as env_a, ShkEnvVar() as env_b):
+            val_a = envvar_value(env_a)
+            val_b = envvar_value(env_b)
+            if val_a is None and val_b is None:
+                return True
+            return val_a == val_b
+        # EnvVar compared with string: compare values
+        case (ShkEnvVar() as env, ShkString(value=s)):
+            env_val = envvar_value(env)
+            return env_val is not None and env_val == s
+        case (ShkString(value=s), ShkEnvVar() as env):
+            env_val = envvar_value(env)
+            return env_val is not None and s == env_val
         case (ShkNumber(value=a), ShkNumber(value=b)):
             return a == b
         case (ShkString(value=a), ShkString(value=b)):
@@ -115,7 +160,14 @@ def normalize_object_key(value: ShkValue) -> str:
             return "true" if b else "false"
         case ShkNull():
             return "null"
+        case ShkEnvVar() as env:
+            env_val = envvar_value(env)
+            if env_val is None:
+                raise ShakarTypeError(
+                    f"Env var '{env.name}' has no value for object key"
+                )
+            return env_val
         case _:
             raise ShakarTypeError(
-                "Object key must be a Shakar string, number, bool, or null"
+                "Object key must be a Shakar string, number, bool, null, or env var"
             )

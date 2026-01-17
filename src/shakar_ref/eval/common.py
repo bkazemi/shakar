@@ -9,6 +9,7 @@ from ..token_types import TT
 from ..types import (
     Frame,
     ShkBool,
+    ShkEnvVar,
     ShkNumber,
     ShkPath,
     ShkString,
@@ -22,6 +23,7 @@ from ..types import (
 )
 from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
 from ..tree import token_kind
+from ..utils import envvar_value_by_name
 
 SourceSpan: TypeAlias = tuple[int, int] | tuple[None, None]
 
@@ -352,6 +354,10 @@ def token_regex(token: Tok, _: None) -> ShkRegex:
 def stringify(value: Optional[ShkValue]) -> str:
     if isinstance(value, ShkPath):
         return str(value)
+
+    if isinstance(value, ShkEnvVar):
+        env_val = envvar_value_by_name(value.name)
+        return env_val if env_val is not None else "nil"
 
     if isinstance(value, ShkString):
         return value.value

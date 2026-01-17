@@ -135,6 +135,19 @@ class ShkPath:
         return self.value
 
 
+@dataclass
+class ShkEnvVar:
+    name: str
+
+    def __repr__(self) -> str:
+        return f'env"{self.name}"'
+
+    def __str__(self) -> str:
+        import os
+
+        return os.environ.get(self.name, "")
+
+
 @dataclass(frozen=True)
 class ShkType:
     """Runtime type representation for structural matching."""
@@ -337,6 +350,7 @@ ShkValue: TypeAlias = Union[
     ShkSelector,
     ShkCommand,
     ShkPath,
+    ShkEnvVar,
     BoundMethod,
     BuiltinMethod,
     StdlibFunction,
@@ -553,6 +567,7 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     ShkSelector,
     ShkCommand,
     ShkPath,
+    ShkEnvVar,
     BoundMethod,
     BuiltinMethod,
     StdlibFunction,
@@ -593,5 +608,6 @@ class Builtins:
     object_methods: MethodRegistry = {}
     command_methods: MethodRegistry = {}
     path_methods: MethodRegistry = {}
+    envvar_methods: MethodRegistry = {}
     stdlib_functions: Dict[str, StdlibFunction] = {}
     type_constants: Dict[str, "ShkType"] = {}

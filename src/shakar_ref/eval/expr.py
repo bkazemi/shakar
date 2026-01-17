@@ -10,6 +10,7 @@ from ..runtime import (
     Frame,
     ShkArray,
     ShkBool,
+    ShkEnvVar,
     ShkNull,
     ShkNumber,
     ShkDuration,
@@ -27,7 +28,7 @@ from ..runtime import (
     regex_match_value,
 )
 from ..tree import Node, Tree, is_tree, node_meta, tree_children, tree_label
-from ..utils import shk_equals
+from ..utils import shk_equals, is_nil_like, envvar_value_by_name
 from .bind import FanContext, RebindContext, apply_numeric_delta
 from .chains import apply_op as chain_apply_op, evaluate_index_operand
 from .common import require_number, stringify, token_kind
@@ -351,7 +352,7 @@ def eval_nullish(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
     current = eval_anchor_scoped(exprs[0], frame, eval_func)
 
     for expr in exprs[1:]:
-        if not isinstance(current, ShkNull):
+        if not is_nil_like(current):
             return current
         current = eval_anchor_scoped(expr, frame, eval_func)
 
@@ -377,7 +378,7 @@ def eval_nullsafe(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         head = children[0]
         current = eval_func(head, frame)
 
-        if isinstance(current, ShkNull):
+        if is_nil_like(current):
             return ShkNull()
 
         for op in children[1:]:
@@ -391,7 +392,7 @@ def eval_nullsafe(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             if isinstance(current, RebindContext):
                 current = current.value
 
-            if isinstance(current, ShkNull):
+            if is_nil_like(current):
                 return ShkNull()
         return current
 
@@ -502,7 +503,9 @@ def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
         case "+":
             if isinstance(lhs, ShkArray) and isinstance(rhs, ShkArray):
                 return ShkArray(lhs.items + rhs.items)
-            if isinstance(lhs, ShkString) or isinstance(rhs, ShkString):
+            if isinstance(lhs, (ShkString, ShkEnvVar)) or isinstance(
+                rhs, (ShkString, ShkEnvVar)
+            ):
                 return ShkString(stringify(lhs) + stringify(rhs))
             if isinstance(lhs, ShkDuration) or isinstance(rhs, ShkDuration):
                 if not (isinstance(lhs, ShkDuration) and isinstance(rhs, ShkDuration)):
@@ -633,6 +636,12 @@ def _compare_values(op: str, lhs: ShkValue, rhs: ShkValue) -> bool:
 
 
 def _regex_match(lhs: ShkValue, rhs: ShkValue) -> ShkValue:
+    if isinstance(lhs, ShkEnvVar):
+        env_val = envvar_value_by_name(lhs.name)
+        if env_val is None:
+            raise ShakarTypeError("Regex match expects a string on the left")
+        lhs = ShkString(env_val)
+
     if not isinstance(lhs, ShkString):
         raise ShakarTypeError("Regex match expects a string on the left")
     if not isinstance(rhs, ShkRegex):
@@ -687,10 +696,32 @@ def _contains(container: ShkValue, item: ShkValue) -> bool:
         case ShkString(value=text):
             if isinstance(item, ShkString):
                 return item.value in text
+            if isinstance(item, ShkEnvVar):
+                env_val = envvar_value_by_name(item.name)
+                if env_val is None:
+                    raise ShakarTypeError("String membership requires a string value")
+                return env_val in text
+            raise ShakarTypeError("String membership requires a string value")
+        case ShkEnvVar(name=name):
+            env_val = envvar_value_by_name(name)
+            if env_val is None:
+                raise ShakarTypeError("String membership requires a string value")
+            if isinstance(item, ShkString):
+                return item.value in env_val
+            if isinstance(item, ShkEnvVar):
+                item_val = envvar_value_by_name(item.name)
+                if item_val is None:
+                    raise ShakarTypeError("String membership requires a string value")
+                return item_val in env_val
             raise ShakarTypeError("String membership requires a string value")
         case ShkObject(slots=slots):
             if isinstance(item, ShkString):
                 return item.value in slots
+            if isinstance(item, ShkEnvVar):
+                env_val = envvar_value_by_name(item.name)
+                if env_val is None:
+                    raise ShakarTypeError("Object membership requires a string key")
+                return env_val in slots
             raise ShakarTypeError("Object membership requires a string key")
         case _:
             raise ShakarTypeError(

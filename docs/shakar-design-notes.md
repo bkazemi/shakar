@@ -16,7 +16,7 @@ This is a living technical spec. Every surface sugar has a deterministic desugar
 
 - **Ergonomics over ceremony**; sugars are explicit and desugar cleanly.
 - **Expression-local magic only**: implicit subject `.` never crosses statement boundaries; it follows the anchor stack rules.
-- **Truthiness**: `nil`, `false`, `0`, `0.0`, `""`, `[]`, `{}` are falsey; everything else is truthy.
+- **Truthiness**: falsey = `nil`, `false`, zero numbers/durations/sizes, empty strings/arrays/objects/paths/commands; truthy = non-empty of those. Regexes, selectors, functions/methods, and type descriptors are invalid in boolean contexts (type error).
 - **Evaluation**: eager; `and`/`or` short-circuit.
 - **Errors**: exceptions; one-statement handlers via `catch`/`@@`.
 - **Strings**: raw forms `raw"…"` (escapes processed) and `raw#"…"#` (no interpolation; no escapes; exactly one `#` in v0.1). Examples: `raw"Line1\nLine2"`, `raw#"C:\\path\\file"#`, `raw#"he said "hi""#`.
@@ -314,9 +314,11 @@ Typed literals representing byte quantities. Distinct from integers and duration
 
 ### Environment strings (`env"..."`)
 
-- Literal: `env"..."` or `env'...'`; evaluates to environment lookup of the resolved name.
+- Literal: `env"..."` or `env'...'`; evaluates to an `EnvVar` reference (resolved name).
 - Interpolation: `{expr}` allowed; parts are stringified and concatenated to form the variable name.
-- Missing vars: returns `nil` when the environment variable is not set.
+- Value behavior: when used in string contexts (methods, indexing, regex match, `in`, concat), the current value is used; missing value behaves like `nil` and may raise if a string is required.
+- Fields: `.name`, `.value` (string or nil), `.exists` (bool).
+- Methods: `.assign(value)` sets (nil unsets), `.unset()` removes.
 - Example:
   ```shakar
   home := env"HOME"

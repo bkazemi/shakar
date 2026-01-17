@@ -12,6 +12,7 @@ from .runtime import (
     ShkNumber,
     ShkDuration,
     ShkBool,
+    ShkEnvVar,
     ShkValue,
     ShakarTypeError,
     ShkObject,
@@ -20,6 +21,7 @@ from .runtime import (
 )
 from .runtime import ShakarRuntimeError
 from .eval.helpers import is_truthy
+from .utils import envvar_value_by_name
 
 
 @register_stdlib("int")
@@ -47,6 +49,10 @@ def std_int(_frame, args: List[ShkValue]) -> ShkNumber:
 def _render(value):
     if isinstance(value, ShkString):
         return value.value
+
+    if isinstance(value, ShkEnvVar):
+        env_val = envvar_value_by_name(value.name)
+        return env_val if env_val is not None else "nil"
 
     if isinstance(value, (ShkNumber, ShkBool)):
         return str(value.value)

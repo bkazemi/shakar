@@ -11,6 +11,7 @@ from ..runtime import (
     ShkArray,
     ShkBool,
     ShkCommand,
+    ShkEnvVar,
     ShkFn,
     ShkNull,
     ShkNumber,
@@ -30,6 +31,7 @@ from ..runtime import (
     ShakarTypeError,
     call_shkfn,
 )
+from ..utils import envvar_value_by_name
 from .selector import (
     clone_selector_parts,
     apply_selectors_to_value,
@@ -164,6 +166,25 @@ def index_value(
                 except IndexError:
                     raise ShakarIndexError("String index out of bounds")
             raise ShakarTypeError("String index must be a number")
+        case ShkEnvVar(name=name):
+            if default_thunk is not None:
+                raise ShakarTypeError("String index does not accept default")
+
+            env_val = envvar_value_by_name(name)
+            if env_val is None:
+                raise ShakarTypeError(f"Env var '{name}' has no value for indexing")
+
+            string_val = ShkString(env_val)
+            if isinstance(idx, ShkSelector):
+                cloned = clone_selector_parts(idx.parts, clamp=True)
+                return apply_selectors_to_value(string_val, cloned)
+
+            if isinstance(idx, ShkNumber):
+                try:
+                    return ShkString(env_val[int(idx.value)])
+                except IndexError:
+                    raise ShakarIndexError("String index out of bounds")
+            raise ShakarTypeError("String index must be a number")
         case ShkObject(slots=slots):
             key = _normalize_index_key(idx)
 
@@ -201,6 +222,11 @@ def slice_value(
             return ShkArray(items[s])
         case ShkString(value=sval):
             return ShkString(sval[s])
+        case ShkEnvVar(name=name):
+            env_val = envvar_value_by_name(name)
+            if env_val is None:
+                raise ShakarTypeError(f"Env var '{name}' has no value for slicing")
+            return ShkString(env_val[s])
         case _:
             raise ShakarTypeError("Slice only supported on arrays/strings")
 
@@ -287,6 +313,30 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
             if name in Builtins.path_methods:
                 return BuiltinMethod(name=name, subject=recv)
             raise ShakarTypeError(f"Path has no field '{name}'")
+        case ShkEnvVar():
+            if name == "name":
+                return ShkString(recv.name)
+            if name == "value":
+                val = envvar_value_by_name(recv.name)
+                return ShkNull() if val is None else ShkString(val)
+            if name == "exists":
+                return ShkBool(envvar_value_by_name(recv.name) is not None)
+            if name == "len":
+                val = envvar_value_by_name(recv.name)
+                if val is None:
+                    raise ShakarTypeError(f"Env var '{recv.name}' has no value")
+                return ShkNumber(float(len(val)))
+            if name == "high":
+                val = envvar_value_by_name(recv.name)
+                if val is None:
+                    raise ShakarTypeError(f"Env var '{recv.name}' has no value")
+                size = len(val)
+                return ShkNumber(size - 1) if size > 0 else ShkNumber(-1)
+            if name in Builtins.envvar_methods:
+                return BuiltinMethod(name=name, subject=recv)
+            if name in Builtins.string_methods:
+                return BuiltinMethod(name=name, subject=recv)
+            raise ShakarTypeError(f"EnvVar has no field '{name}'")
         case ShkFn():
             raise ShakarTypeError("Function has no fields")
         case _:
@@ -299,7 +349,13 @@ def _normalize_index_key(idx: ShkValue) -> str:
     if isinstance(idx, ShkString):
         return idx.value
 
+    if isinstance(idx, ShkEnvVar):
+        env_val = envvar_value_by_name(idx.name)
+        if env_val is None:
+            raise ShakarTypeError(f"Env var '{idx.name}' has no value for object index")
+        return env_val
+
     if isinstance(idx, ShkNumber):
         return str(int(idx.value))
 
-    raise ShakarTypeError("Object index must be a string or number value")
+    raise ShakarTypeError("Object index must be a string, number, or env var value")

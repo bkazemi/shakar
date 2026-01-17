@@ -16,7 +16,11 @@ from ..types import (
     ShkNumber,
     ShkOptional,
     ShkUnion,
+    ShkEnvVar,
+    ShkNull,
+    ShkString,
 )
+from ..utils import shk_equals, envvar_value_by_name
 
 
 def match_structure(lhs: ShkValue, rhs: ShkValue) -> bool:
@@ -30,6 +34,10 @@ def match_structure(lhs: ShkValue, rhs: ShkValue) -> bool:
     4. If rhs is ShkSelector, check membership
     5. Otherwise, check value equality
     """
+    if isinstance(lhs, ShkEnvVar):
+        env_val = envvar_value_by_name(lhs.name)
+        lhs = ShkNull() if env_val is None else ShkString(env_val)
+
     if isinstance(rhs, ShkUnion):
         return any(match_structure(lhs, alt) for alt in rhs.alternatives)
 
@@ -67,4 +75,4 @@ def match_structure(lhs: ShkValue, rhs: ShkValue) -> bool:
 
         return True
 
-    return lhs == rhs
+    return shk_equals(lhs, rhs)
