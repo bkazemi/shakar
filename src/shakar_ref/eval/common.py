@@ -23,7 +23,7 @@ from ..types import (
 )
 from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
 from ..tree import token_kind
-from ..utils import envvar_value_by_name
+from ..utils import envvar_value_by_name, stringify
 
 SourceSpan: TypeAlias = tuple[int, int] | tuple[None, None]
 
@@ -349,29 +349,6 @@ def token_regex(token: Tok, _: None) -> ShkRegex:
     return ShkRegex(
         pattern=pattern, flags=flags, include_full=include_full, compiled=compiled
     )
-
-
-def stringify(value: Optional[ShkValue]) -> str:
-    if isinstance(value, ShkPath):
-        return str(value)
-
-    if isinstance(value, ShkEnvVar):
-        env_val = envvar_value_by_name(value.name)
-        return env_val if env_val is not None else "nil"
-
-    if isinstance(value, ShkString):
-        return value.value
-
-    if isinstance(value, ShkNumber):
-        return str(value)
-
-    if isinstance(value, ShkBool):
-        return "true" if value.value else "false"
-
-    if isinstance(value, ShkNull) or value is None:
-        return "nil"
-
-    return str(value)
 
 
 def strip_prefixed_quotes(raw: str, prefix: str) -> str:

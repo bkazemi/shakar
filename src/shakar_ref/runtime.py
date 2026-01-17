@@ -55,7 +55,7 @@ from .types import (
     _ensure_shk_value,
     StdlibFn,
 )
-from .utils import envvar_value_by_name
+from .utils import envvar_value_by_name, stringify
 
 __all__ = [
     "Frame",
@@ -457,7 +457,7 @@ def _envvar_assign(_frame: Frame, recv: ShkEnvVar, args: List[ShkValue]) -> ShkE
         _os.environ.pop(recv.name, None)
         return recv
     else:
-        str_val = str(val)
+        str_val = stringify(val)
     _os.environ[recv.name] = str_val
     return recv
 

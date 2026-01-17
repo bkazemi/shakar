@@ -18,6 +18,7 @@ from .types import (
     ShkPath,
     ShkFn,
     ShkDecorator,
+    ShkCommand,
     Descriptor,
     ShakarRuntimeError,
     ShakarTypeError,
@@ -171,3 +172,29 @@ def normalize_object_key(value: ShkValue) -> str:
             raise ShakarTypeError(
                 "Object key must be a Shakar string, number, bool, null, or env var"
             )
+
+
+def stringify(value: Optional[ShkValue]) -> str:
+    if isinstance(value, ShkPath):
+        return str(value)
+
+    if isinstance(value, ShkEnvVar):
+        env_val = envvar_value_by_name(value.name)
+        return env_val if env_val is not None else "nil"
+
+    if isinstance(value, ShkString):
+        return value.value
+
+    if isinstance(value, ShkNumber):
+        return str(value)
+
+    if isinstance(value, ShkBool):
+        return "true" if value.value else "false"
+
+    if isinstance(value, ShkNull) or value is None:
+        return "nil"
+
+    if isinstance(value, ShkCommand):
+        return value.render()
+
+    return str(value)
