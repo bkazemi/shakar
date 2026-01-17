@@ -20,6 +20,7 @@ class TT(Enum):
     RAW_STRING = auto()
     RAW_HASH_STRING = auto()
     SHELL_STRING = auto()
+    SHELL_BANG_STRING = auto()
     PATH_STRING = auto()
     ENV_STRING = auto()
     REGEX = auto()

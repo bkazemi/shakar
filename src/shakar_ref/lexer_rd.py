@@ -216,6 +216,17 @@ class Lexer:
                 self.scan_raw_string()
                 return
 
+        # Shell bang strings (sh!"..." or sh!'...')
+        if (
+            self.peek() == "s"
+            and self.peek(1) == "h"
+            and self.peek(2) == "!"
+            and self.peek(3) in ('"', "'")
+        ):
+            self.advance(3)
+            self.scan_shell_bang_string()
+            return
+
         # Shell strings
         if self.match_string_prefix("sh"):
             self.scan_shell_string()
@@ -392,6 +403,23 @@ class Lexer:
         content = self.source[start_pos : self.pos]
         self.advance()  # Closing quote
         self.emit(TT.SHELL_STRING, content, start_line=start_line, start_col=start_col)
+
+    def scan_shell_bang_string(self):
+        """Scan shell bang string: sh!"..." or sh!'...'"""
+        # 'sh!' keyword already consumed - start_col is 3 chars back
+        start_line, start_col = self.line, self.column - 3
+        quote = self.advance()
+        start_pos = self.pos
+        self.scan_quoted_content(quote)
+
+        if self.pos >= len(self.source):
+            raise LexError(f"Unterminated shell string at line {self.line}")
+
+        content = self.source[start_pos : self.pos]
+        self.advance()  # Closing quote
+        self.emit(
+            TT.SHELL_BANG_STRING, content, start_line=start_line, start_col=start_col
+        )
 
     def scan_path_string(self):
         """Scan path string: p"..." or p'...'"""

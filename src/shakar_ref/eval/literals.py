@@ -7,6 +7,7 @@ from typing import Callable, List
 from ..tree import Tree
 
 from ..runtime import (
+    call_builtin_method,
     Frame,
     ShkArray,
     ShkBool,
@@ -116,6 +117,16 @@ def eval_shell_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkComma
 
         parts.append(rendered)
     return ShkCommand(parts)
+
+
+def eval_shell_bang(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    """Evaluate eager shell string and return stdout."""
+    children = tree_children(node)
+    if not children or not is_tree(children[0]):
+        raise ShakarRuntimeError("Malformed shell_bang node")
+
+    cmd = eval_shell_string(children[0], frame, eval_func)
+    return call_builtin_method(cmd, "run", [], frame)
 
 
 def eval_path_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkPath:

@@ -302,6 +302,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
 ### Shell strings (`sh"..."`)
 
 - Literal: `sh"..."` or `sh'...'`; evaluates to a lazy `Command` (no auto-exec).
+- Eager literal: `sh!"..."` or `sh!'...'`; executes immediately and returns stdout (same as `.run()`).
 - Execution: `cmd.run()` returns stdout (`Str`) on success; non-zero exit raises `CommandError` with payload `{ cmd, code, stdout, stderr }`. Future `!cmd` may execute inline; stdlib will grow capture/streaming helpers.
 - Interpolation & safety: `{expr}` is auto-quoted; arrays expand to multiple quoted args. `{{expr}}` splices raw/unsafe tokens.
 - Pass-through: pipes, redirects, `&&` forwarded to the system shell.

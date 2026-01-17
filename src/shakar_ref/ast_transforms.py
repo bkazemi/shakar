@@ -181,6 +181,9 @@ class Prune(Transformer):
             if token_type == TT.SHELL_STRING:
                 return self._transform_shell_string_token(node)
 
+            if token_type == TT.SHELL_BANG_STRING:
+                return self._transform_shell_bang_token(node)
+
             if token_type == TT.ENV_STRING:
                 return self._transform_env_string_token(node)
         return node
@@ -242,16 +245,7 @@ class Prune(Transformer):
         return result
 
     def _transform_shell_string_token(self, token: Tok) -> Tree:
-        raw = token.value
-
-        # Lexer currently emits the body without the leading sh""; accept both forms.
-        if raw.startswith('sh"') and raw.endswith('"'):
-            body = raw[3:-1]
-        elif raw.startswith("sh'") and raw.endswith("'"):
-            body = raw[3:-1]
-        else:
-            body = raw
-
+        body = token.value
         segments = self._split_shell_interpolation_segments(body, token)
         nodes: List[Node] = []
 
@@ -273,6 +267,15 @@ class Prune(Transformer):
 
         result = Tree("shell_string", nodes)
 
+        meta = getattr(token, "meta", None)
+        if meta is not None:
+            result.meta = meta
+        return result
+
+    def _transform_shell_bang_token(self, token: Tok) -> Tree:
+        """Transform eager shell string token into a shell_bang node."""
+        shell_tree = self._transform_shell_string_token(token)
+        result = Tree("shell_bang", [shell_tree])
         meta = getattr(token, "meta", None)
         if meta is not None:
             result.meta = meta
@@ -355,6 +358,9 @@ class Prune(Transformer):
 
     def SHELL_STRING(self, token: Tok) -> Tree:
         return self._transform_shell_string_token(token)
+
+    def SHELL_BANG_STRING(self, token: Tok) -> Tree:
+        return self._transform_shell_bang_token(token)
 
     def _split_interpolation_segments(
         self, text: str, token: Tok

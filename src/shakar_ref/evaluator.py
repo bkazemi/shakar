@@ -95,6 +95,7 @@ from .eval.literals import (
     eval_env_string,
     eval_keyword_literal,
     eval_path_interp,
+    eval_shell_bang,
     eval_shell_string,
     eval_string_interp,
 )
@@ -538,6 +539,10 @@ def _eval_shell_string(n: Tree, frame: Frame) -> ShkValue:
     return eval_shell_string(n, frame, eval_node)
 
 
+def _eval_shell_bang(n: Tree, frame: Frame) -> ShkValue:
+    return eval_shell_bang(n, frame, eval_node)
+
+
 def _eval_path_interp(n: Tree, frame: Frame) -> ShkValue:
     return eval_path_interp(n, frame, eval_node)
 
@@ -666,6 +671,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "selectorliteral": _eval_selectorliteral,
     "string_interp": _eval_string_interp,
     "shell_string": _eval_shell_string,
+    "shell_bang": _eval_shell_bang,
     "path_interp": _eval_path_interp,
     "env_string": _eval_env_string,
     "env_interp": _eval_env_interp,

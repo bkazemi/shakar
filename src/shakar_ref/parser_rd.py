@@ -2281,6 +2281,7 @@ class Parser:
             TT.RAW_STRING,
             TT.RAW_HASH_STRING,
             TT.SHELL_STRING,
+            TT.SHELL_BANG_STRING,
             TT.PATH_STRING,
             TT.ENV_STRING,
             TT.REGEX,

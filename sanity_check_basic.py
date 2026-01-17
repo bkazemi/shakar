@@ -1757,6 +1757,14 @@ runtime_scenario(
         None,
     )
 )
+runtime_scenario(
+    lambda: _rt(
+        "shell-bang-stdout",
+        'msg := "hi"; sh!"printf {msg}"',
+        ("string", "hi"),
+        None,
+    )
+)
 runtime_scenario(lambda: _rt("shell-run-code", '(sh"false").run()', None, CommandError))
 runtime_scenario(
     lambda: _rt(
