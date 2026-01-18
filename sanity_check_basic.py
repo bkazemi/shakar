@@ -619,8 +619,8 @@ AST_SCENARIOS: List[AstScenario] = []
 RUNTIME_SCENARIOS: List[RuntimeScenario] = []
 
 
-def runtime_scenario(func: Callable[[], RuntimeScenario]) -> None:
-    RUNTIME_SCENARIOS.append(func())
+def runtime_scenario(scenario: RuntimeScenario) -> None:
+    RUNTIME_SCENARIOS.append(scenario)
 
 
 # AST check helpers
@@ -778,7 +778,7 @@ def _rt(
 
 
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "decorator-pass-through",
         """decorator noop(): args
 @noop
@@ -789,7 +789,7 @@ hi("Ada")""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "param-contract-grouped-ok",
         """fn f(a, b ~ Int): a + b
 f(1, 2)""",
@@ -798,7 +798,7 @@ f(1, 2)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "param-contract-grouped-fail",
         """fn f(a, b ~ Int): a + b
 f("x", 2)""",
@@ -807,7 +807,7 @@ f("x", 2)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "param-contract-isolated-inner",
         """fn f(a, (b ~ Int)): a
 f("x", 2)""",
@@ -816,7 +816,7 @@ f("x", 2)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "param-contract-isolated-bare",
         """fn f((a), b ~ Int): a
 f("x", 2)""",
@@ -825,7 +825,7 @@ f("x", 2)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "param-contract-spread",
         """fn f(...rest ~ Int): rest.len
 f(1, "x", 3)""",
@@ -834,7 +834,7 @@ f(1, "x", 3)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "param-default-basic",
         """fn f(a = 1, b = 2): a + b
 f()""",
@@ -843,7 +843,7 @@ f()""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "param-default-partial",
         """fn f(a, b = 2): a + b
 f(1)""",
@@ -852,7 +852,7 @@ f(1)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "amp-lambda-contract-ok",
         """f := &[a, b ~ Int](a + b)
 f(1, 2)""",
@@ -861,7 +861,7 @@ f(1, 2)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "amp-lambda-contract-fail",
         """f := &[a, b ~ Int](a + b)
 f("x", 2)""",
@@ -870,7 +870,7 @@ f("x", 2)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "decorator-arg-mutate",
         """decorator double(): args[0] = args[0] * 2
 @double
@@ -881,7 +881,7 @@ sum(3, 4)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "decorator-return-shortcut",
         """decorator always_nil(): return nil
 @always_nil
@@ -892,7 +892,7 @@ value()""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "call-basic-emit",
         """count := 0
 fn bump(x): count += x
@@ -905,7 +905,7 @@ count""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "call-emit-capture",
         """log := ""
 fn out(x): log += x
@@ -921,7 +921,7 @@ log""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "call-emit-postfix-unless",
         """log := ""
 fn emit(x): log += x
@@ -934,7 +934,7 @@ log""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "call-emit-named-args",
         """log := ""
 fn emit(a, b): log += a + ":" + b
@@ -946,7 +946,7 @@ log""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "call-emit-spread",
         """count := 0
 fn emit(...args): count += args.len
@@ -958,7 +958,7 @@ count""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "call-nested-shadow",
         """log := ""
 fn outer(x): log += "o" + x
@@ -974,7 +974,7 @@ log""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "call-non-callable-error",
         """x := 42
 call x:
@@ -984,7 +984,7 @@ call x:
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "call-emit-trailing-comma",
         """log := ""
 fn emit(a, b): log += a + b
@@ -996,7 +996,7 @@ log""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "noanchor-segment-field",
         """state := { lines: 6, level: 2 }
 state.$lines >= .level * 3""",
@@ -1005,7 +1005,7 @@ state.$lines >= .level * 3""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "noanchor-segment-index",
         """arr := [{x: 1}, {x: 2}]
 arr$[0].x + .len""",
@@ -1014,7 +1014,7 @@ arr$[0].x + .len""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "noanchor-segment-multiple-error",
         "state.$foo.$bar",
         None,
@@ -1022,7 +1022,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "noanchor-segment-in-noanchor-error",
         "$state.$lines",
         None,
@@ -1030,7 +1030,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "noanchor-segment-no-leak",
         """state := { lines: 6 }
 x := state.$lines
@@ -1041,7 +1041,7 @@ obj and .val""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "noanchor-segment-no-leak-grouped",
         """state := { lines: 6, val: 99 }
 obj := { val: 10 }
@@ -1051,7 +1051,7 @@ obj := { val: 10 }
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "noanchor-segment-no-leak-call-arg",
         """state := { lines: 6, val: 99 }
 fn make(x): ({ val: x })
@@ -1061,7 +1061,7 @@ make(state.$lines) and .val""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "noanchor-segment-no-leak-array-literal",
         """state := { lines: 6 }
 [state.$lines, 1] and .len""",
@@ -1070,7 +1070,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "noanchor-segment-no-leak-object-literal",
         """state := { lines: 6, val: 99 }
 { val: 9, x: state.$lines } and .val""",
@@ -1079,7 +1079,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "noanchor-segment-no-leak-nullish",
         """state := { obj: { val: 5 }, val: 99 }
 state.$obj ?? { val: 0 } and .val""",
@@ -1088,7 +1088,7 @@ state.$obj ?? { val: 0 } and .val""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "noanchor-segment-no-leak-ternary",
         """state := { obj: { val: 5 }, val: 99 }
 [true ? state.$obj : { val: 0 }] and .len""",
@@ -1097,7 +1097,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "noanchor-segment-no-leak-selector",
         """state := { start: 1, val: 99 }
 stop := 3
@@ -1108,7 +1108,7 @@ arr[`{state.$start}:{stop}`] and .len""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "noanchor-segment-postfix-incr",
         """obj := { count: 5, val: 10 }
 obj.$count++ and .val""",
@@ -1117,7 +1117,7 @@ obj.$count++ and .val""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "number-len-typeerror",
         "x := 1\nx.len",
         None,
@@ -1125,7 +1125,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "object-assign-requires-existing-field",
         "o := {}\no.x = 1",
         None,
@@ -1133,7 +1133,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "assign-requires-existing-var",
         "x = 1",
         None,
@@ -1141,7 +1141,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "int-builtin",
         'int(3) + int("4")',
         ("number", 7),
@@ -1149,7 +1149,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "array-concat",
         "([1,2] + [3]).len",
         ("number", 3),
@@ -1157,7 +1157,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "array-push",
         "arr := [1]; arr.push(2); arr.len",
         ("number", 2),
@@ -1165,7 +1165,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "array-append",
         "arr := [1]; arr.append(2); arr[1]",
         ("number", 2),
@@ -1173,7 +1173,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "array-pop",
         "arr := [1, 2, 3]; arr.pop() + arr.len",
         ("number", 5),
@@ -1181,7 +1181,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "array-pop-empty",
         "[].pop()",
         None,
@@ -1189,7 +1189,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "array-high",
         """xs := [10, 20, 30]
 xs.high""",
@@ -1198,24 +1198,20 @@ xs.high""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "array-high-empty",
         " [].high",
         ("number", -1),
         None,
     )
 )
+runtime_scenario(_rt("join-array", '", ".join(["a", "b"])', ("string", "a, b"), None))
+runtime_scenario(_rt("join-varargs", '"-".join("a", "b")', ("string", "a-b"), None))
 runtime_scenario(
-    lambda: _rt("join-array", '", ".join(["a", "b"])', ("string", "a, b"), None)
+    _rt("join-mixed", '"|".join("a", 1, true)', ("string", "a|1|true"), None)
 )
 runtime_scenario(
-    lambda: _rt("join-varargs", '"-".join("a", "b")', ("string", "a-b"), None)
-)
-runtime_scenario(
-    lambda: _rt("join-mixed", '"|".join("a", 1, true)', ("string", "a|1|true"), None)
-)
-runtime_scenario(
-    lambda: _rt(
+    _rt(
         "string-split",
         '"a,b,c".split(",")',
         ("array", ["a", "b", "c"]),
@@ -1223,7 +1219,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "string-split-empty",
         '"abc".split("")',
         None,
@@ -1231,7 +1227,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "regex-match-captures",
         """date := "2024-01-02"
 year, month, day := date ~~ r"(\\d{4})-(\\d{2})-(\\d{2})"
@@ -1241,7 +1237,7 @@ year, month, day := date ~~ r"(\\d{4})-(\\d{2})-(\\d{2})"
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "regex-match-full-flag",
         """s := "ab"
 full, first := s ~~ r"(a)b"/f
@@ -1251,7 +1247,7 @@ full, first := s ~~ r"(a)b"/f
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "regex-invalid-flag",
         'r"foo"/z',
         None,
@@ -1259,7 +1255,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "regex-methods",
         """rx := r"(\\d+)"
 ok := rx.test("a1")
@@ -1274,7 +1270,7 @@ else:
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "string-high",
         '"hello".high',
         ("number", 4),
@@ -1282,7 +1278,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "string-high-empty",
         ' "".high',
         ("number", -1),
@@ -1290,7 +1286,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "object-len",
         "obj := {a: 1, b: 2}; obj.len",
         ("number", 2),
@@ -1298,7 +1294,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "object-keys",
         "{a: 1, b: 2}.keys()",
         ("array", ["a", "b"]),
@@ -1306,7 +1302,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "object-values",
         "{a: 1, b: 2}.values()",
         ("array", [1, 2]),
@@ -1314,7 +1310,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "decorator-chain-order",
         """decorator mark(label): args[0] = args[0] * 10 + label
 @mark(3)
@@ -1326,7 +1322,7 @@ encode(1)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "decorator-call-twice",
         """decorator double_call(): return f(args) + f(args)
 @double_call
@@ -1337,7 +1333,7 @@ point()""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "decorator-params",
         """decorator add_offset(delta): args[0] = args[0] + delta
 @add_offset(5)
@@ -1348,7 +1344,7 @@ bump(3)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "using-enter-exit",
         """flag := { value: 0 }
 resource := {
@@ -1366,7 +1362,7 @@ flag.value""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "using-enter-only",
         """flag := { value: 0 }
 resource := {
@@ -1380,7 +1376,7 @@ flag.value""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "using-binder",
         """resource := {
   enter: fn(): { x: 1 }
@@ -1392,7 +1388,7 @@ using resource bind r:
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "using-handle-default-binder",
         """resource := { enter: fn(): 7 }
 using[r] resource:
@@ -1402,7 +1398,7 @@ using[r] resource:
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "using-using_exit-suppresses",
         """resource := {
   using_enter: fn(): 1
@@ -1416,7 +1412,7 @@ using resource:
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "using-exit-err-propagates",
         """resource := {
   exit: fn(err): err
@@ -1428,7 +1424,7 @@ using resource:
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "using-inlinebody",
         """resource := { enter: fn(): 5 }
 using resource: resource + 1""",
@@ -1437,37 +1433,27 @@ using resource: resource + 1""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
-        "lambda-subject-direct-call", 'a := &(.trim()); a(" B")', ("string", "B"), None
-    )
+    _rt("lambda-subject-direct-call", 'a := &(.trim()); a(" B")', ("string", "B"), None)
 )
-runtime_scenario(lambda: _rt("floor-div-basic", "7 // 2", ("number", 3), None))
-runtime_scenario(lambda: _rt("floor-div-negative", "-7 // 2", ("number", -4), None))
+runtime_scenario(_rt("floor-div-basic", "7 // 2", ("number", 3), None))
+runtime_scenario(_rt("floor-div-negative", "-7 // 2", ("number", -4), None))
 runtime_scenario(
-    lambda: _rt("compound-assign-number", "a := 1; a += 2; a", ("number", 3), None)
+    _rt("compound-assign-number", "a := 1; a += 2; a", ("number", 3), None)
 )
 runtime_scenario(
-    lambda: _rt(
-        "compound-assign-string", 's := "a"; s += "b"; s', ("string", "ab"), None
-    )
+    _rt("compound-assign-string", 's := "a"; s += "b"; s', ("string", "ab"), None)
+)
+runtime_scenario(_rt("compound-assign-mod", "a := 10; a %= 3; a", ("number", 1), None))
+runtime_scenario(
+    _rt("compound-assign-minus", "a := 10; a -= 4; a", ("number", 6), None)
+)
+runtime_scenario(_rt("compound-assign-mul", "a := 3; a *= 4; a", ("number", 12), None))
+runtime_scenario(_rt("compound-assign-div", "a := 9; a /= 2; a", ("number", 4.5), None))
+runtime_scenario(
+    _rt("compound-assign-floordiv", "a := 9; a //= 2; a", ("number", 4), None)
 )
 runtime_scenario(
-    lambda: _rt("compound-assign-mod", "a := 10; a %= 3; a", ("number", 1), None)
-)
-runtime_scenario(
-    lambda: _rt("compound-assign-minus", "a := 10; a -= 4; a", ("number", 6), None)
-)
-runtime_scenario(
-    lambda: _rt("compound-assign-mul", "a := 3; a *= 4; a", ("number", 12), None)
-)
-runtime_scenario(
-    lambda: _rt("compound-assign-div", "a := 9; a /= 2; a", ("number", 4.5), None)
-)
-runtime_scenario(
-    lambda: _rt("compound-assign-floordiv", "a := 9; a //= 2; a", ("number", 4), None)
-)
-runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fanout-block-basic",
         "state := {cur: 1, next: 2, x: 0}; state{ .cur = .next; .x += 5 }; state.cur + state.x",
         ("number", 7),
@@ -1475,7 +1461,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fanout-block-indented",
         "state := {cur: 1, next: 2, x: 0}\n"
         "state{\n"
@@ -1488,7 +1474,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fieldfan-chain-assign",
         "state := {a: {c: 0}, b: {c: 1}}; state.{a, b}.c = 5; state.a.c + state.b.c",
         ("number", 10),
@@ -1496,7 +1482,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fieldfan-chain-apply",
         "state := {a: {c: 1}, b: {c: 3}}; state.{a, b}.c .= . + 1; state.a.c + state.b.c",
         ("number", 6),
@@ -1504,7 +1490,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-assign-broadcast",
         "arr := [0, 1]; o := {a: arr}; o.a[0,1] = 2; o.a[0] + o.a[1]",
         ("number", 4),
@@ -1512,7 +1498,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selectorliteral-assign-broadcast",
         "arr := [0, 1, 2]; arr[`0:1`] = 5; arr[0] + arr[1] + arr[2]",
         ("number", 12),
@@ -1520,7 +1506,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fanout-single-clause-implicit",
         "state := {cur: 1, next: 2}; state{ .cur = .next }; state.cur",
         ("number", 2),
@@ -1528,7 +1514,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fanout-single-clause-literal-error",
         "state := {a: 1}; state{ .a = 5 }",
         None,
@@ -1536,7 +1522,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "slice-negative-start-positive-stop-error",
         "arr := [0, 1, 2]; arr[-1:2]",
         None,
@@ -1544,7 +1530,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "slice-positive-start-negative-stop",
         "arr := [0, 1, 2, 3, 4]; result := arr[0:-1]; result[0] + result[3]",
         ("number", 3),
@@ -1552,7 +1538,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "slice-both-negative",
         "arr := [0, 1, 2, 3, 4]; result := arr[-3:-1]; result[0] + result[1]",
         ("number", 5),
@@ -1560,7 +1546,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fieldfan-chain-apply-return",
         "state := {a: {c: 1}, b: {c: 3}}; result := state.{a, b}.c .= . + 1; result[0] + result[1]",
         ("number", 6),
@@ -1568,7 +1554,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fanout-block-slice-selector",
         "state := {rows: [{v: 1}, {v: 3}, {v: 5}]}; state{ .rows[1:3].v = 0 }; state.rows[0].v + state.rows[1].v + state.rows[2].v",
         ("number", 1),
@@ -1576,7 +1562,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fanout-block-bracketed",
         "state := {rows: [{v: 1}, {v: 3}, {v: 5}]}; state{ .rows[1].v += 4; .rows[0] = {v: state.rows[0].v + 2} }; state.rows[0].v + state.rows[1].v",
         ("number", 10),
@@ -1584,7 +1570,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fanout-block-multi-index-selector",
         "state := {rows: [[{v: 1}], [{v: 3}]]}; state{ .rows[1][0].v = 8 }; state.rows[0][0].v + state.rows[1][0].v",
         None,
@@ -1592,7 +1578,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fanout-block-apply",
         's := {name: " Ada ", greet: ""}; s{ .name .= .trim(); .greet = .name }; s.greet',
         ("string", "Ada"),
@@ -1600,7 +1586,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fanout-block-dup-error",
         "state := {a: 1}; state{ .a = 1; .a = 2 }",
         None,
@@ -1608,7 +1594,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fanout-value-array",
         "state := {a: 1, b: 2}; arr := state.{a, b}; arr[0] + arr[1]",
         ("number", 3),
@@ -1616,7 +1602,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fanout-call-spread",
         "state := {a: 1, b: 2}; fn add(x, y): x + y; add(state.{a, b})",
         ("number", 3),
@@ -1624,7 +1610,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fanout-value-call-item",
         "state := {a: fn():3, b: 2}; vals := state.{a(), b}; vals[0] + vals[1]",
         ("number", 5),
@@ -1632,7 +1618,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fanout-named-arg-no-spread",
         "state := {a: 1, b: 2}; fn wrap(x): x[1]; wrap(named: state.{a, b})",
         ("number", 2),
@@ -1640,7 +1626,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "spread-array-literal",
         "arr := [1, ...[2, 3], 4]; arr[0] + arr[3]",
         ("number", 5),
@@ -1648,7 +1634,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "spread-object-literal",
         "base := {a: 1}; obj := { ...base, b: 2, a: 3 }; obj.a + obj.b",
         ("number", 5),
@@ -1656,7 +1642,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "spread-call-array",
         "fn add(a, b, c): a + b + c; add(...[1, 2, 3])",
         ("number", 6),
@@ -1664,7 +1650,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "spread-call-object",
         "fn pair(a, b): a * 10 + b; pair(...{a: 1, b: 2})",
         ("number", 12),
@@ -1672,7 +1658,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "spread-params-multi",
         "fn capture(a, ...mid, b, ...tail, c): [a, mid.len, b, tail.len, c]; res := capture(1, 2, 3, 4, 5, 6, 7); res[0] + res[1] + res[2] + res[3] + res[4]",
         None,
@@ -1680,7 +1666,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "spread-object-dot-space",
         "state := {config: {a: 1}, cfg: {}}; state{ .cfg = { ... .config } }; state.cfg.a",
         ("number", 1),
@@ -1688,7 +1674,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "spread-decorator-params",
         """decorator bump(...xs):
   args[0] = args[0] + xs.len
@@ -1699,26 +1685,18 @@ id(10)""",
         None,
     )
 )
-runtime_scenario(lambda: _rt("all-varargs", 'all(true, 1, "x")', ("bool", True), None))
+runtime_scenario(_rt("all-varargs", 'all(true, 1, "x")', ("bool", True), None))
+runtime_scenario(_rt("all-varargs-short", "all(true, false, 1)", ("bool", False), None))
+runtime_scenario(_rt("all-iterable", 'all([true, 1, "x"])', ("bool", True), None))
+runtime_scenario(_rt("all-empty-iterable", "all([])", ("bool", True), None))
+runtime_scenario(_rt("all-zero-args-error", "all()", None, ShakarRuntimeError))
+runtime_scenario(_rt("any-varargs", 'any(false, 0, "x")', ("bool", True), None))
+runtime_scenario(_rt("any-iterable", 'any([false, 0, ""])', ("bool", False), None))
 runtime_scenario(
-    lambda: _rt("all-varargs-short", "all(true, false, 1)", ("bool", False), None)
+    _rt("raw-string-basic", 'raw"hi {name}\\n"', ("string", "hi {name}\\n"), None)
 )
 runtime_scenario(
-    lambda: _rt("all-iterable", 'all([true, 1, "x"])', ("bool", True), None)
-)
-runtime_scenario(lambda: _rt("all-empty-iterable", "all([])", ("bool", True), None))
-runtime_scenario(lambda: _rt("all-zero-args-error", "all()", None, ShakarRuntimeError))
-runtime_scenario(lambda: _rt("any-varargs", 'any(false, 0, "x")', ("bool", True), None))
-runtime_scenario(
-    lambda: _rt("any-iterable", 'any([false, 0, ""])', ("bool", False), None)
-)
-runtime_scenario(
-    lambda: _rt(
-        "raw-string-basic", 'raw"hi {name}\\n"', ("string", "hi {name}\\n"), None
-    )
-)
-runtime_scenario(
-    lambda: _rt(
+    _rt(
         "raw-hash-string",
         'raw#"path "C:\\\\tmp"\\file"#',
         ("string", 'path "C:\\\\tmp"\\file'),
@@ -1726,7 +1704,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "shell-string-quote",
         'path := "file name.txt"; sh"cat {path}"',
         ("command", "cat 'file name.txt'"),
@@ -1734,7 +1712,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "shell-string-array",
         'files := ["a.txt", "b 1.txt"]; sh"ls {files}"',
         ("command", "ls a.txt 'b 1.txt'"),
@@ -1742,7 +1720,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "shell-string-raw-splice",
         'flag := "-n 2"; file := "log 1.txt"; sh"head {{flag}} {file}"',
         ("command", "head -n 2 'log 1.txt'"),
@@ -1750,7 +1728,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "shell-run-stdout",
         'msg := "hi"; res := (sh"printf {msg}").run(); res',
         ("string", "hi"),
@@ -1758,16 +1736,16 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "shell-bang-stdout",
         'msg := "hi"; sh!"printf {msg}"',
         ("string", "hi"),
         None,
     )
 )
-runtime_scenario(lambda: _rt("shell-run-code", '(sh"false").run()', None, CommandError))
+runtime_scenario(_rt("shell-run-code", '(sh"false").run()', None, CommandError))
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "shell-run-catch-code",
         'val := (sh"false").run() catch err: err.code',
         ("number", 1),
@@ -1775,10 +1753,10 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt("path-literal-exists", 'p"README.md".exists', ("bool", True), None)
+    _rt("path-literal-exists", 'p"README.md".exists', ("bool", True), None)
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "path-join-exists",
         '(p"docs" / "shakar-design-notes.md").exists',
         ("bool", True),
@@ -1786,7 +1764,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "path-interp-read",
         'name := "README.md"\n(p"{name}").read().len > 0',
         ("bool", True),
@@ -1794,7 +1772,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "path-glob-contains",
         'names := [ .name over p"*.md" ]\n"README.md" in names',
         ("bool", True),
@@ -1802,7 +1780,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "path-glob-empty",
         '[ .name over p"__shakar_no_match__*.zzz" ].len == 0',
         ("bool", True),
@@ -1810,9 +1788,9 @@ runtime_scenario(
     )
 )
 # Environment string tests - ShkEnvVar is nil-transparent
-runtime_scenario(lambda: _rt("env-exists", 'env"PATH" != nil', ("bool", True), None))
+runtime_scenario(_rt("env-exists", 'env"PATH" != nil', ("bool", True), None))
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-missing-is-nil",
         'env"SHAKAR_TEST_NONEXISTENT_VAR_12345" == nil',
         ("bool", True),
@@ -1820,7 +1798,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-coalesce",
         'env"SHAKAR_TEST_NONEXISTENT_VAR_12345" ?? "fallback"',
         ("string", "fallback"),
@@ -1828,30 +1806,26 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-interp",
         'x := "PATH"; env"{x}" != nil',
         ("bool", True),
         None,
     )
 )
-runtime_scenario(lambda: _rt("env-name", 'env"PATH".name', ("string", "PATH"), None))
+runtime_scenario(_rt("env-name", 'env"PATH".name', ("string", "PATH"), None))
+runtime_scenario(_rt("env-exists-prop", 'env"PATH".exists', ("bool", True), None))
 runtime_scenario(
-    lambda: _rt("env-exists-prop", 'env"PATH".exists', ("bool", True), None)
-)
-runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-exists-false",
         'env"SHAKAR_TEST_NONEXISTENT_VAR_12345".exists',
         ("bool", False),
         None,
     )
 )
+runtime_scenario(_rt("env-value-prop", 'env"PATH".value != nil', ("bool", True), None))
 runtime_scenario(
-    lambda: _rt("env-value-prop", 'env"PATH".value != nil', ("bool", True), None)
-)
-runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-assign-unset",
         'env"SHAKAR_TEST_VAR".assign("hello"); v := env"SHAKAR_TEST_VAR".value; env"SHAKAR_TEST_VAR".unset(); v',
         ("string", "hello"),
@@ -1859,7 +1833,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-as-object-key",
         'env"SHAKAR_TEST_VAR".assign("foo"); obj := {foo: 42}; v := obj[env"SHAKAR_TEST_VAR"]; env"SHAKAR_TEST_VAR".unset(); v',
         ("number", 42),
@@ -1867,7 +1841,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-in-string",
         'env"SHAKAR_TEST_VAR".assign("world"); r := "world" in env"SHAKAR_TEST_VAR"; env"SHAKAR_TEST_VAR".unset(); r',
         ("bool", True),
@@ -1875,7 +1849,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-substring-in-env",
         'env"SHAKAR_TEST_VAR".assign("hello world"); r := "wor" in env"SHAKAR_TEST_VAR"; env"SHAKAR_TEST_VAR".unset(); r',
         ("bool", True),
@@ -1883,7 +1857,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-slicing",
         'env"SHAKAR_TEST_VAR".assign("hello"); v := env"SHAKAR_TEST_VAR"[0:3]; env"SHAKAR_TEST_VAR".unset(); v',
         ("string", "hel"),
@@ -1891,7 +1865,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-len-prop",
         'env"SHAKAR_TEST_VAR".assign("hello"); v := env"SHAKAR_TEST_VAR".len; env"SHAKAR_TEST_VAR".unset(); v',
         ("number", 5),
@@ -1899,7 +1873,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-compare-envs",
         'env"SHAKAR_TEST_A".assign("same"); env"SHAKAR_TEST_B".assign("same"); r := env"SHAKAR_TEST_A" == env"SHAKAR_TEST_B"; env"SHAKAR_TEST_A".unset(); env"SHAKAR_TEST_B".unset(); r',
         ("bool", True),
@@ -1907,7 +1881,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-compare-envs-diff",
         'env"SHAKAR_TEST_A".assign("one"); env"SHAKAR_TEST_B".assign("two"); r := env"SHAKAR_TEST_A" != env"SHAKAR_TEST_B"; env"SHAKAR_TEST_A".unset(); env"SHAKAR_TEST_B".unset(); r',
         ("bool", True),
@@ -1915,7 +1889,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-concat-envs",
         'env"SHAKAR_TEST_A".assign("hello"); env"SHAKAR_TEST_B".assign("world"); r := env"SHAKAR_TEST_A" + env"SHAKAR_TEST_B"; env"SHAKAR_TEST_A".unset(); env"SHAKAR_TEST_B".unset(); r',
         ("string", "helloworld"),
@@ -1923,7 +1897,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "env-concat-string",
         'env"SHAKAR_TEST_VAR".assign("hello"); r := env"SHAKAR_TEST_VAR" + " world"; env"SHAKAR_TEST_VAR".unset(); r',
         ("string", "hello world"),
@@ -1931,20 +1905,16 @@ runtime_scenario(
     )
 )
 # Non-reserved prefix keywords usable as identifiers
-runtime_scenario(lambda: _rt("ident-env", "env := 1; env + 1", ("number", 2), None))
-runtime_scenario(lambda: _rt("ident-sh", "sh := 2; sh + 1", ("number", 3), None))
-runtime_scenario(lambda: _rt("ident-raw", "raw := 3; raw + 1", ("number", 4), None))
-runtime_scenario(lambda: _rt("ident-p", "p := 4; p + 1", ("number", 5), None))
-runtime_scenario(lambda: _rt("ident-r", "r := 5; r + 1", ("number", 6), None))
+runtime_scenario(_rt("ident-env", "env := 1; env + 1", ("number", 2), None))
+runtime_scenario(_rt("ident-sh", "sh := 2; sh + 1", ("number", 3), None))
+runtime_scenario(_rt("ident-raw", "raw := 3; raw + 1", ("number", 4), None))
+runtime_scenario(_rt("ident-p", "p := 4; p + 1", ("number", 5), None))
+runtime_scenario(_rt("ident-r", "r := 5; r + 1", ("number", 6), None))
+runtime_scenario(_rt("base-prefix-binary", "0b1010_0011", ("number", 163), None))
+runtime_scenario(_rt("base-prefix-octal", "0o755", ("number", 493), None))
+runtime_scenario(_rt("base-prefix-hex", "0xdead_beef", ("number", 3735928559), None))
 runtime_scenario(
-    lambda: _rt("base-prefix-binary", "0b1010_0011", ("number", 163), None)
-)
-runtime_scenario(lambda: _rt("base-prefix-octal", "0o755", ("number", 493), None))
-runtime_scenario(
-    lambda: _rt("base-prefix-hex", "0xdead_beef", ("number", 3735928559), None)
-)
-runtime_scenario(
-    lambda: _rt(
+    _rt(
         "base-prefix-binary-63bit",
         "0b111111111111111111111111111111111111111111111111111111111111111",
         ("number", 9223372036854775807),
@@ -1952,7 +1922,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "base-prefix-hex-max",
         "0x7fffffffffffffff",
         ("number", 9223372036854775807),
@@ -1960,7 +1930,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "base-prefix-hex-min-neg",
         "-0x8000000000000000",
         ("number", -9223372036854775808),
@@ -1968,7 +1938,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "decimal-int64-min-neg",
         "-9223372036854775808",
         ("number", -9223372036854775808),
@@ -1976,7 +1946,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "decimal-int64-overflow",
         "9223372036854775808",
         None,
@@ -1984,7 +1954,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "base-prefix-binary-overflow",
         "0b1000000000000000000000000000000000000000000000000000000000000000",
         None,
@@ -1992,87 +1962,71 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "base-prefix-octal-overflow",
         "0o1000000000000000000000",
         None,
         LexError,
     )
 )
+runtime_scenario(_rt("base-prefix-hex-overflow", "0x8000000000000000", None, LexError))
+runtime_scenario(_rt("base-prefix-invalid-bin", "0b102", None, LexError))
+runtime_scenario(_rt("base-prefix-invalid-oct", "0o9", None, LexError))
+runtime_scenario(_rt("base-prefix-invalid-hex", "0xG", None, LexError))
+runtime_scenario(_rt("base-prefix-incomplete", "0b", None, LexError))
+runtime_scenario(_rt("base-prefix-uppercase", "0X10", None, LexError))
+runtime_scenario(_rt("base-prefix-underscore-start", "0b_101", None, LexError))
+runtime_scenario(_rt("base-prefix-underscore-end", "0b101_", None, LexError))
+runtime_scenario(_rt("base-prefix-underscore-double", "0b10__01", None, LexError))
+runtime_scenario(_rt("base-prefix-duration", "0x10ms", None, LexError))
+runtime_scenario(_rt("base-prefix-duration-bin", "0b10s", None, LexError))
+runtime_scenario(_rt("base-prefix-size", "0o755kb", None, LexError))
 runtime_scenario(
-    lambda: _rt("base-prefix-hex-overflow", "0x8000000000000000", None, LexError)
-)
-runtime_scenario(lambda: _rt("base-prefix-invalid-bin", "0b102", None, LexError))
-runtime_scenario(lambda: _rt("base-prefix-invalid-oct", "0o9", None, LexError))
-runtime_scenario(lambda: _rt("base-prefix-invalid-hex", "0xG", None, LexError))
-runtime_scenario(lambda: _rt("base-prefix-incomplete", "0b", None, LexError))
-runtime_scenario(lambda: _rt("base-prefix-uppercase", "0X10", None, LexError))
-runtime_scenario(lambda: _rt("base-prefix-underscore-start", "0b_101", None, LexError))
-runtime_scenario(lambda: _rt("base-prefix-underscore-end", "0b101_", None, LexError))
-runtime_scenario(
-    lambda: _rt("base-prefix-underscore-double", "0b10__01", None, LexError)
-)
-runtime_scenario(lambda: _rt("base-prefix-duration", "0x10ms", None, LexError))
-runtime_scenario(lambda: _rt("base-prefix-duration-bin", "0b10s", None, LexError))
-runtime_scenario(lambda: _rt("base-prefix-size", "0o755kb", None, LexError))
-runtime_scenario(
-    lambda: _rt(
-        "base-prefix-duration-mul", "0x10 * 1msec", ("duration", 16000000), None
-    )
+    _rt("base-prefix-duration-mul", "0x10 * 1msec", ("duration", 16000000), None)
 )
 runtime_scenario(
-    lambda: _rt("duration-underscore", "1_000msec", ("duration", 1000000000), None)
+    _rt("duration-underscore", "1_000msec", ("duration", 1000000000), None)
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "duration-compound-underscore",
         "1sec500_000usec",
         ("duration", 1500000000),
         None,
     )
 )
-runtime_scenario(lambda: _rt("size-underscore", "1_000kb", ("size", 1000000), None))
+runtime_scenario(_rt("size-underscore", "1_000kb", ("size", 1000000), None))
 runtime_scenario(
-    lambda: _rt("size-compound-underscore", "1mb500_000b", ("size", 1500000), None)
+    _rt("size-compound-underscore", "1mb500_000b", ("size", 1500000), None)
 )
 
 # Decimal underscore tests
-runtime_scenario(lambda: _rt("decimal-underscore", "1_000", ("number", 1000), None))
+runtime_scenario(_rt("decimal-underscore", "1_000", ("number", 1000), None))
 runtime_scenario(
-    lambda: _rt("decimal-underscore-multi", "1_000_000", ("number", 1000000), None)
+    _rt("decimal-underscore-multi", "1_000_000", ("number", 1000000), None)
 )
-runtime_scenario(lambda: _rt("decimal-underscore-trailing", "100_", None, LexError))
-runtime_scenario(lambda: _rt("decimal-underscore-double", "1__0", None, LexError))
+runtime_scenario(_rt("decimal-underscore-trailing", "100_", None, LexError))
+runtime_scenario(_rt("decimal-underscore-double", "1__0", None, LexError))
 # Float underscore tests
+runtime_scenario(_rt("float-underscore-int", "1_000.5", ("number", 1000.5), None))
+runtime_scenario(_rt("float-underscore-frac", "1.000_001", ("number", 1.000001), None))
 runtime_scenario(
-    lambda: _rt("float-underscore-int", "1_000.5", ("number", 1000.5), None)
+    _rt("float-underscore-both", "1_000.000_5", ("number", 1000.0005), None)
 )
-runtime_scenario(
-    lambda: _rt("float-underscore-frac", "1.000_001", ("number", 1.000001), None)
-)
-runtime_scenario(
-    lambda: _rt("float-underscore-both", "1_000.000_5", ("number", 1000.0005), None)
-)
-runtime_scenario(lambda: _rt("float-underscore-leading-frac", "1._5", None, LexError))
-runtime_scenario(lambda: _rt("float-underscore-trailing-frac", "1.5_", None, LexError))
+runtime_scenario(_rt("float-underscore-leading-frac", "1._5", None, LexError))
+runtime_scenario(_rt("float-underscore-trailing-frac", "1.5_", None, LexError))
 # Float exponent tests
-runtime_scenario(lambda: _rt("float-exponent", "1e10", ("number", 1e10), None))
-runtime_scenario(lambda: _rt("float-exponent-upper", "1E10", ("number", 1e10), None))
-runtime_scenario(lambda: _rt("float-exponent-neg", "1.5e-3", ("number", 1.5e-3), None))
-runtime_scenario(lambda: _rt("float-exponent-pos", "1E+5", ("number", 1e5), None))
+runtime_scenario(_rt("float-exponent", "1e10", ("number", 1e10), None))
+runtime_scenario(_rt("float-exponent-upper", "1E10", ("number", 1e10), None))
+runtime_scenario(_rt("float-exponent-neg", "1.5e-3", ("number", 1.5e-3), None))
+runtime_scenario(_rt("float-exponent-pos", "1E+5", ("number", 1e5), None))
+runtime_scenario(_rt("float-exponent-underscore", "1_000e2", ("number", 1000e2), None))
+runtime_scenario(_rt("float-exponent-underscore-exp", "1e1_0", ("number", 1e10), None))
+runtime_scenario(_rt("float-exponent-leading-underscore", "1e_5", None, LexError))
+runtime_scenario(_rt("float-dot-no-frac", "1.e5", None, LexError))
+runtime_scenario(_rt("float-trailing-dot", "1e5.", None, LexError))
 runtime_scenario(
-    lambda: _rt("float-exponent-underscore", "1_000e2", ("number", 1000e2), None)
-)
-runtime_scenario(
-    lambda: _rt("float-exponent-underscore-exp", "1e1_0", ("number", 1e10), None)
-)
-runtime_scenario(
-    lambda: _rt("float-exponent-leading-underscore", "1e_5", None, LexError)
-)
-runtime_scenario(lambda: _rt("float-dot-no-frac", "1.e5", None, LexError))
-runtime_scenario(lambda: _rt("float-trailing-dot", "1e5.", None, LexError))
-runtime_scenario(
-    lambda: _rt(
+    _rt(
         "duration-total-nsec",
         "5min30sec.total_nsec",
         ("number", 330000000000),
@@ -2080,7 +2034,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "duration-unit-sec",
         "(1min + 30sec).sec",
         ("number", 90),
@@ -2088,7 +2042,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "size-total-bytes",
         "2gb500mb.total_bytes",
         ("number", 2500000000),
@@ -2096,7 +2050,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "size-unit-gb",
         "(1gb * 2).gb",
         ("number", 2),
@@ -2104,7 +2058,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "duration-compound-multi",
         "1hr30min15sec.sec",
         ("number", 5415),
@@ -2112,7 +2066,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "duration-div-ratio",
         "5sec / 2sec",
         ("number", 2.5),
@@ -2120,7 +2074,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "size-div-ratio",
         "6gb / 2gb",
         ("number", 3),
@@ -2128,7 +2082,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "duration-compare-gt",
         "5min > 3min",
         ("bool", True),
@@ -2136,7 +2090,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "duration-compare-lte",
         "2sec <= 2sec",
         ("bool", True),
@@ -2144,7 +2098,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "size-compare-lt",
         "1mb < 2mb",
         ("bool", True),
@@ -2152,7 +2106,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "size-compare-gte",
         "5gb >= 4gb",
         ("bool", True),
@@ -2160,7 +2114,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "duration-negate",
         "(-5sec).total_nsec",
         ("number", -5000000000),
@@ -2168,7 +2122,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "size-negate",
         "(-2kb).total_bytes",
         ("number", -2000),
@@ -2176,7 +2130,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "duration-sub",
         "(10sec - 3sec).sec",
         ("number", 7),
@@ -2184,7 +2138,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "size-sub",
         "(5mb - 2mb).mb",
         ("number", 3),
@@ -2192,7 +2146,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "listcomp-filter",
         """src := [1, 2, 3, 4]
 odds := [ n over src if n % 2 == 1 ]
@@ -2202,7 +2156,7 @@ odds[1]""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "listcomp-binder",
         """pairs := [[i, v] over [i, v] [[0, "a"], [1, "b"]]]
 pairs[1][1]""",
@@ -2211,7 +2165,7 @@ pairs[1][1]""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "setliteral-sum",
         """vals := set{1, 2, 1}
 total := 0
@@ -2222,7 +2176,7 @@ total""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "setcomp-overspec",
         """src := [[0, 2], [1, 3]]
 sums := set{ i + v over [i, v] src }
@@ -2234,7 +2188,7 @@ total""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "dictcomp-basic",
         """items := ["a", "b"]
 obj := { k: k + "!" over items bind k }
@@ -2244,13 +2198,13 @@ obj["b"]""",
     )
 )
 runtime_scenario(
-    lambda: _rt("fn-definition", "fn add(x, y): x + y; add(2, 3)", ("number", 5), None)
+    _rt("fn-definition", "fn add(x, y): x + y; add(2, 3)", ("number", 5), None)
 )
 runtime_scenario(
-    lambda: _rt("fn-closure", "y := 5; fn addY(x): x + y; addY(2)", ("number", 7), None)
+    _rt("fn-closure", "y := 5; fn addY(x): x + y; addY(2)", ("number", 7), None)
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fn-return-value",
         """fn addOne(x): { return x + 1 }
 addOne(4)""",
@@ -2259,7 +2213,7 @@ addOne(4)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fn-return-default-null",
         """fn noop(): { return }
 noop()""",
@@ -2268,12 +2222,10 @@ noop()""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
-        "anon-fn-expression", "inc := fn(x): { x + 1 }; inc(5)", ("number", 6), None
-    )
+    _rt("anon-fn-expression", "inc := fn(x): { x + 1 }; inc(5)", ("number", 6), None)
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "anon-fn-block",
         """make := fn(): { value := 2; value + 3 }
 make()""",
@@ -2282,7 +2234,7 @@ make()""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "anon-fn-auto",
         """result := fn(()) : { tmp := 4; tmp + 1 }
 result""",
@@ -2291,7 +2243,7 @@ result""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "anon-fn-inline",
         """inline := fn(): 40 + 2
 inline()""",
@@ -2300,7 +2252,7 @@ inline()""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "anon-fn-inline-store",
         """fnRef := fn(): print("awd")
 "done\"""",
@@ -2309,7 +2261,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "await-value",
         """fn id(x): x
 await id(5)""",
@@ -2318,7 +2270,7 @@ await id(5)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "await-stmt-body",
         """val := 0
 await sleep(10): { val = . }
@@ -2328,7 +2280,7 @@ val""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "await-any-trailing-body",
         "await [any]( fast: sleep(10), slow: sleep(50) ): winner",
         ("string", "fast"),
@@ -2336,7 +2288,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "await-any-inline-body",
         'await [any]( fast: sleep(10): "done" )',
         ("string", "done"),
@@ -2344,7 +2296,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "await-all-trailing-body",
         'await [all]( first: sleep(10), second: sleep(20) ): "ok"',
         ("string", "ok"),
@@ -2352,7 +2304,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "hook-raw-string",
         'hook raw"event": 1',
         ("null", None),
@@ -2360,7 +2312,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "no-anchor-preserves-dot",
         """user := { name: "Ada" }
 user and $"skip" and .name""",
@@ -2369,7 +2321,7 @@ user and $"skip" and .name""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "and-literal-anchor",
         """a := "a"
 a and 1 and .upper()""",
@@ -2378,7 +2330,7 @@ a and 1 and .upper()""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "anchor-law",
         """user := { id: "outer" }
 other := { id: "inner" }
@@ -2388,7 +2340,7 @@ user and (other and .id) and .id""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-base-anchor",
         """users := ["aa", "bb"]
 seen := users.len
@@ -2399,7 +2351,7 @@ users[seen - 1]
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "group-anchor",
         """user := { friend: { name: "bob" } }
 (user.friend and .name)""",
@@ -2408,7 +2360,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "leading-dot-chain-law",
         """user := { profile: { name: "  Ada " }, id: "ID" }
 user and (.profile.name.trim()) and .id""",
@@ -2417,7 +2369,7 @@ user and (.profile.name.trim()) and .id""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "statement-subject-locality",
         """outer := { size: 42 }
 u := "  hi  "
@@ -2427,7 +2379,7 @@ outer and (=u .trim()) and .size""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "statement-subject-grouped-anchor",
         """user := { profile: { contact: { name: "  Ada " } } }
 =(user.profile.contact.name).trim()
@@ -2437,7 +2389,7 @@ user.profile.contact.name""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "statement-subject-retarget-ident",
         """user := { profile: { contact: { name: "  Ada " } } }
 =(user).profile.contact.name.trim()
@@ -2447,7 +2399,7 @@ user""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "statement-subject-grouped-ident-tail",
         """a := { b: "s" }
 =(a).b
@@ -2457,7 +2409,7 @@ a""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "statement-subject-missing-tail",
         """user := { name: "Ada" }
 =user.name""",
@@ -2466,7 +2418,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "applyassign-chain",
         """profile := { name: "  Ada " }
 profile.name .= .trim()
@@ -2476,7 +2428,7 @@ profile.name""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "nullish-chain",
         """nil ?? "guest" ?? "fallback" """,
         ("string", "guest"),
@@ -2484,7 +2436,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "ternary-expr",
         """flag := true
 flag ? "yes" : "no" """,
@@ -2493,7 +2445,7 @@ flag ? "yes" : "no" """,
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "string-interp",
         """user := { name: "Ada", score: 5 }
 msg := "Name: {user.name}, score: {user.score}"
@@ -2503,7 +2455,7 @@ msg""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "string-interp-braces",
         """value := 10
 text := "set {{value}} = {value}"
@@ -2513,7 +2465,7 @@ text""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "string-interp-single-quote",
         """user := { name: "Ada" }
 text := 'hi {user.name}!'
@@ -2523,7 +2475,7 @@ text""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "ccc-runtime",
         """temp := 50
 verdict := "fail"
@@ -2534,7 +2486,7 @@ verdict""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-compare-eq-any",
         """v1 := 1 == `1, 2`
 v2 := 1 != `2, 3`
@@ -2545,7 +2497,7 @@ v3 := 1 != `1, 2`
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-literal-pick",
         """sel := `0, 2`
 arr := [10, 20, 30]
@@ -2556,7 +2508,7 @@ picked[0] + picked[1]""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-literal-open-start",
         """sel := `:3`
 arr := [10, 20, 30, 40]
@@ -2567,7 +2519,7 @@ picked[0] + picked[1] + picked[2]""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-literal-open-stop",
         """sel := `2:`
 arr := [1, 2, 3, 4, 5]
@@ -2578,7 +2530,7 @@ picked[0] + picked[1] + picked[2]""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-literal-open-stop-neg-step",
         """sel := `5::-2`
 arr := [0, 1, 2, 3, 4, 5]
@@ -2590,7 +2542,7 @@ picked.len""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-literal-open-start-neg-step",
         """sel := `:1:-2`
 arr := [0, 1, 2, 3, 4, 5]
@@ -2601,7 +2553,7 @@ picked[0] + picked[1] + picked[2]""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-literal-slice-step",
         """sel := `1:7:2`
 arr := [0, 1, 2, 3, 4, 5, 6, 7]
@@ -2612,7 +2564,7 @@ picked[0] + picked[1] + picked[2]""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-literal-slice-step-interp-neg",
         """step := -1
 sel := `5:1:{step}`
@@ -2624,7 +2576,7 @@ picked[0] + picked[1] + picked[2] + picked[3]""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-literal-hex-overflow",
         "arr := [0]\narr[`0x8000000000000000`]",
         None,
@@ -2632,7 +2584,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-literal-dec-overflow",
         "arr := [0]\narr[`9223372036854775808`]",
         None,
@@ -2640,7 +2592,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-literal-slice-stop-overflow",
         "arr := [0]\narr[`0:0x8000000000000000`]",
         None,
@@ -2648,7 +2600,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-literal-slice-step-overflow",
         "arr := [0]\narr[`0:1:0x8000000000000000`]",
         None,
@@ -2656,7 +2608,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-literal-slice-step-neg-overflow",
         "arr := [0]\narr[`0:1:-0x8000000000000001`]",
         None,
@@ -2664,7 +2616,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-slice",
         """arr := [10, 20, 30, 40]
 slice := arr[1:3]
@@ -2674,7 +2626,7 @@ slice[0] + slice[1]""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "selector-literal-interp",
         """start := 1
 stop := 3
@@ -2687,7 +2639,7 @@ sum[0] + sum[1]""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "compare-anchor-object",
         "a := {b: 1, c: 2}; a >= .b",
         None,
@@ -2695,7 +2647,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "object-index-default",
         """cfg := { db: { host: "db" } }
 calls := 0
@@ -2712,7 +2664,7 @@ assert calls == 1
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "array-index-default-error",
         """arr := [1, 2, 3]
 arr[0, default: 9]""",
@@ -2721,7 +2673,7 @@ arr[0, default: 9]""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "postfix-if-walrus-true",
         """calls := 0
 fn bump(): { calls += 1; "run" }
@@ -2733,7 +2685,7 @@ result""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "postfix-if-walrus-false",
         """calls := 0
 fn bump(): { calls += 1; "run" }
@@ -2746,7 +2698,7 @@ result""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "postfix-if-assign-noop",
         """value := 1
 value = 2 if false
@@ -2757,7 +2709,7 @@ value""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "postfix-unless-walrus",
         """calls := 0
 fn bump(): { calls += 1; "run" }
@@ -2771,7 +2723,7 @@ fallback""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "guard-oneline",
         """result := "unset"
 true: result = "hit" | false: result = "miss" |: result = "else"
@@ -2781,7 +2733,7 @@ result""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "guard-nullsafe-index",
         """fn rotate(shape):
   ??(!shape[0]): return []
@@ -2793,7 +2745,7 @@ rotate([])""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "while-basic",
         """i := 0
 while i < 3: { i += 1 }
@@ -2803,7 +2755,7 @@ i""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "while-break-continue",
         """i := 0
 acc := 0
@@ -2818,7 +2770,7 @@ acc""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "object-getter-setter",
         """obj := {
   name: "Ada"
@@ -2850,7 +2802,7 @@ label_before + "|" + greet + "|" + ("" + dyn) + "|" + ("" + before) + "|" + ("" 
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "walrus-duplicate-name",
         """a := 1
 a := 2""",
@@ -2859,7 +2811,7 @@ a := 2""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "catch-expr-binder",
         """value := (missingVar catch err: err.type)
 value""",
@@ -2868,7 +2820,7 @@ value""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "catch-expr-dot",
         """fallback := missingVar @@: .message
 fallback""",
@@ -2877,7 +2829,7 @@ fallback""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "catch-stmt-binder",
         """msg := ""
 missingVar catch err: { msg = err.message }
@@ -2887,7 +2839,7 @@ msg""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "catch-stmt-dot",
         """typ := ""
 missingVar catch: { typ = .type }
@@ -2897,7 +2849,7 @@ typ""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "catch-type-match",
         """value := (missingVar catch (ShakarRuntimeError) bind err: err.type)
 value""",
@@ -2906,7 +2858,7 @@ value""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "catch-typed-bind",
         """fn risky(tag): { throw error(tag, "bad") }
 value := (risky("ValidationError") catch (ValidationError, Missing) bind err: err.type)
@@ -2916,7 +2868,7 @@ value""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "return-if",
         """fn first_even(xs): { for n in xs: { if n % 2 == 0: { ?ret n } }; "none" }
 first_even([1, 3, 5, 6, 8])""",
@@ -2925,7 +2877,7 @@ first_even([1, 3, 5, 6, 8])""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "for-in-sum",
         """sum := 0
 for x in [1, 2, 3]: sum = sum + x
@@ -2935,7 +2887,7 @@ sum""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "for-subject-dot",
         """acc := ""
 for ["a", "b"]: acc = acc + .upper()
@@ -2945,7 +2897,7 @@ acc""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "for-subject-bare-ident",
         """acc := ""
 items := ["x", "y"]
@@ -2956,7 +2908,7 @@ acc""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "for-subject-number-int",
         """sum := 0
 for 3: sum += .
@@ -2966,7 +2918,7 @@ sum""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "for-subject-number-float",
         """for 2.5: print(.)""",
         None,
@@ -2974,7 +2926,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "for-subject-number-negative",
         """for -2: print(.)""",
         None,
@@ -2982,7 +2934,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "for-subject-in-call-block",
         """log := ""
 fn out(s): log = log + s
@@ -2995,7 +2947,7 @@ log""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "await-bare-ident",
         """x := 99
 await x""",
@@ -3004,7 +2956,7 @@ await x""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "for-indexed",
         """logs := ""
 items := ["a", "b"]
@@ -3015,7 +2967,7 @@ logs""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "for-map-key-value",
         """obj := { "a": 1, "b": 2 }
 keys := ""
@@ -3027,7 +2979,7 @@ keys + ":" + ("" + sum)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "for-map-destructure",
         """obj := { "a": 1, "b": 2 }
 keys := ""
@@ -3039,7 +2991,7 @@ keys + ":" + ("" + sum)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "for-hoist-index",
         """for[^idx] [10, 20]: idx = idx
 idx""",
@@ -3048,7 +3000,7 @@ idx""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "for-break",
         """sum := 0
 for x in [1, 2, 3]: { if x == 2: break; sum = sum + x }
@@ -3058,7 +3010,7 @@ sum""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "for-continue",
         """sum := 0
 for x in [1, 2, 3]: { if x == 2: continue; sum = sum + x }
@@ -3068,7 +3020,7 @@ sum""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "fn-return-in-defer",
         """fn choose(): { defer finish: { return 2 }; return 1 }
 choose()""",
@@ -3076,9 +3028,9 @@ choose()""",
         None,
     )
 )
-runtime_scenario(lambda: _rt("stdlib-print", 'print(1, "a")', ("null", None), None))
+runtime_scenario(_rt("stdlib-print", 'print(1, "a")', ("null", None), None))
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "defer-runs",
         """flag := 0
 fn setFlag(): { flag = 2 }
@@ -3090,7 +3042,7 @@ flag""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "defer-after-order",
         """log := ""
 fn run(): { defer second after first: { log = log + "2" }; defer first: { log = log + "1" } }
@@ -3101,7 +3053,7 @@ log""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "defer-simplecall-after",
         """log := ""
 fn push(ch): { log = log + ch }
@@ -3113,10 +3065,10 @@ log""",
     )
 )
 runtime_scenario(
-    lambda: _rt("defer-unknown-handle", "defer cleanup: pass", None, ShakarRuntimeError)
+    _rt("defer-unknown-handle", "defer cleanup: pass", None, ShakarRuntimeError)
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "defer-cycle-detected",
         """log := []
 fn run(): { defer second after first: pass; defer first after second: pass }
@@ -3126,7 +3078,7 @@ run()""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "defer-duplicate-handle",
         """fn run(): { defer tag: pass; defer tag: pass }
 run()""",
@@ -3134,15 +3086,13 @@ run()""",
         ShakarRuntimeError,
     )
 )
-runtime_scenario(lambda: _rt("assert-pass", "assert 1 == 1", ("null", None), None))
+runtime_scenario(_rt("assert-pass", "assert 1 == 1", ("null", None), None))
+runtime_scenario(_rt("assert-fail", 'assert false, "boom"', None, ShakarAssertionError))
 runtime_scenario(
-    lambda: _rt("assert-fail", 'assert false, "boom"', None, ShakarAssertionError)
+    _rt("throw-new-error", 'throw error("boom")', None, ShakarRuntimeError)
 )
 runtime_scenario(
-    lambda: _rt("throw-new-error", 'throw error("boom")', None, ShakarRuntimeError)
-)
-runtime_scenario(
-    lambda: _rt(
+    _rt(
         "throw-custom-catch",
         """fn risky(): { throw error("ValidationError", "bad", 123) }
 value := (risky() catch err: err.message)
@@ -3152,7 +3102,7 @@ value""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "throw-custom-guard-miss",
         """fn risky(): { throw error("TypeError", "bad") }
 risky() catch (ValidationError): 1""",
@@ -3161,7 +3111,7 @@ risky() catch (ValidationError): 1""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "throw-rethrow",
         """fn risky(): { throw error("TypeError", "bad") }
 risky() catch err: throw""",
@@ -3169,14 +3119,12 @@ risky() catch err: throw""",
         ShakarRuntimeError,
     )
 )
-runtime_scenario(lambda: _rt("return-outside-fn", "return 1", None, ShakarRuntimeError))
+runtime_scenario(_rt("return-outside-fn", "return 1", None, ShakarRuntimeError))
 runtime_scenario(
-    lambda: _rt(
-        "lambda-subject-missing-arg", "a := &(.trim()); a()", None, ShakarArityError
-    )
+    _rt("lambda-subject-missing-arg", "a := &(.trim()); a()", None, ShakarArityError)
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "lambda-hole-runtime",
         """fn blend(a, b, ratio): a + (b - a) * ratio
 partial := blend(?, ?, 0.25)
@@ -3185,54 +3133,38 @@ partial(0, 16)""",
         None,
     )
 )
-runtime_scenario(
-    lambda: _rt("lambda-hole-iifc", "blend(?, ?, 0.25)()", None, SyntaxError)
-)
-runtime_scenario(lambda: _rt("power-basic", "2 ** 3", ("number", 8), None))
-runtime_scenario(lambda: _rt("power-precedence", "2 ** 3 ** 2", ("number", 512), None))
-runtime_scenario(lambda: _rt("power-negative", "(-2) ** 3", ("number", -8), None))
-runtime_scenario(lambda: _rt("power-assign", "x := 2; x **= 3; x", ("number", 8), None))
-runtime_scenario(
-    lambda: _rt("postfix-incr-basic", "a := 5; a++; a", ("number", 6), None)
-)
-runtime_scenario(
-    lambda: _rt("postfix-decr-basic", "a := 5; a--; a", ("number", 4), None)
-)
-runtime_scenario(
-    lambda: _rt("prefix-incr-basic", "a := 5; ++a; a", ("number", 6), None)
-)
-runtime_scenario(
-    lambda: _rt("prefix-decr-basic", "a := 5; --a; a", ("number", 4), None)
-)
+runtime_scenario(_rt("lambda-hole-iifc", "blend(?, ?, 0.25)()", None, SyntaxError))
+runtime_scenario(_rt("power-basic", "2 ** 3", ("number", 8), None))
+runtime_scenario(_rt("power-precedence", "2 ** 3 ** 2", ("number", 512), None))
+runtime_scenario(_rt("power-negative", "(-2) ** 3", ("number", -8), None))
+runtime_scenario(_rt("power-assign", "x := 2; x **= 3; x", ("number", 8), None))
+runtime_scenario(_rt("postfix-incr-basic", "a := 5; a++; a", ("number", 6), None))
+runtime_scenario(_rt("postfix-decr-basic", "a := 5; a--; a", ("number", 4), None))
+runtime_scenario(_rt("prefix-incr-basic", "a := 5; ++a; a", ("number", 6), None))
+runtime_scenario(_rt("prefix-decr-basic", "a := 5; --a; a", ("number", 4), None))
 
 # CCC disambiguation tests
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "ccc-function-args", "fn f(a, b, c): a + b + c; f(1, 2, 3)", ("number", 6), None
     )
 )
 runtime_scenario(
-    lambda: _rt(
-        "ccc-array-elements", "a := [1, 2, 3]; a[0] + a[1] + a[2]", ("number", 6), None
-    )
+    _rt("ccc-array-elements", "a := [1, 2, 3]; a[0] + a[1] + a[2]", ("number", 6), None)
 )
 runtime_scenario(
-    lambda: _rt(
-        "ccc-array-with-parens", "a := [(5 == 5, == 5)]; a[0]", ("bool", True), None
-    )
+    _rt("ccc-array-with-parens", "a := [(5 == 5, == 5)]; a[0]", ("bool", True), None)
 )
 runtime_scenario(
-    lambda: _rt("ccc-destructure-pack", "a, b := 10, 20; a + b", ("number", 30), None)
+    _rt("ccc-destructure-pack", "a, b := 10, 20; a + b", ("number", 30), None)
 )
 runtime_scenario(
-    lambda: _rt(
-        "ccc-statement-allowed", "x := 5; assert x == 5, < 10; x", ("number", 5), None
-    )
+    _rt("ccc-statement-allowed", "x := 5; assert x == 5, < 10; x", ("number", 5), None)
 )
 
 # CCC in comprehensions - parser and evaluator now support it
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "ccc-comprehension-filter",
         "data := [1, 5, 10]; [x for x in data if x == 1, < 6]",
         ("array", [1.0]),
@@ -3240,7 +3172,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "ccc-comprehension-explicit",
         "data := [1, 5, 10]; [x for x in data if x > 0, and < 8]",
         ("array", [1.0, 5.0]),
@@ -3248,7 +3180,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "ccc-comprehension-or",
         "data := [1, 5, 10]; [x for x in data if x == 1, or == 10]",
         ("array", [1.0, 10.0]),
@@ -3257,21 +3189,15 @@ runtime_scenario(
 )
 
 # Structural match (~) operator
-runtime_scenario(lambda: _rt("struct-match-type-int", "5 ~ Int", ("bool", True), None))
+runtime_scenario(_rt("struct-match-type-int", "5 ~ Int", ("bool", True), None))
+runtime_scenario(_rt("struct-match-type-str", '"hello" ~ Str', ("bool", True), None))
+runtime_scenario(_rt("struct-match-type-bool", "true ~ Bool", ("bool", True), None))
+runtime_scenario(_rt("struct-match-type-array", "[1, 2] ~ Array", ("bool", True), None))
 runtime_scenario(
-    lambda: _rt("struct-match-type-str", '"hello" ~ Str', ("bool", True), None)
+    _rt("struct-match-type-object", "{a: 1} ~ Object", ("bool", True), None)
 )
 runtime_scenario(
-    lambda: _rt("struct-match-type-bool", "true ~ Bool", ("bool", True), None)
-)
-runtime_scenario(
-    lambda: _rt("struct-match-type-array", "[1, 2] ~ Array", ("bool", True), None)
-)
-runtime_scenario(
-    lambda: _rt("struct-match-type-object", "{a: 1} ~ Object", ("bool", True), None)
-)
-runtime_scenario(
-    lambda: _rt(
+    _rt(
         "struct-match-object-subset",
         "obj := {a: 1, b: 2, c: 3}; obj ~ {a: Int}",
         ("bool", True),
@@ -3279,7 +3205,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "struct-match-object-multi",
         "obj := {a: 1, b: 2}; obj ~ {a: Int, b: Int}",
         ("bool", True),
@@ -3287,7 +3213,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "struct-match-object-missing",
         "{a: 1} ~ {a: Int, b: Int}",
         ("bool", False),
@@ -3295,18 +3221,18 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "struct-match-nested",
         'u := {name: "Alice", profile: {role: "admin"}}; u ~ {profile: {role: Str}}',
         ("bool", True),
         None,
     )
 )
-runtime_scenario(lambda: _rt("struct-match-value", "5 ~ 5", ("bool", True), None))
+runtime_scenario(_rt("struct-match-value", "5 ~ 5", ("bool", True), None))
 
 # Type contracts in function parameters
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "contract-int-valid",
         """fn add(a ~ Int, b ~ Int):
     a + b
@@ -3316,7 +3242,7 @@ add(1, 2)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "contract-str-valid",
         """fn greet(name ~ Str):
     "Hello, " + name
@@ -3326,7 +3252,7 @@ greet("Bob")""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "contract-object-valid",
         """fn getname(u ~ {name: Str}):
     u.name
@@ -3336,7 +3262,7 @@ getname({name: "Alice", age: 30})""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "contract-int-invalid",
         """fn add(a ~ Int):
     a
@@ -3346,7 +3272,7 @@ add("wrong")""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "contract-object-invalid",
         """fn f(u ~ {x: Int}):
     u
@@ -3357,16 +3283,14 @@ f({y: 1})""",
 )
 
 # Ensure unary ~ is rejected (only binary ~ is supported)
-runtime_scenario(lambda: _rt("unary-tilde-rejected", "~5", None, ParseError))
+runtime_scenario(_rt("unary-tilde-rejected", "~5", None, ParseError))
 
 # Inline functions with contracts should work correctly
 runtime_scenario(
-    lambda: _rt(
-        "contract-inline-fn", "fn inc(x ~ Int): x + 1; inc(5)", ("number", 6), None
-    )
+    _rt("contract-inline-fn", "fn inc(x ~ Int): x + 1; inc(5)", ("number", 6), None)
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "contract-inline-fn-invalid",
         'fn inc(x ~ Int): x + 1; inc("bad")',
         None,
@@ -3374,7 +3298,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "contract-inline-fn-defer",
         """fn test(x ~ Int):
     defer: x + 1
@@ -3385,7 +3309,7 @@ test(5)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "contract-inline-multiple",
         "fn add(a ~ Int, b ~ Int): a + b; add(3, 4)",
         ("number", 7),
@@ -3395,17 +3319,15 @@ runtime_scenario(
 
 # Optional fields with Optional() function
 runtime_scenario(
-    lambda: _rt(
-        "optional-fn-missing-ok", "{} ~ {a: Optional(Int)}", ("bool", True), None
-    )
+    _rt("optional-fn-missing-ok", "{} ~ {a: Optional(Int)}", ("bool", True), None)
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "optional-fn-present-valid", "{a: 1} ~ {a: Optional(Int)}", ("bool", True), None
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "optional-fn-present-invalid",
         '{a: "no"} ~ {a: Optional(Int)}',
         ("bool", False),
@@ -3415,10 +3337,10 @@ runtime_scenario(
 
 # Optional fields with key?: syntax
 runtime_scenario(
-    lambda: _rt("optional-syntax-missing-ok", "{} ~ {a?: Int}", ("bool", True), None)
+    _rt("optional-syntax-missing-ok", "{} ~ {a?: Int}", ("bool", True), None)
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "optional-syntax-present-valid",
         "{a: 1, b: 2} ~ {a: Int, b?: Int}",
         ("bool", True),
@@ -3426,7 +3348,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "optional-syntax-present-invalid",
         '{a: "bad"} ~ {a?: Int}',
         ("bool", False),
@@ -3434,7 +3356,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "optional-syntax-mixed",
         '{name: "Alice"} ~ {name: Str, age?: Int}',
         ("bool", True),
@@ -3442,7 +3364,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "optional-syntax-required-missing",
         "{age: 30} ~ {name: Str, age?: Int}",
         ("bool", False),
@@ -3451,20 +3373,14 @@ runtime_scenario(
 )
 
 # Union types
+runtime_scenario(_rt("union-basic-int", "5 ~ Union(Int, Str)", ("bool", True), None))
+runtime_scenario(_rt("union-basic-str", '"hi" ~ Union(Int, Str)', ("bool", True), None))
 runtime_scenario(
-    lambda: _rt("union-basic-int", "5 ~ Union(Int, Str)", ("bool", True), None)
+    _rt("union-basic-fail", "true ~ Union(Int, Str)", ("bool", False), None)
 )
+runtime_scenario(_rt("union-with-nil", "nil ~ Union(Int, Nil)", ("bool", True), None))
 runtime_scenario(
-    lambda: _rt("union-basic-str", '"hi" ~ Union(Int, Str)', ("bool", True), None)
-)
-runtime_scenario(
-    lambda: _rt("union-basic-fail", "true ~ Union(Int, Str)", ("bool", False), None)
-)
-runtime_scenario(
-    lambda: _rt("union-with-nil", "nil ~ Union(Int, Nil)", ("bool", True), None)
-)
-runtime_scenario(
-    lambda: _rt(
+    _rt(
         "union-reassign",
         'Schema := Union(Int, Str); x := 5; x = "hello"; x ~ Schema',
         ("bool", True),
@@ -3472,12 +3388,10 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
-        "union-in-object", "{age: 30} ~ {age: Union(Int, Str)}", ("bool", True), None
-    )
+    _rt("union-in-object", "{age: 30} ~ {age: Union(Int, Str)}", ("bool", True), None)
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "union-in-object-str",
         '{age: "30"} ~ {age: Union(Int, Str)}',
         ("bool", True),
@@ -3485,7 +3399,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "union-in-object-fail",
         "{age: true} ~ {age: Union(Int, Str)}",
         ("bool", False),
@@ -3493,7 +3407,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "union-with-optional",
         '{name: "Alice"} ~ {name: Str, age?: Union(Int, Str)}',
         ("bool", True),
@@ -3501,7 +3415,7 @@ runtime_scenario(
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "union-contract-valid",
         """fn process(value ~ Union(Int, Str)):
     value
@@ -3511,7 +3425,7 @@ process(42)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "union-contract-invalid",
         """fn process(value ~ Union(Int, Str)):
     value
@@ -3523,7 +3437,7 @@ process(true)""",
 
 # Return type contracts
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "return-contract-basic",
         """fn double(x ~ Int) ~ Int:
     x * 2
@@ -3533,7 +3447,7 @@ double(5)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "return-contract-union",
         """fn safe_divide(a ~ Int, b ~ Int) ~ Union(Float, Nil):
     if b == 0:
@@ -3546,7 +3460,7 @@ safe_divide(10, 2)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "return-contract-union-nil",
         """fn safe_divide(a ~ Int, b ~ Int) ~ Union(Float, Nil):
     if b == 0:
@@ -3559,7 +3473,7 @@ safe_divide(10, 0)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "return-contract-inline",
         """fn inc(x ~ Int) ~ Int: x + 1
 inc(5)""",
@@ -3568,7 +3482,7 @@ inc(5)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "return-contract-anon",
         """square := fn(x ~ Int) ~ Int: x * x
 square(4)""",
@@ -3577,7 +3491,7 @@ square(4)""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "return-contract-object",
         """PersonSchema := {name: Str, age: Int}
 fn make_person(name ~ Str, age ~ Int) ~ PersonSchema:
@@ -3589,7 +3503,7 @@ p.age""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "return-contract-fail",
         """fn bad_return(x ~ Int) ~ Str:
     x * 2
@@ -3601,7 +3515,7 @@ bad_return(5)""",
 
 # Destructure contracts
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "destructure-contract-single",
         """a ~ Int := 42
 a""",
@@ -3610,7 +3524,7 @@ a""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "destructure-nested",
         """a, (b, (c, d)) := [1, [2, [3, 4]]]
 a + b + c + d""",
@@ -3619,7 +3533,7 @@ a + b + c + d""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "destructure-mixed-contract-nested",
         """a ~ Int, (b, c) := [10, [20, 30]]
 a + b + c""",
@@ -3628,7 +3542,7 @@ a + b + c""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "destructure-contract-basic",
         """a ~ Int, b ~ Str := 10, "hello"
 a""",
@@ -3637,7 +3551,7 @@ a""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "destructure-contract-partial",
         """x ~ Int, y, z ~ Int := 5, "mid", 15
 z - x""",
@@ -3646,7 +3560,7 @@ z - x""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "destructure-contract-broadcast",
         """m ~ Int, n ~ Int := 42
 m + n""",
@@ -3655,7 +3569,7 @@ m + n""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "destructure-contract-array",
         """id ~ Int, name ~ Str := [100, "Alice"]
 id""",
@@ -3664,7 +3578,7 @@ id""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "destructure-contract-fail",
         """a ~ Int, b ~ Str := 10, 20
 a""",
@@ -3675,7 +3589,7 @@ a""",
 
 # Lookahead paren_depth leak tests - ensure layout parsing works after lookahead with parens
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "lookahead-destructure-paren",
         """a ~ (Int), b := 10, 20
 x := 1
@@ -3686,7 +3600,7 @@ x + y""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "lookahead-forin-paren",
         """sum := 0
 for x in [1, 2, 3]:
@@ -3697,7 +3611,7 @@ sum""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "lookahead-guard-continue",
         """x := 5
 x > 3:
@@ -3711,7 +3625,7 @@ y""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "lookahead-ccc-paren",
         """a, b := (1 > 0), (2 > 1)
 x := 99
@@ -3721,7 +3635,7 @@ x""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "lookahead-dictcomp-paren",
         """d := {x: x * 2 for x in [1, 2, 3]}
 y := 42
@@ -3731,7 +3645,7 @@ y""",
     )
 )
 runtime_scenario(
-    lambda: _rt(
+    _rt(
         "lookahead-slice-literal",
         """arr := [10, 20, 30, 40]
 s := arr`1:3`
@@ -4033,10 +3947,10 @@ r_runtime_ops = [
     ("compound-floordiv", "a := 9; a //= 2; a", ("number", 4)),
 ]
 for name, source, expect in r_runtime_ops:
-    runtime_scenario(lambda n=name, src=source, exp=expect: _rt(n, src, exp, None))
+    runtime_scenario(_rt(name, source, expect, None))
 
 # runtime_scenario(
-#     lambda: _rt(
+#     _rt(
 #         "nullsafe-chain",
 #         """arr := nil
 # fallback := [1, 2]
