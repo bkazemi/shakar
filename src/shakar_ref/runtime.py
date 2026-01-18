@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import pathlib
+import re
 import subprocess
 from typing import Callable, Dict, List, Optional, Tuple, Union
 from .tree import Node
@@ -136,12 +137,9 @@ def register_module_factory(
 
 
 def _looks_like_path(name: str) -> bool:
-    return (
-        name.startswith((".", "/"))
-        or name.endswith(".shk")
-        or "/" in name
-        or "\\" in name
-    )
+    if name.startswith(("./", "../", "/", ".\\", "..\\")):
+        return True
+    return re.match(r"^[A-Za-z]:[\\/]", name) is not None
 
 
 def _resolve_import_path(name: str, frame: Optional[Frame]) -> pathlib.Path:
@@ -253,6 +251,14 @@ def _load_module_from_file(
 
 def import_module(name: str, frame: Optional[Frame] = None) -> ShkModule:
     init_stdlib()
+
+    if not _looks_like_path(name):
+        if "\\" in name:
+            raise ShakarImportError("Relative imports must start with './' or '../'")
+        if name.endswith(".shk"):
+            raise ShakarImportError(
+                "Builtin modules cannot use '.shk' extension; use './' for file imports"
+            )
 
     key, path = _resolve_import_target(name, frame)
     existing = MODULE_REGISTRY.get(key)

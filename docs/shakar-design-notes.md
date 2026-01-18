@@ -828,9 +828,9 @@ Three statement forms for importing modules:
    - Loads module and binds to a name (default: derived from module path).
    - Default binding strips `.shk` suffix: `import "utils.shk"` binds to `utils`.
    ```shakar
-   import "term"              # binds to 'term'
-   import "utils/helpers.shk" # binds to 'helpers'
-   import "math" bind m       # binds to 'm'
+   import "term"                 # binds to 'term'
+   import "./utils/helpers.shk"  # binds to 'helpers'
+   import "math" bind m          # binds to 'm'
    ```
 
 2. **Destructure import**: `import[name1, name2, ...] "module"`
@@ -862,9 +862,10 @@ cfg := (env"USE_ALT" ? import "alt_config" : import "config")
 #### Module resolution
 
 - **Built-in modules**: registered via factory functions (e.g., `"term"`). Loaded lazily on first import.
-- **File modules**: paths starting with `.`, `/`, containing `/`, or ending in `.shk` are resolved relative to the importing file's directory.
+- **File modules**: paths starting with `./`, `../`, or `/` are resolved relative to the importing file's directory (or absolute for `/`).
   - Relative paths: `import "./utils"` or `import "../lib/helpers.shk"`.
-  - `.shk` suffix is optional; resolver tries with suffix if bare path not found.
+  - `.shk` suffix is optional for file imports; resolver tries with suffix if bare path not found.
+  - Built-in modules cannot use `.shk` extensions (use `./` for file imports).
 - **Caching**: modules are cached by resolved absolute path; repeated imports return the same module instance.
 - **Circular imports**: detected at load time; raises `ShakarImportError`.
 
