@@ -30,7 +30,7 @@ This is a living technical spec. Every surface sugar has a deterministic desugar
 - **Whitespace & layout**: indentation (spaces only) after `:` starts blocks.
 - **Semicolons**: hard statement delimiters at top level and inside braced inline suites `{ ... }`. Multiple statements may share a line. Grammar shape: `stmtlist := stmt (SEMI stmt)* SEMI?`.
 - **Inline suites after `:`**: exactly one simple statement. Wrap a braced inline suite on the right of the colon for multiple statements.
-- **Reserved keywords**: `and, or, not, if, elif, else, unless, for, in, break, continue, return, assert, using, call, defer, after, catch, decorator, decorate, hook, fn, get, set, bind, over, true, false, nil`.
+- **Reserved keywords**: `and, or, not, if, elif, else, unless, for, in, break, continue, return, assert, using, call, defer, after, catch, decorator, decorate, hook, fn, get, set, bind, import, over, true, false, nil`.
 - **Contextual keywords**: `for` (in comprehensions), `get`/`set` (inside object literals).
 - **Punctuation tokens**: `.=` (apply-assign), `|`/`|:` (guards), `?ret` (statement head), `??(expr)` (nil-safe chain), `:=` (walrus).
 
@@ -206,7 +206,7 @@ if user.is_admin:
 
 ### Core types
 
-- **Int** (`i64`, overflow throws), **Float** (`f64`), **Bool**, **Str** (immutable UTF-8), **Array**, **Object** (map with descriptors), **Func**, **Selector literal** (iterable numeric range), **Duration** (nanosecond-precision time span), **Size** (byte quantity), **Nil**. Type predicates live in the stdlib (`isInt`, `typeOf`); no type grammar.
+- **Int** (`i64`, overflow throws), **Float** (`f64`), **Bool**, **Str** (immutable UTF-8), **Array**, **Object** (map with descriptors), **Module** (immutable object from imports), **Func**, **Selector literal** (iterable numeric range), **Duration** (nanosecond-precision time span), **Size** (byte quantity), **Nil**. Type predicates live in the stdlib (`isInt`, `typeOf`); no type grammar.
 
 ### Primitive literals
 
@@ -814,6 +814,106 @@ u := makeUser() and .isValid()
   # Comprehension style
   errors := [ .read() over log_dir / "*.log" if .size > 0 ]
   ```
+
+### Modules & Imports
+
+- **Status**: 🧪 Experimental.
+- **Goal**: enable code reuse via file-based and built-in modules with immutable semantics.
+
+#### Import statement forms
+
+Three statement forms for importing modules:
+
+1. **Simple import**: `import "module"` or `import "module" bind name`
+   - Loads module and binds to a name (default: derived from module path).
+   - Default binding strips `.shk` suffix: `import "utils.shk"` binds to `utils`.
+   ```shakar
+   import "term"              # binds to 'term'
+   import "utils/helpers.shk" # binds to 'helpers'
+   import "math" bind m       # binds to 'm'
+   ```
+
+2. **Destructure import**: `import[name1, name2, ...] "module"`
+   - Extracts specific exports into the current scope.
+   - Error if any name is not exported or already defined.
+   ```shakar
+   import[read_key, is_interactive] "term"
+   read_key()  # direct access
+   ```
+
+3. **Mixin import**: `import[*] "module"`
+   - Injects all exports into the current scope.
+   - Error if any export collides with an existing binding.
+   ```shakar
+   import[*] "term"
+   read_key()          # all exports available
+   is_interactive()
+   ```
+
+#### Import expression
+
+- `import "module"` is also valid as a **primary expression**, returning the module value.
+- Useful for inline or conditional imports.
+```shakar
+term := import "term"
+cfg := (env"USE_ALT" ? import "alt_config" : import "config")
+```
+
+#### Module resolution
+
+- **Built-in modules**: registered via factory functions (e.g., `"term"`). Loaded lazily on first import.
+- **File modules**: paths starting with `.`, `/`, containing `/`, or ending in `.shk` are resolved relative to the importing file's directory.
+  - Relative paths: `import "./utils"` or `import "../lib/helpers.shk"`.
+  - `.shk` suffix is optional; resolver tries with suffix if bare path not found.
+- **Caching**: modules are cached by resolved absolute path; repeated imports return the same module instance.
+- **Circular imports**: detected at load time; raises `ShakarImportError`.
+
+#### Module semantics
+
+- Modules are **immutable objects**: field assignment and index assignment raise `ShakarImportError`.
+- Modules export all top-level bindings defined during evaluation (excluding stdlib prelude).
+- Display: `<module name>` or `<module /path/to/file.shk>`.
+
+#### The `mixin` stdlib function
+
+- `mixin(obj)`: injects all slots from an object or module into the current function's scope.
+- Error if any key collides with an existing binding.
+- Used internally by `import [*]` but available for manual use.
+```shakar
+cfg := { host: "localhost", port: 8080 }
+mixin(cfg)
+print(host)  # "localhost"
+```
+
+#### Built-in modules
+
+- **`term`**: terminal utilities.
+  - `read_key()`: reads a single character from stdin, returns `Str`.
+  - `is_interactive()`: returns `Bool` indicating if stdin is a tty.
+
+#### Examples
+
+```shakar
+# File: utils.shk
+greet := fn(name): "Hello, {name}!"
+VERSION := "1.0"
+
+# File: main.shk
+import "utils"
+print(utils.greet("World"))  # Hello, World!
+print(utils.VERSION)         # 1.0
+
+# Destructure form
+import[greet] "utils"
+print(greet("Ada"))
+
+# Mixin form (all exports)
+import[*] "utils"
+print(VERSION)
+
+# Expression form for conditional loading
+db := env"DB_TYPE" == "postgres" ? import "./pg" : import "./sqlite"
+```
 
 ---
 

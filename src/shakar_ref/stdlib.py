@@ -7,20 +7,24 @@ from typing import List
 
 from .runtime import (
     register_stdlib,
+    register_module_factory,
     ShkNull,
     ShkString,
     ShkNumber,
     ShkDuration,
     ShkBool,
     ShkEnvVar,
+    ShkModule,
     ShkValue,
+    StdlibFunction,
+    ShakarImportError,
     ShakarTypeError,
     ShkObject,
     ShkOptional,
     ShkUnion,
 )
 from .runtime import ShakarRuntimeError
-from .eval.helpers import is_truthy
+from .eval.helpers import is_truthy, current_function_frame, name_in_current_frame
 from .utils import envvar_value_by_name
 
 
@@ -135,6 +139,28 @@ def std_any(_frame, args: List[ShkValue]) -> ShkBool:
     return ShkBool(False)
 
 
+@register_stdlib("mixin")
+def std_mixin(frame, args: List[ShkValue]) -> ShkNull:
+    if len(args) != 1:
+        raise ShakarTypeError("mixin() expects exactly one argument")
+
+    obj = args[0]
+    slots = getattr(obj, "slots", None)
+    if slots is None:
+        raise ShakarTypeError("mixin() expects an object or module")
+
+    target = current_function_frame(frame) or frame
+
+    for key in slots:
+        if name_in_current_frame(target, key):
+            raise ShakarImportError(f"Mixin collision: '{key}' already exists in scope")
+
+    for key, value in slots.items():
+        target.define(key, value)
+
+    return ShkNull()
+
+
 def _iter_coerce(value: ShkValue):
     """Coerce arrays/strings/objects/iterables into iteration."""
     if isinstance(value, ShkString):
@@ -167,3 +193,31 @@ def std_union(_frame, args: List[ShkValue]) -> ShkUnion:
     if len(args) == 0:
         raise ShakarTypeError("Union() requires at least one type alternative")
     return ShkUnion(tuple(args))
+
+
+def _term_read_key(_frame, args: List[ShkValue]) -> ShkString:
+    if args:
+        raise ShakarTypeError("term.read_key() expects no arguments")
+    import sys
+
+    ch = sys.stdin.read(1)
+    return ShkString(ch)
+
+
+def _term_is_interactive(_frame, args: List[ShkValue]) -> ShkBool:
+    if args:
+        raise ShakarTypeError("term.is_interactive() expects no arguments")
+    import sys
+
+    return ShkBool(sys.stdin.isatty())
+
+
+def _build_term_module() -> ShkModule:
+    slots: dict[str, ShkValue] = {
+        "read_key": StdlibFunction(fn=_term_read_key, arity=0),
+        "is_interactive": StdlibFunction(fn=_term_is_interactive, arity=0),
+    }
+    return ShkModule(slots=slots, name="term")
+
+
+register_module_factory("term", _build_term_module)

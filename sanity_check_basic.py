@@ -44,6 +44,7 @@ def _load_shakar_modules():
         ShkSize,
         ShakarArityError,
         ShakarAssertionError,
+        ShakarImportError,
         ShakarRuntimeError,
         ShakarTypeError,
     )
@@ -67,6 +68,7 @@ def _load_shakar_modules():
         ShkSize,
         ShakarArityError,
         ShakarAssertionError,
+        ShakarImportError,
         ShakarRuntimeError,
         ShakarTypeError,
         parse_rd,
@@ -91,6 +93,7 @@ def _load_shakar_modules():
     ShkSize,
     ShakarArityError,
     ShakarAssertionError,
+    ShakarImportError,
     ShakarRuntimeError,
     ShakarTypeError,
     parse_rd,
@@ -1146,6 +1149,40 @@ runtime_scenario(
         'int(3) + int("4")',
         ("number", 7),
         None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "import-term-binding",
+        """import "term"
+term.len""",
+        ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "import-mixin-collision",
+        'read_key := 1\nimport[*] "term"',
+        None,
+        ShakarImportError,
+    )
+)
+runtime_scenario(
+    _rt(
+        "import-file-basic",
+        """import "test/import_basic.shk"
+import_basic.value + 1""",
+        ("number", 42),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "import-file-missing",
+        'import "test/missing_import.shk"',
+        None,
+        ShakarImportError,
     )
 )
 runtime_scenario(

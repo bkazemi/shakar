@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 from ..tree import Tree
 
 from ..runtime import Frame, ShkArray, ShkValue, ShakarRuntimeError
@@ -80,7 +80,7 @@ def _wrap_chain(chain: Tree) -> Tree:
     return chain
 
 
-def _fingerprint(item: Node) -> str | None:
+def _fingerprint(item: Node) -> Optional[str]:
     if not is_tree(item):
         return None
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Union
 from ..tree import Tok
 from ..token_types import TT
 
@@ -48,7 +48,9 @@ EvalFunc = Callable[[Node, Frame], ShkValue]
 
 
 def eval_args_node(
-    args_node: Tree | list[Tree] | None, frame: Frame, eval_func: EvalFunc
+    args_node: Optional[Union[Tree, List[Tree]]],
+    frame: Frame,
+    eval_func: EvalFunc,
 ) -> List[ShkValue]:
     def label(node: Node) -> Optional[str]:
         return tree_label(node)

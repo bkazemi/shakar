@@ -54,6 +54,7 @@ class TT(Enum):
     HOOK = auto()
     OVER = auto()
     BIND = auto()
+    IMPORT = auto()
     ANY = auto()
     ALL = auto()
 

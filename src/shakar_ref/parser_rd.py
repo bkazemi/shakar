@@ -360,6 +360,7 @@ class Parser:
                 TT.AT: self.parse_fn_stmt,
                 TT.FN: self.parse_fn_stmt,
                 TT.LET: self.parse_let_stmt,
+                TT.IMPORT: self.parse_import_stmt,
                 TT.RETURN: self.parse_return_stmt,
                 TT.BREAK: self.parse_break_stmt,
                 TT.CONTINUE: self.parse_continue_stmt,
@@ -460,6 +461,47 @@ class Parser:
             )
 
         raise ParseError("Expected assignment after let", self.current)
+
+    def _parse_import_string_literal(self) -> Tree:
+        if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING):
+            tok = self.advance()
+            return Tree("literal", [tok])
+        raise ParseError("Expected string literal after import", self.current)
+
+    def parse_import_stmt(self) -> Tree:
+        self.expect(TT.IMPORT)
+
+        if self.match(TT.LSQB):
+            if self.match(TT.STAR):
+                self.expect(TT.RSQB)
+                module_node = self._parse_import_string_literal()
+                return Tree("import_mixin", [module_node])
+
+            if self.check(TT.RSQB):
+                raise ParseError("Expected import names or '*'", self.current)
+
+            names = [self.expect(TT.IDENT)]
+            while self.match(TT.COMMA):
+                if self.check(TT.RSQB):
+                    break
+                names.append(self.expect(TT.IDENT))
+
+            self.expect(TT.RSQB)
+            module_node = self._parse_import_string_literal()
+            return Tree(
+                "import_destructure", [Tree("import_names", names), module_node]
+            )
+
+        module_node = self._parse_import_string_literal()
+        bind_tok = None
+        if self.match(TT.BIND):
+            bind_tok = self.expect(TT.IDENT)
+
+        children: list[Node] = [module_node]
+        if bind_tok is not None:
+            children.append(bind_tok)
+
+        return Tree("import_stmt", children)
 
     def _wrap_postfix(self, stmt: Tree | Tok) -> Optional[Tree]:
         """Wrap statement with postfix if/unless guard if present."""
@@ -2322,6 +2364,11 @@ class Parser:
             else:
                 args = []
             return Tree("emitexpr", args)
+
+        # Import expression: import "module"
+        if self.match(TT.IMPORT):
+            module_node = self._parse_import_string_literal()
+            return Tree("import_expr", [module_node])
 
         # Literals - parse, validate overflow, store computed value
         if self.check(TT.NUMBER, TT.DURATION, TT.SIZE):

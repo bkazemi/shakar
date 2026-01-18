@@ -149,7 +149,7 @@ class ChainNormalize(Transformer):
 
 
 class Prune(Transformer):
-    _fragment_parser: object | None = None
+    _fragment_parser: Optional[object] = None
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

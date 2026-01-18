@@ -11,7 +11,7 @@ digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
 
 (* Reserved keywords *)
 (* and, or, not, if, elif, else, unless, for, in, break, continue, return, assert, *)
-(* using, call, defer, after, catch, decorator, decorate, hook, fn, get, set, bind, over, *)
+(* using, call, defer, after, catch, decorator, decorate, hook, fn, get, set, bind, import, over, *)
 (* true, false, nil, await, any, all, while, throw, dbg, is, ?ret *)
 
 (* Contextual keywords - valid as identifiers in most contexts *)
@@ -128,6 +128,7 @@ source_file = { statement [ NEWLINE ] } ;
 
 statement = expression_statement
           | let_statement
+          | import_statement
           | assignment_statement
           | destructure_statement
           | return_statement
@@ -153,6 +154,12 @@ statement = expression_statement
           | catch_statement
           | NEWLINE
           | COMMENT ;
+
+import_statement = "import" , ( import_mixin | import_destructure | import_bind ) ;
+import_bind = import_string , [ "bind" , IDENT ] ;
+import_destructure = "[" , IDENT , { "," , IDENT } , "]" , import_string ;
+import_mixin = "[" , "*" , "]" , import_string ;
+import_string = STRING | RAW_STRING | RAW_HASH_STRING ;
 
 (* ===== EXPRESSIONS ===== *)
 
@@ -260,6 +267,7 @@ primary = rebind_primary
         | IDENT
         | "any"
         | "all"
+        | import_expression
         | literal
         | object_literal
         | array_literal
@@ -290,6 +298,7 @@ interp = "{" , expression , "}" ;
 (* Nullsafe expression *)
 nullsafe_expression = NULLISH , "(" , expression , ")" ;
 emit_expression = GT , [ arglist_named_mixed ] ;
+import_expression = "import" , import_string ;
 
 (* Rebind expressions *)
 rebind_primary = ( "=" , IDENT ) | ( "=" , "(" , rebind_lvalue , ")" ) ;

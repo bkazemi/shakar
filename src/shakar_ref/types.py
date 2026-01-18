@@ -194,6 +194,19 @@ class ShkObject:
 
 
 @dataclass
+class ShkModule(ShkObject):
+    name: Optional[str] = None
+
+    def __repr__(self) -> str:
+        if self.name:
+            return f"<module {self.name}>"
+        return "<module>"
+
+    def __setitem__(self, _key: str, _value: "ShkValue") -> None:
+        raise ShakarImportError("Modules are immutable")
+
+
+@dataclass
 class SelectorIndex:
     value: "ShkValue"
 
@@ -342,6 +355,7 @@ ShkValue: TypeAlias = Union[
     ShkBool,
     ShkArray,
     ShkObject,
+    ShkModule,
     ShkFn,
     ShkDecorator,
     DecoratorConfigured,
@@ -372,6 +386,7 @@ class Frame:
         dot: DotValue = None,
         emit_target: Optional["ShkValue"] = None,
         source: Optional[str] = None,
+        source_path: Optional[str] = None,
     ):
         self.parent = parent
         self.vars: Dict[str, ShkValue] = {}
@@ -384,6 +399,7 @@ class Frame:
         self._active_error: Optional[ShakarRuntimeError] = None
         self.pending_anchor_override: Optional[ShkValue] = None
         self.source: Optional[str]
+        self.source_path: Optional[str]
 
         if parent is None:
             for name, std in Builtins.stdlib_functions.items():
@@ -397,6 +413,13 @@ class Frame:
             self.source = parent.source
         else:
             self.source = None
+
+        if source_path is not None:
+            self.source_path = source_path
+        elif parent is not None and hasattr(parent, "source_path"):
+            self.source_path = parent.source_path
+        else:
+            self.source_path = None
 
     def define(self, name: str, val: ShkValue) -> None:
         self.vars[name] = val
@@ -537,6 +560,10 @@ class ShakarRuntimeError(Exception):
         return f"{msg} (line {line}, col {col})"
 
 
+class ShakarImportError(ShakarRuntimeError):
+    pass
+
+
 class ShakarTypeError(ShakarRuntimeError):
     pass
 
@@ -610,6 +637,7 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     ShkBool,
     ShkArray,
     ShkObject,
+    ShkModule,
     ShkFn,
     ShkDecorator,
     DecoratorConfigured,

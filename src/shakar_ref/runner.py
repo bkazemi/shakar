@@ -18,6 +18,7 @@ def run(
     grammar_path: Optional[str] = None,
     use_indenter: Optional[bool] = None,
     grammar_variant: str = "default",
+    source_path: Optional[str] = None,
 ) -> ShkValue:  # grammar_path/variant kept for CLI compatibility; ignored
     init_stdlib()
 
@@ -54,10 +55,10 @@ def run(
         if children and len(children) == 1:
             ast2 = children[0]
 
-    return eval_expr(ast2, Frame(source=src), source=src)
+    return eval_expr(ast2, Frame(source=src, source_path=source_path), source=src)
 
 
-def _load_source(arg: Optional[str]) -> str:
+def _load_source(arg: Optional[str]) -> tuple[str, Optional[str]]:
     """
     Resolve CLI input into source text.
     - None or "-" => read stdin.
@@ -69,13 +70,13 @@ def _load_source(arg: Optional[str]) -> str:
         data = sys.stdin.read()
         if not data:
             raise SystemExit("No input provided on stdin")
-        return data
+        return data, None
 
     candidate = Path(arg)
     if candidate.exists():
-        return candidate.read_text(encoding="utf-8")
+        return candidate.read_text(encoding="utf-8"), str(candidate)
 
-    return arg
+    return arg, None
 
 
 def main() -> None:
@@ -94,7 +95,7 @@ def main() -> None:
             raise SystemExit(f"Unexpected argument: {token}")
 
     arg = arg or "-"
-    source = _load_source(arg)
+    source, source_path = _load_source(arg)
 
     if show_tree:
         # Parse and show AST without executing
@@ -120,7 +121,14 @@ def main() -> None:
         ast2 = lower(ast)
         print(ast2.pretty())
     else:
-        print(run(source, grammar_path=grammar_path, grammar_variant=grammar_variant))
+        print(
+            run(
+                source,
+                grammar_path=grammar_path,
+                grammar_variant=grammar_variant,
+                source_path=source_path,
+            )
+        )
 
 
 if __name__ == "__main__":

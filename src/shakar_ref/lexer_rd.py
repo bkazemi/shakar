@@ -59,6 +59,7 @@ class Lexer:
         "hook": TT.HOOK,
         "over": TT.OVER,
         "bind": TT.BIND,
+        "import": TT.IMPORT,
         "any": TT.ANY,
         "all": TT.ALL,
         "true": TT.TRUE,

@@ -16,6 +16,7 @@ from ..runtime import (
     ShkDuration,
     ShkSize,
     ShkObject,
+    ShkModule,
     ShkPath,
     ShkValue,
     ShkSelector,
@@ -714,7 +715,7 @@ def _contains(container: ShkValue, item: ShkValue) -> bool:
                     raise ShakarTypeError("String membership requires a string value")
                 return item_val in env_val
             raise ShakarTypeError("String membership requires a string value")
-        case ShkObject(slots=slots):
+        case ShkModule(slots=slots) | ShkObject(slots=slots):
             if isinstance(item, ShkString):
                 return item.value in slots
             if isinstance(item, ShkEnvVar):

@@ -12,6 +12,7 @@ from ..runtime import (
     ShkNull,
     ShkNumber,
     ShkObject,
+    ShkModule,
     ShkPath,
     ShkSelector,
     ShkString,
@@ -184,7 +185,7 @@ def _iter_indexed_entries(
                 if binder_count > 1:
                     binders.append(char)
                 entries.append((char, binders[:binder_count]))
-        case ShkObject(slots=slots):
+        case ShkModule(slots=slots) | ShkObject(slots=slots):
             for key, val in slots.items():
                 binders = [ShkString(key)]
 
@@ -254,7 +255,7 @@ def _iterable_values(value: ShkValue) -> list[ShkValue]:
             return list(items)
         case ShkString(value=s):
             return [ShkString(ch) for ch in s]
-        case ShkObject(slots=slots):
+        case ShkModule(slots=slots) | ShkObject(slots=slots):
             return [ShkString(k) for k in slots.keys()]
         case ShkSelector():
             return selector_iter_values(value)

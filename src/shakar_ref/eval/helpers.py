@@ -31,6 +31,7 @@ from ..runtime import (
     BuiltinMethod,
     StdlibFunction,
     ShakarTypeError,
+    ShkModule,
 )
 from ..tree import Node, is_token, is_tree, tree_label
 from ..utils import envvar_value_by_name
@@ -53,7 +54,7 @@ def is_truthy(val: ShkValue) -> bool:
             return bool(s)
         case ShkArray(items=items):
             return bool(items)
-        case ShkObject(slots=slots):
+        case ShkModule(slots=slots) | ShkObject(slots=slots):
             return bool(slots)
         case ShkPath(value=path):
             return bool(path)
@@ -132,6 +133,11 @@ def current_function_frame(frame: Frame) -> Optional[Frame]:
         cur = getattr(cur, "parent", None)
 
     return None
+
+
+def name_in_current_frame(frame: Frame, name: str) -> bool:
+    """Check only the current frame (vars + let scopes) for a binding."""
+    return frame.has_let_name(name) or name in frame.vars
 
 
 def find_emit_target(frame: Frame) -> Optional[ShkValue]:

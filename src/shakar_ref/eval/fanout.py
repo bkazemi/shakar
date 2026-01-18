@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple, Union
 from ..tree import Tok
 
 from ..runtime import Frame, ShkValue, EvalResult, ShakarRuntimeError
@@ -70,7 +70,7 @@ def eval_fanout_block(
     return base_val
 
 
-def _fan_key(clause: Tree) -> tuple[str, ...] | None:
+def _fan_key(clause: Tree) -> Optional[Tuple[str, ...]]:
     """Return a hashable key for field/index paths to dedup targets."""
     parts: list[str] = []
     for child in tree_children(clause):
@@ -310,7 +310,7 @@ def _store(
             raise ShakarRuntimeError("Fanout block target must be a field or index")
 
 
-def _name(label: str | Tok | None) -> str:
+def _name(label: Optional[Union[str, Tok]]) -> str:
     if isinstance(label, Tok):
         return str(label.value)
     return str(label) if label is not None else ""

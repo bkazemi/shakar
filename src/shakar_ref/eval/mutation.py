@@ -18,6 +18,7 @@ from ..runtime import (
     ShkDuration,
     ShkSize,
     ShkObject,
+    ShkModule,
     ShkSelector,
     SelectorIndex,
     SelectorSlice,
@@ -25,6 +26,7 @@ from ..runtime import (
     ShkRegex,
     ShkString,
     ShkValue,
+    ShakarImportError,
     ShakarIndexError,
     ShakarKeyError,
     ShakarRuntimeError,
@@ -46,6 +48,8 @@ def set_field_value(
 ) -> ShkValue:
     """Assign `recv.name = value`, honoring descriptors and creation semantics."""
     match recv:
+        case ShkModule():
+            raise ShakarImportError("Modules are immutable")
         case ShkObject(slots=slots):
             slot = slots.get(name)
 
@@ -85,6 +89,8 @@ def set_index_value(
                 return value
 
             raise ShakarTypeError("Array index must be an integer or selector")
+        case ShkModule():
+            raise ShakarImportError("Modules are immutable")
         case ShkObject(slots=slots):
             # objects store arbitrary keys; normalize to string for consistency.
             key = _normalize_index_key(index)
@@ -185,7 +191,7 @@ def index_value(
                 except IndexError:
                     raise ShakarIndexError("String index out of bounds")
             raise ShakarTypeError("String index must be a number")
-        case ShkObject(slots=slots):
+        case ShkModule(slots=slots) | ShkObject(slots=slots):
             key = _normalize_index_key(idx)
 
             if key in slots:
@@ -234,7 +240,7 @@ def slice_value(
 def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
     """Fetch `recv.name`, resolving descriptors and builtin method sugar."""
     match recv:
-        case ShkObject(slots=slots):
+        case ShkModule(slots=slots) | ShkObject(slots=slots):
             if name == "len":
                 return ShkNumber(float(len(slots)))
 

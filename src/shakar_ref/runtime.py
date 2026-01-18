@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import importlib
+import pathlib
 import subprocess
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, Union
 from .tree import Node
 from .types import (
     ShkNull,
@@ -14,6 +15,7 @@ from .types import (
     ShkBool,
     ShkArray,
     ShkObject,
+    ShkModule,
     ShkCommand,
     ShkPath,
     ShkEnvVar,
@@ -37,6 +39,7 @@ from .types import (
     ShkType,
     ShkOptional,
     ShkUnion,
+    ShakarImportError,
     ShakarRuntimeError,
     ShakarTypeError,
     ShakarArityError,
@@ -68,6 +71,7 @@ __all__ = [
     "ShkBool",
     "ShkArray",
     "ShkObject",
+    "ShkModule",
     "ShkCommand",
     "ShkPath",
     "ShkEnvVar",
@@ -90,6 +94,7 @@ __all__ = [
     "ShkType",
     "ShkOptional",
     "ShkUnion",
+    "ShakarImportError",
     "ShakarRuntimeError",
     "ShakarTypeError",
     "ShakarArityError",
@@ -107,10 +112,163 @@ __all__ = [
     "is_shk_value",
     "_ensure_shk_value",
     "StdlibFn",
+    "register_module_factory",
+    "import_module",
     "init_stdlib",
 ]
 
 _STDLIB_INITIALIZED = False
+_MODULE_LOADING = object()
+
+MODULE_REGISTRY: Dict[str, Union[ShkModule, object]] = {}
+MODULE_FACTORIES: Dict[str, Callable[[], ShkModule]] = {}
+MODULE_FACTORY_REUSABLE: Dict[str, bool] = {}
+
+
+def register_module_factory(
+    name: str, factory: Callable[[], ShkModule], *, reusable: bool = False
+) -> None:
+    MODULE_FACTORIES[name] = factory
+    if reusable:
+        MODULE_FACTORY_REUSABLE[name] = True
+    else:
+        MODULE_FACTORY_REUSABLE.pop(name, None)
+
+
+def _looks_like_path(name: str) -> bool:
+    return (
+        name.startswith((".", "/"))
+        or name.endswith(".shk")
+        or "/" in name
+        or "\\" in name
+    )
+
+
+def _resolve_import_path(name: str, frame: Optional[Frame]) -> pathlib.Path:
+    path = pathlib.Path(name)
+
+    if not path.is_absolute():
+        base = frame.source_path if frame else None
+        base_path = pathlib.Path(base).parent if base else pathlib.Path.cwd()
+        path = base_path / path
+
+    if path.suffix == "":
+        candidate = path.with_suffix(".shk")
+        if candidate.exists():
+            path = candidate
+
+    return path.resolve()
+
+
+def _resolve_import_target(
+    name: str, frame: Optional[Frame]
+) -> tuple[str, Optional[pathlib.Path]]:
+    if _looks_like_path(name):
+        path = _resolve_import_path(name, frame)
+        return str(path), path
+    return name, None
+
+
+def _load_module_from_factory(key: str, factory: Callable[[], ShkModule]) -> ShkModule:
+    MODULE_REGISTRY[key] = _MODULE_LOADING
+
+    try:
+        module = factory()
+    except Exception:
+        MODULE_REGISTRY.pop(key, None)
+        raise
+
+    if not isinstance(module, ShkModule):
+        MODULE_REGISTRY.pop(key, None)
+        raise ShakarImportError(f"Module factory for '{key}' did not return a module")
+
+    if module.name is None:
+        module.name = key
+
+    if not MODULE_FACTORY_REUSABLE.get(key, False):
+        MODULE_FACTORIES.pop(key, None)
+        MODULE_FACTORY_REUSABLE.pop(key, None)
+    MODULE_REGISTRY[key] = module
+    return module
+
+
+def _load_module_from_file(
+    key: str, path: pathlib.Path, *, source_name: str
+) -> ShkModule:
+    if not path.exists() or not path.is_file():
+        raise ShakarImportError(f"Module file not found: '{source_name}'")
+
+    MODULE_REGISTRY[key] = _MODULE_LOADING
+
+    try:
+        source = path.read_text(encoding="utf-8")
+
+        from .parser_rd import parse_source, ParseError
+        from .lexer_rd import LexError
+        from .ast_transforms import Prune, looks_like_offside
+        from .lower import lower
+        from .evaluator import eval_expr
+
+        preferred = looks_like_offside(source)
+        attempts = [preferred, not preferred]
+        last_error = None
+        tree = None
+
+        for flag in attempts:
+            try:
+                tree = parse_source(source, use_indenter=flag)
+                break
+            except (ParseError, LexError) as exc:
+                last_error = exc
+
+        if tree is None:
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("Parser failed without producing a parse tree")
+
+        ast = Prune().transform(tree)
+        ast2 = lower(ast)
+        d = getattr(ast2, "data", None)
+        if d in ("start_noindent", "start_indented"):
+            children = getattr(ast2, "children", None)
+            if children and len(children) == 1:
+                ast2 = children[0]
+
+        module_frame = Frame(source=source, source_path=str(path))
+        builtin_snapshot = dict(module_frame.vars)
+        eval_expr(ast2, module_frame, source=source)
+
+        exports: Dict[str, ShkValue] = {}
+        for name, value in module_frame.vars.items():
+            if name not in builtin_snapshot or value is not builtin_snapshot[name]:
+                exports[name] = value
+
+        module = ShkModule(slots=exports, name=str(path))
+        MODULE_REGISTRY[key] = module
+        return module
+    except Exception:
+        MODULE_REGISTRY.pop(key, None)
+        raise
+
+
+def import_module(name: str, frame: Optional[Frame] = None) -> ShkModule:
+    init_stdlib()
+
+    key, path = _resolve_import_target(name, frame)
+    existing = MODULE_REGISTRY.get(key)
+    if existing is _MODULE_LOADING:
+        raise ShakarImportError(f"Circular import detected for '{name}'")
+    if isinstance(existing, ShkModule):
+        return existing
+
+    factory = MODULE_FACTORIES.get(key)
+    if factory is not None:
+        return _load_module_from_factory(key, factory)
+
+    if path is None:
+        raise ShakarImportError(f"Module '{name}' not found")
+
+    return _load_module_from_file(key, path, source_name=name)
 
 
 def init_stdlib() -> None:

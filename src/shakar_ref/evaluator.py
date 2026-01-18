@@ -1,19 +1,27 @@
 from __future__ import annotations
 
 from typing import Callable, List, Optional
+import pathlib
+import re
 from types import SimpleNamespace
 
 from .token_types import TT
+from .lexer_rd import Lexer
+from .stdlib import std_mixin
 from .tree import Node, Tree, Tok, is_token, is_tree, node_meta, tree_label
 from .runtime import (
     Frame,
     ShkArray,
     ShkBool,
     ShkNull,
+    ShkString,
     ShkValue,
     ShakarBreakSignal,
     ShakarContinueSignal,
+    ShakarImportError,
     ShakarRuntimeError,
+    ShakarTypeError,
+    import_module,
     init_stdlib,
 )
 
@@ -39,6 +47,7 @@ from .eval.control import (
 )
 from .eval.helpers import (
     is_truthy,
+    name_in_current_frame,
 )
 
 from .eval.blocks import (
@@ -579,6 +588,115 @@ def _eval_emitexpr(n: Tree, frame: Frame) -> ShkValue:
     return eval_emit_expr(n, frame, eval_node)
 
 
+# ---- Import handlers ----
+
+
+_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _import_name_from_node(node: Node, frame: Frame) -> str:
+    value = eval_node(node, frame)
+    if not isinstance(value, ShkString):
+        raise ShakarTypeError("Expected module name string after 'import'")
+    return value.value
+
+
+def _default_import_bind(name: str) -> str:
+    path = pathlib.Path(name)
+    base = path.stem if path.suffix == ".shk" else path.name
+    if not base:
+        raise ShakarImportError("Import name cannot be empty")
+    if not _IDENT_RE.match(base) or base in Lexer.KEYWORDS:
+        raise ShakarImportError(
+            f"Import name '{base}' is not a valid identifier; use 'bind' to set a name"
+        )
+
+    return base
+
+
+def _eval_import_expr(n: Tree, frame: Frame) -> ShkValue:
+    if not n.children:
+        raise ShakarRuntimeError("Expected module name string after 'import'")
+    module_name = _import_name_from_node(n.children[0], frame)
+    return import_module(module_name, frame)
+
+
+def _eval_import_stmt(n: Tree, frame: Frame) -> ShkValue:
+    if not n.children:
+        raise ShakarRuntimeError("Expected module name string after 'import'")
+
+    module_name = _import_name_from_node(n.children[0], frame)
+    module = import_module(module_name, frame)
+
+    bind_name = _default_import_bind(module_name)
+    if len(n.children) > 1:
+        name_node = n.children[1]
+        if is_token(name_node) and name_node.type == TT.IDENT:
+            bind_name = str(name_node.value)
+        else:
+            raise ShakarRuntimeError("Expected identifier after 'bind'")
+
+    if name_in_current_frame(frame, bind_name):
+        raise ShakarImportError(
+            f"Import name '{bind_name}' already defined in this scope"
+        )
+
+    frame.define(bind_name, module)
+    return module
+
+
+def _eval_import_destructure(n: Tree, frame: Frame) -> ShkValue:
+    if len(n.children) != 2:
+        raise ShakarRuntimeError(
+            "Expected import names and module string after 'import[...]'"
+        )
+
+    names_node, module_node = n.children
+    if not is_tree(names_node) or names_node.data != "import_names":
+        raise ShakarRuntimeError("Expected import names in brackets")
+
+    names: list[str] = []
+    for child in names_node.children:
+        if is_token(child) and child.type == TT.IDENT:
+            names.append(str(child.value))
+        else:
+            raise ShakarRuntimeError("Expected identifiers in import list")
+
+    if len(set(names)) != len(names):
+        raise ShakarImportError("Import destructure names must be unique")
+
+    module_name = _import_name_from_node(module_node, frame)
+    module = import_module(module_name, frame)
+    slots = getattr(module, "slots", None)
+    if slots is None:
+        raise ShakarImportError("Imported value is not a module")
+
+    for name in names:
+        if name not in slots:
+            raise ShakarImportError(f"Module '{module_name}' has no export '{name}'")
+        if name_in_current_frame(frame, name):
+            raise ShakarImportError(
+                f"Import name '{name}' already defined in this scope"
+            )
+
+    last_value: ShkValue = ShkNull()
+    for name in names:
+        value = slots[name]
+        frame.define(name, value)
+        last_value = value
+
+    return last_value
+
+
+def _eval_import_mixin(n: Tree, frame: Frame) -> ShkValue:
+    if not n.children:
+        raise ShakarRuntimeError("Expected module name string after 'import[*]'")
+
+    module_name = _import_name_from_node(n.children[0], frame)
+    module = import_module(module_name, frame)
+    return std_mixin(frame, [module])
+
+
 # ---- Fanout/rebind handlers ----
 
 
@@ -688,6 +806,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "indentblock": _eval_indentblock,
     "onelineguard": _eval_onelineguard,
     "emitexpr": _eval_emitexpr,
+    "import_expr": _eval_import_expr,
     # Fanout/rebind
     "fanoutblock": _eval_fanoutblock,
     "valuefan": _eval_valuefan,
@@ -696,6 +815,10 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     # Functions
     "amp_lambda": eval_amp_lambda,
     "anonfn": _eval_anonfn,
+    # Import statements
+    "import_stmt": _eval_import_stmt,
+    "import_destructure": _eval_import_destructure,
+    "import_mixin": _eval_import_mixin,
 }
 
 _TOKEN_DISPATCH: dict[TT, Callable[[Tok, Frame], ShkValue]] = {
