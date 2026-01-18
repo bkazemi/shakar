@@ -1454,6 +1454,38 @@ runtime_scenario(
 )
 runtime_scenario(
     _rt(
+        "let-scope-noleak",
+        "if true:\n  let b := 2\nb",
+        None,
+        ShakarRuntimeError,
+    )
+)
+runtime_scenario(
+    _rt(
+        "let-rebind-outer",
+        "a := 1\nif true:\n  let a = 2\na",
+        ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "let-shadow-error",
+        "a := 1\nif true:\n  let a := 2",
+        None,
+        ShakarRuntimeError,
+    )
+)
+runtime_scenario(
+    _rt(
+        "let-destructure-local",
+        "if true:\n  let a, b := 1, 2\n  a + b",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
         "fanout-block-basic",
         "state := {cur: 1, next: 2, x: 0}; state{ .cur = .next; .x += 5 }; state.cur + state.x",
         ("number", 7),

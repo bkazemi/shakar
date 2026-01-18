@@ -116,6 +116,7 @@ from .eval.bind import (
     eval_apply_assign,
     eval_rebind_primary,
 )
+from .eval.let import eval_let_stmt
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
@@ -392,6 +393,10 @@ def _eval_assignstmt(n: Tree, frame: Frame) -> ShkValue:
     )
 
 
+def _eval_let(n: Tree, frame: Frame) -> ShkValue:
+    return eval_let_stmt(n, frame, eval_node, apply_op, evaluate_index_operand)
+
+
 def _eval_postfixif(n: Tree, frame: Frame) -> ShkValue:
     return _postfix_eval_if(n.children, frame, eval_func=eval_node, truthy_fn=is_truthy)
 
@@ -634,6 +639,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "returnif": _eval_returnif,
     "throwstmt": _eval_throwstmt,
     "assignstmt": _eval_assignstmt,
+    "let": _eval_let,
     "postfixif": _eval_postfixif,
     "postfixunless": _eval_postfixunless,
     "compound_assign": _eval_compound_assign,

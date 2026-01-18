@@ -510,6 +510,12 @@ Typed literals representing byte quantities. Distinct from integers and duration
   - `name := expr` introduces a new binding in the current lexical scope, yields the value, and errors if `name` already exists in that scope.
   - `name = expr` updates an existing binding; statement-only; errors if `name` does not exist.
   - Destructuring: arrays `[head, ...rest] := xs`; objects `{id, name} := user`; updates use `=`. Chaining `x := y := 0` is disallowed.
+- **Let-scoped assignment**:
+  - `let` prefixes assignment/destructure to make bindings block-local without changing global `:=`/`=` behavior.
+  - `let name := expr` declares a new local binding; error if `name` already exists in the current block or any outer scope (no shadowing).
+  - `let name = expr` rebinds an existing name; error if the name does not exist.
+  - Destructuring and contracts are supported: `let a ~ Int, b := get_pair()`; `let (a, b) = pair`.
+  - Let bindings do not leak out of the block, but closures created inside the block capture them.
 - **Walrus `:=` anchor**: assigns `RHS` to `LHS`, yields the value, and anchors `.` to `LHS` for the remainder of the containing expression at that level and within `RHS` after its head value is computed. Precedence tighter than `and`/`or`, lower than postfix. Example/desugar:
   ```shakar
   u := makeUser() and .isValid()

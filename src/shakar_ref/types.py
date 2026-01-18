@@ -375,6 +375,8 @@ class Frame:
     ):
         self.parent = parent
         self.vars: Dict[str, ShkValue] = {}
+        self._let_scopes: List[Dict[str, ShkValue]] = []
+        self._captured_let_scopes: List[Dict[str, ShkValue]] = []
         self.dot: DotValue = dot
         self.emit_target: Optional[ShkValue] = emit_target
         self._defer_stack: List[List[DeferEntry]] = []
@@ -399,7 +401,51 @@ class Frame:
     def define(self, name: str, val: ShkValue) -> None:
         self.vars[name] = val
 
+    def push_let_scope(self) -> None:
+        self._let_scopes.append({})
+
+    def pop_let_scope(self) -> Dict[str, ShkValue]:
+        if not self._let_scopes:
+            return {}
+        return self._let_scopes.pop()
+
+    def capture_let_scopes(self, scopes: List[Dict[str, ShkValue]]) -> None:
+        self._captured_let_scopes = list(scopes)
+
+    def all_let_scopes(self) -> List[Dict[str, ShkValue]]:
+        return self._captured_let_scopes + self._let_scopes
+
+    def has_let_name(self, name: str) -> bool:
+        return self._find_let_scope(name) is not None
+
+    def has_let_in_current_scope(self, name: str) -> bool:
+        return bool(self._let_scopes and name in self._let_scopes[-1])
+
+    def name_exists(self, name: str) -> bool:
+        if self.has_let_name(name) or name in self.vars:
+            return True
+        if self.parent is not None:
+            return self.parent.name_exists(name)
+        return False
+
+    def define_let(self, name: str, val: ShkValue) -> None:
+        if not self._let_scopes:
+            self._let_scopes.append({})
+        if name in self._let_scopes[-1]:
+            raise ShakarRuntimeError(f"Name '{name}' already defined in this scope")
+        self._let_scopes[-1][name] = val
+
+    def _find_let_scope(self, name: str) -> Optional[Dict[str, ShkValue]]:
+        for scope in reversed(self.all_let_scopes()):
+            if name in scope:
+                return scope
+        return None
+
     def get(self, name: str) -> ShkValue:
+        scope = self._find_let_scope(name)
+        if scope is not None:
+            return scope[name]
+
         if name in self.vars:
             return self.vars[name]
 
@@ -409,6 +455,11 @@ class Frame:
         raise ShakarRuntimeError(f"Name '{name}' not found")
 
     def set(self, name: str, val: ShkValue) -> None:
+        scope = self._find_let_scope(name)
+        if scope is not None:
+            scope[name] = val
+            return
+
         if name in self.vars:
             self.vars[name] = val
             return

@@ -38,6 +38,7 @@ class TT(Enum):
     CONTINUE = auto()
     RETURN = auto()
     FN = auto()
+    LET = auto()
     AWAIT = auto()
     USING = auto()
     CALL = auto()

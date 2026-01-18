@@ -39,6 +39,7 @@ def eval_program(
     result: ShkValue = ShkNull()
     skip_tokens = {"SEMI", "_NL", "INDENT", "DEDENT"}
     push_defer_scope(frame)
+    push_let_scope(frame)
 
     try:
         try:
@@ -56,7 +57,10 @@ def eval_program(
                 raise
             raise ShakarRuntimeError("continue outside of a loop") from None
     finally:
-        pop_defer_scope(frame)
+        try:
+            pop_defer_scope(frame)
+        finally:
+            pop_let_scope(frame)
 
     return result
 
@@ -76,6 +80,14 @@ def pop_defer_scope(frame: Frame) -> None:
     entries = frame.pop_defer_frame()
     if entries:
         _run_defer_entries(entries)
+
+
+def push_let_scope(frame: Frame) -> None:
+    frame.push_let_scope()
+
+
+def pop_let_scope(frame: Frame) -> None:
+    frame.pop_let_scope()
 
 
 _DEFER_UNVISITED = 0
@@ -153,7 +165,11 @@ def eval_inline_body(
 
         if not tree_children(node):
             return ShkNull()
-        return eval_func(node.children[0], frame)
+        push_let_scope(frame)
+        try:
+            return eval_func(node.children[0], frame)
+        finally:
+            pop_let_scope(frame)
 
     return eval_func(node, frame)
 

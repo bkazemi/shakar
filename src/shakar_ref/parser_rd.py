@@ -14,7 +14,7 @@ Structure:
 
 from typing import Optional, List, Any
 from enum import Enum
-from .tree import Tree, Node
+from .tree import Tree, Node, is_tree, tree_label
 
 from .token_types import TT, Tok
 from .lexer_rd import LexError
@@ -359,6 +359,7 @@ class Parser:
                 TT.DECORATOR: self.parse_decorator_stmt,
                 TT.AT: self.parse_fn_stmt,
                 TT.FN: self.parse_fn_stmt,
+                TT.LET: self.parse_let_stmt,
                 TT.RETURN: self.parse_return_stmt,
                 TT.BREAK: self.parse_break_stmt,
                 TT.CONTINUE: self.parse_continue_stmt,
@@ -386,6 +387,97 @@ class Parser:
             return Tree("returnif", [value])
 
         return None
+
+    def parse_let_stmt(self) -> Tree:
+        """
+        Parse let-scoped assignment:
+        let <pattern> = expr
+        let <pattern> := expr
+        let <lvalue> <assign-op> expr
+        let <lvalue> .= expr
+        """
+        self.expect(TT.LET)
+
+        start = self.pos
+        if self.check(TT.IDENT, TT.LPAR):
+            try:
+                pattern = self.parse_pattern()
+                patterns = [pattern]
+
+                if self.match(TT.COMMA):
+                    patterns.append(self.parse_pattern())
+                    while self.match(TT.COMMA):
+                        patterns.append(self.parse_pattern())
+
+                if self.match(TT.ASSIGN):
+                    rhs = self.parse_destructure_rhs()
+                    return Tree(
+                        "let",
+                        [
+                            Tree(
+                                "destructure",
+                                [Tree("pattern_list", patterns), rhs],
+                            )
+                        ],
+                    )
+                if self.match(TT.WALRUS):
+                    rhs = self.parse_destructure_rhs()
+                    return Tree(
+                        "let",
+                        [
+                            Tree(
+                                "destructure_walrus",
+                                [Tree("pattern_list", patterns), rhs],
+                            )
+                        ],
+                    )
+            except ParseError:
+                pass
+
+            self._rewind(start)
+
+        expr = self.parse_expr()
+
+        if is_tree(expr) and tree_label(expr) == "expr" and expr.children:
+            inner = expr.children[0]
+            if is_tree(inner) and tree_label(inner) in {"bind", "walrus"}:
+                return Tree("let", [inner])
+
+        if self.check(
+            TT.ASSIGN,
+            TT.WALRUS,
+            TT.APPLYASSIGN,
+            TT.PLUSEQ,
+            TT.MINUSEQ,
+            TT.STAREQ,
+            TT.SLASHEQ,
+            TT.FLOORDIVEQ,
+            TT.MODEQ,
+            TT.POWEQ,
+        ):
+            if self.check(TT.ASSIGN):
+                lvalue = self._expr_to_lvalue(expr)
+                self.advance()  # =
+                rhs = self.parse_nullish_expr()
+                return Tree(
+                    "let",
+                    [Tree("assignstmt", [lvalue, self._tok("ASSIGN", "="), rhs])],
+                )
+
+            lvalue = self._expr_to_lvalue(expr)
+            op = self.advance()
+            rhs = self.parse_nullish_expr()
+            return Tree(
+                "let",
+                [
+                    Tree(
+                        "compound_assign",
+                        [lvalue, self._tok(op.type.name, op.value), rhs],
+                    )
+                ],
+            )
+
+        raise ParseError("Expected assignment after let", self.current)
 
     def _wrap_postfix(self, stmt: Tree | Tok) -> Optional[Tree]:
         """Wrap statement with postfix if/unless guard if present."""

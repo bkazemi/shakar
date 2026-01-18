@@ -43,6 +43,7 @@ class Lexer:
         "continue": TT.CONTINUE,
         "return": TT.RETURN,
         "fn": TT.FN,
+        "let": TT.LET,
         "await": TT.AWAIT,
         "using": TT.USING,
         "call": TT.CALL,

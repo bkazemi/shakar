@@ -146,4 +146,6 @@ def find_emit_target(frame: Frame) -> Optional[ShkValue]:
 def closure_frame(frame: Frame) -> Frame:
     """Create a closure frame that captures the current emit target."""
     emit_target = find_emit_target(frame)
-    return Frame(parent=frame, dot=None, emit_target=emit_target)
+    closure = Frame(parent=frame, dot=None, emit_target=emit_target)
+    closure.capture_let_scopes(frame.all_let_scopes())
+    return closure

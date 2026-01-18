@@ -127,6 +127,7 @@ TILDE = "~" ;
 source_file = { statement [ NEWLINE ] } ;
 
 statement = expression_statement
+          | let_statement
           | assignment_statement
           | destructure_statement
           | return_statement
@@ -385,6 +386,8 @@ assignment_statement = lvalue , assignment_op , expression , [ terminator ] ;
 assignment_op = "=" | WALRUS | APPLYASSIGN | PLUSEQ | MINUSEQ | STAREQ | SLASHEQ | FLOORDIVEQ
               | MODEQ | POWEQ | "or=" | "+>=" ;
 
+let_statement = "let" , ( assignment_statement | destructure_statement ) ;
+
 (* Compound assignments *)
 compound_assign = lvalue , ( PLUSEQ | MINUSEQ | STAREQ | SLASHEQ | FLOORDIVEQ | MODEQ | POWEQ ) , expression ;
 
@@ -453,6 +456,7 @@ base_statement = return_statement
                | compound_assign
                | function_statement
                | decorator_statement
+               | let_statement
                | assignment_statement
                | destructure_statement
                | guard_chain

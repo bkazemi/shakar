@@ -115,10 +115,7 @@ def assign_pattern(
                     )
 
         # Bind the value
-        if create:
-            frame.define(ident, value)
-        else:
-            assign_ident(ident, value, frame, False)
+        assign_ident(ident, value, frame, create)
         return
 
     if tree_label(target) == "pattern_list":
