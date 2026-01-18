@@ -351,6 +351,17 @@ def _string_arg(method: str, arg: ShkValue) -> str:
     raise ShakarTypeError(f"string.{method} expects a string argument")
 
 
+def _validate_repeat_count(method_name: str, arg: ShkValue) -> int:
+    if not isinstance(arg, ShkNumber) or not float(arg.value).is_integer():
+        raise ShakarTypeError(f"{method_name} expects an integer count")
+
+    count = int(arg.value)
+    if count < 0:
+        raise ShakarRuntimeError(f"{method_name} count cannot be negative")
+
+    return count
+
+
 def _regex_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
     if len(args) != expected:
         raise ShakarArityError(
@@ -386,6 +397,16 @@ def _array_pop(_frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkValue:
     if not recv.items:
         raise ShakarRuntimeError("pop from empty array")
     return recv.items.pop()
+
+
+@register_array("repeat")
+def _array_repeat(_frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArray:
+    if len(args) != 1:
+        raise ShakarArityError(f"array.repeat expects 1 argument; got {len(args)}")
+
+    count = _validate_repeat_count("array.repeat", args[0])
+
+    return ShkArray(recv.items * count)
 
 
 @register_string("join")
@@ -425,6 +446,15 @@ def _string_upper(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkSt
     _string_expect_arity("upper", args, 0)
 
     return ShkString(recv.value.upper())
+
+
+@register_string("repeat")
+def _string_repeat(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkString:
+    _string_expect_arity("repeat", args, 1)
+
+    count = _validate_repeat_count("string.repeat", args[0])
+
+    return ShkString(recv.value * count)
 
 
 @register_string("hasPrefix")

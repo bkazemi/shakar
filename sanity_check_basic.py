@@ -4044,13 +4044,6 @@ def run(argv: Sequence[str] = ()) -> Tuple[str, int]:
     return suite.execute()
 
 
-if __name__ == "__main__":
-    report, failures = run(sys.argv[1:])
-    out_path = Path("sanity_report.txt")
-    out_path.write_text(report, encoding="utf-8")
-    print(report)
-    if failures:
-        raise SystemExit(1)
 r_runtime_ops = [
     ("compound-mod", "a := 10; a %= 3; a", ("number", 1)),
     ("compound-minus", "a := 10; a -= 4; a", ("number", 6)),
@@ -4070,3 +4063,50 @@ for name, source, expect in r_runtime_ops:
 # value""",
 #         ("number", 2),
 #         None,
+#     )
+# )
+
+runtime_scenario(
+    _rt(
+        "string-repeat",
+        """s := "abc"
+s.repeat(3)""",
+        ("string", "abcabcabc"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "string-repeat-zero",
+        """s := "abc"
+s.repeat(0)""",
+        ("string", ""),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "array-repeat",
+        """arr := [1, 2]
+arr.repeat(2)""",
+        ("array", [1, 2, 1, 2]),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "array-repeat-zero",
+        """arr := [1, 2]
+arr.repeat(0)""",
+        ("array", []),
+        None,
+    )
+)
+
+if __name__ == "__main__":
+    report, failures = run(sys.argv[1:])
+    out_path = Path("sanity_report.txt")
+    out_path.write_text(report, encoding="utf-8")
+    print(report)
+    if failures:
+        raise SystemExit(1)
