@@ -374,6 +374,13 @@ class Prune(Transformer):
         while index < length:
             ch = text[index]
 
+            # Treat \u{...} as a literal escape so braces don't trigger interpolation.
+            escape, next_index = self._try_scan_unicode_escape(text, index)
+            if escape is not None:
+                literal.append(escape)
+                index = next_index
+                continue
+
             if ch == "{":
                 if index + 1 < length and text[index + 1] == "{":
                     literal.append("{")
@@ -420,6 +427,13 @@ class Prune(Transformer):
 
         while index < length:
             ch = text[index]
+
+            # Treat \u{...} as a literal escape so braces don't trigger interpolation.
+            escape, next_index = self._try_scan_unicode_escape(text, index)
+            if escape is not None:
+                literal.append(escape)
+                index = next_index
+                continue
 
             if ch == "{":
                 if index + 1 < length and text[index + 1] == "{":
@@ -514,6 +528,25 @@ class Prune(Transformer):
         raise SyntaxError(
             f"Unterminated interpolation expression in string literal: {token.value!r}"
         )
+
+    def _try_scan_unicode_escape(
+        self, text: str, index: int
+    ) -> tuple[Optional[str], int]:
+        # Returns (escape_text, next_index) for \u{...} or (None, index) if not present.
+        length = len(text)
+        if (
+            text[index] == "\\"
+            and index + 2 < length
+            and text[index + 1] == "u"
+            and text[index + 2] == "{"
+        ):
+            end = index + 3
+            while end < length and text[end] != "}":
+                end += 1
+            if end < length:
+                return text[index : end + 1], end + 1
+            return text[index:], length
+        return None, index
 
     def _parse_interpolation_expr(self, expr_src: str) -> Node:
         # Use RD fragment parser to avoid Lark dependency for fragments

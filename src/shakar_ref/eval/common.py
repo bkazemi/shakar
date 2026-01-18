@@ -301,7 +301,7 @@ def token_string(token: Tok, _: None) -> ShkString:
     if token_type == TT.RAW_STRING:
         return ShkString(raw[4:-1])
 
-    return ShkString(strip_prefixed_quotes(str(raw), ""))
+    return ShkString(unescape_string_literal(strip_prefixed_quotes(str(raw), "")))
 
 
 def token_path(token: Tok, _: None) -> ShkPath:
@@ -357,6 +357,75 @@ def strip_prefixed_quotes(raw: str, prefix: str) -> str:
     if raw.startswith(f"{prefix}'") and raw.endswith("'"):
         return raw[len(prefix) + 1 : -1]
     return raw
+
+
+def unescape_string_literal(text: str) -> str:
+    """Interpret standard escapes in a string literal."""
+    # Keep this in sync with lexer doc expectations; raw strings bypass this.
+    escaped = {
+        "b": "\b",
+        "f": "\f",
+        "n": "\n",
+        "t": "\t",
+        "r": "\r",
+        "0": "\0",
+        '"': '"',
+        "'": "'",
+        "\\": "\\",
+    }
+    out: List[str] = []
+    i = 0
+    length = len(text)
+
+    while i < length:
+        ch = text[i]
+        if ch != "\\":
+            out.append(ch)
+            i += 1
+            continue
+
+        if i + 1 >= length:
+            raise ShakarRuntimeError("Unterminated escape in string literal")
+
+        nxt = text[i + 1]
+        if nxt in escaped:
+            out.append(escaped[nxt])
+            i += 2
+            continue
+
+        if nxt == "u" and i + 2 < length and text[i + 2] == "{":
+            j = i + 3
+            while j < length and text[j] != "}":
+                j += 1
+
+            if j >= length:
+                raise ShakarRuntimeError(
+                    "Unterminated unicode escape in string literal"
+                )
+
+            hex_raw = text[i + 3 : j]
+            if not hex_raw:
+                raise ShakarRuntimeError("Empty unicode escape in string literal")
+
+            hex_clean = hex_raw.replace("_", "")
+            if not re.fullmatch(r"[0-9A-Fa-f]+", hex_clean):
+                raise ShakarRuntimeError(
+                    f"Invalid unicode escape in string literal: \\u{{{hex_raw}}}"
+                )
+
+            codepoint = int(hex_clean, 16)
+            if codepoint > 0x10FFFF:
+                raise ShakarRuntimeError(
+                    f"Unicode escape out of range: \\u{{{hex_raw}}}"
+                )
+
+            out.append(chr(codepoint))
+            i = j + 1
+            continue
+
+        raise ShakarRuntimeError(f"Unknown escape in string literal: \\{nxt}")
+
+    return "".join(out)
 
 
 def unwrap_noanchor(op: Tree) -> Tuple[Tree, str]:

@@ -24,7 +24,7 @@ from ..runtime import (
 from ..tree import node_meta, tree_children, tree_label, is_token, is_tree
 from .helpers import eval_anchor_scoped
 from .loops import _iterable_values
-from .common import stringify
+from .common import stringify, unescape_string_literal
 
 EvalFunc = Callable[[Tree, Frame], ShkValue]
 
@@ -75,7 +75,8 @@ def eval_string_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkStri
 
     for part in tree_children(node):
         if is_token(part):
-            parts.append(part.value)
+            # Interpolated strings use raw token text; unescape it at evaluation time.
+            parts.append(unescape_string_literal(str(part.value)))
             continue
 
         if tree_label(part) == "string_interp_expr":

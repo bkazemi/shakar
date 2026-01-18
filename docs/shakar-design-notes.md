@@ -216,7 +216,7 @@ if user.is_admin:
   - **Underscores**: Allowed between digits for readability (e.g., `1_000_000`, `0xdead_beef`). Cannot be placed immediately after a base prefix, at the start of a decimal number, or at the very end of any number.
   - **Overflow**: Values outside the signed 64-bit range throw an error at parse/evaluation time.
 - **Floats**: IEEE-754 double; leading zero required (`0.5`, not `.5`). Underscores allowed between digits. Base prefixes are NOT supported for floats.
-- **Strings**: `"…"`, `'…'` with escapes `\n \t \\ \" \u{…}`. Multiline ❓. Environment strings: `env"VAR"`/`env'VAR'` (interpolation allowed) evaluate to a string or `nil`.
+- **Strings**: `"…"`, `'…'` with escapes `\n \t \r \b \f \0 \\ \" \' \u{…}`. Multiline ❓. Environment strings: `env"VAR"`/`env'VAR'` (interpolation allowed) evaluate to a string or `nil`.
 - **Arrays**: `[1, 2, 3]`.
 - **Objects**: `{ key: value }` (getters/setters contextual, below).
 - **Selector literals (values)**: backtick selectors like `` `1:10` `` produce Selector values (views/iterables). Default stop is inclusive; use `<stop` for exclusive (e.g., `` `[1:<10]` ``).

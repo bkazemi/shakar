@@ -2561,6 +2561,33 @@ text""",
 )
 runtime_scenario(
     _rt(
+        "string-escapes-basic",
+        """text := "line1\\nline2\\tend"
+text""",
+        ("string", "line1\nline2\tend"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "string-escapes-unicode",
+        """text := "smile: \\u{263A}"
+text""",
+        ("string", "smile: ☺"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "string-escapes-control",
+        """text := "a\\b\\f\\0z"
+text""",
+        ("string", "a\b\f\0z"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
         "ccc-runtime",
         """temp := 50
 verdict := "fail"
