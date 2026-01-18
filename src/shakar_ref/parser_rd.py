@@ -393,8 +393,8 @@ class Parser:
         Parse let-scoped assignment:
         let <pattern> = expr
         let <pattern> := expr
-        let <lvalue> <assign-op> expr
-        let <lvalue> .= expr
+        let <lvalue> = expr
+        let <lvalue> := expr
         """
         self.expect(TT.LET)
 
@@ -440,41 +440,23 @@ class Parser:
 
         if is_tree(expr) and tree_label(expr) == "expr" and expr.children:
             inner = expr.children[0]
-            if is_tree(inner) and tree_label(inner) in {"bind", "walrus"}:
+            if is_tree(inner) and tree_label(inner) == "walrus":
                 return Tree("let", [inner])
 
-        if self.check(
-            TT.ASSIGN,
-            TT.WALRUS,
-            TT.APPLYASSIGN,
-            TT.PLUSEQ,
-            TT.MINUSEQ,
-            TT.STAREQ,
-            TT.SLASHEQ,
-            TT.FLOORDIVEQ,
-            TT.MODEQ,
-            TT.POWEQ,
-        ):
-            if self.check(TT.ASSIGN):
-                lvalue = self._expr_to_lvalue(expr)
-                self.advance()  # =
-                rhs = self.parse_nullish_expr()
-                return Tree(
-                    "let",
-                    [Tree("assignstmt", [lvalue, self._tok("ASSIGN", "="), rhs])],
-                )
-
+        if self.match(TT.ASSIGN):
             lvalue = self._expr_to_lvalue(expr)
-            op = self.advance()
             rhs = self.parse_nullish_expr()
             return Tree(
                 "let",
-                [
-                    Tree(
-                        "compound_assign",
-                        [lvalue, self._tok(op.type.name, op.value), rhs],
-                    )
-                ],
+                [Tree("assignstmt", [lvalue, self._tok("ASSIGN", "="), rhs])],
+            )
+
+        if self.match(TT.WALRUS):
+            lvalue = self._expr_to_lvalue(expr)
+            rhs = self.parse_nullish_expr()
+            return Tree(
+                "let",
+                [Tree("assignstmt", [lvalue, self._tok("WALRUS", ":="), rhs])],
             )
 
         raise ParseError("Expected assignment after let", self.current)

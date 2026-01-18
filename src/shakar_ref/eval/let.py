@@ -4,12 +4,7 @@ from typing import Callable, List
 
 from ..runtime import Frame, ShkNull, ShkValue, ShakarRuntimeError
 from ..tree import Node, Tree, is_tree, tree_children, tree_label
-from .bind import (
-    assign_ident,
-    eval_apply_assign,
-    eval_assign_stmt,
-    eval_compound_assign,
-)
+from .bind import assign_ident, eval_assign_stmt
 from .common import expect_ident_token
 from .destructure import assign_pattern as destructure_assign_pattern
 from .destructure import evaluate_destructure_rhs
@@ -125,14 +120,6 @@ def eval_let_stmt(
             )
         case "assignstmt":
             return eval_assign_stmt(
-                inner.children, frame, eval_func, apply_op, evaluate_index_operand
-            )
-        case "compound_assign":
-            return eval_compound_assign(
-                inner.children, frame, eval_func, apply_op, evaluate_index_operand
-            )
-        case "bind":
-            return eval_apply_assign(
                 inner.children, frame, eval_func, apply_op, evaluate_index_operand
             )
         case _:

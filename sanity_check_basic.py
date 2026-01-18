@@ -1486,6 +1486,22 @@ runtime_scenario(
 )
 runtime_scenario(
     _rt(
+        "let-compound-assign-rejected",
+        "a := 1\nlet a += 1",
+        None,
+        ParseError,
+    )
+)
+runtime_scenario(
+    _rt(
+        "let-apply-assign-rejected",
+        "obj := {x: 1}\nlet obj.x .= 2",
+        None,
+        ParseError,
+    )
+)
+runtime_scenario(
+    _rt(
         "fanout-block-basic",
         "state := {cur: 1, next: 2, x: 0}; state{ .cur = .next; .x += 5 }; state.cur + state.x",
         ("number", 7),
