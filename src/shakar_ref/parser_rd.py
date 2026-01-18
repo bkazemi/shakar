@@ -2931,14 +2931,18 @@ class Parser:
         saved_context = self.parse_context
         self.parse_context = ParseContext.NORMAL
         try:
-            if self.match(TT.LSQB):
-                # for[x, y] iterable
-                binder_list = self.parse_binderlist()
-                self.expect(TT.RSQB)
-                iter_expr = self.parse_expr()
-                children.append(binder_list)
-                children.append(iter_expr)
-                return Tree("overspec", children)
+            # Check for binder list syntax: [x, y] iterable
+            # Only if '[' is followed by a pattern start (IDENT, ^, or '(')
+            if self.check(TT.LSQB):
+                next_tok = self.peek(1)
+                if next_tok.type in (TT.IDENT, TT.CARET, TT.LPAR):
+                    self.advance()  # consume '['
+                    binder_list = self.parse_binderlist()
+                    self.expect(TT.RSQB)
+                    iter_expr = self.parse_expr()
+                    children.append(binder_list)
+                    children.append(iter_expr)
+                    return Tree("overspec", children)
 
             # Check for common pattern: IDENT in expr (e.g., for x in data)
             if self.check(TT.IDENT) and self.peek(1).type == TT.IN:
