@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import List
+from typing import List, Optional
 
 from .runtime import (
     register_stdlib,
@@ -200,8 +200,68 @@ def _term_read_key(_frame, args: List[ShkValue]) -> ShkString:
         raise ShakarTypeError("term.read_key() expects no arguments")
     import sys
 
-    ch = sys.stdin.read(1)
-    return ShkString(ch)
+    data = sys.stdin.buffer.read(1)
+    if not data:
+        return ShkString("")
+    return ShkString(data.decode("latin-1"))
+
+
+def _term_read_key_timeout(_frame, args: List[ShkValue]) -> ShkString:
+    if len(args) != 1:
+        raise ShakarTypeError("term.read_key_timeout(ms) expects one argument")
+    duration = args[0]
+
+    if isinstance(duration, ShkDuration):
+        seconds = max(0.0, float(duration.nanos) / 1_000_000_000.0)
+    elif isinstance(duration, ShkNumber):
+        seconds = max(0.0, float(duration.value)) / 1000.0
+    else:
+        raise ShakarTypeError("term.read_key_timeout(ms) expects number or duration")
+
+    import select
+    import sys
+
+    ready, _, _ = select.select([sys.stdin], [], [], seconds)
+    if not ready:
+        return ShkString("")
+
+    data = sys.stdin.buffer.read(1)
+    if not data:
+        return ShkString("")
+    return ShkString(data.decode("latin-1"))
+
+
+_TERM_RAW_STATE: Optional[list[int]] = None
+
+
+def _term_raw(_frame, args: List[ShkValue]) -> ShkBool:
+    if len(args) != 1:
+        raise ShakarTypeError("term.raw(on) expects one boolean argument")
+    if not isinstance(args[0], ShkBool):
+        raise ShakarTypeError("term.raw(on) expects a boolean")
+
+    import sys
+
+    if not sys.stdin.isatty():
+        return ShkBool(False)
+
+    import termios
+    import tty
+
+    global _TERM_RAW_STATE
+    enable = bool(args[0].value)
+    fd = sys.stdin.fileno()
+
+    if enable:
+        if _TERM_RAW_STATE is None:
+            _TERM_RAW_STATE = termios.tcgetattr(fd)
+            tty.setraw(fd)
+        return ShkBool(True)
+
+    if _TERM_RAW_STATE is not None:
+        termios.tcsetattr(fd, termios.TCSADRAIN, _TERM_RAW_STATE)
+        _TERM_RAW_STATE = None
+    return ShkBool(True)
 
 
 def _term_is_interactive(_frame, args: List[ShkValue]) -> ShkBool:
@@ -209,13 +269,29 @@ def _term_is_interactive(_frame, args: List[ShkValue]) -> ShkBool:
         raise ShakarTypeError("term.is_interactive() expects no arguments")
     import sys
 
-    return ShkBool(sys.stdin.isatty())
+    return ShkBool(sys.stdin.isatty() and sys.stdout.isatty())
+
+
+def _term_write(_frame, args: List[ShkValue]) -> ShkNull:
+    if len(args) != 1 or not isinstance(args[0], ShkString):
+        raise ShakarTypeError("term.write(str) expects one string argument")
+    import sys
+
+    try:
+        sys.stdout.buffer.write(args[0].value.encode("latin-1"))
+    except UnicodeEncodeError:
+        sys.stdout.write(args[0].value)
+    sys.stdout.flush()
+    return ShkNull()
 
 
 def _build_term_module() -> ShkModule:
     slots: dict[str, ShkValue] = {
         "read_key": StdlibFunction(fn=_term_read_key, arity=0),
+        "read_key_timeout": StdlibFunction(fn=_term_read_key_timeout, arity=1),
         "is_interactive": StdlibFunction(fn=_term_is_interactive, arity=0),
+        "write": StdlibFunction(fn=_term_write, arity=1),
+        "raw": StdlibFunction(fn=_term_raw, arity=1),
     }
     return ShkModule(slots=slots, name="term")
 
