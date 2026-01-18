@@ -220,12 +220,14 @@ def _term_read_key_timeout(_frame, args: List[ShkValue]) -> ShkString:
 
     import select
     import sys
+    import os
 
-    ready, _, _ = select.select([sys.stdin], [], [], seconds)
+    fd = sys.stdin.fileno()
+    ready, _, _ = select.select([fd], [], [], seconds)
     if not ready:
         return ShkString("")
 
-    data = sys.stdin.buffer.read(1)
+    data = os.read(fd, 1)
     if not data:
         return ShkString("")
     return ShkString(data.decode("latin-1"))
