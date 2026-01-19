@@ -1308,6 +1308,18 @@ else:
 )
 runtime_scenario(
     _rt(
+        "regex-multiline-literal",
+        """text := "foo
+bar"
+text ~~ r"foo
+bar"
+""",
+        ("array", ["foo\nbar"]),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
         "string-high",
         '"hello".high',
         ("number", 4),
@@ -1782,6 +1794,18 @@ runtime_scenario(
 )
 runtime_scenario(
     _rt(
+        "string-multiline-dedent",
+        """s := "
+  alpha
+  beta
+"
+s""",
+        ("string", "alpha\nbeta\n"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
         "raw-hash-string",
         'raw#"path "C:\\\\tmp"\\file"#',
         ("string", 'path "C:\\\\tmp"\\file'),
@@ -1809,6 +1833,38 @@ runtime_scenario(
         "shell-string-raw-splice",
         'flag := "-n 2"; file := "log 1.txt"; sh"head {{flag}} {file}"',
         ("command", "head -n 2 'log 1.txt'"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "shell-string-escape-quote",
+        'sh"echo \\"hi\\""',
+        ("command", 'echo \\"hi\\"'),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "shell-string-multiline-dedent",
+        """cmd := sh"
+  echo hi
+  echo bye
+"
+cmd""",
+        ("command", "echo hi\necho bye\n"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "shell-string-raw",
+        """cmd := sh_raw"
+  echo hi
+  echo bye
+"
+cmd""",
+        ("command", "\n  echo hi\n  echo bye\n"),
         None,
     )
 )

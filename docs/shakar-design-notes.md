@@ -216,7 +216,7 @@ if user.is_admin:
   - **Underscores**: Allowed between digits for readability (e.g., `1_000_000`, `0xdead_beef`). Cannot be placed immediately after a base prefix, at the start of a decimal number, or at the very end of any number.
   - **Overflow**: Values outside the signed 64-bit range throw an error at parse/evaluation time.
 - **Floats**: IEEE-754 double; leading zero required (`0.5`, not `.5`). Underscores allowed between digits. Base prefixes are NOT supported for floats.
-- **Strings**: `"…"`, `'…'` with escapes `\n \t \r \b \f \0 \\ \" \' \u{…}`. Multiline ❓. Environment strings: `env"VAR"`/`env'VAR'` (interpolation allowed) evaluate to a string or `nil`.
+- **Strings**: `"…"`, `'…'` with escapes `\n \t \r \b \f \0 \\ \" \' \u{…}`. Multiline is allowed for regular and shell strings. If the first character after the opening quote is a newline, it is dropped; then the common leading indentation of all non-blank lines is stripped (blank lines preserved, trailing newline preserved). `env"..."` and `p"..."` remain single-line. Environment strings: `env"VAR"`/`env'VAR'` (interpolation allowed) evaluate to a string or `nil`.
 - **Arrays**: `[1, 2, 3]`.
 - **Objects**: `{ key: value }` (getters/setters contextual, below).
 - **Selector literals (values)**: backtick selectors like `` `1:10` `` produce Selector values (views/iterables). Default stop is inclusive; use `<stop` for exclusive (e.g., `` `[1:<10]` ``).
@@ -303,6 +303,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
 
 - Literal: `sh"..."` or `sh'...'`; evaluates to a lazy `Command` (no auto-exec).
 - Eager literal: `sh!"..."` or `sh!'...'`; executes immediately and returns stdout (same as `.run()`).
+- Raw shell literal: `sh_raw"..."` or `sh_raw'...'` (and eager `sh_raw!"..."` / `sh_raw!'...'`) preserve whitespace and do not dedent; other interpolation rules match `sh"..."`.
 - Execution: `cmd.run()` returns stdout (`Str`) on success; non-zero exit raises `CommandError` with payload `{ cmd, code, stdout, stderr }`. Future `!cmd` may execute inline; stdlib will grow capture/streaming helpers.
 - Interpolation & safety: `{expr}` is auto-quoted; arrays expand to multiple quoted args. `{{expr}}` splices raw/unsafe tokens.
 - Pass-through: pipes, redirects, `&&` forwarded to the system shell.
@@ -774,7 +775,7 @@ u := makeUser() and .isValid()
 
 ### Regex helpers
 
-- Literal: `r"..."/imsxf` (flags optional; `f` includes full match first). Methods: `.test(str) -> Bool`, `.match(str) -> Array?`, `.replace(str, repl) -> Str`.
+- Literal: `r"..."/imsxf` (flags optional; `f` includes full match first). Regex literals allow newlines and never dedent. Methods: `.test(str) -> Bool`, `.match(str) -> Array?`, `.replace(str, repl) -> Str`.
 - **Regex match `~~`**:
   - `Str ~~ Regex` returns `Array?` (truthy on match, `nil` on no match).
   - **Capture behavior**:

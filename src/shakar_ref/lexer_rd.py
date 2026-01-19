@@ -218,6 +218,18 @@ class Lexer:
                 self.scan_raw_string()
                 return
 
+        # Shell raw bang strings (sh_raw!"..." or sh_raw!'...')
+        if self.source.startswith("sh_raw!", self.pos) and self.peek(7) in ('"', "'"):
+            self.advance(7)
+            self.scan_shell_bang_string(prefix_len=7, dedent=False)
+            return
+
+        # Shell raw strings (sh_raw"..." or sh_raw'...')
+        if self.source.startswith("sh_raw", self.pos) and self.peek(6) in ('"', "'"):
+            self.advance(6)
+            self.scan_shell_string(prefix_len=6, dedent=False)
+            return
+
         # Shell bang strings (sh!"..." or sh!'...')
         if (
             self.peek() == "s"
@@ -226,12 +238,12 @@ class Lexer:
             and self.peek(3) in ('"', "'")
         ):
             self.advance(3)
-            self.scan_shell_bang_string()
+            self.scan_shell_bang_string(prefix_len=3, dedent=True)
             return
 
         # Shell strings
         if self.match_string_prefix("sh"):
-            self.scan_shell_string()
+            self.scan_shell_string(prefix_len=2, dedent=True)
             return
 
         # Environment strings
@@ -332,24 +344,58 @@ class Lexer:
         start_line, start_col = self.line, self.column
         start_pos = self.pos
         quote = self.advance()
-        self.scan_quoted_content(quote, allow_escapes=True)
+        self.scan_quoted_content(
+            quote, allow_escapes=True, allow_newlines=True, kind="string literal"
+        )
         if self.pos >= len(self.source):
             raise LexError(f"Unterminated string at line {start_line}")
 
+        body = self.source[start_pos + 1 : self.pos]
         self.advance()  # Closing quote
-        value = self.source[start_pos : self.pos]
+
+        body = self._dedent_multiline(body)
+        value = f"{quote}{body}{quote}"
         self.emit(TT.STRING, value, start_line=start_line, start_col=start_col)
 
-    def scan_quoted_content(self, quote: str, allow_escapes: bool = False) -> str:
+    def scan_quoted_content(
+        self,
+        quote: str,
+        allow_escapes: bool = False,
+        allow_newlines: bool = False,
+        kind: str = "string literal",
+    ) -> str:
         """Helper to scan content between quotes"""
         start_pos = self.pos
+
         while self.pos < len(self.source) and self.peek() != quote:
-            if allow_escapes and self.peek() == "\\":
-                self.advance()
-                if self.pos < len(self.source):
+            ch = self.peek()
+
+            if ch in ("\n", "\r"):
+                if not allow_newlines:
+                    raise LexError(f"Newline in {kind} at line {self.line}")
+                self._advance_in_literal()
+                continue
+
+            if allow_escapes and ch == "\\":
+                if allow_newlines:
+                    self._advance_in_literal()
+                else:
                     self.advance()
+
+                if self.pos < len(self.source):
+                    if self.peek() in ("\n", "\r") and not allow_newlines:
+                        raise LexError(f"Newline in {kind} at line {self.line}")
+                    if allow_newlines:
+                        self._advance_in_literal()
+                    else:
+                        self.advance()
+                continue
+
+            if allow_newlines:
+                self._advance_in_literal()
             else:
                 self.advance()
+
         return self.source[start_pos : self.pos]
 
     def scan_raw_string(self):
@@ -375,13 +421,18 @@ class Lexer:
                         start_col=start_col,
                     )
                     return
-                self.advance()
+                self._advance_in_literal()
 
             raise LexError(f"Unterminated hash raw string at line {self.line}")
         else:
             # Regular raw string: raw"..." or raw'...'
             quote = self.advance()
-            self.scan_quoted_content(quote)
+            self.scan_quoted_content(
+                quote,
+                allow_newlines=True,
+                allow_escapes=False,
+                kind="raw string literal",
+            )
             if self.pos >= len(self.source):
                 raise LexError(f"Unterminated raw string at line {self.line}")
 
@@ -391,33 +442,51 @@ class Lexer:
                 TT.RAW_STRING, full_value, start_line=start_line, start_col=start_col
             )
 
-    def scan_shell_string(self):
+    def scan_shell_string(
+        self, *, prefix_len: int = 2, dedent: bool = True, allow_escapes: bool = True
+    ):
         """Scan shell string: sh"..." or sh'...'"""
-        # 'sh' keyword already consumed - start_col is 2 chars back
-        start_line, start_col = self.line, self.column - 2
+        # prefix already consumed - start_col is prefix_len chars back
+        start_line, start_col = self.line, self.column - prefix_len
         quote = self.advance()
         start_pos = self.pos
-        self.scan_quoted_content(quote)
+        self.scan_quoted_content(
+            quote,
+            allow_newlines=True,
+            allow_escapes=allow_escapes,
+            kind="shell string literal",
+        )
 
         if self.pos >= len(self.source):
             raise LexError(f"Unterminated shell string at line {self.line}")
 
         content = self.source[start_pos : self.pos]
+        if dedent:
+            content = self._dedent_multiline(content)
         self.advance()  # Closing quote
         self.emit(TT.SHELL_STRING, content, start_line=start_line, start_col=start_col)
 
-    def scan_shell_bang_string(self):
+    def scan_shell_bang_string(
+        self, *, prefix_len: int = 3, dedent: bool = True, allow_escapes: bool = True
+    ):
         """Scan shell bang string: sh!"..." or sh!'...'"""
-        # 'sh!' keyword already consumed - start_col is 3 chars back
-        start_line, start_col = self.line, self.column - 3
+        # prefix already consumed - start_col is prefix_len chars back
+        start_line, start_col = self.line, self.column - prefix_len
         quote = self.advance()
         start_pos = self.pos
-        self.scan_quoted_content(quote)
+        self.scan_quoted_content(
+            quote,
+            allow_newlines=True,
+            allow_escapes=allow_escapes,
+            kind="shell string literal",
+        )
 
         if self.pos >= len(self.source):
             raise LexError(f"Unterminated shell string at line {self.line}")
 
         content = self.source[start_pos : self.pos]
+        if dedent:
+            content = self._dedent_multiline(content)
         self.advance()  # Closing quote
         self.emit(
             TT.SHELL_BANG_STRING, content, start_line=start_line, start_col=start_col
@@ -429,7 +498,9 @@ class Lexer:
         start_line, start_col = self.line, self.column - 1
         start_pos = self.pos - 1
         quote = self.advance()
-        self.scan_quoted_content(quote, allow_escapes=True)
+        self.scan_quoted_content(
+            quote, allow_escapes=True, allow_newlines=False, kind="path string literal"
+        )
         if self.pos >= len(self.source):
             raise LexError(f"Unterminated path string at line {start_line}")
 
@@ -445,7 +516,9 @@ class Lexer:
         start_line, start_col = self.line, self.column - 3
         start_pos = self.pos - 3
         quote = self.advance()
-        self.scan_quoted_content(quote, allow_escapes=True)
+        self.scan_quoted_content(
+            quote, allow_escapes=True, allow_newlines=False, kind="env string literal"
+        )
 
         if self.pos >= len(self.source):
             raise LexError(f"Unterminated env string at line {start_line}")
@@ -461,15 +534,9 @@ class Lexer:
         quote = self.advance()
         start_pos = self.pos
 
-        while self.pos < len(self.source) and self.peek() != quote:
-            if self.peek() in ("\n", "\r"):
-                raise LexError(f"Unterminated regex literal at line {start_line}")
-            if self.peek() == "\\":
-                self.advance()
-                if self.pos < len(self.source):
-                    self.advance()
-            else:
-                self.advance()
+        self.scan_quoted_content(
+            quote, allow_escapes=True, allow_newlines=True, kind="regex literal"
+        )
 
         if self.pos >= len(self.source):
             raise LexError(f"Unterminated regex literal at line {start_line}")
@@ -747,6 +814,99 @@ class Lexer:
     # ========================================================================
     # Utilities
     # ========================================================================
+
+    @staticmethod
+    def _strip_initial_newline(text: str) -> str:
+        if text.startswith("\r\n"):
+            return text[2:]
+        if text.startswith("\n") or text.startswith("\r"):
+            return text[1:]
+        return text
+
+    @staticmethod
+    def _split_lines(text: str) -> List[Tuple[str, str]]:
+        lines: List[Tuple[str, str]] = []
+        start = 0
+        idx = 0
+        length = len(text)
+
+        while idx < length:
+            ch = text[idx]
+            if ch == "\n":
+                lines.append((text[start:idx], "\n"))
+                idx += 1
+                start = idx
+                continue
+            if ch == "\r":
+                if idx + 1 < length and text[idx + 1] == "\n":
+                    lines.append((text[start:idx], "\r\n"))
+                    idx += 2
+                    start = idx
+                else:
+                    lines.append((text[start:idx], "\r"))
+                    idx += 1
+                    start = idx
+                continue
+            idx += 1
+
+        lines.append((text[start:], ""))
+        return lines
+
+    def _dedent_multiline(self, text: str) -> str:
+        if not text:
+            return text
+
+        if not (text.startswith("\n") or text.startswith("\r")):
+            return text
+
+        text = self._strip_initial_newline(text)
+        lines = self._split_lines(text)
+
+        indents: List[int] = []
+        for line, _ending in lines:
+            if line.strip(" \t") == "":
+                continue
+            indent = 0
+            while indent < len(line) and line[indent] in (" ", "\t"):
+                indent += 1
+            indents.append(indent)
+
+        if not indents:
+            return "".join(line + ending for line, ending in lines)
+
+        min_indent = min(indents)
+        if min_indent == 0:
+            return "".join(line + ending for line, ending in lines)
+
+        out: List[str] = []
+        for line, ending in lines:
+            if line.strip(" \t") == "":
+                out.append(line + ending)
+            else:
+                out.append(line[min_indent:] + ending)
+        return "".join(out)
+
+    def _advance_in_literal(self) -> str:
+        ch = self.peek()
+        if ch == "\r":
+            if self.peek(1) == "\n":
+                self.pos += 2
+                self.line += 1
+                self.column = 1
+                return "\r\n"
+            self.pos += 1
+            self.line += 1
+            self.column = 1
+            return "\r"
+        if ch == "\n":
+            self.pos += 1
+            self.line += 1
+            self.column = 1
+            return "\n"
+
+        self.pos += 1
+        self.column += 1
+        return ch
 
     def peek(self, offset: int = 0) -> str:
         """Look ahead at character"""

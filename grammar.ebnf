@@ -26,9 +26,13 @@ RAW_STRING = 'raw"' raw_char* '"'
            | "raw'" raw_char* "'" ;
 RAW_HASH_STRING = 'raw#"' raw_char* '"#' ;
 SHELL_STRING = 'sh"' ( string_char | escape_seq )* '"'
-             | "sh'" ( string_char | escape_seq )* "'" ;
+             | "sh'" ( string_char | escape_seq )* "'"
+             | 'sh_raw"' ( string_char | escape_seq )* '"'
+             | "sh_raw'" ( string_char | escape_seq )* "'" ;
 SHELL_BANG_STRING = 'sh!"' ( string_char | escape_seq )* '"'
-                  | "sh!'" ( string_char | escape_seq )* "'" ;
+                  | "sh!'" ( string_char | escape_seq )* "'"
+                  | 'sh_raw!"' ( string_char | escape_seq )* '"'
+                  | "sh_raw!'" ( string_char | escape_seq )* "'" ;
 PATH_STRING = 'p"' ( string_char | escape_seq )* '"'
             | "p'" ( string_char | escape_seq )* "'" ;
 ENV_STRING = 'env"' ( string_char | escape_seq )* '"'
