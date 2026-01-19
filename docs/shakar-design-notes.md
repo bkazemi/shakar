@@ -890,7 +890,10 @@ print(host)  # "localhost"
 
 - **`term`**: terminal utilities.
   - `read_key()`: reads a single character from stdin, returns `Str`.
+  - `read_key_timeout(ms)`: reads a single character with timeout (ms or duration), returns `Str` (empty on timeout).
   - `is_interactive()`: returns `Bool` indicating if stdin is a tty.
+  - `write(str)`: writes to stdout, returns `Null`.
+  - `raw(on)`: toggles raw mode, returns `Bool` (false if stdin not a tty).
 
 #### Examples
 

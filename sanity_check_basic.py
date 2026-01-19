@@ -1156,7 +1156,7 @@ runtime_scenario(
         "import-term-binding",
         """import "term"
 term.len""",
-        ("number", 2),
+        ("number", 5),
         None,
     )
 )
