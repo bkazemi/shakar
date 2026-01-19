@@ -79,12 +79,29 @@ for orders:
 for 10: print(.)
 ```
 
-Within a grouping that has an anchor, leading-dot chains hang off that anchor:
+The first explicit subject in an expression sets the anchor; leading-dot chains hang off it:
 
 ```shakar
-user and (.profile.name.trim()) and .id
-# .profile... runs with subject = user
-# .id still sees user, not the trimmed name
+user and .profile and .id
+# `user` sets the anchor
+# `.profile` and `.id` both use it: user.profile, user.id
+```
+
+Parentheses isolate anchor changes, so retargeting inside a group doesn't leak out:
+
+```shakar
+user and (other and .name) and .id
+# `user` sets outer anchor
+# inside group: `other` retargets, `.name` is other.name
+# `.id` uses outer anchor: user.id
+```
+
+`$expr` is shorthand for `(expr)` — use it to suppress retargeting on a single unit without the visual noise of parens:
+
+```shakar
+for items:
+  .price > $config.limits.max: flag(.)
+# $config.limits.max doesn't retarget; `.price` and `.` use the loop element
 ```
 
 The anchor stack rules in the design notes spell out exactly where `.` comes from and when it is restored, so even heavy dot-chains still have predictable meaning.
