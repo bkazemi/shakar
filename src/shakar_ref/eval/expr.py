@@ -192,21 +192,12 @@ def eval_infix(
     if not children:
         return ShkNull()
 
-    arithmetic_ops: Set[str] = {"+", "-", "*", "/", "//", "%", "+>", "^", "**"}
+    def _should_retarget(node: Node) -> bool:
+        return retargets_anchor(node)
 
-    def _should_retarget(node: Node, next_op: Optional[str]) -> bool:
-        if not retargets_anchor(node):
-            return False
-        # Avoid clobbering anchor for plain identifiers in arithmetic chains
-        if token_kind(node) == "IDENT" and (
-            next_op in arithmetic_ops or next_op is None
-        ):
-            return False
-        return True
-
-    def _eval_and_update(node: Node, next_op: Optional[str]) -> ShkValue:
+    def _eval_and_update(node: Node) -> ShkValue:
         val = eval_func(node, frame)
-        if _should_retarget(node, next_op):
+        if _should_retarget(node):
             override = _consume_anchor_override(frame)
             frame.dot = override if override is not None else val
         else:
@@ -217,11 +208,7 @@ def eval_infix(
     ops = [as_op(op_node) for op_node in children[1::2]]
 
     def evaluate_operands() -> List[ShkValue]:
-        vals = []
-        for i, node in enumerate(operands):
-            next_op = ops[i] if i < len(ops) else None
-            vals.append(_eval_and_update(node, next_op))
-        return vals
+        return [_eval_and_update(node) for node in operands]
 
     if right_assoc_ops and all(op in right_assoc_ops for op in ops):
         vals = evaluate_operands()

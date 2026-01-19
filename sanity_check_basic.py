@@ -3002,7 +3002,7 @@ runtime_scenario(
     _rt(
         "for-subject-dot",
         """acc := ""
-for ["a", "b"]: acc = acc + .upper()
+for ["a", "b"]: acc += .upper()
 acc""",
         ("string", "AB"),
         None,
@@ -3013,7 +3013,7 @@ runtime_scenario(
         "for-subject-bare-ident",
         """acc := ""
 items := ["x", "y"]
-for items: acc = acc + .
+for items: acc += .
 acc""",
         ("string", "xy"),
         None,
