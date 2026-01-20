@@ -11,6 +11,7 @@ from ..runtime import (
     ShkArray,
     ShkBool,
     ShkEnvVar,
+    ShkFan,
     ShkNull,
     ShkNumber,
     ShkDuration,
@@ -86,6 +87,10 @@ def eval_explicit_chain(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkVal
         return old_val
 
     val = eval_func(head, frame)
+    if isinstance(val, ShkFan):
+        if ops and tree_label(ops[-1]) in {"incr", "decr"}:
+            raise ShakarRuntimeError("++/-- not supported on fan broadcasts")
+        return eval_fan_chain(val, ops, frame, eval_func)
     head_label = tree_label(head) if is_tree(head) else None
     head_is_rebind = head_label in {"rebind_primary", "rebind_primary_grouped"}
     head_is_grouped_rebind = head_label == "rebind_primary_grouped"
@@ -112,6 +117,43 @@ def eval_explicit_chain(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkVal
     if isinstance(val, FanContext):
         return ShkArray(val.snapshot())
     return val
+
+
+def eval_fan_chain(
+    fan: ShkFan, ops: List[Node], frame: Frame, eval_func: EvalFunc
+) -> ShkFan:
+    results: List[ShkValue] = []
+    saved_dot = frame.dot
+    saved_pending = frame.pending_anchor_override
+
+    try:
+        for item in fan.items:
+            current: ShkValue | RebindContext | FanContext = item
+
+            for op in ops:
+                frame.dot = item
+                frame.pending_anchor_override = None
+                current = chain_apply_op(current, op, frame, eval_func)
+
+                if isinstance(current, RebindContext):
+                    current = current.value
+                if isinstance(current, FanContext):
+                    current = ShkArray(current.snapshot())
+
+            if isinstance(current, RebindContext):
+                final = current.value
+                current.setter(final)
+                current = final
+
+            if isinstance(current, FanContext):
+                current = ShkArray(current.snapshot())
+
+            results.append(current)
+    finally:
+        frame.dot = saved_dot
+        frame.pending_anchor_override = saved_pending
+
+    return ShkFan(results)
 
 
 def _update_anchor(node: Node, value: ShkValue, frame: Frame) -> None:

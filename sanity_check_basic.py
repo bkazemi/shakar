@@ -40,6 +40,7 @@ def _load_shakar_modules():
         ShkString,
         ShkBool,
         ShkArray,
+        ShkFan,
         ShkDuration,
         ShkSize,
         ShakarArityError,
@@ -64,6 +65,7 @@ def _load_shakar_modules():
         ShkString,
         ShkBool,
         ShkArray,
+        ShkFan,
         ShkDuration,
         ShkSize,
         ShakarArityError,
@@ -89,6 +91,7 @@ def _load_shakar_modules():
     ShkString,
     ShkBool,
     ShkArray,
+    ShkFan,
     ShkDuration,
     ShkSize,
     ShakarArityError,
@@ -490,6 +493,20 @@ def build_valuefan_cases(_: KeywordPlan) -> List[Case]:
 
 
 @case_builder
+def build_fan_literal_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "fan { 1, 2 }",
+        "fan { 1,\n  2,\n }",
+        "fan { }",
+        "fan[par] { 1 }",
+    ]
+    return [
+        Case(name=f"fan-literal-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
+
+
+@case_builder
 def build_dbg_cases(_: KeywordPlan) -> List[Case]:
     samples = [
         "dbg(x)",
@@ -759,6 +776,7 @@ fn hi(): 1""",
             None,
         ),
         AstScenario("emit-outside-call", "> 1", None, ParseError),
+        AstScenario("reserved-fan-field", "obj.fan", None, ParseError),
         AstScenario(
             "param-group-nested-contract",
             "fn f((a ~ Int, b) ~ Int): a",
@@ -2502,6 +2520,82 @@ runtime_scenario(
 )
 runtime_scenario(
     _rt(
+        "fan-literal-basic",
+        'fan { "a", "bb" }',
+        ("fan", ["a", "bb"]),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "fan-broadcast-field",
+        'fan { "a", "bb" }.len',
+        ("fan", [1.0, 2.0]),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "fan-assign-field",
+        """a := { x: 1 }
+b := { x: 2 }
+fan { a, b }.x = 5
+[a.x, b.x]""",
+        ("array", [5.0, 5.0]),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "fan-equality-basic",
+        "fan { 1, 2 } == fan { 1, 2 }",
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "fan-equality-nested",
+        "fan { fan { 1 }, fan { 2 } } == fan { fan { 1 }, fan { 2 } }",
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "fan-spread-array",
+        "[...fan { 1, 2 }]",
+        ("array", [1.0, 2.0]),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "fan-spread-args",
+        """fn count(...items): items.len
+count(...fan { 1, 2, 3 })""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "fan-iter-comprehension",
+        "[x for x in fan { 1, 2, 3 }]",
+        ("array", [1.0, 2.0, 3.0]),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "fan-modifier-unsupported",
+        "fan[par] { 1 }",
+        None,
+        ShakarRuntimeError,
+    )
+)
+runtime_scenario(
+    _rt(
         "leading-dot-chain-law",
         """user := { profile: { name: "  Ada " }, id: "ID" }
 user and (.profile.name.trim()) and .id""",
@@ -4046,6 +4140,15 @@ class SanitySuite:
             if actual_items != expected:
                 return f"expected {expected!r}, got {actual_items!r}"
             return None
+        if kind == "fan":
+            if not isinstance(value, ShkFan):
+                return f"expected ShkFan, got {type(value).__name__}"
+            actual_items = [
+                item.value if hasattr(item, "value") else item for item in value.items
+            ]
+            if actual_items != expected:
+                return f"expected {expected!r}, got {actual_items!r}"
+            return None
         if kind == "duration":
             if not isinstance(value, ShkDuration):
                 return f"expected ShkDuration, got {type(value).__name__}"
@@ -4074,6 +4177,11 @@ class SanitySuite:
                 item.value if hasattr(item, "value") else item for item in value.items
             ]
             desc = f"produced {items!r}"
+        elif isinstance(value, ShkFan):
+            items = [
+                item.value if hasattr(item, "value") else item for item in value.items
+            ]
+            desc = f"produced fan {items!r}"
         else:
             desc = f"produced {value}"
         return f"[PASS] {name}: {desc}"

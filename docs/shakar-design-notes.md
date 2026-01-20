@@ -16,7 +16,7 @@ This is a living technical spec. Every surface sugar has a deterministic desugar
 
 - **Ergonomics over ceremony**; sugars are explicit and desugar cleanly.
 - **Expression-local magic only**: implicit subject `.` never crosses statement boundaries; it follows the anchor stack rules.
-- **Truthiness**: falsey = `nil`, `false`, zero numbers/durations/sizes, empty strings/arrays/objects/paths/commands; truthy = non-empty of those. Regexes, selectors, functions/methods, and type descriptors are invalid in boolean contexts (type error).
+- **Truthiness**: falsey = `nil`, `false`, zero numbers/durations/sizes, empty strings/arrays/fans/objects/paths/commands; truthy = non-empty of those. Regexes, selectors, functions/methods, and type descriptors are invalid in boolean contexts (type error).
 - **Evaluation**: eager; `and`/`or` short-circuit.
 - **Errors**: exceptions; one-statement handlers via `catch`/`@@`.
 - **Strings**: raw forms `raw"…"` (escapes processed) and `raw#"…"#` (no interpolation; no escapes; exactly one `#` in v0.1). Examples: `raw"Line1\nLine2"`, `raw#"C:\\path\\file"#`, `raw#"he said "hi""#`.
@@ -30,7 +30,7 @@ This is a living technical spec. Every surface sugar has a deterministic desugar
 - **Whitespace & layout**: indentation (spaces only) after `:` starts blocks.
 - **Semicolons**: hard statement delimiters at top level and inside braced inline suites `{ ... }`. Multiple statements may share a line. Grammar shape: `stmtlist := stmt (SEMI stmt)* SEMI?`.
 - **Inline suites after `:`**: exactly one simple statement. Wrap a braced inline suite on the right of the colon for multiple statements.
-- **Reserved keywords**: `and, or, not, if, elif, else, unless, for, in, break, continue, return, assert, using, call, defer, after, catch, decorator, decorate, hook, fn, get, set, bind, import, over, true, false, nil`.
+- **Reserved keywords**: `and, or, not, if, elif, else, unless, for, in, break, continue, return, assert, using, call, defer, after, catch, decorator, decorate, hook, fn, get, set, bind, import, over, fan, true, false, nil`.
 - **Contextual keywords**: `for` (in comprehensions), `get`/`set` (inside object literals).
 - **Punctuation tokens**: `.=` (apply-assign), `|`/`|:` (guards), `?ret` (statement head), `??(expr)` (nil-safe chain), `:=` (walrus).
 
@@ -206,7 +206,7 @@ if user.is_admin:
 
 ### Core types
 
-- **Int** (`i64`, overflow throws), **Float** (`f64`), **Bool**, **Str** (immutable UTF-8), **Array**, **Object** (map with descriptors), **Module** (immutable object from imports), **Func**, **Selector literal** (iterable numeric range), **Duration** (nanosecond-precision time span), **Size** (byte quantity), **Nil**. Type predicates live in the stdlib (`isInt`, `typeOf`); no type grammar.
+- **Int** (`i64`, overflow throws), **Float** (`f64`), **Bool**, **Str** (immutable UTF-8), **Array**, **Fan** (broadcast collection), **Object** (map with descriptors), **Module** (immutable object from imports), **Func**, **Selector literal** (iterable numeric range), **Duration** (nanosecond-precision time span), **Size** (byte quantity), **Nil**. Type predicates live in the stdlib (`isInt`, `typeOf`); no type grammar.
 
 ### Primitive literals
 
@@ -218,6 +218,7 @@ if user.is_admin:
 - **Floats**: IEEE-754 double; leading zero required (`0.5`, not `.5`). Underscores allowed between digits. Base prefixes are NOT supported for floats.
 - **Strings**: `"…"`, `'…'` with escapes `\n \t \r \b \f \0 \\ \" \' \u{…}`. Multiline is allowed for regular and shell strings. If the first character after the opening quote is a newline, it is dropped; then the common leading indentation of all non-blank lines is stripped (blank lines preserved, trailing newline preserved). `env"..."` and `p"..."` remain single-line. Environment strings: `env"VAR"`/`env'VAR'` (interpolation allowed) evaluate to a string or `nil`.
 - **Arrays**: `[1, 2, 3]`.
+- **Fans**: `fan { expr, ... }` (reserved keyword; not a valid identifier or property name). Evaluates elements left→right into a `Fan`; property/method access broadcasts across elements and returns a `Fan`. Fans are iterable (e.g., `for x in fan { ... }`); `await fan { ... }` awaits all items and returns a `Fan` of results. Modifiers like `fan[par] { ... }` are reserved but not implemented in v0.1.
 - **Objects**: `{ key: value }` (getters/setters contextual, below).
 - **Selector literals (values)**: backtick selectors like `` `1:10` `` produce Selector values (views/iterables). Default stop is inclusive; use `<stop` for exclusive (e.g., `` `[1:<10]` ``).
 

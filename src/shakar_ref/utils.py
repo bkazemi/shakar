@@ -14,6 +14,7 @@ from .types import (
     ShkDuration,
     ShkSize,
     ShkArray,
+    ShkFan,
     ShkObject,
     ShkPath,
     ShkFn,
@@ -95,6 +96,10 @@ def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
             return len(items_a) == len(items_b) and all(
                 shk_equals(a, b) for a, b in zip(items_a, items_b)
             )
+        case (ShkFan(items=items_a), ShkFan(items=items_b)):
+            return len(items_a) == len(items_b) and all(
+                shk_equals(a, b) for a, b in zip(items_a, items_b)
+            )
         case (ShkObject(slots=slots_a), ShkObject(slots=slots_b)):
             return slots_a.keys() == slots_b.keys() and all(
                 shk_equals(slots_a[k], slots_b[k]) for k in slots_a
@@ -114,13 +119,13 @@ def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
 
 
 def is_sequence_value(value: ShkValue) -> bool:
-    return isinstance(value, ShkArray)
+    return isinstance(value, (ShkArray, ShkFan))
 
 
 def sequence_items(value: ShkValue) -> List[ShkValue]:
-    if isinstance(value, ShkArray):
+    if isinstance(value, (ShkArray, ShkFan)):
         return list(value.items)
-    raise ShakarTypeError("Expected ShkArray for sequence operations")
+    raise ShakarTypeError("Expected array or fan for sequence operations")
 
 
 def coerce_sequence(
@@ -138,15 +143,16 @@ def coerce_sequence(
 
 
 def fanout_values(value: ShkValue, count: int) -> List[ShkValue]:
-    if isinstance(value, ShkArray) and len(value.items) == count:
+    if isinstance(value, (ShkArray, ShkFan)) and len(value.items) == count:
         return list(value.items)
 
     return [value] * count
 
 
 def replicate_empty_sequence(value: ShkValue, count: int) -> List[ShkValue]:
-    if isinstance(value, ShkArray) and len(value.items) == 0:
-        return [ShkArray([]) for _ in range(count)]
+    if isinstance(value, (ShkArray, ShkFan)) and len(value.items) == 0:
+        empty = ShkFan([]) if isinstance(value, ShkFan) else ShkArray([])
+        return [empty for _ in range(count)]
 
     return [value] * count
 

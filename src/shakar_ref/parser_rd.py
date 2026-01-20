@@ -145,6 +145,15 @@ class Parser:
     def _maybe_noanchor(self, node: Tree, wrap: bool) -> Tree:
         return Tree("noanchor", [node]) if wrap else node
 
+    def _check_field_name(self) -> bool:
+        # Excludes GROUP to keep it reserved as a keyword.
+        return self.check(TT.IDENT, TT.OVER)
+
+    def _expect_field_name(self, message: str = "Expected field name") -> Tok:
+        if not self._check_field_name():
+            raise ParseError(message, self.current)
+        return self.advance()
+
     # ========================================================================
     # Tok Navigation
     # ========================================================================
@@ -2062,6 +2071,7 @@ class Parser:
                 TT.LPAR,
                 TT.LSQB,
                 TT.OVER,
+                TT.FAN,
                 TT.DOLLAR,
             ):
                 dot = self.advance()
@@ -2077,7 +2087,7 @@ class Parser:
             # Parse the first implicit operation
             imphead = None
             noanchor = self._take_noanchor_once(seen_noanchor)
-            if self.check(TT.IDENT, TT.OVER):
+            if self._check_field_name():
                 tok = self.advance()
                 imphead = self._maybe_noanchor(
                     Tree(
@@ -2127,7 +2137,7 @@ class Parser:
             while True:
                 if self.match(TT.DOT):
                     noanchor = self._take_noanchor_once(seen_noanchor)
-                    if self.check(TT.IDENT, TT.OVER):
+                    if self._check_field_name():
                         field = self.advance()
                         postfix_ops.append(
                             self._maybe_noanchor(
@@ -2213,7 +2223,7 @@ class Parser:
             # Field access
             if self.match(TT.DOT):
                 noanchor = self._take_noanchor_once(seen_noanchor)
-                if self.check(TT.IDENT, TT.OVER):
+                if self._check_field_name():
                     field = self.advance()
                     postfix_ops.append(
                         self._maybe_noanchor(
@@ -2443,6 +2453,10 @@ class Parser:
             self.expect(TT.RBRACE)
             return Tree("setliteral", items)
 
+        # Group literal
+        if self.match(TT.FAN):
+            return self.parse_fan_literal()
+
         # Identifiers
         if self.check(TT.IDENT):
             tok = self.advance()
@@ -2596,6 +2610,47 @@ class Parser:
         raise ParseError(
             f"Unexpected token in expression: {self.current.type.name}", self.current
         )
+
+    def parse_fan_literal(self) -> Tree:
+        """Parse fan literal: fan [modifier] { expr, ... }"""
+        modifiers = None
+
+        if self.match(TT.LSQB):
+            mod_tok = self.expect(TT.IDENT)
+            self.expect(TT.RSQB)
+            modifiers = Tree(
+                "fan_modifiers",
+                [self._tok("IDENT", mod_tok.value, mod_tok.line, mod_tok.column)],
+            )
+
+        self.expect(TT.LBRACE)
+        self.skip_layout_tokens()
+
+        items: List[Node] = []
+
+        if not self.check(TT.RBRACE):
+            saved_context = self.parse_context
+            self.parse_context = ParseContext.ARRAY_ELEMENTS
+            try:
+                items.append(self.parse_expr())
+                self.skip_layout_tokens()
+
+                while self.match(TT.COMMA):
+                    self.skip_layout_tokens()
+                    if self.check(TT.RBRACE, TT.EOF):
+                        break
+                    items.append(self.parse_expr())
+                    self.skip_layout_tokens()
+            finally:
+                self.parse_context = saved_context
+
+        self.expect(TT.RBRACE)
+
+        children: List[Node] = []
+        if modifiers is not None:
+            children.append(modifiers)
+        children.append(Tree("fan_items", items))
+        return Tree("fan_literal", children)
 
     # ========================================================================
     # Helper Parsers
@@ -3655,7 +3710,8 @@ class Parser:
                 if postfix_ops:
                     items.append(
                         Tree(
-                            "identchain", [self._tok("IDENT", name.value)] + postfix_ops
+                            "identchain",
+                            [self._tok("IDENT", name.value)] + postfix_ops,
                         )
                     )
                 else:

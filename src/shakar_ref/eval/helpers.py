@@ -6,6 +6,7 @@ from typing import Callable, Iterator, Optional
 from ..runtime import (
     Frame,
     ShkArray,
+    ShkFan,
     ShkBool,
     ShkCommand,
     ShkDecorator,
@@ -52,7 +53,7 @@ def is_truthy(val: ShkValue) -> bool:
             return byte_count != 0
         case ShkString(value=s):
             return bool(s)
-        case ShkArray(items=items):
+        case ShkArray(items=items) | ShkFan(items=items):
             return bool(items)
         case ShkModule(slots=slots) | ShkObject(slots=slots):
             return bool(slots)

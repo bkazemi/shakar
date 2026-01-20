@@ -271,6 +271,7 @@ primary = rebind_primary
         | IDENT
         | "any"
         | "all"
+        | fan_literal
         | import_expression
         | literal
         | object_literal
@@ -284,6 +285,10 @@ primary = rebind_primary
         | nullsafe_expression
         | emit_expression
         | hole_expression ;
+
+fan_literal = "fan" , [ fan_modifiers ] , "{" , [ fan_list ] , "}" ;
+fan_modifiers = "[" , IDENT , "]" ;
+fan_list = expression , { "," , expression } , [ "," ] ;
 
 (* Literals *)
 literal = STRING | RAW_STRING | RAW_HASH_STRING | SHELL_STRING | SHELL_BANG_STRING | PATH_STRING | ENV_STRING | REGEX

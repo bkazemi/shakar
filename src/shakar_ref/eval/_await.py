@@ -5,7 +5,15 @@ import inspect
 from typing import Awaitable, Callable, List, Optional, TypeVar, TypedDict
 
 from ..token_types import TT
-from ..runtime import Frame, ShkNull, ShkObject, ShkString, ShkValue, ShakarRuntimeError
+from ..runtime import (
+    Frame,
+    ShkNull,
+    ShkObject,
+    ShkString,
+    ShkFan,
+    ShkValue,
+    ShakarRuntimeError,
+)
 from ..tree import (
     Node,
     Tree,
@@ -111,6 +119,13 @@ def await_all_entries(
 
 
 def resolve_await_result(value: ShkValue) -> ShkValue:
+    if isinstance(value, ShkFan):
+        # Note: resolve_await_result runs synchronously; _run_asyncio will raise if an
+        # event loop is already running, which limits integration with async hosts.
+        coros = [_wrap_awaitable(item) for item in value.items]
+        results = _run_asyncio(asyncio.gather(*coros))
+        return ShkFan(list(results))
+
     if inspect.isawaitable(value):
         return _run_asyncio(_wrap_awaitable(value))
 

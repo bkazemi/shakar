@@ -9,6 +9,7 @@ from ..token_types import TT
 from ..runtime import (
     Frame,
     ShkArray,
+    ShkFan,
     ShkNull,
     ShkNumber,
     ShkObject,
@@ -170,7 +171,7 @@ def _iter_indexed_entries(
     entries: list[tuple[ShkValue, list[ShkValue]]] = []
     binders: list[ShkValue]
     match value:
-        case ShkArray(items=items):
+        case ShkArray(items=items) | ShkFan(items=items):
             for idx, item in enumerate(items):
                 binders = [ShkNumber(float(idx))]
 
@@ -252,6 +253,8 @@ def _iterable_values(value: ShkValue) -> list[ShkValue]:
                 raise ShakarTypeError("Cannot iterate over negative number")
             return [ShkNumber(float(i)) for i in range(count)]
         case ShkArray(items=items):
+            return list(items)
+        case ShkFan(items=items):
             return list(items)
         case ShkString(value=s):
             return [ShkString(ch) for ch in s]

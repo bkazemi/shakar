@@ -14,6 +14,7 @@ from ..runtime import (
     ShkDecorator,
     ShkFn,
     ShkArray,
+    ShkFan,
     ShkObject,
     ShkSelector,
     SelectorIndex,
@@ -104,7 +105,7 @@ def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[Shk
             if spread_expr is None:
                 raise ShakarRuntimeError("Malformed spread argument")
             spread_val = eval_anchor_scoped(spread_expr, frame, eval_func)
-            if isinstance(spread_val, ShkArray):
+            if isinstance(spread_val, (ShkArray, ShkFan)):
                 values.extend(spread_val.items)
                 continue
             if isinstance(spread_val, ShkObject):

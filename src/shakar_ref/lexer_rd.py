@@ -62,6 +62,7 @@ class Lexer:
         "import": TT.IMPORT,
         "any": TT.ANY,
         "all": TT.ALL,
+        "fan": TT.FAN,
         "true": TT.TRUE,
         "false": TT.FALSE,
         "nil": TT.NIL,

@@ -50,6 +50,43 @@ Both forms are built on the same implicit-subject rules, which makes “update t
 
 ---
 
+### Fan literals
+
+`fan { a, b, c }` creates a broadcast collection. Property access and method calls broadcast to each element and return a new fan:
+
+```shakar
+fan { "hello", "world" }.len        # → fan { 5, 5 }
+fan { obj1, obj2 }.x = 5            # sets .x on both
+```
+
+During broadcast, `.` binds to the current element, so arguments are evaluated per-element:
+
+```shakar
+fan { user1, user2 }.greet("Hi, " + .name)
+```
+
+Fans are first-class values—store them, pass them, return them:
+
+```shakar
+svcs := fan { db, cache, worker }
+svcs.restart()                      # restarts all three sequentially
+
+fn get_deps(env):
+    env == "prod": return fan { db, cache, auth }
+    return fan { db }
+```
+
+Fans are iterable and support `await`:
+
+```shakar
+for svc in fan { db, cache }: svc.ping()
+tokens := await fan { fetch_a(), fetch_b() }   # waits for all
+```
+
+Convert to array with spread when needed: `results := [...svcs.status()]`.
+
+---
+
 ### Call blocks and emit `>`
 
 Call blocks bind a callable as an **emit target** for the duration of a block. Inside, `>` invokes that target using the normal argument rules, giving you vertical, imperative sequences without losing declarative structure.

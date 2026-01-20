@@ -57,6 +57,7 @@ class TT(Enum):
     IMPORT = auto()
     ANY = auto()
     ALL = auto()
+    FAN = auto()
 
     # Literals
     TRUE = auto()

@@ -5,6 +5,7 @@ from typing import Callable, List, Tuple
 from ..runtime import (
     Frame,
     ShkArray,
+    ShkFan,
     ShkNumber,
     ShkValue,
     EvalResult,
@@ -648,45 +649,31 @@ def _assign_over_fancontext(
         ctx.value = base
 
 
-def assign_lvalue(
-    node: Node,
+def _complete_chain_assignment(
+    target: ShkValue | FanContext | RebindContext,
+    raw_final_op: Tree,
     value: ShkValue,
     frame: Frame,
-    *,
-    eval_func: EvalFunc,
-    apply_op: ApplyOpFunc,
     evaluate_index_operand: IndexEvalFunc,
+    eval_func: EvalFunc,
+    *,
     create: bool,
 ) -> ShkValue:
-    """Assign to an lvalue, supporting fields, indices, and field fans."""
-    if not is_tree(node) or tree_label(node) != "lvalue":
-        raise ShakarRuntimeError("Invalid assignment target")
+    if isinstance(target, RebindContext):
+        target = target.value
 
-    if not node.children:
-        raise ShakarRuntimeError("Empty lvalue")
-
-    head, *ops = node.children
-
-    if not ops and (name := ident_value(head)):
-        return assign_ident(name, value, frame, create=create)
-
-    target = eval_func(head, frame)
-
-    if not ops:
-        raise ShakarRuntimeError("Malformed lvalue")
-
-    for op in ops[:-1]:
-        target = apply_op(target, op, frame, eval_func)
-
-    # FanContext means we have fanned-out receivers; delegate assignment per receiver.
     if isinstance(target, FanContext):
-        final_op = ops[-1]
         _assign_over_fancontext(
-            target, final_op, value, frame, evaluate_index_operand, eval_func, create
+            target,
+            raw_final_op,
+            value,
+            frame,
+            evaluate_index_operand,
+            eval_func,
+            create,
         )
         return value
 
-    raw_final_op = ops[-1]
     final_op, label = unwrap_noanchor(raw_final_op)
     match label:
         case "field" | "fieldsel":
@@ -716,6 +703,104 @@ def assign_lvalue(
             return value
 
     raise ShakarRuntimeError("Unsupported assignment target")
+
+
+def _assign_over_fan(
+    fan: ShkFan,
+    ops: List[Tree],
+    value: ShkValue,
+    frame: Frame,
+    *,
+    eval_func: EvalFunc,
+    apply_op: ApplyOpFunc,
+    evaluate_index_operand: IndexEvalFunc,
+    create: bool,
+) -> ShkValue:
+    if not ops:
+        raise ShakarRuntimeError("Malformed fan assignment target")
+
+    saved_dot = frame.dot
+    saved_pending = frame.pending_anchor_override
+
+    try:
+        for item in fan.items:
+            current: ShkValue | FanContext | RebindContext = item
+            frame.dot = item
+            for op in ops[:-1]:
+                frame.dot = item
+                frame.pending_anchor_override = None
+                current = apply_op(current, op, frame, eval_func)
+                if isinstance(current, RebindContext):
+                    current = current.value
+
+            frame.pending_anchor_override = None
+            _complete_chain_assignment(
+                current,
+                ops[-1],
+                value,
+                frame,
+                evaluate_index_operand,
+                eval_func,
+                create=create,
+            )
+    finally:
+        frame.dot = saved_dot
+        frame.pending_anchor_override = saved_pending
+
+    return value
+
+
+def assign_lvalue(
+    node: Node,
+    value: ShkValue,
+    frame: Frame,
+    *,
+    eval_func: EvalFunc,
+    apply_op: ApplyOpFunc,
+    evaluate_index_operand: IndexEvalFunc,
+    create: bool,
+) -> ShkValue:
+    """Assign to an lvalue, supporting fields, indices, and field fans."""
+    if not is_tree(node) or tree_label(node) != "lvalue":
+        raise ShakarRuntimeError("Invalid assignment target")
+
+    if not node.children:
+        raise ShakarRuntimeError("Empty lvalue")
+
+    head, *ops = node.children
+
+    if not ops and (name := ident_value(head)):
+        return assign_ident(name, value, frame, create=create)
+
+    target = eval_func(head, frame)
+
+    if not ops:
+        raise ShakarRuntimeError("Malformed lvalue")
+
+    if isinstance(target, ShkFan):
+        return _assign_over_fan(
+            target,
+            ops,
+            value,
+            frame,
+            eval_func=eval_func,
+            apply_op=apply_op,
+            evaluate_index_operand=evaluate_index_operand,
+            create=create,
+        )
+
+    for op in ops[:-1]:
+        target = apply_op(target, op, frame, eval_func)
+
+    return _complete_chain_assignment(
+        target,
+        ops[-1],
+        value,
+        frame,
+        evaluate_index_operand,
+        eval_func,
+        create=create,
+    )
 
 
 def assign_pattern_value(

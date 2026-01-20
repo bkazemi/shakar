@@ -12,6 +12,7 @@ from .tree import Node, Tree, Tok, is_token, is_tree, node_meta, tree_label
 from .runtime import (
     Frame,
     ShkArray,
+    ShkFan,
     ShkBool,
     ShkNull,
     ShkString,
@@ -97,6 +98,7 @@ from .eval.expr import (
     eval_nullsafe,
     eval_ternary,
     eval_explicit_chain,
+    eval_fan_chain,
 )
 from .eval.literals import (
     eval_array_literal,
@@ -223,6 +225,9 @@ def _eval_implicit_chain(ops: List[Tree], frame: Frame) -> ShkValue:
     """Evaluate `.foo().bar` style chains using the current subject anchor."""
     val = get_subject(frame)
 
+    if isinstance(val, ShkFan):
+        return eval_fan_chain(val, ops, frame, eval_node)
+
     for op in ops:
         val = apply_op(val, op, frame, eval_node)
 
@@ -290,6 +295,26 @@ def _eval_program_node(n: Tree, frame: Frame) -> ShkValue:
 
 def _eval_array(n: Tree, frame: Frame) -> ShkValue:
     return eval_array_literal(n, frame, eval_node)
+
+
+def _eval_fan_literal(n: Tree, frame: Frame) -> ShkValue:
+    modifiers = None
+    items_node = None
+
+    for child in n.children:
+        if is_tree(child) and child.data == "fan_modifiers":
+            modifiers = child
+        elif is_tree(child) and child.data == "fan_items":
+            items_node = child
+
+    if modifiers is not None:
+        raise ShakarRuntimeError("Fan modifiers are not supported yet")
+
+    if items_node is None:
+        return ShkFan([])
+
+    items = [eval_node(ch, frame) for ch in items_node.children]
+    return ShkFan(items)
 
 
 def _eval_object(n: Tree, frame: Frame) -> ShkValue:
@@ -730,6 +755,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "expr": _eval_wrapper_node,
     # Expressions
     "array": _eval_array,
+    "fan_literal": _eval_fan_literal,
     "object": _eval_object,
     "unary": _eval_unary,
     "pow": _eval_pow,

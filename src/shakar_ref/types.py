@@ -111,6 +111,14 @@ class ShkArray:
 
 
 @dataclass
+class ShkFan:
+    items: List["ShkValue"]
+
+    def __repr__(self) -> str:
+        return "fan { " + ", ".join(repr(x) for x in self.items) + " }"
+
+
+@dataclass
 class ShkCommand:
     segments: List[str]
 
@@ -354,6 +362,7 @@ ShkValue: TypeAlias = Union[
     ShkRegex,
     ShkBool,
     ShkArray,
+    ShkFan,
     ShkObject,
     ShkModule,
     ShkFn,
@@ -636,6 +645,7 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     ShkRegex,
     ShkBool,
     ShkArray,
+    ShkFan,
     ShkObject,
     ShkModule,
     ShkFn,
