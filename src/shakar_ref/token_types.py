@@ -33,6 +33,7 @@ class TT(Enum):
     UNLESS = auto()
     WHILE = auto()
     FOR = auto()
+    MATCH = auto()
     IN = auto()
     BREAK = auto()
     CONTINUE = auto()

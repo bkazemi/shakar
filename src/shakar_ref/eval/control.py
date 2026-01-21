@@ -8,6 +8,7 @@ from ..runtime import (
     ShkBool,
     ShkNull,
     ShkObject,
+    ShkSelector,
     ShkString,
     ShkValue,
     ShakarBreakSignal,
@@ -15,6 +16,7 @@ from ..runtime import (
     ShakarAssertionError,
     ShakarKeyError,
     ShakarMethodNotFound,
+    ShakarMatchError,
     ShakarReturnSignal,
     ShakarRuntimeError,
     ShakarTypeError,
@@ -36,8 +38,11 @@ from .common import (
 from .common import token_kind as _token_kind
 from .helpers import (
     current_function_frame as _current_function_frame,
+    eval_anchor_scoped,
     is_truthy as _is_truthy,
 )
+from .selector import selector_contains
+from ..utils import shk_equals
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
@@ -365,3 +370,68 @@ def eval_if_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         return eval_body_node(else_body, frame, eval_func, allow_loop_control=True)
 
     return ShkNull()
+
+
+def eval_match_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+    children = tree_children(n)
+    if not children:
+        raise ShakarRuntimeError("Malformed match expression")
+
+    subject_node = children[0]
+    subject = eval_func(subject_node, frame)
+    else_body: Optional[Node] = None
+
+    for child in children[1:]:
+        label = tree_label(child)
+        if label == "matcharm":
+            if not is_tree(child) or len(child.children) != 2:
+                raise ShakarRuntimeError("Malformed match arm")
+            patterns_node, body_node = child.children
+            patterns = (
+                tree_children(patterns_node)
+                if is_tree(patterns_node)
+                and tree_label(patterns_node) == "matchpatterns"
+                else [patterns_node]
+            )
+            for pattern in patterns:
+                if _match_pattern(pattern, subject, frame, eval_func):
+                    with temporary_subject(frame, subject):
+                        return eval_body_node(
+                            body_node,
+                            frame,
+                            eval_func,
+                            allow_loop_control=True,
+                        )
+            continue
+        if label == "matchelse":
+            if not is_tree(child) or not child.children:
+                raise ShakarRuntimeError("Malformed match else")
+            else_body = child.children[0]
+            continue
+        if is_token(child):
+            continue
+
+    if else_body is not None:
+        with temporary_subject(frame, subject):
+            return eval_body_node(else_body, frame, eval_func, allow_loop_control=True)
+
+    raise ShakarMatchError("No match found")
+
+
+def _match_pattern(
+    pattern: Node,
+    subject: ShkValue,
+    frame: Frame,
+    eval_func: EvalFunc,
+) -> bool:
+    with temporary_subject(frame, subject):
+        value = eval_anchor_scoped(pattern, frame, eval_func)
+
+    if isinstance(value, ShkSelector):
+        return _selector_matches(subject, value)
+
+    return shk_equals(subject, value)
+
+
+def _selector_matches(subject: ShkValue, selector: ShkSelector) -> bool:
+    return selector_contains(selector, subject)

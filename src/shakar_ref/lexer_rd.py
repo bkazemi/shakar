@@ -38,6 +38,7 @@ class Lexer:
         "unless": TT.UNLESS,
         "while": TT.WHILE,
         "for": TT.FOR,
+        "match": TT.MATCH,
         "in": TT.IN,
         "break": TT.BREAK,
         "continue": TT.CONTINUE,

@@ -10,7 +10,7 @@ letter = "A" | "B" | ... | "Z" | "a" | "b" | ... | "z" | "_" ;
 digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
 
 (* Reserved keywords *)
-(* and, or, not, if, elif, else, unless, for, in, break, continue, return, assert, *)
+(* and, or, not, if, elif, else, unless, for, match, in, break, continue, return, assert, *)
 (* using, call, defer, after, catch, decorator, decorate, hook, fn, get, set, bind, import, over, *)
 (* true, false, nil, await, any, all, while, throw, dbg, is, ?ret *)
 
@@ -167,12 +167,20 @@ import_string = STRING | RAW_STRING | RAW_HASH_STRING ;
 
 (* ===== EXPRESSIONS ===== *)
 
-expression = catch_expression
+expression = match_expression
+           | catch_expression
            | catch_sugar_expression
            | ternary_expression
            | walrus_expression
            | application_expression
            | or_expression ;
+
+(* Match expression *)
+match_expression = "match" , expression , ":" , NEWLINE , INDENT , match_arm , { match_arm } , [ match_else ] , DEDENT ;
+match_arm = match_patterns , ":" , ( inline_body | indent_block ) ;
+match_else = "else" , ":" , ( inline_body | indent_block ) ;
+match_patterns = match_pattern , { "|" , match_pattern } ;
+match_pattern = expression ;  (* v0.1: expressions only; v0.2: structural patterns *)
 
 (* Catch expressions *)
 catch_expression = catch_base , "catch" , [ catch_tail ] , catch_handler ;

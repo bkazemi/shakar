@@ -47,6 +47,7 @@ from .types import (
     ShakarKeyError,
     ShakarIndexError,
     ShakarMethodNotFound,
+    ShakarMatchError,
     CommandError,
     ShakarAssertionError,
     ShakarReturnSignal,
@@ -103,6 +104,7 @@ __all__ = [
     "ShakarKeyError",
     "ShakarIndexError",
     "ShakarMethodNotFound",
+    "ShakarMatchError",
     "CommandError",
     "ShakarAssertionError",
     "ShakarReturnSignal",
@@ -554,10 +556,10 @@ def _regex_test(_frame: Frame, recv: ShkRegex, args: List[ShkValue]) -> ShkBool:
     return ShkBool(recv.compiled.search(text) is not None)
 
 
-@register_regex("match")
-def _regex_match(_frame: Frame, recv: ShkRegex, args: List[ShkValue]) -> ShkValue:
-    _regex_expect_arity("match", args, 1)
-    text = _regex_arg("match", args[0])
+@register_regex("search")
+def _regex_search(_frame: Frame, recv: ShkRegex, args: List[ShkValue]) -> ShkValue:
+    _regex_expect_arity("search", args, 1)
+    text = _regex_arg("search", args[0])
     return regex_match_value(recv, text)
 
 

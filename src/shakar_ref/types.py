@@ -599,6 +599,10 @@ class ShakarMethodNotFound(ShakarRuntimeError):
         self.name = name
 
 
+class ShakarMatchError(ShakarRuntimeError):
+    pass
+
+
 class CommandError(ShakarRuntimeError):
     def __init__(self, cmd: str, code: int, stdout: str, stderr: str):
         super().__init__(f"Command failed with exit code {code}: {cmd}")

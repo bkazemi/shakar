@@ -46,6 +46,7 @@ def _load_shakar_modules():
         ShakarArityError,
         ShakarAssertionError,
         ShakarImportError,
+        ShakarMatchError,
         ShakarRuntimeError,
         ShakarTypeError,
     )
@@ -71,6 +72,7 @@ def _load_shakar_modules():
         ShakarArityError,
         ShakarAssertionError,
         ShakarImportError,
+        ShakarMatchError,
         ShakarRuntimeError,
         ShakarTypeError,
         parse_rd,
@@ -97,6 +99,7 @@ def _load_shakar_modules():
     ShakarArityError,
     ShakarAssertionError,
     ShakarImportError,
+    ShakarMatchError,
     ShakarRuntimeError,
     ShakarTypeError,
     parse_rd,
@@ -385,6 +388,18 @@ def build_block_cases(_: KeywordPlan) -> List[Case]:
     ]
     return [
         Case(name=f"block-{i}", code=src, start="indented")
+        for i, src in enumerate(samples)
+    ]
+
+
+@case_builder
+def build_match_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "match x:\n  1: 2\n  else: 3\n",
+        'match key:\n  "a" | "b": 1\n  "c": 2\n',
+    ]
+    return [
+        Case(name=f"match-{i}", code=src, start="indented")
         for i, src in enumerate(samples)
     ]
 
@@ -777,6 +792,7 @@ fn hi(): 1""",
         ),
         AstScenario("emit-outside-call", "> 1", None, ParseError),
         AstScenario("reserved-fan-field", "obj.fan", None, ParseError),
+        AstScenario("match-empty-body", "match x:\n", None, ParseError),
         AstScenario(
             "param-group-nested-contract",
             "fn f((a ~ Int, b) ~ Int): a",
@@ -992,6 +1008,54 @@ call outer:
 log""",
         ("string", "o1i2o3"),
         None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-basic",
+        """x := 2
+match x:
+  1: "one"
+  2: "two"
+  else: "other"
+""",
+        ("string", "two"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-dot",
+        """obj := { val: 3 }
+match obj:
+  .: .val
+  else: 0
+""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-selector",
+        """score := 85
+match score:
+  `90:100`: "A"
+  `80:<90`: "B"
+  else: "F"
+""",
+        ("string", "B"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-no-else",
+        """match 1:
+  2: "no"
+""",
+        None,
+        ShakarMatchError,
     )
 )
 runtime_scenario(
@@ -1314,10 +1378,10 @@ runtime_scenario(
         "regex-methods",
         """rx := r"(\\d+)"
 ok := rx.test("a1")
-match := rx.match("b22")
+m := rx.search("b22")
 repl := rx.replace("c3", "x")
-if ok and match:
-  [match[0], repl]
+if ok and m:
+  [m[0], repl]
 else:
   ["", ""]""",
         ("array", ["22", "cx"]),

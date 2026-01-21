@@ -776,7 +776,7 @@ u := makeUser() and .isValid()
 
 ### Regex helpers
 
-- Literal: `r"..."/imsxf` (flags optional; `f` includes full match first). Regex literals allow newlines and never dedent. Methods: `.test(str) -> Bool`, `.match(str) -> Array?`, `.replace(str, repl) -> Str`.
+- Literal: `r"..."/imsxf` (flags optional; `f` includes full match first). Regex literals allow newlines and never dedent. Methods: `.test(str) -> Bool`, `.search(str) -> Array?`, `.replace(str, repl) -> Str`.
 - **Regex match `~~`**:
   - `Str ~~ Regex` returns `Array?` (truthy on match, `nil` on no match).
   - **Capture behavior**:
@@ -1302,13 +1302,26 @@ MemberExpr   := Primary ( "." Ident | Call | Selector )*
 
 ---
 
+## Match Expression (v0.1)
+
+- **Syntax**: `match subject:` with `pattern(s): body` arms and optional `else:`.
+- **Semantics**: subject evaluated once; arms checked top-to-bottom; expression-valued; `.` is anchored to the subject inside arm bodies.
+- **Patterns**: expression patterns compare via `==`; selector literals use containment; object/array literal patterns are reserved for v0.2.
+
+```shakar
+match key:
+  "left" | "a": move_h(state, -1)
+  "right" | "d": move_h(state, 1)
+  else: noop()
+```
+
 ## Roadmap (v0.2)
 
-- **Match constructs** (Rust model): match statement (exhaustive, block-based) and match guards inside guard chains (disambiguated by `match`).
+- **Match extensions** (Rust model): structural patterns, guards, and match branches inside guard chains (disambiguated by `match`).
   ```shakar
   match subject:
-  | { type: "A" }: ...
-  | { type: "B" }: ...
+    { type: "A" }: ...
+    { type: "B" }: ...
   for events:
     .type == "system": handle_sys(.)
     | match { x, y }: handle_geo(x, y)

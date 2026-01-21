@@ -683,6 +683,84 @@ class Parser:
 
         return Tree("ifstmt", children)
 
+    def parse_match_expr(self) -> Tree:
+        """
+        Parse match expression:
+        match expr:
+          pattern | pattern: body
+          else: body
+        """
+        self.expect(TT.MATCH)
+        subject = self.parse_expr()
+        self.expect(TT.COLON)
+
+        if not self.match(TT.NEWLINE):
+            raise ParseError("match expects a newline after ':'", self.current)
+        if not self.check(TT.INDENT):
+            raise ParseError("match expects an indented block", self.current)
+        self.advance()
+
+        arms: list[Tree] = []
+        else_body: Optional[Tree] = None
+
+        if self.check(TT.DEDENT):
+            raise ParseError("match requires at least one arm", self.current)
+
+        while not self.check(TT.DEDENT, TT.EOF):
+            if self.match(TT.NEWLINE):
+                continue
+
+            if self.match(TT.ELSE):
+                if else_body is not None:
+                    raise ParseError("match has multiple else arms", self.current)
+                self.expect(TT.COLON)
+                else_body = self.parse_body()
+                while self.match(TT.NEWLINE):
+                    pass
+                if not self.check(TT.DEDENT):
+                    raise ParseError("match else must be last", self.current)
+                break
+
+            patterns = [self.parse_match_pattern()]
+            while self.match(TT.PIPE):
+                patterns.append(self.parse_match_pattern())
+
+            self.expect(TT.COLON)
+            body = self.parse_body()
+            arms.append(Tree("matcharm", [Tree("matchpatterns", patterns), body]))
+
+        self.expect(TT.DEDENT)
+
+        children: list[Node] = [subject]
+        children.extend(arms)
+        if else_body is not None:
+            children.append(Tree("matchelse", [else_body]))
+        return Tree("matchexpr", children)
+
+    def parse_match_pattern(self) -> Tree:
+        pattern = self.parse_expr()
+        self._validate_match_pattern(pattern)
+        return pattern
+
+    def _validate_match_pattern(self, pattern: Node) -> None:
+        current: Node = pattern
+        while True:
+            if is_tree(current):
+                label = tree_label(current)
+                if label == "expr" and current.children:
+                    current = current.children[0]
+                    continue
+                if label == "group_expr" and current.children:
+                    current = current.children[0]
+                    continue
+            break
+
+        if is_tree(current) and tree_label(current) in {"object", "array"}:
+            raise ParseError(
+                "Object/array literals are reserved for v0.2 match patterns",
+                self.current,
+            )
+
     def parse_while_stmt(self) -> Tree:
         """Parse while loop: while expr: body"""
         self.expect(TT.WHILE)
@@ -2341,6 +2419,9 @@ class Parser:
         - Rebind primary (=ident or =(lvalue))
         - etc.
         """
+
+        if self.check(TT.MATCH):
+            return self.parse_match_expr()
 
         # Rebind primary: =ident or =(lvalue)
         if self.match(TT.ASSIGN):

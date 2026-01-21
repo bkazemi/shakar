@@ -39,6 +39,7 @@ from .eval.selector import eval_selectorliteral
 from .eval.control import (
     eval_assert,
     eval_if_stmt,
+    eval_match_expr,
     eval_return_if,
     eval_return_stmt,
     eval_throw_stmt,
@@ -515,6 +516,10 @@ def _eval_ifstmt(n: Tree, frame: Frame) -> ShkValue:
     return eval_if_stmt(n, frame, eval_node)
 
 
+def _eval_matchexpr(n: Tree, frame: Frame) -> ShkValue:
+    return eval_match_expr(n, frame, eval_node)
+
+
 def _eval_whilestmt(n: Tree, frame: Frame) -> ShkValue:
     return eval_while_stmt(n, frame, eval_node)
 
@@ -782,6 +787,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "walrus": _eval_walrus,
     "ternary": _eval_ternary,
     "compare": _eval_compare,
+    "matchexpr": _eval_matchexpr,
     "nullish": _eval_nullish,
     "nullsafe": _eval_nullsafe,
     "await_value": _eval_await_value,

@@ -152,6 +152,34 @@ def selector_iter_values(selector: ShkSelector) -> List[ShkValue]:
     return values
 
 
+def selector_contains(selector: ShkSelector, value: ShkValue) -> bool:
+    """Check if a selector literal would include the given value."""
+    if not selector.parts:
+        raise ShakarRuntimeError("Selector literal produced no values")
+
+    subject_int = _selector_subject_to_int(value)
+    saw_any = False
+
+    for part in selector.parts:
+        if isinstance(part, SelectorIndex):
+            saw_any = True
+            idx = _selector_index_to_int(part.value)
+            if subject_int is not None and idx == subject_int:
+                return True
+            continue
+
+        rng = _iterate_selector_slice(part)
+        if rng:
+            saw_any = True
+            if subject_int is not None and subject_int in rng:
+                return True
+
+    if not saw_any:
+        raise ShakarRuntimeError("Selector literal produced no values")
+
+    return False
+
+
 def _selector_parts_from_selitem(
     node: Tree, frame: Frame, eval_fn: EvalFunc
 ) -> List[SelectorPart]:
@@ -409,6 +437,17 @@ def _selector_index_to_int(value: ShkValue) -> int:
 
     if not float(num).is_integer():
         raise ShakarTypeError("Index selector expects an integer value")
+
+    return int(num)
+
+
+def _selector_subject_to_int(value: ShkValue) -> Optional[int]:
+    if not isinstance(value, ShkNumber):
+        return None
+
+    num = value.value
+    if not float(num).is_integer():
+        return None
 
     return int(num)
 
