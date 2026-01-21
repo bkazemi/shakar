@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import pathlib
-import re
 import subprocess
 from typing import Callable, Dict, List, Optional, Tuple, Union
 from .tree import Node
@@ -141,7 +140,10 @@ def register_module_factory(
 def _looks_like_path(name: str) -> bool:
     if name.startswith(("./", "../", "/", ".\\", "..\\")):
         return True
-    return re.match(r"^[A-Za-z]:[\\/]", name) is not None
+    if len(name) >= 3 and name[1] == ":" and name[2] in ("\\", "/"):
+        drive = name[0]
+        return ("A" <= drive <= "Z") or ("a" <= drive <= "z")
+    return False
 
 
 def _resolve_import_path(name: str, frame: Optional[Frame]) -> pathlib.Path:

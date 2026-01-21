@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Callable, List, Optional
 import pathlib
-import re
 from types import SimpleNamespace
 
 from .token_types import TT
@@ -616,7 +615,20 @@ def _eval_emitexpr(n: Tree, frame: Frame) -> ShkValue:
 # ---- Import handlers ----
 
 
-_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+def _is_ident(name: str) -> bool:
+    if not name:
+        return False
+
+    first = name[0]
+    if not (("A" <= first <= "Z") or ("a" <= first <= "z") or first == "_"):
+        return False
+
+    for ch in name[1:]:
+        if ("A" <= ch <= "Z") or ("a" <= ch <= "z") or ("0" <= ch <= "9") or ch == "_":
+            continue
+        return False
+
+    return True
 
 
 def _import_name_from_node(node: Node, frame: Frame) -> str:
@@ -631,7 +643,7 @@ def _default_import_bind(name: str) -> str:
     base = path.stem if path.suffix == ".shk" else path.name
     if not base:
         raise ShakarImportError("Import name cannot be empty")
-    if not _IDENT_RE.match(base) or base in Lexer.KEYWORDS:
+    if not _is_ident(base) or base in Lexer.KEYWORDS:
         raise ShakarImportError(
             f"Import name '{base}' is not a valid identifier; use 'bind' to set a name"
         )

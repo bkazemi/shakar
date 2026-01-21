@@ -373,6 +373,7 @@ def unescape_string_literal(text: str) -> str:
         "'": "'",
         "\\": "\\",
     }
+    hex_digits = "0123456789abcdefABCDEF"
     out: List[str] = []
     i = 0
     length = len(text)
@@ -408,7 +409,7 @@ def unescape_string_literal(text: str) -> str:
                 raise ShakarRuntimeError("Empty unicode escape in string literal")
 
             hex_clean = hex_raw.replace("_", "")
-            if not re.fullmatch(r"[0-9A-Fa-f]+", hex_clean):
+            if not hex_clean or any(ch not in hex_digits for ch in hex_clean):
                 raise ShakarRuntimeError(
                     f"Invalid unicode escape in string literal: \\u{{{hex_raw}}}"
                 )
@@ -428,7 +429,7 @@ def unescape_string_literal(text: str) -> str:
                 raise ShakarRuntimeError("Unterminated hex escape in string literal")
 
             hex_raw = text[i + 2 : i + 4]
-            if not re.fullmatch(r"[0-9A-Fa-f]{2}", hex_raw):
+            if len(hex_raw) != 2 or any(ch not in hex_digits for ch in hex_raw):
                 raise ShakarRuntimeError(
                     f"Invalid hex escape in string literal: \\x{hex_raw}"
                 )
