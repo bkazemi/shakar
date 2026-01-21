@@ -697,6 +697,14 @@ u := makeUser() and .isValid()
   uniq  = set{ .lower() over tokens }
   byId  = { .id: . over users if .active }
   ```
+- **Style: `for` vs `over`**: Prefer `for N` when repeating an expression N times (count-focused); prefer `over items` when iterating a collection (element-focused). Both are semantically equivalent but signal different intent:
+  ```shakar
+  # Repetition: call read_key twice, collect results
+  ch1, ch2 := [term.read_key_timeout(50) for 2]
+
+  # Iteration: transform each element
+  trimmed := [.trim() over lines]
+  ```
 - `bind` introduces names without removing `.`; binder list sugar `over[binders] src` is sugar for `over src bind binders`. Objects: one binder yields key, two yield key/value.
 - Implicit head binders: free, unqualified identifiers in heads (and optional `if` guards) auto-bind to components of each element, first-use order, capped by arity. Only in heads/guards; names resolving in outer scope are captures, not binders; occurrences inside nested lambdas ignored. Error if distinct head-binders exceed element arity.
 - Illegal: `over[...] Expr bind ...` (formatter drops redundant `bind`).
