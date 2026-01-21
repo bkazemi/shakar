@@ -423,6 +423,20 @@ def unescape_string_literal(text: str) -> str:
             i = j + 1
             continue
 
+        if nxt == "x":
+            if i + 3 >= length:
+                raise ShakarRuntimeError("Unterminated hex escape in string literal")
+
+            hex_raw = text[i + 2 : i + 4]
+            if not re.fullmatch(r"[0-9A-Fa-f]{2}", hex_raw):
+                raise ShakarRuntimeError(
+                    f"Invalid hex escape in string literal: \\x{hex_raw}"
+                )
+
+            out.append(chr(int(hex_raw, 16)))
+            i += 4
+            continue
+
         raise ShakarRuntimeError(f"Unknown escape in string literal: \\{nxt}")
 
     return "".join(out)

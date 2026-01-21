@@ -2729,6 +2729,15 @@ text""",
 )
 runtime_scenario(
     _rt(
+        "string-escapes-hex",
+        """text := "hex: \\x41\\x42"
+text""",
+        ("string", "hex: AB"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
         "string-escapes-control",
         """text := "a\\b\\f\\0z"
 text""",
