@@ -691,6 +691,10 @@ class Parser:
           else: body
         """
         self.expect(TT.MATCH)
+        cmp_node: Optional[Tree] = None
+        # Optional comparator binder: match[cmp] subject: ...
+        if self._should_parse_match_cmp():
+            cmp_node = self.parse_match_cmp()
         subject = self.parse_expr()
         self.expect(TT.COLON)
 
@@ -731,11 +735,83 @@ class Parser:
 
         self.expect(TT.DEDENT)
 
-        children: list[Node] = [subject]
+        children: list[Node] = []
+        if cmp_node is not None:
+            children.append(cmp_node)
+        children.append(subject)
         children.extend(arms)
         if else_body is not None:
             children.append(Tree("matchelse", [else_body]))
         return Tree("matchexpr", children)
+
+    def _should_parse_match_cmp(self) -> bool:
+        if not self.check(TT.LSQB):
+            return False
+        # Ensure this isn't a list-literal subject right before ':'.
+        # peek() returns EOF past the end, so the lookahead is safe.
+        if self._match_cmp_is_single():
+            return self.peek(3).type != TT.COLON
+        if self._match_cmp_is_neg_in():
+            return self.peek(4).type != TT.COLON
+        if self._match_cmp_is_not_in():
+            return self.peek(4).type != TT.COLON
+        return False
+
+    def _is_match_cmp_token(self, tok: Tok) -> bool:
+        if tok.type in {
+            TT.EQ,
+            TT.NEQ,
+            TT.LT,
+            TT.LTE,
+            TT.GT,
+            TT.GTE,
+            TT.IN,
+            TT.REGEXMATCH,
+        }:
+            return True
+        return tok.type == TT.IDENT and tok.value in {
+            "eq",
+            "ne",
+            "lt",
+            "le",
+            "gt",
+            "ge",
+        }
+
+    def _match_cmp_is_single(self) -> bool:
+        cmp_tok = self.peek(1)
+        end_tok = self.peek(2)
+        if end_tok.type != TT.RSQB:
+            return False
+        return self._is_match_cmp_token(cmp_tok)
+
+    def _match_cmp_is_neg_in(self) -> bool:
+        return (
+            self.peek(1).type == TT.NEG
+            and self.peek(2).type == TT.IN
+            and self.peek(3).type == TT.RSQB
+        )
+
+    def _match_cmp_is_not_in(self) -> bool:
+        return (
+            self.peek(1).type == TT.NOT
+            and self.peek(2).type == TT.IN
+            and self.peek(3).type == TT.RSQB
+        )
+
+    def parse_match_cmp(self) -> Tree:
+        self.expect(TT.LSQB)
+        # Support two-token comparators: !in / not in.
+        if self.check(TT.NEG, TT.NOT) and self.peek(1).type == TT.IN:
+            first = self.advance()
+            second = self.advance()
+            self.expect(TT.RSQB)
+            return Tree("matchcmp", [first, second])
+        tok = self.advance()
+        if not self._is_match_cmp_token(tok):
+            raise ParseError("Invalid match comparator", tok)
+        self.expect(TT.RSQB)
+        return Tree("matchcmp", [tok])
 
     def parse_match_pattern(self) -> Tree:
         pattern = self.parse_expr()

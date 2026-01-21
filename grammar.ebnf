@@ -176,7 +176,11 @@ expression = match_expression
            | or_expression ;
 
 (* Match expression *)
-match_expression = "match" , expression , ":" , NEWLINE , INDENT , match_arm , { match_arm } , [ match_else ] , DEDENT ;
+match_expression = "match" , [ match_cmp ] , expression , ":" , NEWLINE , INDENT , match_arm , { match_arm } , [ match_else ] , DEDENT ;
+match_cmp = "[" , match_comparator , "]" ;
+match_comparator = "eq" | "ne" | "lt" | "le" | "gt" | "ge"
+                 | "==" | "!=" | "<" | "<=" | ">" | ">="
+                 | "in" | ( NEG , "in" ) | ( "not" , "in" ) | "~~" ;  (* NEG is "!" *)
 match_arm = match_patterns , ":" , ( inline_body | indent_block ) ;
 match_else = "else" , ":" , ( inline_body | indent_block ) ;
 match_patterns = match_pattern , { "|" , match_pattern } ;

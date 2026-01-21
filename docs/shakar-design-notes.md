@@ -1315,6 +1315,25 @@ match key:
   else: noop()
 ```
 
+### Match Comparator Binder (v0.1.x)
+
+`match` can optionally bind a comparator to apply to every arm:
+
+```shakar
+match[lt] score:
+  90: "A"   # 90 < score
+  80: "B"
+  else: "F"
+```
+
+- **Syntax**: `match[cmp] subject:` where `cmp` is a single comparator token.
+- **Supported**: `eq/ne/lt/le/gt/ge`, `==/!=/</<=/>/>=`, `in`, `!in`, `not in`, `~~`.
+- **Operand order**:
+  - Ordered ops (`lt/le/gt/ge`, `< <= > >=`): pattern is LHS (`pattern < subject`).
+  - `eq/ne`: symmetric, same as base match.
+  - `in/!in/not in/~~`: subject is LHS (`subject in pattern`, `subject ~~ pattern`).
+- **Selector literals**: still use containment for `==`/`in` (and negate for `!=`/`!in`).
+
 ## Roadmap (v0.2)
 
 - **Match extensions** (Rust model): structural patterns, guards, and match branches inside guard chains (disambiguated by `match`).

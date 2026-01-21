@@ -397,6 +397,15 @@ def build_match_cases(_: KeywordPlan) -> List[Case]:
     samples = [
         "match x:\n  1: 2\n  else: 3\n",
         'match key:\n  "a" | "b": 1\n  "c": 2\n',
+        'match[lt] score:\n  90: "A"\n  80: "B"\n  else: "F"\n',
+        "match[==] x:\n  1: 2\n  else: 3\n",
+        "match[!=] x:\n  1: 2\n  else: 3\n",
+        "match[<] x:\n  1: 2\n  else: 3\n",
+        "match[>=] x:\n  1: 2\n  else: 3\n",
+        "match[in] x:\n  1: 2\n  else: 3\n",
+        "match[!in] x:\n  1: 2\n  else: 3\n",
+        "match[not in] x:\n  1: 2\n  else: 3\n",
+        'match[~~] x:\n  r"a": 1\n  else: 2\n',
     ]
     return [
         Case(name=f"match-{i}", code=src, start="indented")
@@ -1046,6 +1055,143 @@ match score:
   else: "F"
 """,
         ("string", "B"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-cmp-lt",
+        """score := 85
+match[lt] score:
+  90: "A"
+  80: "B"
+  else: "F"
+""",
+        ("string", "B"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-cmp-eq-symbol",
+        """x := 2
+match[==] x:
+  2: "hit"
+  else: "miss"
+""",
+        ("string", "hit"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-cmp-ne-roman",
+        """x := 2
+match[ne] x:
+  2: "nope"
+  3: "hit"
+  else: "miss"
+""",
+        ("string", "hit"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-cmp-gt",
+        """score := 85
+match[gt] score:
+  60: "low"
+  90: "high"
+  else: "mid"
+""",
+        ("string", "high"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-cmp-ge",
+        """score := 90
+match[ge] score:
+  90: "ok"
+  else: "no"
+""",
+        ("string", "ok"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-cmp-le",
+        """score := 70
+match[le] score:
+  70: "ok"
+  else: "no"
+""",
+        ("string", "ok"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-cmp-in",
+        """ch := "a"
+match[in] ch:
+  "aeiou": "vowel"
+  "0123456789": "digit"
+  else: "other"
+""",
+        ("string", "vowel"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-cmp-not-in",
+        """ch := "b"
+match[!in] ch:
+  "aeiou": "consonant"
+  else: "vowel"
+""",
+        ("string", "consonant"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-cmp-not-in-words",
+        """ch := "b"
+match[not in] ch:
+  "aeiou": "consonant"
+  else: "vowel"
+""",
+        ("string", "consonant"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-cmp-in-selector",
+        """n := 3
+match[in] n:
+  `1:5`: "in"
+  else: "out"
+""",
+        ("string", "in"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "match-cmp-regex",
+        """path := "main.py"
+match[~~] path:
+  r"\\.py$": "python"
+  r"\\.rs$": "rust"
+  else: "other"
+""",
+        ("string", "python"),
         None,
     )
 )

@@ -41,6 +41,7 @@ from .helpers import (
     eval_anchor_scoped,
     is_truthy as _is_truthy,
 )
+from .expr import _compare_values
 from .selector import selector_contains
 from ..utils import shk_equals
 
@@ -377,11 +378,21 @@ def eval_match_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed match expression")
 
-    subject_node = children[0]
+    idx = 0
+    cmp_op = "=="
+    if is_tree(children[0]) and tree_label(children[0]) == "matchcmp":
+        # matchcmp is an optional first child; default comparator is ==.
+        cmp_op = _normalize_match_cmp(children[0])
+        idx = 1
+
+    if idx >= len(children):
+        raise ShakarRuntimeError("Malformed match expression")
+
+    subject_node = children[idx]
     subject = eval_func(subject_node, frame)
     else_body: Optional[Node] = None
 
-    for child in children[1:]:
+    for child in children[idx + 1 :]:
         label = tree_label(child)
         if label == "matcharm":
             if not is_tree(child) or len(child.children) != 2:
@@ -394,7 +405,7 @@ def eval_match_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
                 else [patterns_node]
             )
             for pattern in patterns:
-                if _match_pattern(pattern, subject, frame, eval_func):
+                if _match_pattern(pattern, subject, cmp_op, frame, eval_func):
                     with temporary_subject(frame, subject):
                         return eval_body_node(
                             body_node,
@@ -421,15 +432,86 @@ def eval_match_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 def _match_pattern(
     pattern: Node,
     subject: ShkValue,
+    cmp_op: str,
     frame: Frame,
     eval_func: EvalFunc,
 ) -> bool:
     value = eval_anchor_scoped(pattern, frame, eval_func)
 
-    if isinstance(value, ShkSelector):
-        return _selector_matches(subject, value)
+    match cmp_op:
+        case "==":
+            if isinstance(value, ShkSelector):
+                return _selector_matches(subject, value)
+            return shk_equals(subject, value)
+        case "!=":
+            if isinstance(value, ShkSelector):
+                return not _selector_matches(subject, value)
+            return not shk_equals(subject, value)
+        case "<" | "<=" | ">" | ">=":
+            # Ordered comparators: pattern is LHS, subject is RHS.
+            return _compare_values(cmp_op, value, subject)
+        case "in":
+            if isinstance(value, ShkSelector):
+                return _selector_matches(subject, value)
+            return _compare_values("in", subject, value)
+        case "!in" | "not in":
+            if isinstance(value, ShkSelector):
+                return not _selector_matches(subject, value)
+            return _compare_values(cmp_op, subject, value)
+        case "~~":
+            return _compare_values("~~", subject, value)
+        case _:
+            raise ShakarRuntimeError(f"Unknown match comparator '{cmp_op}'")
 
-    return shk_equals(subject, value)
+
+def _normalize_match_cmp(node: Tree) -> str:
+    if not node.children:
+        raise ShakarRuntimeError("Malformed match comparator")
+    if len(node.children) == 2:
+        first, second = node.children
+        # Two-token comparator forms: "! in" or "not in".
+        if not (is_token(first) and is_token(second)):
+            raise ShakarRuntimeError("Malformed match comparator")
+        if _token_kind(second) != "IN":
+            raise ShakarRuntimeError("Malformed match comparator")
+        if _token_kind(first) == "NEG":
+            return "!in"
+        if _token_kind(first) == "NOT":
+            return "not in"
+        raise ShakarRuntimeError(f"Unknown match comparator '{first.value}'")
+
+    tok = node.children[0]
+    if not is_token(tok):
+        raise ShakarRuntimeError("Malformed match comparator")
+
+    kind = _token_kind(tok)
+    if kind == "IDENT":
+        value = str(tok.value).lower()
+        ident_map = {
+            "eq": "==",
+            "ne": "!=",
+            "lt": "<",
+            "le": "<=",
+            "gt": ">",
+            "ge": ">=",
+        }
+        if value in ident_map:
+            return ident_map[value]
+        raise ShakarRuntimeError(f"Unknown match comparator '{tok.value}'")
+
+    token_map = {
+        "EQ": "==",
+        "NEQ": "!=",
+        "LT": "<",
+        "LTE": "<=",
+        "GT": ">",
+        "GTE": ">=",
+        "IN": "in",
+        "REGEXMATCH": "~~",
+    }
+    if kind in token_map:
+        return token_map[kind]
+    raise ShakarRuntimeError(f"Unknown match comparator '{tok.value}'")
 
 
 def _selector_matches(subject: ShkValue, selector: ShkSelector) -> bool:
