@@ -793,6 +793,7 @@ fn hi(): 1""",
         AstScenario("emit-outside-call", "> 1", None, ParseError),
         AstScenario("reserved-fan-field", "obj.fan", None, ParseError),
         AstScenario("match-empty-body", "match x:\n", None, ParseError),
+        AstScenario("match-pattern-dot-error", "match x:\n  .: 1\n", None, ParseError),
         AstScenario(
             "param-group-nested-contract",
             "fn f((a ~ Int, b) ~ Int): a",
@@ -1028,7 +1029,7 @@ runtime_scenario(
         "match-dot",
         """obj := { val: 3 }
 match obj:
-  .: .val
+  obj: .val
   else: 0
 """,
         ("number", 3),

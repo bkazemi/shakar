@@ -14,7 +14,7 @@ Structure:
 
 from typing import Optional, List, Any
 from enum import Enum
-from .tree import Tree, Node, is_tree, tree_label
+from .tree import Tree, Node, is_tree, is_token, tree_label, tree_children
 
 from .token_types import TT, Tok
 from .lexer_rd import LexError
@@ -760,6 +760,35 @@ class Parser:
                 "Object/array literals are reserved for v0.2 match patterns",
                 self.current,
             )
+
+        def _first_token(node: Node) -> Optional[Tok]:
+            if is_token(node):
+                return node
+            if not is_tree(node):
+                return None
+            for child in tree_children(node):
+                tok = _first_token(child)
+                if tok is not None:
+                    return tok
+            return None
+
+        def visit(node: Node) -> None:
+            if not is_tree(node):
+                return
+            label = tree_label(node)
+            if label in {"subject", "implicit_chain"}:
+                tok = _first_token(node)
+                if tok is not None and label == "implicit_chain":
+                    dot_col = tok.column - 1 if tok.column > 1 else tok.column
+                    tok = Tok(TT.DOT, ".", tok.line, dot_col)
+                raise ParseError(
+                    "Match patterns cannot use implicit subject '.'",
+                    tok,
+                )
+            for child in tree_children(node):
+                visit(child)
+
+        visit(pattern)
 
     def parse_while_stmt(self) -> Tree:
         """Parse while loop: while expr: body"""

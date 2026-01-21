@@ -424,8 +424,7 @@ def _match_pattern(
     frame: Frame,
     eval_func: EvalFunc,
 ) -> bool:
-    with temporary_subject(frame, subject):
-        value = eval_anchor_scoped(pattern, frame, eval_func)
+    value = eval_anchor_scoped(pattern, frame, eval_func)
 
     if isinstance(value, ShkSelector):
         return _selector_matches(subject, value)
