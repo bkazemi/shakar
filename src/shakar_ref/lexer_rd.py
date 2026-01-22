@@ -168,6 +168,11 @@ class Lexer:
         self.indent_strings = [""]  # Stack of indent strings
         self.at_line_start = True
         self.pending_dedents = 0
+        self.group_depth = 0
+        self.line_ended_with_colon = False
+        self.indent_after_colon = False
+        self.prev_line_indent: Optional[int] = None
+        self.prev_line_indent_str: Optional[str] = None
 
     # ========================================================================
     # Main Tokization
@@ -299,9 +304,32 @@ class Lexer:
 
         self.at_line_start = False
 
+        if (
+            self.indent_after_colon
+            and self.group_depth > 0
+            and len(self.indent_stack) == 1
+            and self.prev_line_indent is not None
+            and self.prev_line_indent > 0
+            and self.prev_line_indent < indent
+        ):
+            self.indent_stack.append(self.prev_line_indent)
+            self.indent_strings.append(self.prev_line_indent_str or "")
+
         # Skip blank lines
         if self.peek() in ("\n", "\r", "#"):
             return
+
+        self.prev_line_indent = indent
+        self.prev_line_indent_str = indent_str
+
+        if (
+            self.group_depth > 0
+            and not self.indent_after_colon
+            and len(self.indent_stack) == 1
+        ):
+            return
+
+        self.indent_after_colon = False
 
         current_indent = self.indent_stack[-1]
 
@@ -321,7 +349,10 @@ class Lexer:
                 self.emit(TT.DEDENT, dedent_str)
 
             if self.indent_stack[-1] != indent:
-                raise LexError(f"Indentation mismatch at line {self.line}")
+                # If we are inside a group and return to base indentation, ignore mismatch
+                # because the base indentation was likely suppressed/ignored.
+                if not (self.group_depth > 0 and len(self.indent_stack) == 1):
+                    raise LexError(f"Indentation mismatch at line {self.line}")
 
     # ========================================================================
     # Tok Scanners
@@ -806,6 +837,10 @@ class Lexer:
             if self.source.startswith(op_str, self.pos):
                 self.advance(len(op_str))
                 self.emit(op_type, op_str, start_line=start_line, start_col=start_col)
+                if op_type in {TT.LPAR, TT.LSQB, TT.LBRACE}:
+                    self.group_depth += 1
+                elif op_type in {TT.RPAR, TT.RSQB, TT.RBRACE}:
+                    self.group_depth = max(0, self.group_depth - 1)
                 return
 
         ch = self.peek()
@@ -1053,6 +1088,11 @@ class Lexer:
             column=start_col if start_col is not None else self.column,
         )
         self.tokens.append(tok)
+        if token_type == TT.NEWLINE:
+            self.indent_after_colon = self.line_ended_with_colon
+            self.line_ended_with_colon = False
+        elif token_type not in {TT.INDENT, TT.DEDENT, TT.EOF}:
+            self.line_ended_with_colon = token_type == TT.COLON
 
 
 class LexError(Exception):

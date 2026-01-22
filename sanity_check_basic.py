@@ -655,6 +655,107 @@ def build_postfix_unless_cases(_: KeywordPlan) -> List[Case]:
     ]
 
 
+@case_builder
+def build_indentation_corner_cases(_: KeywordPlan) -> List[Case]:
+    """Exhaustive corner cases for lexer indentation logic in groups."""
+    samples = [
+        # 1. Fan Literal (No Indent)
+        """x := fan { 1, 2 }""",
+        # 2. Fan Literal (Indented Content)
+        """x := fan {
+  1,
+  2
+}""",
+        # 3. Fan Literal (Indented with Comments)
+        """x := fan {
+  # Comment
+  1,
+  # Another
+  2
+}""",
+        # 4. Nested Fan
+        """x := fan {
+  fan { 1, 2 },
+  fan { 3, 4 }
+}""",
+        # 5. Fan inside Object
+        """obj := {
+  f: fan {
+    1,
+    2
+  }
+}""",
+        # 6. Object inside Fan
+        """x := fan {
+  { a: 1 },
+  { b: 2 }
+}""",
+        # 7. Object with Indented Function
+        """obj := {
+  method: fn():
+    return 1
+}""",
+        # 8. Object with Inline Function
+        """obj := {
+  method: fn(): 1
+}""",
+        # 9. Deep Nesting Mixed
+        """root := {
+  l1: {
+    l2: fan {
+      {
+        deep_method: fn():
+          if true:
+            return fan { 1 }
+      }
+    }
+  }
+}""",
+        # 10. Complex param group with indentation
+        """fn complex(
+  a,
+  b
+):
+  return a + b""",
+        # 11. Call with indented args
+        """my_call(
+  arg1,
+  arg2
+)""",
+        # 12. Array with indented elements
+        """arr := [
+  1,
+  2,
+  3
+]""",
+        # 13. Mixed indented and inline elements in fan
+        """x := fan {
+  1, 2,
+  3,
+  4
+}""",
+        # 14. Object with multiple methods (newline separated)
+        """obj := {
+  m1: fn():
+    return 1
+  m2: fn():
+    return 2
+}""",
+        # 15. Object with multiple methods (dedented comma)
+        """obj := {
+  m1: fn():
+    return 1
+  ,
+  m2: fn():
+    return 2
+}""",
+    ]
+    return [
+        Case(name=f"indent-corner-{i}", code=src, start="both")
+        for i, src in enumerate(samples)
+    ]
+
+
 # ---------------------------------------------------------------------------
 # AST + runtime scenarios
 # ---------------------------------------------------------------------------
