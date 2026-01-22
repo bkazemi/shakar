@@ -3640,6 +3640,8 @@ class Parser:
             # Field: name: value or name?: value (optional)
             is_optional = self.match(TT.QMARK)
             self.expect(TT.COLON)
+            while self.match(TT.NEWLINE, TT.INDENT):
+                pass
             value = self.parse_expr()
             key = Tree("key_ident", [self._tok("IDENT", name.value)])
             if is_optional:
@@ -3650,6 +3652,8 @@ class Parser:
         if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING):
             key_tok = self.advance()
             self.expect(TT.COLON)
+            while self.match(TT.NEWLINE, TT.INDENT):
+                pass
             value = self.parse_expr()
             key = Tree("key_string", [self._tok(key_tok.type.name, key_tok.value)])
             return Tree("obj_field", [key, value])
@@ -3660,6 +3664,8 @@ class Parser:
             key_expr = self.parse_expr()
             self.expect(TT.RPAR)
             self.expect(TT.COLON)
+            while self.match(TT.NEWLINE, TT.INDENT):
+                pass
             value = self.parse_expr()
             key = Tree("key_expr", [key_expr])
             return Tree("obj_field", [key, value])

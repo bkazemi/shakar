@@ -749,6 +749,71 @@ def build_indentation_corner_cases(_: KeywordPlan) -> List[Case]:
   m2: fn():
     return 2
 }""",
+        # 16. Simple fields newline separated (no commas)
+        """obj := {
+  a: 1
+  b: 2
+  c: 3
+}""",
+        # 17. Mixed separators (newline and comma only)
+        """obj := {
+  a: 1, b: 2
+  c: 3, d: 4
+  e: 5
+}""",
+        # 18. Indented fields without commas (standard block style)
+        """config := {
+  debug: true
+  retries: 3
+  timeout: 5sec
+}""",
+        # 19. Nested objects without commas
+        """root := {
+  child1: {
+    name: "c1"
+    age: 10
+  }
+  child2: {
+    name: "c2"
+    age: 20
+  }
+}""",
+        # 20. Complex values without commas (arrays, fns)
+        """data := {
+  list: [1, 2, 3]
+  func: fn(x): x * 2
+  map: { k: "v" }
+}""",
+        # 21. String keys without commas
+        """headers := {
+  "Content-Type": "application/json"
+  "Authorization": "Bearer token"
+}""",
+        # 22. Computed keys without commas
+        """flags := {
+  (1 + 1): "two"
+  (2 + 2): "four"
+}""",
+        # 23. Methods and Getters without commas
+        """classy := {
+  get name(): "Bond"
+  set name(n): nil
+  greet(who): "Hello " + who
+}""",
+        # 24. Comments and blank lines
+        """spaced := {
+  a: 1
+
+  # This is b
+  b: 2
+
+  c: 3
+}""",
+        # 25. Trailing items
+        """trailing := {
+  a: 1
+  b: 2
+}""",
     ]
     return [
         Case(name=f"indent-corner-{i}", code=src, start="both")
