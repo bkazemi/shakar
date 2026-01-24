@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
+import time
 from typing import List, Optional
 
 from .runtime import (
@@ -14,6 +14,7 @@ from .runtime import (
     ShkDuration,
     ShkBool,
     ShkEnvVar,
+    ShkChannel,
     ShkModule,
     ShkValue,
     StdlibFunction,
@@ -87,11 +88,23 @@ def std_sleep(_frame, args: List[ShkValue]):
     else:
         raise ShakarTypeError("sleep expects a numeric duration")
 
-    async def _sleep_coro() -> ShkNull:
-        await asyncio.sleep(seconds)
-        return ShkNull()
+    time.sleep(seconds)
+    return ShkNull()
 
-    return _sleep_coro()
+
+@register_stdlib("channel")
+def std_channel(_frame, args: List[ShkValue]) -> ShkChannel:
+    if len(args) > 1:
+        raise ShakarTypeError("channel() expects at most one argument")
+    if not args:
+        return ShkChannel(0)
+    cap = args[0]
+    if isinstance(cap, ShkNumber):
+        capacity = int(cap.value)
+        if capacity < 0:
+            raise ShakarTypeError("channel() capacity cannot be negative")
+        return ShkChannel(capacity)
+    raise ShakarTypeError("channel() expects a numeric capacity")
 
 
 @register_stdlib("error")

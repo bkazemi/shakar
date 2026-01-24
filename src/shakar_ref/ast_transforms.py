@@ -62,14 +62,43 @@ def enforce_subject_scope(tree: Tree) -> None:
             visit(children[0], depth)
             visit(children[1], depth + 1)
             return
-        if label in {"awaitstmt", "hook", "awaitanycall", "awaitallcall"}:
+        if label in {"hook"}:
             for ch in children:
                 if is_tree(ch) and tree_label(ch) in {"inlinebody", "indentblock"}:
                     visit(ch, depth + 1)
                 else:
                     visit(ch, depth)
             return
-        if label in {"anyarm", "allarm"}:
+        if label in {"waitany_arm"}:
+            for idx, ch in enumerate(children):
+                if (
+                    idx == 1
+                    and is_tree(ch)
+                    and tree_label(ch)
+                    in {
+                        "inlinebody",
+                        "indentblock",
+                    }
+                ):
+                    visit(ch, depth + 1)
+                else:
+                    visit(ch, depth)
+            return
+        if label in {"waitany_timeout", "waitany_default"}:
+            for idx, ch in enumerate(children):
+                if (
+                    idx == len(children) - 1
+                    and is_tree(ch)
+                    and tree_label(ch)
+                    in {
+                        "inlinebody",
+                        "indentblock",
+                    }
+                ):
+                    visit(ch, depth + 1)
+                else:
+                    visit(ch, depth)
+            return
             for ch in children:
                 if is_tree(ch) and tree_label(ch) in {"inlinebody", "indentblock"}:
                     visit(ch, depth + 1)

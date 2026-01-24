@@ -368,14 +368,36 @@ def build_postfix_if_cases(_: KeywordPlan) -> List[Case]:
 
 
 @case_builder
-def build_await_cases(_: KeywordPlan) -> List[Case]:
+def build_wait_cases(_: KeywordPlan) -> List[Case]:
     samples = [
-        "await f()",
-        "x = await g(1,2)",
-        "h(await k())",
+        "wait spawn f()",
+        "x = wait spawn g(1,2)",
+        "h(wait spawn k())",
+        "wait[all](tasks)",
+        "wait[group]([spawn f(), spawn g()])",
+        "wait[all] tasks",
+        "wait[group] tasks",
+        "spawn [f, g]",
+        "spawn fan {f, g}",
+        "x := <-ch",
+        "1 -> ch",
     ]
     return [
-        Case(name=f"await-{i}", code=src, start="both") for i, src in enumerate(samples)
+        Case(name=f"wait-{i}", code=src, start="both") for i, src in enumerate(samples)
+    ]
+
+
+@case_builder
+def build_wait_block_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        "wait[any]:\n  x := <-ch: x\n  default: 0\n",
+        "wait[any]:\n  1 -> ch: ok\n  timeout 1sec: err\n",
+        "wait[all]:\n  a: f()\n  b: g(1,2)\n",
+        "wait[group]:\n  log()\n  fn(): { x := 1; x }\n",
+    ]
+    return [
+        Case(name=f"wait-block-{i}", code=src, start="indented")
+        for i, src in enumerate(samples)
     ]
 
 
@@ -2798,44 +2820,131 @@ runtime_scenario(
 )
 runtime_scenario(
     _rt(
-        "await-value",
+        "wait-value",
         """fn id(x): x
-await id(5)""",
+wait spawn id(5)""",
         ("number", 5),
         None,
     )
 )
 runtime_scenario(
     _rt(
-        "await-stmt-body",
+        "wait-any-body",
         """val := 0
-await sleep(10): { val = . }
+ch := channel(1)
+5 -> ch
+wait[any]:
+  x := <-ch: { val = x }
 val""",
-        ("null", None),
+        ("number", 5),
         None,
     )
 )
 runtime_scenario(
     _rt(
-        "await-any-trailing-body",
-        "await [any]( fast: sleep(10), slow: sleep(50) ): winner",
-        ("string", "fast"),
+        "wait-any-recv",
+        """ch := channel(1)
+1 -> ch
+wait[any]:
+  x := <-ch: x""",
+        ("number", 1),
         None,
     )
 )
 runtime_scenario(
     _rt(
-        "await-any-inline-body",
-        'await [any]( fast: sleep(10): "done" )',
-        ("string", "done"),
+        "wait-any-send",
+        """ch := channel(1)
+wait[any]:
+  7 -> ch: "sent"
+""",
+        ("string", "sent"),
         None,
     )
 )
 runtime_scenario(
     _rt(
-        "await-all-trailing-body",
-        'await [all]( first: sleep(10), second: sleep(20) ): "ok"',
-        ("string", "ok"),
+        "wait-all-block",
+        """result := wait[all]:
+  first: 1
+  second: 2
+result.first + result.second""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "wait-any-default",
+        """ch := channel()
+wait[any]:
+  x := <-ch: 1
+  default: 2""",
+        ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "wait-group-send",
+        """ch := channel(2)
+wait[group]:
+  1 -> ch
+  2 -> ch
+x := <-ch
+y := <-ch
+x + y""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "wait-all-call",
+        """fn id(x): x
+tasks := [spawn id(1), spawn id(2)]
+results := wait[all] tasks
+results[0] + results[1]""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "spawn-iterable-array",
+        """tasks := spawn [fn(): 1, fn(): 2]
+results := wait[all] tasks
+results[0] + results[1]""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "spawn-iterable-noncallable-error",
+        "spawn [1, 2]",
+        None,
+        ShakarTypeError,
+    )
+)
+runtime_scenario(
+    _rt(
+        "recv-ok",
+        """ch := channel(1)
+nil -> ch
+val, ok := <-ch
+ok""",
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "send-closed-false",
+        """ch := channel(1)
+ch.close()
+1 -> ch""",
+        ("bool", False),
         None,
     )
 )
@@ -3596,9 +3705,10 @@ log""",
 )
 runtime_scenario(
     _rt(
-        "await-bare-ident",
-        """x := 99
-await x""",
+        "wait-bare-ident",
+        """ch := channel(1)
+99 -> ch
+wait ch""",
         ("number", 99),
         None,
     )

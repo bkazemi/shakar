@@ -43,8 +43,6 @@ This is a living technical spec. Every surface sugar has a deterministic desugar
 - **Subjectful loop** `for Expr:` / `for[i] Expr:`: per iteration, `.` is the element (and `i` the view index if present).
   - If `Expr` is a number, it must be a non-negative integer; it iterates `0..n-1` with `.` as the index.
 - **Lambda callee sigil** (e.g., `map&(...)`): inside the lambda body, `.` is the parameter.
-- **`await(expr)` / `await expr`**: trailing body runs with `.` = resolved value; without a body, returns the value with no binder.
-- **`await[any]`**: per-arm body uses `.` = that arm’s result; trailing body uses `.` = winning value and `winner` label.
 - **Selectors** `base[ sel1, sel2, … ]`: inside each selector, `.` = the `base`.
 - **Not creators**: one-line guards and plain blocks do not create a subject.
 - **Call blocks**: do not create `.`; they bind an emit target accessed via `>` instead.
@@ -59,7 +57,7 @@ Within a grouping that has an anchor, any leading dot applies to that anchor. Ea
 - **Pop on exit**: leaving a grouping restores the prior anchor; sibling leading dots reuse it. Example: `a and (b) and .c()` ⇒ `a and b and a.c()`.
 - **No-anchor `$`**: `$expr` evaluates without retargeting the anchor; siblings keep using the previous anchor. Example: `a and $b and .c` ⇒ `a and b and a.c`.
 - **No-anchor segment `$`**: a single member-chain segment may be marked with `$` (e.g., `state.$lines`, `arr$[i]`, `obj.$method()`), which sets the anchor to the segment's receiver rather than its value. At most one `$` segment per chain; using `$` inside `$expr` is an error.
-- **Push/pop scopes**: parentheses, lambda bodies, comprehension heads/bodies, and `await[...]` bodies push the current anchor; they restore it on exit. Retarget inside by mentioning a new explicit subject.
+- **Push/pop scopes**: parentheses, lambda bodies, and comprehension heads/bodies push the current anchor; they restore it on exit. Retarget inside by mentioning a new explicit subject.
 
 ### Interactions & shadowing
 
@@ -79,7 +77,7 @@ Within a grouping that has an anchor, any leading dot applies to that anchor. Ea
 1. **Anchor law**: the first explicit subject in a grouping sets the anchor for leading-dot chains until retarget or pop.
 2. **Selector law**: inside `base[ … ]`, `.` = base; outside, the result may retarget the anchor.
 3. **Leading-dot chain law**: each step’s result becomes the next receiver; the anchor is stable unless retargeted.
-4. **Binder-shadowing law**: inner binders (lambda, `await`, subjectful `for`, apply-assign RHS) shadow `.` for their extent, then restore.
+4. **Binder-shadowing law**: inner binders (lambda, subjectful `for`, apply-assign RHS) shadow `.` for their extent, then restore.
 5. **Illegals/locality**: `. = …` is invalid; free `.` is invalid.
 6. **No-anchor segment law**: a `$`-marked segment retargets the anchor to its receiver, not its value. At most one `$` per chain; illegal inside `$expr`.
 
@@ -218,7 +216,7 @@ if user.is_admin:
 - **Floats**: IEEE-754 double; leading zero required (`0.5`, not `.5`). Underscores allowed between digits. Base prefixes are NOT supported for floats.
 - **Strings**: `"…"`, `'…'` with escapes `\n \t \r \b \f \0 \\ \" \' \xNN \u{…}`. Multiline is allowed for regular and shell strings. If the first character after the opening quote is a newline, it is dropped; then the common leading indentation of all non-blank lines is stripped (blank lines preserved, trailing newline preserved). `env"..."` and `p"..."` remain single-line. Environment strings: `env"VAR"`/`env'VAR'` (interpolation allowed) evaluate to a string or `nil`.
 - **Arrays**: `[1, 2, 3]`.
-- **Fans**: `fan { expr, ... }` (reserved keyword; not a valid identifier or property name). Evaluates elements left→right into a `Fan`; property/method access broadcasts across elements and returns a `Fan`. Fans are iterable (e.g., `for x in fan { ... }`); `await fan { ... }` awaits all items and returns a `Fan` of results. Modifiers like `fan[par] { ... }` are reserved but not implemented in v0.1.
+- **Fans**: `fan { expr, ... }` (reserved keyword; not a valid identifier or property name). Evaluates elements left→right into a `Fan`; property/method access broadcasts across elements and returns a `Fan`. Fans are iterable (e.g., `for x in fan { ... }`). For concurrency, use `spawn` to create channels and `wait[all]` to join them. Modifiers like `fan[par] { ... }` are reserved but not implemented in v0.1.
 - **Objects**: `{ key: value }` (getters/setters contextual, below).
 - **Selector literals (values)**: backtick selectors like `` `1:10` `` produce Selector values (views/iterables). Default stop is inclusive; use `<stop` for exclusive (e.g., `` `[1:<10]` ``).
 
@@ -651,7 +649,7 @@ u := makeUser() and .isValid()
   user and .active: process(user) |: log("inactive")
   ??(conn.open): use(conn) |: log("connection closed")
   ```
-- `await` one-liners are statements, not guards. `(await f()): …` may parse as guard head; style-lintable.
+- `wait` is an expression (receive) and `wait[any]:` is a block expression, not a guard.
 - **Postfix conditionals**: `stmt if cond`, `stmt unless cond`. If the statement is a walrus, runtime sets the binding to `nil` before the guard so a failing condition leaves it at `nil` without running `expr`.
 - **Early return**: `?ret expr` returns early if `expr` is truthy.
 
@@ -933,28 +931,28 @@ db := env"DB_TYPE" == "postgres" ? import "./pg" : import "./sqlite"
 
 ## Concurrency & Resources
 
-### Await
+### Channels & Wait
 
-- **Single await**: `await(expr)` or `await expr` (equivalent). Trailing body runs with `.` = resolved value; without body, returns value. Prefer `await(expr)` near binary ops for clarity.
-- **Await[any]** (two shapes):
-  - Per-arm bodies (no trailing body): arms start concurrently; first successful arm runs its body with `.` = arm result; others canceled; returns that body.
-  - Trailing body (no per-arm bodies): starts all heads; when one wins, run trailing block once with `.` = winning value and `winner` label; returns trailing block result. Without trailing body, returns `{ winner, value }`.
-  Example:
-  ```shakar
-  await[any](
-    fetchUser(id): show(.),
-    fetchFromCache(id): show(.),
-    timeout 200): showFallback()
-  )
-  r := await[any]( user: fetchUser(id), cache: fetchFromCache(id), timeout 200 )
-  ```
-- **Await[all]**: start all heads; with trailing body, run once after all resolve with named results in scope; without trailing body, return object of results. If any head fails, the expression throws unless caught per-head.
-  ```shakar
-  await[all]( user: fetchUser(id), posts: fetchPosts(id) ):
-    show(user, posts)
-  g := await[all]( user: fetchUser(id), posts: fetchPosts(id) )
-  ```
-- Notes: uses parentheses (not `{}`); do not mix per-arm bodies with trailing body in one call. `.` refers to construct-defined value (not outer lambdas). `timeout` default unit ms; suffixes `ms/s/m`. `sleep(ms)` returns awaitable for staging async workflows.
+- **Channels are the only primitive**. `spawn` returns a result channel; `wait x` is sugar for `<-x`. Prefer `wait(expr)` near binary ops for clarity.
+- **Send / receive**:
+  - `val -> ch` sends and returns `true` on success, `false` if the channel is closed.
+  - `x := <-ch` receives and returns `nil` if closed. Use `x, ok := <-ch` to distinguish "received nil" from "closed".
+- **spawn** runs a call or block concurrently and returns a result channel (buffered(1)). Receiving from it yields the value or raises the error thrown inside the task. Closing it signals cancellation; receiving then raises `CancelledError`.
+  - If the expression evaluates to an **array or fan of callables**, each element is called in its own task and the result is the same container shape filled with result channels. Elements must be callable; channels are rejected.
+  - The iterable expression is evaluated in the caller; only the element calls run in spawned tasks.
+  - Elements are called with zero args; wrap with `fn(): ...` when arguments are needed.
+- **wait[any]** selects over channel ops; cases are `x := <-ch`, `val -> ch`, `timeout <duration>`, or `default`. Closed-and-empty channels are skipped; if all channels are closed and no `default`/`timeout` exists, raises `AllChannelsClosed`.
+- **wait[all]** starts all calls concurrently (spawn is implicit) and returns an object of results. On error, cancels remaining tasks and re-raises the first error.
+- **wait[group]** is like `wait[all]` but discards results (structured concurrency for side effects).
+- Notes: block forms use `:` indentation; single-expr forms `wait[all] tasks` / `wait[group] tasks` accept arrays of channels (typically from `spawn` in a comprehension). Parentheses are allowed for grouping. `timeout` and duration literals are built-in. `sleep(ms)` blocks.
+
+```shakar
+task := spawn fetch_user(id)
+
+wait[any]:
+  user := <-task: show(user)
+  timeout 200ms: show_fallback()
+```
 
 ### Resource management
 
@@ -1009,7 +1007,10 @@ db := env"DB_TYPE" == "postgres" ? import "./pg" : import "./sqlite"
     log(u.len)
   users = trace "map+trim": users.map&(.trim())
   trace "fetch" { user: id, cold: fromNetwork }:
-    await[any]( fetchUser(id): ., timeout 200: [] )
+    task := spawn fetchUser(id)
+    wait[any]:
+      user := <-task: user
+      timeout 200ms: []
   ```
 
 ### Feature gating & style profiles
@@ -1078,9 +1079,18 @@ AddOp           ::= "+" | "-" | "^" | DeepMergeOp ;
 MulExpr         ::= PowExpr ( MulOp PowExpr )* ;
 MulOp           ::= "*" | "/" | "%" ;
 
-UnaryExpr       ::= UnaryPrefixOp UnaryExpr | PostfixExpr ;
+UnaryExpr       ::= WaitAnyBlock
+                  | WaitAllBlock
+                  | WaitGroupBlock
+                  | WaitAllCall
+                  | WaitGroupCall
+                  | WaitExpr
+                  | RecvExpr
+                  | SpawnExpr
+                  | UnaryPrefixOp UnaryExpr
+                  | PostfixExpr ;
 PowExpr         ::= UnaryExpr ( "**" PowExpr )? ;
-UnaryPrefixOp   ::= "-" | "not" | "!" | "$" | "++" | "--" | "await" ;
+UnaryPrefixOp   ::= "-" | "not" | "!" | "$" | "++" | "--" ;
 
 PostfixExpr     ::= Primary ( Postfix )* ( PostfixIncr )?
                   | "." PostfixLead ( Postfix )* ( PostfixIncr )? ;
@@ -1252,13 +1262,26 @@ Destructure     ::= PatternList "=" ( DestrRHS | Expr )
 
 
 (* ===== Concurrency ===== *)
-AwaitStmt       ::= "await" ( "(" Expr ")" | Expr ) ":" (InlineBody | IndentBlock) ;
-AwaitAnyCall    ::= "await" "[" "any" "]" "(" AnyArmList OptComma ")" ( ":" (InlineBody | IndentBlock) )? ;
-AwaitAllCall    ::= "await" "[" "all" "]" "(" AllArmList OptComma ")" ( ":" (InlineBody | IndentBlock) )? ;
-AnyArmList      ::= AnyArm ("," AnyArm)* ;
-AllArmList      ::= AnyArm ("," AnyArm)* ;
-AnyArm          ::= (IDENT ":")? Expr ( ":" (InlineBody | IndentBlock) )? | "timeout" Expr ( ":" (InlineBody | IndentBlock) )? ;
-OptComma        ::= /* empty */ | "," ;
+WaitExpr        ::= "wait" ( "(" Expr ")" | UnaryExpr ) ;
+RecvExpr        ::= "<-" UnaryExpr ;
+SpawnExpr       ::= "spawn" ( ":" (InlineBody | IndentBlock)
+                            | "(" Expr ")"
+                            | UnaryExpr ) ;
+
+WaitAnyBlock    ::= "wait" "[" "any" "]" ":" WaitAnyArm+ ;
+WaitAnyArm      ::= ( [ IDENT ":=" ] RecvExpr ":" (InlineBody | IndentBlock) )
+                  | ( Expr "->" Expr ":" (InlineBody | IndentBlock) )
+                  | ( "timeout" Expr ":" (InlineBody | IndentBlock) )
+                  | ( "default" ":" (InlineBody | IndentBlock) ) ;
+
+WaitAllBlock    ::= "wait" "[" "all" "]" ":" WaitAllArm+ ;
+WaitAllArm      ::= IDENT ":" Expr ;
+
+WaitGroupBlock  ::= "wait" "[" "group" "]" ":" WaitGroupArm+ ;
+WaitGroupArm    ::= Expr ;
+
+WaitAllCall     ::= "wait" "[" "all" "]" UnaryExpr ;
+WaitGroupCall   ::= "wait" "[" "group" "]" UnaryExpr ;
 
 (* ===== Error handling / hooks ===== *)
 

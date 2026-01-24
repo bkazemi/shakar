@@ -15,6 +15,7 @@ from ..runtime import (
     Descriptor,
     ShkDuration,
     ShkEnvVar,
+    ShkChannel,
     ShkFn,
     ShkNull,
     ShkNumber,
@@ -32,6 +33,7 @@ from ..runtime import (
     BuiltinMethod,
     StdlibFunction,
     ShakarTypeError,
+    ShakarCancelledError,
     ShkModule,
 )
 from ..tree import Node, is_token, is_tree, tree_label
@@ -66,6 +68,7 @@ def is_truthy(val: ShkValue) -> bool:
         case (
             ShkRegex()
             | ShkSelector()
+            | ShkChannel()
             | ShkFn()
             | ShkDecorator()
             | DecoratorConfigured()
@@ -156,3 +159,9 @@ def closure_frame(frame: Frame) -> Frame:
     closure = Frame(parent=frame, dot=None, emit_target=emit_target)
     closure.capture_let_scopes(frame.all_let_scopes())
     return closure
+
+
+def check_cancel(frame: Frame) -> None:
+    token = getattr(frame, "cancel_token", None)
+    if token is not None and token.cancelled():
+        raise ShakarCancelledError("Spawn task cancelled")

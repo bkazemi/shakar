@@ -76,11 +76,11 @@ fn get_deps(env):
     return fan { db }
 ```
 
-Fans are iterable and support `await`:
+Fans are iterable:
 
 ```shakar
 for svc in fan { db, cache }: svc.ping()
-tokens := await fan { fetch_a(), fetch_b() }   # waits for all
+names := [ .name over fan { user1, user2 } ]
 ```
 
 Convert to array with spread when needed: `results := [...svcs.status()]`.
@@ -102,7 +102,7 @@ call self.expect:
 
 ### Implicit subject and anchor stack
 
-The implicit subject `.` only exists inside constructs that explicitly bind it (statement-subject `=LHS<tail>`, `.=` apply-assign, subjectful `for` loops, selectors, `await`, path-lambdas, and a few others). It never leaks across statements.
+The implicit subject `.` only exists inside constructs that explicitly bind it (statement-subject `=LHS<tail>`, `.=` apply-assign, subjectful `for` loops, selectors, path-lambdas, and a few others). It never leaks across statements.
 
 ```shakar
 =user.profile.settings.ensureDefaults()

@@ -10,6 +10,7 @@ from ..runtime import (
     Frame,
     ShkArray,
     ShkFan,
+    ShkChannel,
     ShkNull,
     ShkNumber,
     ShkObject,
@@ -264,8 +265,20 @@ def _iterable_values(value: ShkValue) -> list[ShkValue]:
             return selector_iter_values(value)
         case ShkPath():
             return _iter_path_values(value)
+        case ShkChannel():
+            raise ShakarTypeError(
+                "Cannot iterate over channel in comprehension or spread"
+            )
         case _:
             raise ShakarTypeError(f"Cannot iterate over {type(value).__name__}")
+
+
+def _iter_channel_values(channel: ShkChannel, frame: Frame) -> Iterable[ShkValue]:
+    while True:
+        value, ok = channel.recv_with_ok(cancel_token=frame.cancel_token)
+        if not ok:
+            break
+        yield value
 
 
 def _apply_comp_binders_wrapper(
@@ -421,7 +434,10 @@ def eval_for_in(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         raise ShakarRuntimeError("For-in loop missing pattern")
 
     iter_source = eval_func(iter_expr, frame)
-    iterable = _iterable_values(iter_source)
+    if isinstance(iter_source, ShkChannel):
+        iterable = _iter_channel_values(iter_source, frame)
+    else:
+        iterable = _iterable_values(iter_source)
     outer_dot = frame.dot
     object_pairs: Optional[list[tuple[str, ShkValue]]] = None
 
@@ -475,7 +491,11 @@ def eval_for_subject(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if iter_expr is None or body_node is None:
         raise ShakarRuntimeError("Malformed subjectful for loop")
 
-    iterable = _iterable_values(eval_func(iter_expr, frame))
+    iter_source = eval_func(iter_expr, frame)
+    if isinstance(iter_source, ShkChannel):
+        iterable = _iter_channel_values(iter_source, frame)
+    else:
+        iterable = _iterable_values(iter_source)
     outer_dot = frame.dot
 
     try:

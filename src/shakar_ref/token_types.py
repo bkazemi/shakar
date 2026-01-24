@@ -40,7 +40,8 @@ class TT(Enum):
     RETURN = auto()
     FN = auto()
     LET = auto()
-    AWAIT = auto()
+    WAIT = auto()
+    SPAWN = auto()
     USING = auto()
     CALL = auto()
     DEFER = auto()
@@ -58,6 +59,7 @@ class TT(Enum):
     IMPORT = auto()
     ANY = auto()
     ALL = auto()
+    GROUP = auto()
     FAN = auto()
 
     # Literals
@@ -83,6 +85,8 @@ class TT(Enum):
     LTE = auto()
     GT = auto()
     GTE = auto()
+    SEND = auto()  # ->
+    RECV = auto()  # <-
     IS = auto()
     NOT = auto()
 

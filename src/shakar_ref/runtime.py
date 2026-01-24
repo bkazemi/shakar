@@ -17,6 +17,8 @@ from .types import (
     ShkFan,
     ShkObject,
     ShkModule,
+    ShkChannel,
+    CancelToken,
     ShkCommand,
     ShkPath,
     ShkEnvVar,
@@ -50,6 +52,9 @@ from .types import (
     ShakarMatchError,
     CommandError,
     ShakarAssertionError,
+    ShakarCancelledError,
+    ShakarChannelClosedEmpty,
+    ShakarAllChannelsClosed,
     ShakarReturnSignal,
     ShakarBreakSignal,
     ShakarContinueSignal,
@@ -75,6 +80,8 @@ __all__ = [
     "ShkFan",
     "ShkObject",
     "ShkModule",
+    "ShkChannel",
+    "CancelToken",
     "ShkCommand",
     "ShkPath",
     "ShkEnvVar",
@@ -107,6 +114,9 @@ __all__ = [
     "ShakarMatchError",
     "CommandError",
     "ShakarAssertionError",
+    "ShakarCancelledError",
+    "ShakarChannelClosedEmpty",
+    "ShakarAllChannelsClosed",
     "ShakarReturnSignal",
     "ShakarBreakSignal",
     "ShakarContinueSignal",
@@ -333,6 +343,10 @@ def register_path(name: str):
 
 def register_envvar(name: str):
     return register_method(Builtins.envvar_methods, name)
+
+
+def register_channel(name: str):
+    return register_method(Builtins.channel_methods, name)
 
 
 def register_stdlib(name: str, *, arity: Optional[int] = None):
@@ -627,6 +641,23 @@ def _path_chmod(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNull:
     return ShkNull()
 
 
+# ---------- Channel methods ----------
+
+
+def _channel_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
+    if len(args) != expected:
+        raise ShakarArityError(
+            f"channel.{method} expects {expected} args; got {len(args)}"
+        )
+
+
+@register_channel("close")
+def _channel_close(_frame: Frame, recv: ShkChannel, args: List[ShkValue]) -> ShkNull:
+    _channel_expect_arity("close", args, 0)
+    recv.close()
+    return ShkNull()
+
+
 # ---------- EnvVar methods ----------
 
 import os as _os
@@ -693,6 +724,7 @@ def call_builtin_method(
         ShkCommand: Builtins.command_methods,
         ShkPath: Builtins.path_methods,
         ShkEnvVar: Builtins.envvar_methods,
+        ShkChannel: Builtins.channel_methods,
     }
 
     registry = registry_by_type.get(type(recv))
@@ -841,7 +873,9 @@ def _bind_decorator_params(
     params = decorator.params or []
     defaults = decorator.param_defaults or []
 
-    temp_frame = Frame(parent=decorator.frame)
+    temp_frame = Frame(
+        parent=decorator.frame, cancel_token=decorator.frame.cancel_token
+    )
 
     return _bind_params_with_defaults(
         params=params,
@@ -876,7 +910,11 @@ def _call_shkfn_raw(
                 f"Subject-only amp_lambda does not take positional args; got {len(positional)} extra"
             )
 
-        callee_frame = Frame(parent=fn.frame, dot=subject)
+        callee_frame = Frame(
+            parent=fn.frame,
+            dot=subject,
+            cancel_token=caller_frame.cancel_token,
+        )
         callee_frame.mark_function_frame()
 
         try:
@@ -886,7 +924,11 @@ def _call_shkfn_raw(
 
         return _validate_return_contract(fn, result, callee_frame)
 
-    callee_frame = Frame(parent=fn.frame, dot=subject)
+    callee_frame = Frame(
+        parent=fn.frame,
+        dot=subject,
+        cancel_token=caller_frame.cancel_token,
+    )
 
     _bind_params_with_defaults(
         params=fn.params,
@@ -953,7 +995,11 @@ def _execute_decorator_instance(
 ) -> ShkValue:
     from .evaluator import eval_node  # defer to avoid cycle
 
-    deco_frame = Frame(parent=inst.decorator.frame, dot=subject)
+    deco_frame = Frame(
+        parent=inst.decorator.frame,
+        dot=subject,
+        cancel_token=caller_frame.cancel_token,
+    )
     deco_frame.mark_function_frame()
     params = inst.decorator.params or []
 

@@ -12,7 +12,7 @@ digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
 (* Reserved keywords *)
 (* and, or, not, if, elif, else, unless, for, match, in, break, continue, return, assert, *)
 (* using, call, defer, after, catch, decorator, decorate, hook, fn, get, set, bind, import, over, *)
-(* true, false, nil, await, any, all, while, throw, dbg, is, ?ret *)
+(* true, false, nil, wait, spawn, any, all, group, while, throw, dbg, is, ?ret *)
 
 (* Contextual keywords - valid as identifiers in most contexts *)
 (* default, timeout, ret *)
@@ -98,6 +98,8 @@ LT = "<" ;
 LTE = "<=" ;
 GT = ">" ;
 GTE = ">=" ;
+SEND = "->" ;
+RECV = "<-" ;
 
 (* Arithmetic operators *)
 PLUS = "+" ;
@@ -145,9 +147,6 @@ statement = expression_statement
           | while_statement
           | for_statement
           | guard_statement
-          | await_statement
-          | await_any_statement
-          | await_all_statement
           | using_statement
           | call_statement
           | defer_statement
@@ -205,7 +204,7 @@ or_expression = and_expression , { "or" , and_expression } ;
 and_expression = bind_expression , { "and" , bind_expression } ;
 
 (* Binding expressions *)
-bind_expression = walrus_expression | ( lvalue , APPLYASSIGN , bind_expression ) ;
+bind_expression = send_expression | ( lvalue , APPLYASSIGN , bind_expression ) ;
 walrus_expression = nullish_expression | ( IDENT , WALRUS , walrus_rhs ) ;
 walrus_rhs = expression | catch_expression ;
 
@@ -239,7 +238,14 @@ mul_op = STAR | SLASH | FLOORDIV | MOD ;
 pow_expression = unary_expression , [ POW , pow_expression ] ;
 
 (* Unary operators *)
-unary_expression = await_value
+unary_expression = wait_any_block
+                 | wait_all_block
+                 | wait_group_block
+                 | wait_all_call
+                 | wait_group_call
+                 | wait_expression
+                 | recv_expression
+                 | spawn_expression
                  | ( "throw" , [ unary_expression ] )
                  | ( "$" , unary_expression )
                  | ( SPREAD , unary_expression )
@@ -247,7 +253,6 @@ unary_expression = await_value
                  | postfix_expression ;
 
 unary_prefix_op = MINUS | "not" | NEG | "++" | "--" | PLUS ;
-await_value = "await" , ( ( "(" , expression , ")" ) | expression ) ;
 
 (* Postfix expressions *)
 postfix_expression = ( primary , chain_suffix )
@@ -464,7 +469,7 @@ for_map1 = for_indexed ;
 for_map2 = "for" , "[" , binder_pattern , "," , binder_pattern , "]" , expression , ":" , ( inline_body | indent_block ) ;
 
 (* Guard statements *)
-guard_statement = ( guard_chain | oneline_guard | await_guard_chain ) , [ terminator ] ;
+guard_statement = ( guard_chain | oneline_guard ) , [ terminator ] ;
 
 guard_chain = guard_head , { [ NEWLINE ] , guard_or } , [ [ NEWLINE ] , guard_else ] ;
 guard_head = expression , ":" , indent_block ;
@@ -474,7 +479,6 @@ guard_else = "|:" , indent_block ;
 oneline_guard = guard_branch_inline , { "|" , guard_branch_inline } , [ "|:" , inline_body ] ;
 guard_branch_inline = expression , ":" , inline_body ;
 
-await_guard_chain = "await" , ( ( "(" , expression , ")" ) | expression ) , ":" , inline_body ;
 
 (* Postfix conditionals *)
 postfix_if = base_statement , "if" , expression ;
@@ -502,28 +506,38 @@ base_statement = return_statement
                | hook_statement
                | fanout_block_statement
                | catch_statement
-               | await_statement
                | while_statement
                | if_statement
                | expression ;
 
 simple_statement = base_statement | postfix_if | postfix_unless ;
 
-(* Await statements *)
-await_statement = "await" , await_body ;
-await_body = ( ( "(" , expression , ")" ) | expression ) , ":" , ( inline_body | indent_block ) ;
+(* Channel and concurrency *)
+send_expression = walrus_expression , { SEND , walrus_expression } ;
+recv_expression = RECV , unary_expression ;
+wait_expression = "wait" , ( ( "(" , expression , ")" ) | unary_expression ) ;
 
-await_any_statement = "await" , "[" , "any" , "]" , "(" , anyarm_list , [ optcomma ] , ")" ,
-                      [ ":" , ( inline_body | indent_block ) ] ;
+wait_any_block = "wait" , "[" , "any" , "]" , ":" , NEWLINE , INDENT ,
+                 wait_any_arm , { NEWLINE , wait_any_arm } , DEDENT ;
+wait_any_arm = ( [ IDENT , WALRUS ] , recv_expression , ":" , ( inline_body | indent_block ) )
+             | ( expression , SEND , expression , ":" , ( inline_body | indent_block ) )
+             | ( "timeout" , expression , ":" , ( inline_body | indent_block ) )
+             | ( "default" , ":" , ( inline_body | indent_block ) ) ;
 
-await_all_statement = "await" , "[" , "all" , "]" , "(" , allarm_list , [ optcomma ] , ")" ,
-                      [ ":" , ( inline_body | indent_block ) ] ;
+wait_all_block = "wait" , "[" , "all" , "]" , ":" , NEWLINE , INDENT ,
+                 wait_all_arm , { NEWLINE , wait_all_arm } , DEDENT ;
+wait_all_arm = IDENT , ":" , expression ;
 
-anyarm_list = anyarm , { "," , anyarm } ;
-allarm_list = anyarm , { "," , anyarm } ;
-anyarm = ( [ IDENT , ":" ] , expression , [ ":" , ( inline_body | indent_block ) ] )
-       | ( "timeout" , expression , [ ":" , ( inline_body | indent_block ) ] ) ;
-optcomma = [ "," ] ;
+wait_group_block = "wait" , "[" , "group" , "]" , ":" , NEWLINE , INDENT ,
+                   wait_group_arm , { NEWLINE , wait_group_arm } , DEDENT ;
+wait_group_arm = expression ;
+
+wait_all_call = "wait" , "[" , "all" , "]" , unary_expression ;
+wait_group_call = "wait" , "[" , "group" , "]" , unary_expression ;
+
+spawn_expression = "spawn" , ( ":" , ( inline_body | indent_block )
+                             | ( "(" , expression , ")" )
+                             | unary_expression ) ;
 
 (* Catch statements *)
 catch_statement = expression , "catch" , [ catch_tail ] , ":" , ( inline_body | indent_block ) , [ terminator ] ;

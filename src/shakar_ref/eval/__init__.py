@@ -14,5 +14,5 @@ __all__ = [
     "literals",
     "objects",
     "fn",
-    "_await",
+    "channels",
 ]

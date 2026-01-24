@@ -9,7 +9,7 @@ The `src/shakar_ref/` package hosts the core Python implementation of the parser
 - `evaluator.py` – walks the canonical AST and executes programs.
 - `runtime.py` – value model (`ShkNumber`, `ShkString`, etc.), frames, and stdlib registry.
 - `tree.py` – local Tree/Tok implementations (Lark-compatible).
-- `eval/` – helper modules for selectors, mutation, destructuring, and await logic used by the evaluator.
+- `eval/` – helper modules for selectors, mutation, destructuring, and channel logic used by the evaluator.
 - `runner.py` – convenience entry point (`PYTHONPATH=src python -m shakar_ref.runner program.shk`) that wires parse → prune → lower → eval.
 
 Developer notes:

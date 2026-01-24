@@ -49,6 +49,7 @@ from .eval.control import (
 from .eval.helpers import (
     is_truthy,
     name_in_current_frame,
+    check_cancel,
 )
 
 from .eval.blocks import (
@@ -81,11 +82,15 @@ from .eval.loops import (
 from .eval.fanout import eval_fanout_block
 from .eval.destructure import eval_destructure
 
-from .eval._await import (
-    eval_await_value,
-    eval_await_stmt,
-    eval_await_any_call,
-    eval_await_all_call,
+from .eval.channels import (
+    eval_recv_expr,
+    eval_send_expr,
+    eval_spawn_expr,
+    eval_wait_any_block,
+    eval_wait_all_block,
+    eval_wait_group_block,
+    eval_wait_all_call,
+    eval_wait_group_call,
 )
 from .eval.chains import apply_op, evaluate_index_operand, eval_args_node, call_value
 from .eval.valuefan import eval_valuefan
@@ -185,6 +190,7 @@ def eval_expr(
 
 
 def eval_node(n: Node, frame: Frame) -> ShkValue:
+    check_cancel(frame)
     try:
         return _eval_node_inner(n, frame)
     except ShakarRuntimeError as e:
@@ -215,7 +221,7 @@ def _eval_token(t: Tok, frame: Frame) -> ShkValue:
     if handler:
         return handler(t, frame)
 
-    if t.type in (TT.IDENT, TT.ANY, TT.ALL, TT.OVER):
+    if t.type in (TT.IDENT, TT.ANY, TT.ALL, TT.GROUP, TT.OVER):
         return frame.get(t.value)
 
     raise ShakarRuntimeError(f"Unhandled token {t.type}:{t.value}")
@@ -382,8 +388,36 @@ def _eval_nullsafe(n: Tree, frame: Frame) -> ShkValue:
     return eval_nullsafe(n, frame, eval_node)
 
 
-def _eval_await_value(n: Tree, frame: Frame) -> ShkValue:
-    return eval_await_value(n, frame, eval_node)
+def _eval_recv(n: Tree, frame: Frame) -> ShkValue:
+    return eval_recv_expr(n, frame, eval_node)
+
+
+def _eval_send(n: Tree, frame: Frame) -> ShkValue:
+    return eval_send_expr(n, frame, eval_node)
+
+
+def _eval_spawn(n: Tree, frame: Frame) -> ShkValue:
+    return eval_spawn_expr(n, frame, eval_node)
+
+
+def _eval_waitanyblock(n: Tree, frame: Frame) -> ShkValue:
+    return eval_wait_any_block(n, frame, eval_node)
+
+
+def _eval_waitallblock(n: Tree, frame: Frame) -> ShkValue:
+    return eval_wait_all_block(n, frame, eval_node)
+
+
+def _eval_waitgroupblock(n: Tree, frame: Frame) -> ShkValue:
+    return eval_wait_group_block(n, frame, eval_node)
+
+
+def _eval_waitallcall(n: Tree, frame: Frame) -> ShkValue:
+    return eval_wait_all_call(n, frame, eval_node)
+
+
+def _eval_waitgroupcall(n: Tree, frame: Frame) -> ShkValue:
+    return eval_wait_group_call(n, frame, eval_node)
 
 
 def _eval_subject(_n: Tree, frame: Frame) -> ShkValue:
@@ -479,18 +513,6 @@ def _eval_destructure(n: Tree, frame: Frame) -> ShkValue:
 
 def _eval_destructure_walrus(n: Tree, frame: Frame) -> ShkValue:
     return eval_destructure(n, frame, eval_node, create=True, allow_broadcast=True)
-
-
-def _eval_awaitstmt(n: Tree, frame: Frame) -> ShkValue:
-    return eval_await_stmt(n, frame, eval_node)
-
-
-def _eval_awaitanycall(n: Tree, frame: Frame) -> ShkValue:
-    return eval_await_any_call(n, frame, eval_node)
-
-
-def _eval_awaitallcall(n: Tree, frame: Frame) -> ShkValue:
-    return eval_await_all_call(n, frame, eval_node)
 
 
 def _eval_usingstmt(n: Tree, frame: Frame) -> ShkValue:
@@ -790,7 +812,9 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "matchexpr": _eval_matchexpr,
     "nullish": _eval_nullish,
     "nullsafe": _eval_nullsafe,
-    "await_value": _eval_await_value,
+    "recv": _eval_recv,
+    "send": _eval_send,
+    "spawn": _eval_spawn,
     "subject": _eval_subject,
     "keyexpr": _eval_keyexpr,
     "slicearm_expr": _eval_slicearm_expr,
@@ -813,9 +837,11 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "bind": _eval_bind,
     "destructure": _eval_destructure,
     "destructure_walrus": _eval_destructure_walrus,
-    "awaitstmt": _eval_awaitstmt,
-    "awaitanycall": _eval_awaitanycall,
-    "awaitallcall": _eval_awaitallcall,
+    "waitanyblock": _eval_waitanyblock,
+    "waitallblock": _eval_waitallblock,
+    "waitgroupblock": _eval_waitgroupblock,
+    "waitallcall": _eval_waitallcall,
+    "waitgroupcall": _eval_waitgroupcall,
     "usingstmt": _eval_usingstmt,
     "callstmt": _eval_callstmt,
     "catchexpr": _eval_catchexpr,

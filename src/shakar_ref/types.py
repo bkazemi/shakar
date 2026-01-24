@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections import deque
 import pathlib
 import re
-from typing import Callable, Dict, List, Optional, Tuple, TypeVar, Union, TYPE_CHECKING
+import threading
+from typing import (
+    Callable,
+    Deque,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+    TYPE_CHECKING,
+)
 from typing_extensions import Protocol, TypeAlias, TypeGuard
 from .tree import Node
 
@@ -214,6 +226,335 @@ class ShkModule(ShkObject):
         raise ShakarImportError("Modules are immutable")
 
 
+class CancelToken:
+    def __init__(self) -> None:
+        self._event = threading.Event()
+
+    def cancel(self) -> None:
+        self._event.set()
+
+    def cancelled(self) -> bool:
+        return self._event.is_set()
+
+
+@dataclass
+class _ResultItem:
+    value: Optional["ShkValue"] = None
+    error: Optional[Exception] = None
+
+
+class ShkChannel:
+    def __init__(
+        self,
+        capacity: int = 0,
+        *,
+        result_mode: bool = False,
+        cancel_token: Optional[CancelToken] = None,
+    ) -> None:
+        if capacity < 0:
+            raise ShakarRuntimeError("Channel capacity cannot be negative")
+
+        self.capacity = capacity
+        self._buffer: Deque[_ResultItem | ShkValue] = deque()
+        self._cond = threading.Condition()
+        self._closed = False
+        self._unbuffered_value: Optional[_ResultItem | ShkValue] = None
+        self._has_unbuffered = False
+        self._waiting_receivers = 0
+        self._waiting_senders = 0
+        self._select_waiters: set[threading.Event] = set()
+        self._result_mode = result_mode
+        self._cancel_token = cancel_token
+        self._cancelled = False
+        self._result_delivered = False
+
+    def __repr__(self) -> str:
+        state = "closed" if self._closed else "open"
+        return f"<channel cap={self.capacity} {state}>"
+
+    def register_waiter(self, event: threading.Event) -> None:
+        with self._cond:
+            self._select_waiters.add(event)
+
+    def unregister_waiter(self, event: threading.Event) -> None:
+        with self._cond:
+            self._select_waiters.discard(event)
+
+    def _notify_select_waiters(self) -> None:
+        if not self._select_waiters:
+            return
+        for event in list(self._select_waiters):
+            event.set()
+
+    def is_closed(self) -> bool:
+        with self._cond:
+            return self._closed
+
+    def is_result_channel(self) -> bool:
+        return self._result_mode
+
+    def close(self) -> None:
+        with self._cond:
+            if self._closed:
+                if self._result_mode and self._result_delivered:
+                    return
+                raise ShakarRuntimeError("Channel already closed")
+            self._closed = True
+            if self._result_mode:
+                self._cancelled = True
+                if self._cancel_token is not None:
+                    self._cancel_token.cancel()
+            self._cond.notify_all()
+            self._notify_select_waiters()
+
+    def send(self, value: "ShkValue") -> bool:
+        if self._result_mode:
+            raise ShakarRuntimeError("Cannot send to spawn result channel")
+        return self._send_value(value, block=True, cancel_token=None) is True
+
+    def try_send(self, value: "ShkValue") -> tuple[bool, bool]:
+        if self._result_mode:
+            raise ShakarRuntimeError("Cannot send to spawn result channel")
+        result = self._send_value(value, block=False, cancel_token=None)
+        if result is None:
+            return False, False
+        return result, not result
+
+    def send_with_cancel(
+        self, value: "ShkValue", cancel_token: Optional[CancelToken]
+    ) -> bool:
+        if self._result_mode:
+            raise ShakarRuntimeError("Cannot send to spawn result channel")
+        return self._send_value(value, block=True, cancel_token=cancel_token) is True
+
+    def _check_cancel(self, cancel_token: Optional[CancelToken]) -> None:
+        if cancel_token is not None and cancel_token.cancelled():
+            raise ShakarCancelledError("Spawn task cancelled")
+
+    def _wait_with_cancel(self, cancel_token: Optional[CancelToken]) -> None:
+        if cancel_token is None:
+            self._cond.wait()
+            return
+        self._cond.wait(timeout=0.05)
+        self._check_cancel(cancel_token)
+
+    def _send_value(
+        self,
+        value: _ResultItem | "ShkValue",
+        *,
+        block: bool,
+        cancel_token: Optional[CancelToken],
+    ) -> Optional[bool]:
+        with self._cond:
+            self._check_cancel(cancel_token)
+            if self._closed:
+                return False
+
+            if self.capacity > 0:
+                if not block and len(self._buffer) >= self.capacity:
+                    return None
+                while len(self._buffer) >= self.capacity and not self._closed:
+                    self._waiting_senders += 1
+                    try:
+                        self._wait_with_cancel(cancel_token)
+                    finally:
+                        self._waiting_senders -= 1
+                    self._check_cancel(cancel_token)
+                if self._closed:
+                    return False
+                self._buffer.append(value)
+                self._cond.notify_all()
+                self._notify_select_waiters()
+                return True
+
+            if not block:
+                if self._closed:
+                    return False
+                if self._has_unbuffered or self._waiting_receivers == 0:
+                    return None
+                # For non-blocking unbuffered send, succeed only if a receiver is
+                # already waiting. We don't wait for consumption here; the waiting
+                # receiver will complete the rendezvous.
+                self._unbuffered_value = value
+                self._has_unbuffered = True
+                self._cond.notify_all()
+                self._notify_select_waiters()
+                return True
+
+            while self._has_unbuffered and not self._closed:
+                self._waiting_senders += 1
+                try:
+                    self._wait_with_cancel(cancel_token)
+                finally:
+                    self._waiting_senders -= 1
+                self._check_cancel(cancel_token)
+            if self._closed:
+                return False
+            self._unbuffered_value = value
+            self._has_unbuffered = True
+            self._cond.notify_all()
+            self._notify_select_waiters()
+
+            while self._has_unbuffered and not self._closed:
+                self._wait_with_cancel(cancel_token)
+                self._check_cancel(cancel_token)
+            if self._closed and self._has_unbuffered:
+                self._has_unbuffered = False
+                self._unbuffered_value = None
+                return False
+            return True
+
+    def recv(
+        self, *, cancel_token: Optional[CancelToken] = None
+    ) -> tuple["ShkValue", bool]:
+        value, ok = self._recv_value(block=True, cancel_token=cancel_token)
+        return value, ok
+
+    def try_recv(self) -> tuple[str, Optional["ShkValue"], bool]:
+        with self._cond:
+            if self.capacity > 0:
+                if self._buffer:
+                    value = self._buffer.popleft()
+                    self._cond.notify_all()
+                    self._notify_select_waiters()
+                    return "ready", value, True
+                if self._closed:
+                    return "closed", None, False
+                return "blocked", None, False
+
+            if self._has_unbuffered:
+                value = self._unbuffered_value
+                self._unbuffered_value = None
+                self._has_unbuffered = False
+                self._cond.notify_all()
+                self._notify_select_waiters()
+                return "ready", value, True
+            if self._closed:
+                return "closed", None, False
+            return "blocked", None, False
+
+    def _recv_value(
+        self, *, block: bool, cancel_token: Optional[CancelToken]
+    ) -> tuple[Optional["ShkValue"], bool]:
+        with self._cond:
+            self._check_cancel(cancel_token)
+            if self.capacity > 0:
+                if not block and not self._buffer:
+                    if self._closed:
+                        return None, False
+                    return None, False
+                while not self._buffer and not self._closed:
+                    self._waiting_receivers += 1
+                    try:
+                        self._wait_with_cancel(cancel_token)
+                    finally:
+                        self._waiting_receivers -= 1
+                    self._check_cancel(cancel_token)
+                if not self._buffer:
+                    return None, False
+                value = self._buffer.popleft()
+                self._cond.notify_all()
+                self._notify_select_waiters()
+                return value, True
+
+            if not block and not self._has_unbuffered:
+                if self._closed:
+                    return None, False
+                return None, False
+
+            while not self._has_unbuffered and not self._closed:
+                self._waiting_receivers += 1
+                try:
+                    self._wait_with_cancel(cancel_token)
+                finally:
+                    self._waiting_receivers -= 1
+                self._check_cancel(cancel_token)
+            if not self._has_unbuffered:
+                return None, False
+            value = self._unbuffered_value
+            self._unbuffered_value = None
+            self._has_unbuffered = False
+            self._cond.notify_all()
+            self._notify_select_waiters()
+            return value, True
+
+    def send_result(self, value: Optional["ShkValue"]) -> bool:
+        if not self._result_mode:
+            raise ShakarRuntimeError("send_result only valid for spawn channels")
+        item = _ResultItem(value=value)
+        return self._send_result_item(item)
+
+    def send_error(self, exc: Exception) -> bool:
+        if not self._result_mode:
+            raise ShakarRuntimeError("send_error only valid for spawn channels")
+        item = _ResultItem(error=exc)
+        return self._send_result_item(item)
+
+    def _send_result_item(self, item: _ResultItem) -> bool:
+        with self._cond:
+            if self._closed or self._cancelled:
+                return False
+            if self.capacity == 0:
+                raise ShakarRuntimeError("Spawn result channels must be buffered")
+            if self._buffer:
+                raise ShakarRuntimeError("Spawn result channel already has a value")
+            self._buffer.append(item)
+            self._result_delivered = True
+            self._closed = True
+            self._cond.notify_all()
+            self._notify_select_waiters()
+            return True
+
+    def recv_value(self, *, cancel_token: Optional[CancelToken] = None) -> "ShkValue":
+        value, ok = self._recv_value(block=True, cancel_token=cancel_token)
+        return self._unwrap_recv(value, ok)
+
+    def recv_with_ok(
+        self, *, cancel_token: Optional[CancelToken] = None
+    ) -> tuple["ShkValue", bool]:
+        value, ok = self._recv_value(block=True, cancel_token=cancel_token)
+        if self._result_mode:
+            return self._unwrap_recv(value, ok), True
+        if value is None or not ok:
+            return ShkNull(), False
+        return value, True
+
+    def try_recv_value(self) -> tuple[str, Optional["ShkValue"]]:
+        status, value, ok = self.try_recv()
+        if status == "blocked":
+            return "blocked", None
+        if status == "closed":
+            if self._result_mode and self._cancelled:
+                return "cancelled", None
+            return "closed", None
+        return "ready", self._unwrap_recv(value, ok, allow_blocked=True)
+
+    def _unwrap_recv(
+        self, value: Optional["ShkValue"], ok: bool, *, allow_blocked: bool = False
+    ) -> "ShkValue":
+        if value is None and not ok:
+            if self._result_mode and self._cancelled and self._closed:
+                raise ShakarCancelledError("Spawn task cancelled")
+            return ShkNull()
+
+        if not self._result_mode:
+            if value is None:
+                return ShkNull()
+            return value
+
+        if value is None:
+            if allow_blocked:
+                return ShkNull()
+            raise ShakarRuntimeError("Spawn result missing value")
+
+        if isinstance(value, _ResultItem):
+            if value.error is not None:
+                raise value.error
+            return value.value if value.value is not None else ShkNull()
+
+        return value
+
+
 @dataclass
 class SelectorIndex:
     value: "ShkValue"
@@ -365,6 +706,7 @@ ShkValue: TypeAlias = Union[
     ShkFan,
     ShkObject,
     ShkModule,
+    ShkChannel,
     ShkFn,
     ShkDecorator,
     DecoratorConfigured,
@@ -394,6 +736,7 @@ class Frame:
         parent: Optional["Frame"] = None,
         dot: DotValue = None,
         emit_target: Optional["ShkValue"] = None,
+        cancel_token: Optional[CancelToken] = None,
         source: Optional[str] = None,
         source_path: Optional[str] = None,
     ):
@@ -407,6 +750,12 @@ class Frame:
         self._is_function_frame = False
         self._active_error: Optional[ShakarRuntimeError] = None
         self.pending_anchor_override: Optional[ShkValue] = None
+        if cancel_token is not None:
+            self.cancel_token = cancel_token
+        elif parent is not None:
+            self.cancel_token = parent.cancel_token
+        else:
+            self.cancel_token = None
         self.source: Optional[str]
         self.source_path: Optional[str]
 
@@ -625,6 +974,18 @@ class ShakarAssertionError(ShakarRuntimeError):
     pass
 
 
+class ShakarCancelledError(ShakarRuntimeError):
+    pass
+
+
+class ShakarChannelClosedEmpty(ShakarRuntimeError):
+    pass
+
+
+class ShakarAllChannelsClosed(ShakarRuntimeError):
+    pass
+
+
 class ShakarReturnSignal(Exception):
     """Internal control-flow exception used to implement `return`."""
 
@@ -702,5 +1063,6 @@ class Builtins:
     command_methods: MethodRegistry = {}
     path_methods: MethodRegistry = {}
     envvar_methods: MethodRegistry = {}
+    channel_methods: MethodRegistry = {}
     stdlib_functions: Dict[str, StdlibFunction] = {}
     type_constants: Dict[str, "ShkType"] = {}

@@ -55,15 +55,16 @@ class Parser:
     3. or (||)
     4. and (&&)
     5. bind (.=)
-    6. walrus (:=)
-    7. nullish (??)
-    8. compare (==, !=, <, >, etc.) + CCC
-    9. add (+, -, +>, ^)
-    10. mul (*, /, //, %)
-    11. pow (**)
-    12. unary (-, !, ~, ++, --, await, $)
-    13. postfix (.field, [index], (call), ++, --)
-    14. primary (literals, identifiers, parens)
+    6. send (->)
+    7. walrus (:=)
+    8. nullish (??)
+    9. compare (==, !=, <, >, etc.) + CCC
+    10. add (+, -, +>, ^)
+    11. mul (*, /, //, %)
+    12. pow (**)
+    13. unary (-, !, ~, ++, --, wait, <-, spawn, $)
+    14. postfix (.field, [index], (call), ++, --)
+    15. primary (literals, identifiers, parens)
     """
 
     def __init__(self, tokens: List[Tok], use_indenter: bool = True):
@@ -381,10 +382,6 @@ class Parser:
         handler = self._stmt_dispatch.get(self.current.type)
         if handler:
             return handler()
-
-        if self.check(TT.AWAIT):
-            # Statement-form await with optional bodies/arms
-            return self.parse_await_stmt()
 
         if (
             self.check(TT.QMARK)
@@ -1481,45 +1478,177 @@ class Parser:
 
         return Tree("fnstmt", children)
 
-    def parse_await_stmt(self) -> Tree:
+    def parse_wait_expr(self) -> Tree:
         """
-        Parse await statement forms:
-        - await [any](arms) [: body]
-        - await [all](arms) [: body]
-        - await expr : body
+        Parse wait forms:
+        - wait expr / wait(expr)
+        - wait[any]: ... (select)
+        - wait[all]: ... (join, returns object)
+        - wait[group]: ... (join, discard results)
+        - wait[all] expr / wait[group] expr
         """
-        await_tok = self.expect(TT.AWAIT)
+        self.expect(TT.WAIT)
 
-        # await [any|all](...) ...
         if self.match(TT.LSQB):
-            kind_tok = self.advance()  # expect ANY or ALL identifiers
-            kind = getattr(kind_tok, "type", None)
+            kind_tok = self.advance()
+            kind_type = getattr(kind_tok, "type", None)
+            kind_value = kind_tok.value if kind_type == TT.IDENT else kind_tok.value
+
+            if kind_type == TT.ANY or kind_value == "any":
+                kind = "any"
+            elif kind_type == TT.ALL or kind_value == "all":
+                kind = "all"
+            elif kind_type == TT.GROUP or kind_value == "group":
+                kind = "group"
+            else:
+                raise ParseError("wait expects [any], [all], or [group]", kind_tok)
+
             self.expect(TT.RSQB)
-            self.expect(TT.LPAR)
-            arms = self.parse_await_arm_list(kind_tok)
-            self.expect(TT.RPAR)
 
-            trailing_body = None
             if self.match(TT.COLON):
-                trailing_body = self.parse_body()
+                if kind == "any":
+                    return self._parse_wait_any_block()
+                if kind == "all":
+                    return self._parse_wait_named_block(
+                        "waitallblock", "waitallarm", "wait[all]"
+                    )
+                return self._parse_wait_group_block()
 
-            root_label = "awaitanycall" if kind == TT.ANY else "awaitallcall"
-            children: List[Any] = [
-                Tree(
-                    "anyarmlist" if root_label == "awaitanycall" else "allarmlist", arms
-                )
-            ]
-            if trailing_body is not None:
-                children.append(self._tok("RPAR", ")"))
-                children.append(trailing_body)
-            return Tree(root_label, children)
+            if kind == "any":
+                raise ParseError("wait[any] requires ':' block form", kind_tok)
 
-        # await expr [: body]?
-        expr = self.parse_expr()
+            # Single-expr form: treat wait[all]/wait[group] as unary; use parens for
+            # broader expressions or CCC if needed.
+            expr = self.parse_unary_expr()
+            node_label = "waitallcall" if kind == "all" else "waitgroupcall"
+            return Tree(node_label, [expr])
+
+        # wait expr / wait(expr)
+        if self.match(TT.LPAR):
+            expr = self.parse_expr()
+            self.expect(TT.RPAR)
+        else:
+            expr = self.parse_unary_expr()
+        return Tree("recv", [expr])
+
+    def parse_spawn_expr(self) -> Tree:
+        """Parse spawn call or block."""
+        self.expect(TT.SPAWN)
+
         if self.match(TT.COLON):
             body = self.parse_body()
-            return Tree("awaitstmt", [self._tok("AWAIT", await_tok.value), expr, body])
-        return Tree("await_value", [self._tok("AWAIT", await_tok.value), expr])
+            return Tree("spawn", [body])
+
+        if self.match(TT.LPAR):
+            expr = self.parse_expr()
+            self.expect(TT.RPAR)
+        else:
+            expr = self.parse_unary_expr()
+        return Tree("spawn", [expr])
+
+    def _parse_wait_any_block(self) -> Tree:
+        if not self.match(TT.NEWLINE):
+            raise ParseError("wait[any] expects a newline after ':'", self.current)
+        if not self.check(TT.INDENT):
+            raise ParseError("wait[any] expects an indented block", self.current)
+        self.advance()
+
+        arms: list[Tree] = []
+        saw_default = False
+
+        if self.check(TT.DEDENT):
+            raise ParseError("wait[any] requires at least one arm", self.current)
+
+        while not self.check(TT.DEDENT, TT.EOF):
+            if self.match(TT.NEWLINE):
+                continue
+
+            if self.check(TT.IDENT) and self.current.value == "default":
+                if saw_default:
+                    raise ParseError(
+                        "wait[any] has multiple default arms", self.current
+                    )
+                saw_default = True
+                self.advance()
+                self.expect(TT.COLON)
+                body = self.parse_body()
+                arms.append(Tree("waitany_default", [body]))
+                while self.match(TT.NEWLINE):
+                    pass
+                continue
+
+            if self.check(TT.IDENT) and self.current.value == "timeout":
+                self.advance()
+                timeout_expr = self.parse_expr()
+                self.expect(TT.COLON)
+                body = self.parse_body()
+                arms.append(Tree("waitany_timeout", [timeout_expr, body]))
+                while self.match(TT.NEWLINE):
+                    pass
+                continue
+
+            head = self.parse_expr()
+            self.expect(TT.COLON)
+            body = self.parse_body()
+            arms.append(Tree("waitany_arm", [head, body]))
+
+            while self.match(TT.NEWLINE):
+                pass
+
+        self.expect(TT.DEDENT)
+        return Tree("waitanyblock", arms)
+
+    def _parse_wait_named_block(
+        self, root_label: str, arm_label: str, context: str
+    ) -> Tree:
+        if not self.match(TT.NEWLINE):
+            raise ParseError(f"{context} expects a newline after ':'", self.current)
+        if not self.check(TT.INDENT):
+            raise ParseError(f"{context} expects an indented block", self.current)
+        self.advance()
+
+        arms: list[Tree] = []
+        if self.check(TT.DEDENT):
+            raise ParseError(f"{context} requires at least one arm", self.current)
+
+        while not self.check(TT.DEDENT, TT.EOF):
+            if self.match(TT.NEWLINE):
+                continue
+
+            name_tok = self.expect(TT.IDENT)
+            self.expect(TT.COLON)
+            expr = self.parse_expr()
+            arms.append(Tree(arm_label, [self._tok("IDENT", name_tok.value), expr]))
+
+            while self.match(TT.NEWLINE):
+                pass
+
+        self.expect(TT.DEDENT)
+        return Tree(root_label, arms)
+
+    def _parse_wait_group_block(self) -> Tree:
+        if not self.match(TT.NEWLINE):
+            raise ParseError("wait[group] expects a newline after ':'", self.current)
+        if not self.check(TT.INDENT):
+            raise ParseError("wait[group] expects an indented block", self.current)
+        self.advance()
+
+        arms: list[Tree] = []
+        if self.check(TT.DEDENT):
+            raise ParseError("wait[group] requires at least one arm", self.current)
+
+        while not self.check(TT.DEDENT, TT.EOF):
+            if self.match(TT.NEWLINE):
+                continue
+
+            expr = self.parse_expr()
+            arms.append(Tree("waitgrouparm", [expr]))
+
+            while self.match(TT.NEWLINE):
+                pass
+
+        self.expect(TT.DEDENT)
+        return Tree("waitgroupblock", arms)
 
     def parse_return_stmt(self) -> Tree:
         """Parse return statement: return [expr | pack]"""
@@ -1851,7 +1980,7 @@ class Parser:
 
     def parse_bind_expr(self) -> Node:
         """Parse apply bind: lvalue .= expr"""
-        left = self.parse_walrus_expr()
+        left = self.parse_send_expr()
 
         if self.match(TT.APPLYASSIGN):
             lvalue = self._expr_to_lvalue(left)
@@ -1860,6 +1989,16 @@ class Parser:
             return Tree("bind", [lvalue, right])
 
         # No bind, just return walrus level
+        return left
+
+    def parse_send_expr(self) -> Node:
+        """Parse channel send: expr -> expr"""
+        left = self.parse_walrus_expr()
+
+        while self.match(TT.SEND):
+            right = self.parse_walrus_expr()
+            left = Tree("send", [left, right])
+
         return left
 
     def _expr_to_lvalue(self, expr: Tree | Tok) -> Tree:
@@ -2181,7 +2320,7 @@ class Parser:
         return base
 
     def parse_unary_expr(self) -> Node:
-        """Parse unary operators: -expr, !expr, ++expr, await expr"""
+        """Parse unary operators: -expr, !expr, ++expr, wait expr, <-expr, spawn expr"""
         # Throw as expression-form
         if self.check(TT.THROW):
             self.advance()
@@ -2190,16 +2329,18 @@ class Parser:
             value = self.parse_unary_expr()
             return Tree("throwstmt", [value])
 
-        # Await
-        if self.check(TT.AWAIT):
-            self.advance()
-            # await expr or await (expr)
-            if self.match(TT.LPAR):
-                expr = self.parse_expr()
-                self.expect(TT.RPAR)
-            else:
-                expr = self.parse_unary_expr()
-            return Tree("await_value", [self._tok("AWAIT", "await"), expr])
+        # Wait
+        if self.check(TT.WAIT):
+            return self.parse_wait_expr()
+
+        # Receive
+        if self.match(TT.RECV):
+            expr = self.parse_unary_expr()
+            return Tree("recv", [expr])
+
+        # Spawn
+        if self.check(TT.SPAWN):
+            return self.parse_spawn_expr()
 
         # $ (no anchor)
         if self.match(TT.DOLLAR):
@@ -2655,6 +2796,8 @@ class Parser:
             return self._tok("ANY", "any")
         if self.match(TT.ALL):
             return self._tok("ALL", "all")
+        if self.match(TT.GROUP):
+            return self._tok("GROUP", "group")
 
         # Parenthesized expression
         if self.match(TT.LPAR):
@@ -3321,42 +3464,6 @@ class Parser:
             return argitems
         finally:
             self.parse_context = saved_context
-
-    def parse_await_arm_list(self, kind_tok: Tok) -> List[Tree]:
-        if getattr(kind_tok, "type", None) not in {TT.ANY, TT.ALL}:
-            raise ParseError("await expects [any] or [all]", kind_tok)
-
-        arms: List[Tree] = []
-
-        while not self.check(TT.RPAR, TT.EOF):
-            label_tok = None
-            expr = None
-            body = None
-
-            # Optional label:
-            if self.check(TT.IDENT) and self.peek(1).type == TT.COLON:
-                label_tok = self.advance()
-                self.expect(TT.COLON)
-
-            expr = self.parse_expr()
-
-            if self.match(TT.COLON):
-                body = self.parse_body()
-
-            arm_children: List[Any] = []
-            if label_tok is not None:
-                arm_children.append(self._tok("IDENT", label_tok.value))
-            arm_children.append(expr)
-            if body is not None:
-                arm_children.append(body)
-            arms.append(
-                Tree("anyarm" if kind_tok.type == TT.ANY else "allarm", arm_children)
-            )
-
-            if not self.match(TT.COMMA):
-                break
-
-        return arms
 
     def parse_selector_list(self) -> List[Tree]:
         """

@@ -10,6 +10,8 @@ from ..token_types import TT
 from ..runtime import (
     Frame,
     ShkArray,
+    ShkBool,
+    ShkChannel,
     ShkNull,
     ShkValue,
     ShakarRuntimeError,
@@ -41,6 +43,20 @@ def evaluate_destructure_rhs(
     allow_broadcast: bool,
 ) -> tuple[list[ShkValue], ShkValue]:
     """Evaluate RHS once and expand/broadcast values to match the target count."""
+    if tree_label(rhs_node) == "recv" and target_count == 2:
+        children = tree_children(rhs_node)
+        if not children:
+            raise ShakarRuntimeError("Malformed receive expression")
+        chan_val = eval_fn(children[0], frame)
+        if isinstance(chan_val, ShkNull):
+            raise ShakarRuntimeError("Receive on nil channel")
+        if not isinstance(chan_val, ShkChannel):
+            raise ShakarRuntimeError("Expected channel on receive")
+        value, ok = chan_val.recv_with_ok(cancel_token=frame.cancel_token)
+        ok_val = ShkBool(ok)
+        vals = [value, ok_val]
+        return vals, ShkArray(vals)
+
     if tree_label(rhs_node) == "pack":
         # multiple RHS expressions separated by commas: evaluate each once.
         vals = [eval_fn(child, frame) for child in rhs_node.children]

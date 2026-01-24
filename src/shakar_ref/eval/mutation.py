@@ -10,6 +10,7 @@ from ..runtime import (
     Frame,
     ShkArray,
     ShkBool,
+    ShkChannel,
     ShkCommand,
     ShkEnvVar,
     ShkFn,
@@ -343,6 +344,10 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
             if name in Builtins.string_methods:
                 return BuiltinMethod(name=name, subject=recv)
             raise ShakarTypeError(f"EnvVar has no field '{name}'")
+        case ShkChannel():
+            if name in Builtins.channel_methods:
+                return BuiltinMethod(name=name, subject=recv)
+            raise ShakarTypeError(f"Channel has no field '{name}'")
         case ShkFn():
             raise ShakarTypeError("Function has no fields")
         case _:
