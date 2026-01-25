@@ -12,6 +12,7 @@ from ..runtime import (
     ShkArray,
     ShkBool,
     ShkChannel,
+    ShkResultChannel,
     ShkDuration,
     ShkFan,
     ShkNull,
@@ -139,9 +140,9 @@ def _spawn_frame(parent: Frame, token: CancelToken) -> Frame:
     )
 
 
-def _spawn_task(frame: Frame, thunk: Callable[[Frame], ShkValue]) -> ShkChannel:
+def _spawn_task(frame: Frame, thunk: Callable[[Frame], ShkValue]) -> ShkResultChannel:
     cancel_token = CancelToken()
-    result_ch = ShkChannel(1, result_mode=True, cancel_token=cancel_token)
+    result_ch = ShkResultChannel(cancel_token)
 
     def runner() -> None:
         spawn_frame = _spawn_frame(frame, cancel_token)

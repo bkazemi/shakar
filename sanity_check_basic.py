@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence, Tuple
@@ -148,6 +149,14 @@ class RuntimeScenario:
     source: str
     expectation: Optional[Tuple[str, object]]
     expected_exc: Optional[type]
+
+
+@dataclass(frozen=True)
+class InternalScenario:
+    """Runs internal runtime checks that don't map to Shakar source."""
+
+    name: str
+    runner: Callable[[], Optional[str]]
 
 
 @dataclass(frozen=True)
@@ -849,10 +858,15 @@ def build_indentation_corner_cases(_: KeywordPlan) -> List[Case]:
 
 AST_SCENARIOS: List[AstScenario] = []
 RUNTIME_SCENARIOS: List[RuntimeScenario] = []
+INTERNAL_SCENARIOS: List[InternalScenario] = []
 
 
 def runtime_scenario(scenario: RuntimeScenario) -> None:
     RUNTIME_SCENARIOS.append(scenario)
+
+
+def internal_scenario(scenario: InternalScenario) -> None:
+    INTERNAL_SCENARIOS.append(scenario)
 
 
 # AST check helpers
@@ -1010,6 +1024,43 @@ def _rt(
     expected_exc: Optional[type],
 ) -> RuntimeScenario:
     return RuntimeScenario(name, source, expectation, expected_exc)
+
+
+def _check_channel_cancel_race() -> Optional[str]:
+    from shakar_ref.types import CancelToken, ShakarCancelledError, ShkChannel
+
+    class ImmediateCancelToken(CancelToken):
+        def register_condition(self, cond: threading.Condition) -> None:
+            super().register_condition(cond)
+            self.cancel()
+
+    channel = ShkChannel()
+    token = ImmediateCancelToken()
+    done = threading.Event()
+    outcome: dict[str, Optional[object]] = {"status": None, "error": None}
+
+    def worker() -> None:
+        try:
+            channel.recv_with_ok(cancel_token=token)
+            outcome["status"] = "ready"
+        except ShakarCancelledError:
+            outcome["status"] = "cancelled"
+        except Exception as exc:
+            outcome["error"] = exc
+        finally:
+            done.set()
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+
+    if not done.wait(timeout=0.5):
+        return "blocked recv after immediate cancellation"
+    if outcome["error"] is not None:
+        exc = outcome["error"]
+        return f"unexpected {type(exc).__name__}: {exc}"
+    if outcome["status"] != "cancelled":
+        return "expected ShakarCancelledError"
+    return None
 
 
 runtime_scenario(
@@ -2948,6 +2999,7 @@ ch.close()
         None,
     )
 )
+internal_scenario(InternalScenario("channel-cancel-race", _check_channel_cancel_race))
 runtime_scenario(
     _rt(
         "hook-raw-string",
@@ -4516,6 +4568,13 @@ class SanitySuite:
         lines.extend(runtime_lines)
         total += runtime_total
         failed += runtime_failed
+        # internal checks
+        internal_lines, internal_total, internal_failed = self._run_internal_scenarios()
+        if internal_lines:
+            lines.append("")
+            lines.extend(internal_lines)
+        total += internal_total
+        failed += internal_failed
         lines.append("")
         lines.append(f"Total cases: {total}")
         lines.append(f"Failures: {failed}")
@@ -4558,6 +4617,26 @@ class SanitySuite:
                 else:
                     lines.append(f"[FAIL] {scenario.name}: {exc}")
                     failed += 1
+        return lines, total, failed
+
+    def _run_internal_scenarios(self) -> Tuple[List[str], int, int]:
+        lines: List[str] = []
+        total = 0
+        failed = 0
+        for scenario in INTERNAL_SCENARIOS:
+            if not self._matches_filter(scenario.name):
+                continue
+            total += 1
+            try:
+                error = scenario.runner()
+                if error:
+                    lines.append(f"[FAIL] {scenario.name}: {error}")
+                    failed += 1
+                else:
+                    lines.append(f"[PASS] {scenario.name}")
+            except Exception as exc:
+                lines.append(f"[FAIL] {scenario.name}: {exc}")
+                failed += 1
         return lines, total, failed
 
     def _run_runtime_scenarios(self) -> Tuple[List[str], int, int]:

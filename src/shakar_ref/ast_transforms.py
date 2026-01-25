@@ -99,12 +99,6 @@ def enforce_subject_scope(tree: Tree) -> None:
                 else:
                     visit(ch, depth)
             return
-            for ch in children:
-                if is_tree(ch) and tree_label(ch) in {"inlinebody", "indentblock"}:
-                    visit(ch, depth + 1)
-                else:
-                    visit(ch, depth)
-            return
         if label in {"forsubject", "forindexed"} and children:
             for ch in children[:-1]:
                 visit(ch, depth)

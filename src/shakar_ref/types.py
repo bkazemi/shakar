@@ -227,50 +227,91 @@ class ShkModule(ShkObject):
 
 
 class CancelToken:
+    """Cooperative cancellation token for spawn tasks.
+
+    Supports registering Condition objects to be notified on cancellation,
+    eliminating the need for polling in blocking waits.
+    """
+
     def __init__(self) -> None:
         self._event = threading.Event()
+        self._lock = threading.Lock()
+        self._conditions: list[threading.Condition] = []
+
+    def register_condition(self, cond: threading.Condition) -> None:
+        with self._lock:
+            if cond not in self._conditions:
+                self._conditions.append(cond)
+
+    def unregister_condition(self, cond: threading.Condition) -> None:
+        with self._lock:
+            if cond in self._conditions:
+                self._conditions.remove(cond)
 
     def cancel(self) -> None:
         self._event.set()
+        with self._lock:
+            for cond in self._conditions:
+                with cond:
+                    cond.notify_all()
 
     def cancelled(self) -> bool:
         return self._event.is_set()
 
 
 @dataclass
+class RecvResult:
+    """Unified result type for channel receive operations."""
+
+    status: str  # "ready", "blocked", "closed", "cancelled"
+    value: Optional["ShkValue"] = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ready"
+
+
+@dataclass
 class _ResultItem:
+    """Wrapper for spawn result channel payloads."""
+
     value: Optional["ShkValue"] = None
     error: Optional[Exception] = None
 
 
 class ShkChannel:
-    def __init__(
-        self,
-        capacity: int = 0,
-        *,
-        result_mode: bool = False,
-        cancel_token: Optional[CancelToken] = None,
-    ) -> None:
+    """Thread-safe channel for inter-task communication.
+
+    Supports both buffered (capacity > 0) and unbuffered (capacity = 0) modes.
+    Unbuffered channels use synchronous rendezvous semantics.
+    """
+
+    def __init__(self, capacity: int = 0) -> None:
         if capacity < 0:
             raise ShakarRuntimeError("Channel capacity cannot be negative")
 
         self.capacity = capacity
-        self._buffer: Deque[_ResultItem | ShkValue] = deque()
+        self._buffer: Deque["ShkValue"] = deque()
         self._cond = threading.Condition()
         self._closed = False
-        self._unbuffered_value: Optional[_ResultItem | ShkValue] = None
+        self._select_waiters: set[threading.Event] = set()
+
+        # Unbuffered channel state
+        self._unbuffered_value: Optional["ShkValue"] = None
         self._has_unbuffered = False
         self._waiting_receivers = 0
-        self._waiting_senders = 0
-        self._select_waiters: set[threading.Event] = set()
-        self._result_mode = result_mode
-        self._cancel_token = cancel_token
-        self._cancelled = False
-        self._result_delivered = False
 
     def __repr__(self) -> str:
-        state = "closed" if self._closed else "open"
-        return f"<channel cap={self.capacity} {state}>"
+        with self._cond:
+            if self._closed:
+                state = "closed"
+            elif self.capacity > 0:
+                state = f"len={len(self._buffer)}/{self.capacity}"
+            else:
+                state = "unbuffered"
+            return f"<channel {state}>"
+
+    # ---- Select support ----
 
     def register_waiter(self, event: threading.Event) -> None:
         with self._cond:
@@ -280,271 +321,352 @@ class ShkChannel:
         with self._cond:
             self._select_waiters.discard(event)
 
-    def _notify_select_waiters(self) -> None:
-        if not self._select_waiters:
-            return
+    def _notify_waiters(self) -> None:
+        self._cond.notify_all()
         for event in list(self._select_waiters):
             event.set()
+
+    # ---- Status ----
 
     def is_closed(self) -> bool:
         with self._cond:
             return self._closed
 
     def is_result_channel(self) -> bool:
-        return self._result_mode
+        return False
 
     def close(self) -> None:
         with self._cond:
             if self._closed:
-                if self._result_mode and self._result_delivered:
-                    return
                 raise ShakarRuntimeError("Channel already closed")
             self._closed = True
-            if self._result_mode:
-                self._cancelled = True
-                if self._cancel_token is not None:
-                    self._cancel_token.cancel()
-            self._cond.notify_all()
-            self._notify_select_waiters()
+            self._notify_waiters()
+
+    # ---- Send ----
 
     def send(self, value: "ShkValue") -> bool:
-        if self._result_mode:
-            raise ShakarRuntimeError("Cannot send to spawn result channel")
-        return self._send_value(value, block=True, cancel_token=None) is True
-
-    def try_send(self, value: "ShkValue") -> tuple[bool, bool]:
-        if self._result_mode:
-            raise ShakarRuntimeError("Cannot send to spawn result channel")
-        result = self._send_value(value, block=False, cancel_token=None)
-        if result is None:
-            return False, False
-        return result, not result
+        return self.send_with_cancel(value, None)
 
     def send_with_cancel(
         self, value: "ShkValue", cancel_token: Optional[CancelToken]
     ) -> bool:
-        if self._result_mode:
-            raise ShakarRuntimeError("Cannot send to spawn result channel")
-        return self._send_value(value, block=True, cancel_token=cancel_token) is True
+        result = self._send(value, block=True, cancel_token=cancel_token)
+        return result.ok
 
-    def _check_cancel(self, cancel_token: Optional[CancelToken]) -> None:
-        if cancel_token is not None and cancel_token.cancelled():
-            raise ShakarCancelledError("Spawn task cancelled")
+    def try_send(self, value: "ShkValue") -> tuple[bool, bool]:
+        """Non-blocking send. Returns (sent, was_closed)."""
+        result = self._send(value, block=False, cancel_token=None)
+        if result.status == "blocked":
+            return False, False
+        if result.status == "closed":
+            return False, True
+        return True, False
 
-    def _wait_with_cancel(self, cancel_token: Optional[CancelToken]) -> None:
-        if cancel_token is None:
-            self._cond.wait()
-            return
-        self._cond.wait(timeout=0.05)
-        self._check_cancel(cancel_token)
-
-    def _send_value(
+    def _send(
         self,
-        value: _ResultItem | "ShkValue",
+        value: "ShkValue",
         *,
         block: bool,
         cancel_token: Optional[CancelToken],
-    ) -> Optional[bool]:
+    ) -> RecvResult:
+        if self.capacity > 0:
+            return self._send_buffered(value, block, cancel_token)
+        return self._send_unbuffered(value, block, cancel_token)
+
+    def _send_buffered(
+        self,
+        value: "ShkValue",
+        block: bool,
+        cancel_token: Optional[CancelToken],
+    ) -> RecvResult:
         with self._cond:
             self._check_cancel(cancel_token)
+
             if self._closed:
-                return False
+                return RecvResult("closed")
 
-            if self.capacity > 0:
-                if not block and len(self._buffer) >= self.capacity:
-                    return None
-                while len(self._buffer) >= self.capacity and not self._closed:
-                    self._waiting_senders += 1
-                    try:
-                        self._wait_with_cancel(cancel_token)
-                    finally:
-                        self._waiting_senders -= 1
-                    self._check_cancel(cancel_token)
+            if len(self._buffer) >= self.capacity:
+                if not block:
+                    return RecvResult("blocked")
+                self._wait_for(
+                    lambda: len(self._buffer) < self.capacity or self._closed,
+                    cancel_token,
+                )
                 if self._closed:
-                    return False
-                self._buffer.append(value)
-                self._cond.notify_all()
-                self._notify_select_waiters()
-                return True
+                    return RecvResult("closed")
 
+            self._buffer.append(value)
+            self._notify_waiters()
+            return RecvResult("ready")
+
+    def _send_unbuffered(
+        self,
+        value: "ShkValue",
+        block: bool,
+        cancel_token: Optional[CancelToken],
+    ) -> RecvResult:
+        with self._cond:
+            self._check_cancel(cancel_token)
+
+            if self._closed:
+                return RecvResult("closed")
+
+            # Non-blocking: only succeed if a receiver is already waiting
             if not block:
-                if self._closed:
-                    return False
                 if self._has_unbuffered or self._waiting_receivers == 0:
-                    return None
-                # For non-blocking unbuffered send, succeed only if a receiver is
-                # already waiting. We don't wait for consumption here; the waiting
-                # receiver will complete the rendezvous.
+                    return RecvResult("blocked")
                 self._unbuffered_value = value
                 self._has_unbuffered = True
-                self._cond.notify_all()
-                self._notify_select_waiters()
-                return True
+                self._notify_waiters()
+                return RecvResult("ready")
 
-            while self._has_unbuffered and not self._closed:
-                self._waiting_senders += 1
-                try:
-                    self._wait_with_cancel(cancel_token)
-                finally:
-                    self._waiting_senders -= 1
-                self._check_cancel(cancel_token)
+            # Blocking: wait for slot, place value, wait for consumption
+            self._wait_for(
+                lambda: not self._has_unbuffered or self._closed, cancel_token
+            )
             if self._closed:
-                return False
+                return RecvResult("closed")
+
             self._unbuffered_value = value
             self._has_unbuffered = True
-            self._cond.notify_all()
-            self._notify_select_waiters()
+            self._notify_waiters()
 
-            while self._has_unbuffered and not self._closed:
-                self._wait_with_cancel(cancel_token)
-                self._check_cancel(cancel_token)
+            # Wait for receiver to take it
+            self._wait_for(
+                lambda: not self._has_unbuffered or self._closed, cancel_token
+            )
             if self._closed and self._has_unbuffered:
                 self._has_unbuffered = False
                 self._unbuffered_value = None
-                return False
-            return True
+                return RecvResult("closed")
+
+            return RecvResult("ready")
+
+    # ---- Receive ----
 
     def recv(
         self, *, cancel_token: Optional[CancelToken] = None
     ) -> tuple["ShkValue", bool]:
-        value, ok = self._recv_value(block=True, cancel_token=cancel_token)
-        return value, ok
+        """Blocking receive. Returns (value, ok)."""
+        result = self._recv(block=True, cancel_token=cancel_token)
+        if result.ok:
+            return result.value if result.value is not None else ShkNull(), True
+        return ShkNull(), False
 
-    def try_recv(self) -> tuple[str, Optional["ShkValue"], bool]:
+    def recv_value(self, *, cancel_token: Optional[CancelToken] = None) -> "ShkValue":
+        """Blocking receive that returns value directly (nil if closed)."""
+        result = self._recv(block=True, cancel_token=cancel_token)
+        return result.value if result.value is not None else ShkNull()
+
+    def recv_with_ok(
+        self, *, cancel_token: Optional[CancelToken] = None
+    ) -> tuple["ShkValue", bool]:
+        """Blocking receive. Returns (value, ok)."""
+        return self.recv(cancel_token=cancel_token)
+
+    def try_recv_value(self) -> tuple[str, Optional["ShkValue"]]:
+        """Non-blocking receive. Returns (status, value)."""
+        result = self._recv(block=False, cancel_token=None)
+        return result.status, result.value
+
+    def _recv(self, *, block: bool, cancel_token: Optional[CancelToken]) -> RecvResult:
+        if self.capacity > 0:
+            return self._recv_buffered(block, cancel_token)
+        return self._recv_unbuffered(block, cancel_token)
+
+    def _recv_buffered(
+        self, block: bool, cancel_token: Optional[CancelToken]
+    ) -> RecvResult:
         with self._cond:
-            if self.capacity > 0:
-                if self._buffer:
-                    value = self._buffer.popleft()
-                    self._cond.notify_all()
-                    self._notify_select_waiters()
-                    return "ready", value, True
-                if self._closed:
-                    return "closed", None, False
-                return "blocked", None, False
+            self._check_cancel(cancel_token)
+
+            if self._buffer:
+                value = self._buffer.popleft()
+                self._notify_waiters()
+                return RecvResult("ready", value)
+
+            if self._closed:
+                return RecvResult("closed")
+
+            if not block:
+                return RecvResult("blocked")
+
+            self._wait_for(lambda: bool(self._buffer) or self._closed, cancel_token)
+
+            if self._buffer:
+                value = self._buffer.popleft()
+                self._notify_waiters()
+                return RecvResult("ready", value)
+
+            return RecvResult("closed")
+
+    def _recv_unbuffered(
+        self, block: bool, cancel_token: Optional[CancelToken]
+    ) -> RecvResult:
+        with self._cond:
+            self._check_cancel(cancel_token)
 
             if self._has_unbuffered:
                 value = self._unbuffered_value
                 self._unbuffered_value = None
                 self._has_unbuffered = False
-                self._cond.notify_all()
-                self._notify_select_waiters()
-                return "ready", value, True
+                self._notify_waiters()
+                return RecvResult("ready", value)
+
             if self._closed:
-                return "closed", None, False
-            return "blocked", None, False
+                return RecvResult("closed")
 
-    def _recv_value(
-        self, *, block: bool, cancel_token: Optional[CancelToken]
-    ) -> tuple[Optional["ShkValue"], bool]:
-        with self._cond:
-            self._check_cancel(cancel_token)
-            if self.capacity > 0:
-                if not block and not self._buffer:
-                    if self._closed:
-                        return None, False
-                    return None, False
-                while not self._buffer and not self._closed:
-                    self._waiting_receivers += 1
-                    try:
-                        self._wait_with_cancel(cancel_token)
-                    finally:
-                        self._waiting_receivers -= 1
-                    self._check_cancel(cancel_token)
-                if not self._buffer:
-                    return None, False
-                value = self._buffer.popleft()
-                self._cond.notify_all()
-                self._notify_select_waiters()
-                return value, True
+            if not block:
+                return RecvResult("blocked")
 
-            if not block and not self._has_unbuffered:
-                if self._closed:
-                    return None, False
-                return None, False
+            self._waiting_receivers += 1
+            try:
+                self._wait_for(
+                    lambda: self._has_unbuffered or self._closed, cancel_token
+                )
+            finally:
+                self._waiting_receivers -= 1
 
-            while not self._has_unbuffered and not self._closed:
-                self._waiting_receivers += 1
-                try:
-                    self._wait_with_cancel(cancel_token)
-                finally:
-                    self._waiting_receivers -= 1
+            if self._has_unbuffered:
+                value = self._unbuffered_value
+                self._unbuffered_value = None
+                self._has_unbuffered = False
+                self._notify_waiters()
+                return RecvResult("ready", value)
+
+            return RecvResult("closed")
+
+    # ---- Internal helpers ----
+
+    def _check_cancel(self, cancel_token: Optional[CancelToken]) -> None:
+        if cancel_token is not None and cancel_token.cancelled():
+            raise ShakarCancelledError("Spawn task cancelled")
+
+    def _wait_for(
+        self,
+        predicate: Callable[[], bool],
+        cancel_token: Optional[CancelToken],
+    ) -> None:
+        """Wait until predicate is true, checking cancellation."""
+        if cancel_token is not None:
+            cancel_token.register_condition(self._cond)
+        try:
+            while not predicate():
+                # Re-check after registration to close the race window where
+                # cancellation fires between the caller's _check_cancel and
+                # register_condition above.
                 self._check_cancel(cancel_token)
-            if not self._has_unbuffered:
-                return None, False
-            value = self._unbuffered_value
-            self._unbuffered_value = None
-            self._has_unbuffered = False
-            self._cond.notify_all()
-            self._notify_select_waiters()
-            return value, True
+                self._cond.wait()
+                self._check_cancel(cancel_token)
+        finally:
+            if cancel_token is not None:
+                cancel_token.unregister_condition(self._cond)
+
+    # ---- Result channel stubs (overridden in subclass) ----
 
     def send_result(self, value: Optional["ShkValue"]) -> bool:
-        if not self._result_mode:
-            raise ShakarRuntimeError("send_result only valid for spawn channels")
-        item = _ResultItem(value=value)
-        return self._send_result_item(item)
+        raise ShakarRuntimeError("send_result only valid for spawn channels")
 
     def send_error(self, exc: Exception) -> bool:
-        if not self._result_mode:
-            raise ShakarRuntimeError("send_error only valid for spawn channels")
-        item = _ResultItem(error=exc)
-        return self._send_result_item(item)
+        raise ShakarRuntimeError("send_error only valid for spawn channels")
 
-    def _send_result_item(self, item: _ResultItem) -> bool:
+
+class ShkResultChannel(ShkChannel):
+    """One-shot channel for spawn task results.
+
+    Receiving unwraps the result or re-raises any captured exception.
+    Closing the channel signals cancellation to the spawned task.
+    """
+
+    def __init__(self, cancel_token: CancelToken) -> None:
+        super().__init__(capacity=1)
+        self._cancel_token = cancel_token
+        self._cancelled = False
+        self._result_delivered = False
+
+    def __repr__(self) -> str:
+        with self._cond:
+            if self._cancelled:
+                state = "cancelled"
+            elif self._result_delivered:
+                state = "completed"
+            elif self._closed:
+                state = "closed"
+            else:
+                state = "pending"
+            return f"<result-channel {state}>"
+
+    def is_result_channel(self) -> bool:
+        return True
+
+    def close(self) -> None:
+        with self._cond:
+            if self._closed:
+                if self._result_delivered:
+                    return
+                raise ShakarRuntimeError("Channel already closed")
+            self._closed = True
+            self._cancelled = True
+            self._cancel_token.cancel()
+            self._notify_waiters()
+
+    def send(self, value: "ShkValue") -> bool:
+        raise ShakarRuntimeError("Cannot send to spawn result channel")
+
+    def send_with_cancel(
+        self, value: "ShkValue", cancel_token: Optional[CancelToken]
+    ) -> bool:
+        raise ShakarRuntimeError("Cannot send to spawn result channel")
+
+    def try_send(self, value: "ShkValue") -> tuple[bool, bool]:
+        raise ShakarRuntimeError("Cannot send to spawn result channel")
+
+    def send_result(self, value: Optional["ShkValue"]) -> bool:
+        return self._deliver(_ResultItem(value=value))
+
+    def send_error(self, exc: Exception) -> bool:
+        return self._deliver(_ResultItem(error=exc))
+
+    def _deliver(self, item: _ResultItem) -> bool:
         with self._cond:
             if self._closed or self._cancelled:
                 return False
-            if self.capacity == 0:
-                raise ShakarRuntimeError("Spawn result channels must be buffered")
             if self._buffer:
                 raise ShakarRuntimeError("Spawn result channel already has a value")
-            self._buffer.append(item)
+            self._buffer.append(item)  # type: ignore[arg-type]
             self._result_delivered = True
             self._closed = True
-            self._cond.notify_all()
-            self._notify_select_waiters()
+            self._notify_waiters()
             return True
 
     def recv_value(self, *, cancel_token: Optional[CancelToken] = None) -> "ShkValue":
-        value, ok = self._recv_value(block=True, cancel_token=cancel_token)
-        return self._unwrap_recv(value, ok)
+        result = self._recv(block=True, cancel_token=cancel_token)
+        return self._unwrap(result)
 
     def recv_with_ok(
         self, *, cancel_token: Optional[CancelToken] = None
     ) -> tuple["ShkValue", bool]:
-        value, ok = self._recv_value(block=True, cancel_token=cancel_token)
-        if self._result_mode:
-            return self._unwrap_recv(value, ok), True
-        if value is None or not ok:
-            return ShkNull(), False
-        return value, True
+        result = self._recv(block=True, cancel_token=cancel_token)
+        return self._unwrap(result), True
 
     def try_recv_value(self) -> tuple[str, Optional["ShkValue"]]:
-        status, value, ok = self.try_recv()
-        if status == "blocked":
+        result = self._recv(block=False, cancel_token=None)
+        if result.status == "blocked":
             return "blocked", None
-        if status == "closed":
-            if self._result_mode and self._cancelled:
+        if result.status == "closed":
+            if self._cancelled:
                 return "cancelled", None
             return "closed", None
-        return "ready", self._unwrap_recv(value, ok, allow_blocked=True)
+        return "ready", self._unwrap(result)
 
-    def _unwrap_recv(
-        self, value: Optional["ShkValue"], ok: bool, *, allow_blocked: bool = False
-    ) -> "ShkValue":
-        if value is None and not ok:
-            if self._result_mode and self._cancelled and self._closed:
+    def _unwrap(self, result: RecvResult) -> "ShkValue":
+        if not result.ok:
+            if self._cancelled and self._closed:
                 raise ShakarCancelledError("Spawn task cancelled")
             return ShkNull()
 
-        if not self._result_mode:
-            if value is None:
-                return ShkNull()
-            return value
-
+        value = result.value
         if value is None:
-            if allow_blocked:
-                return ShkNull()
             raise ShakarRuntimeError("Spawn result missing value")
 
         if isinstance(value, _ResultItem):
@@ -750,6 +872,7 @@ class Frame:
         self._is_function_frame = False
         self._active_error: Optional[ShakarRuntimeError] = None
         self.pending_anchor_override: Optional[ShkValue] = None
+        self.cancel_token: Optional[CancelToken]
         if cancel_token is not None:
             self.cancel_token = cancel_token
         elif parent is not None:
