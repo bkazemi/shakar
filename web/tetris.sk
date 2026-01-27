@@ -1,0 +1,223 @@
+# Tetris - Unified io module version
+# Works in both terminal and browser via the io module.
+
+import "io"
+
+cols := 10
+rows := 22
+
+tetris_shapes := [
+  [[1,1,1],[0,1,0]],   # T
+  [[0,2,2],[2,2,0]],   # S
+  [[3,3,0],[0,3,3]],   # Z
+  [[4,0,0],[4,4,4]],   # L
+  [[0,0,5],[5,5,5]],   # J
+  [[6,6,6,6]],         # I
+  [[7,7],[7,7]],       # O
+]
+
+GameState := {
+  board: Array,
+  cur: Array,
+  next: Array,
+  x: Int,
+  y: Int,
+  level: Int,
+  score: Int,
+  lines: Int,
+  isOver: Bool,
+  rng: Int,
+}
+
+fn reverse(xs ~ Array):
+  !xs.len: return []
+  return reverse(xs[1:]) + [xs[0]]
+
+fn rotate(shape ~ Array):
+  ??(!shape[0]): return []
+  return rotate([row[1:] over shape]) + [ reverse([row[0] over shape]) ]
+
+fn lcg(seed ~ Int):
+  a, c, m := 1664525, 1013904223, 2**32
+  nxt := (a*seed + c) % m
+  return { seed: nxt, val: nxt }
+
+fn new_board():
+  base := [[0].repeat(cols) over rows]
+  return base + [[1].repeat(cols)]
+
+fn collision(board, shape ~ Array, offx, offy ~ Int):
+  for[cy, row] shape:
+    for[cx, cell] row:
+      cell and (
+        (ty := offy + cy) >= board.high
+        or (tx := offx + cx) < 0, or >= cols
+        or ((row := board[ty]) == nil, or == 1)
+        or row[tx]
+      ):
+        return true
+  return false
+
+fn merge(board, shape ~ Array, offx, offy ~ Int):
+  for[cy, row] shape:
+    for[cx, cell] row:
+      cell:
+        board[offy + cy][offx + cx] = cell
+  return board
+
+fn strip_full(board ~ Array):
+  keep := [row over board[:-1] if row.len and !all(row)]
+  cleared := board.high - keep.len
+  return ([[0].repeat(cols) over cleared] + keep + [[1].repeat(cols)]), cleared
+
+fn new_state():
+  pick := lcg(42)
+  idx := pick.val % tetris_shapes.len
+  next_idx := (idx + 1) % tetris_shapes.len
+
+  return {
+    board: new_board(),
+    cur: tetris_shapes[idx],
+    next: tetris_shapes[next_idx],
+    x: int(cols / 2 - tetris_shapes[idx][0].len / 2),
+    y: 0,
+    level: 1,
+    score: 0,
+    lines: 0,
+    isOver: false,
+    rng: pick.seed,
+  }
+
+fn refill_next(state ~ GameState):
+  step := lcg(state.rng)
+  state{
+    .rng = step.seed
+    .next = tetris_shapes[step.val % tetris_shapes.len]
+  }
+
+fn spawn_piece(state ~ GameState):
+  state{
+    .cur = .next
+    .x = int((cols/2) - .cur[0].len/2)
+    .y = 0
+  }
+  collision(state.{board, cur, x, y}):
+    state.isOver = true
+  refill_next(state)
+
+fn move_h(state ~ GameState, dx ~ Int):
+  (nx := state.x + dx) >= 0, <= cols - state.cur[0].len:
+    !collision(state.{board, cur}, nx, state.y):
+      state.x = nx
+
+fn rotate_cur(state ~ GameState):
+  ns := rotate(state.cur)
+  !collision(state.board, ns, state.{x,y}):
+    state.cur = ns
+
+fn tick_down(state ~ GameState):
+  collision(state.{board, cur, x}, state.y + 1):
+    lock_and_next(state)
+  |:
+    state.y += 1
+
+fn hard_drop(state ~ GameState):
+  while !collision(state.{board, cur, x}, state.y + 1):
+    state.y++
+  lock_and_next(state)
+
+fn lock_and_next(state ~ GameState):
+  state.board = merge(state.{board, cur, x, y})
+  board_after, cleared := strip_full(state.board)
+  state.board = board_after
+
+  scores := [0,40,100,300,1200]
+  state{
+    .lines += cleared
+    .score += scores[cleared] * state.level
+  }
+
+  state.$lines >= .level * 6:
+    state.level++
+
+  spawn_piece(state)
+
+fn read_arrow_key(timeout_ms ~ Int):
+  (ch := io.read_key(timeout_ms)) == "": return ""
+  ch != "\u{1b}": return ch
+
+  ch2, ch3 := [io.read_key(50) for 2]
+
+  ch2 == "[":
+    match ch3:
+      "D": return "left"
+      "C": return "right"
+      "B": return "down"
+      "A": return "up"
+
+  return ""
+
+fn handle_key(state ~ GameState, key ~ Str):
+  match key:
+    "left": move_h(state, -1)
+    "right": move_h(state, 1)
+    "down": tick_down(state)
+    "up": rotate_cur(state)
+    " ": hard_drop(state)
+    else: nil
+
+fn board_lines(board ~ Array):
+  return [row_str(row) over board[:-1]]
+
+to_char := &(. == 0 ? ". " : "# ")
+
+fn row_str(row ~ Array):
+  return "".join([to_char(.) over row])
+
+fn render(state ~ GameState):
+  board := merge([.[:] over state.board], state.{cur, x, y})
+  nl := "\r\n"
+
+  frame := ""
+  frame += "+" + "-".repeat(22) + "+" + nl
+  for board_lines(board):
+    frame += "| " + . + "|" + nl
+  frame += "+" + "-".repeat(22) + "+" + nl
+  frame += "Score: {state.score}  Lines: {state.lines}  Level: {state.level}" + nl
+  frame += nl + "Next:" + nl
+  for row in state.next:
+    frame += "  " + row_str(row) + nl
+  frame += nl + "Controls: Arrow keys to move/rotate, Space to drop, Q to quit"
+
+  io.clear()
+  io.write(frame)
+
+fn run_interactive():
+  spawn_piece(st := new_state())
+
+  key := ""
+  tick := 0
+  while !st.isOver:
+    render(st)
+    key = read_arrow_key(200)
+    key == "q": return
+    key: handle_key(st, key)
+    tick = (tick + 1) % 4
+    tick == 0 and key != "down": tick_down(st)
+
+fn run_demo(ticks ~ Int):
+  st := new_state()
+  spawn_piece(st)
+
+  t := 0
+  while t < ticks and !st.isOver:
+    tick_down(st)
+    t++
+
+  return board_lines(st.board)
+
+io.is_interactive() and io.raw(true):
+  defer io.raw(false)
+  run_interactive()
+|:
+  for run_demo(50): print(.)

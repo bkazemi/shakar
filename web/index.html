@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shakar Playground</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>Shakar Playground</h1>
+        <span class="status" id="status">Loading Pyodide...</span>
+    </header>
+
+    <main>
+        <div class="editor-pane">
+            <div class="pane-header">
+                <span>Code</span>
+                <div class="controls">
+                    <select id="examples">
+                        <option value="">-- Examples --</option>
+                        <option value="hello">Hello World</option>
+                        <option value="fib">Fibonacci</option>
+                        <option value="loop">For Loop</option>
+                        <option value="tetris">Tetris</option>
+                    </select>
+                    <button id="run-btn" disabled>Run</button>
+                </div>
+            </div>
+            <div class="editor-container">
+                <pre id="highlight-layer" aria-hidden="true"></pre>
+                <textarea id="code" spellcheck="false">print("Hello, Shakar!")</textarea>
+            </div>
+        </div>
+
+        <div class="output-pane">
+            <div class="pane-header">
+                <span>Output</span>
+                <button id="clear-btn">Clear</button>
+            </div>
+            <pre id="output"></pre>
+        </div>
+    </main>
+
+    <footer>
+        <a href="https://github.com/bkazemi/shakar" target="_blank">GitHub</a>
+        <span class="sep">|</span>
+        <span>Shakar is a work in progress</span>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>

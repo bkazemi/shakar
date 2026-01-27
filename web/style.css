@@ -1,0 +1,297 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --bg: #1a1a2e;
+    --bg-secondary: #16213e;
+    --accent: #e94560;
+    --text: #eee;
+    --text-muted: #888;
+    --border: #333;
+    --success: #4ade80;
+    --error: #f87171;
+}
+
+body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 2rem;
+    border-bottom: 1px solid var(--border);
+}
+
+header h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.status {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+.status.ready {
+    color: var(--success);
+}
+
+.status.error {
+    color: var(--error);
+}
+
+main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+}
+
+@media (max-width: 768px) {
+    main {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr 1fr;
+    }
+}
+
+.editor-pane,
+.output-pane {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+}
+
+.pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.controls {
+    display: flex;
+    gap: 0.5rem;
+}
+
+select,
+button {
+    font-family: inherit;
+    font-size: 0.875rem;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+select {
+    background: var(--bg);
+    color: var(--text);
+}
+
+button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    font-weight: 500;
+    transition: opacity 0.15s;
+}
+
+button:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#clear-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+}
+
+#clear-btn:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+}
+
+/* Editor with syntax highlighting overlay */
+.editor-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+#highlight-layer,
+#code {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    padding: 1rem;
+    margin: 0;
+    font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    tab-size: 4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow: auto;
+}
+
+#highlight-layer {
+    background: var(--bg);
+    color: var(--text);
+    pointer-events: none;
+    z-index: 1;
+}
+
+#code {
+    background: transparent;
+    color: transparent;
+    caret-color: var(--text);
+    border: none;
+    resize: none;
+    outline: none;
+    z-index: 2;
+}
+
+/* Syntax highlighting colors */
+.hl-keyword { color: #c792ea; }
+.hl-string { color: #c3e88d; }
+.hl-number { color: #f78c6c; }
+.hl-boolean { color: #ff9cac; }
+.hl-constant { color: #89ddff; }
+.hl-operator { color: #89ddff; }
+.hl-punctuation { color: #89ddff; }
+.hl-identifier { color: #eee; }
+.hl-function { color: #82aaff; }
+.hl-decorator { color: #c792ea; font-style: italic; }
+.hl-property { color: #f07178; }
+.hl-comment { color: #676e95; font-style: italic; }
+.hl-regex { color: #89ddff; }
+.hl-path { color: #c3e88d; }
+.hl-unit { color: #ffcb6b; }
+.hl-type { color: #ffcb6b; }
+.hl-subject { color: #82aaff; font-weight: bold; }
+.hl-selector { color: #89ddff; }
+.hl-hook { color: #c792ea; }
+/* Line wrappers */
+.hl-line {
+    display: block;
+    margin-left: -1rem;
+    padding-left: 1rem;
+}
+
+.hl-line-error {
+    background: rgba(248, 113, 113, 0.1);
+    box-shadow: inset 3px 0 0 var(--error);
+}
+
+.hl-error {
+    color: #f07178;
+    background: rgba(248, 113, 113, 0.25);
+    text-decoration: wavy underline;
+    text-decoration-color: var(--error);
+    border-radius: 2px;
+}
+
+#output {
+    flex: 1;
+    padding: 1rem;
+    font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+#output.error {
+    color: var(--error);
+}
+
+footer {
+    padding: 1rem 2rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+footer a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+footer a:hover {
+    text-decoration: underline;
+}
+
+.sep {
+    margin: 0 0.5rem;
+}
+
+/* Loading spinner for run button */
+button.loading {
+    position: relative;
+    color: transparent;
+}
+
+button.loading::after {
+    content: "";
+    position: absolute;
+    width: 1rem;
+    height: 1rem;
+    top: 50%;
+    left: 50%;
+    margin-left: -0.5rem;
+    margin-top: -0.5rem;
+    border: 2px solid white;
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Game controls */
+#game-controls {
+    display: flex;
+    gap: 0.5rem;
+}
+
+#start-game-btn {
+    background: #4ade80;
+}
+
+#stop-game-btn {
+    background: #f87171;
+}
+
+/* Monospace output for game board */
+#output.game-output {
+    font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+    font-size: 1rem;
+    line-height: 1.2;
+    letter-spacing: 0.05em;
+}
