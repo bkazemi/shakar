@@ -1621,17 +1621,17 @@ runtime_scenario(
 )
 runtime_scenario(
     _rt(
-        "import-term-binding",
-        """import "term"
-term.len""",
-        ("number", 5),
+        "import-io-binding",
+        """import "io"
+io.len""",
+        ("number", 6),
         None,
     )
 )
 runtime_scenario(
     _rt(
         "import-mixin-collision",
-        'read_key := 1\nimport[*] "term"',
+        'read_key := 1\nimport[*] "io"',
         None,
         ShakarImportError,
     )

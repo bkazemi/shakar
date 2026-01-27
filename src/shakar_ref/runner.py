@@ -13,15 +13,7 @@ from .runtime import ShkValue
 from .runtime import Frame, init_stdlib
 
 
-def run(
-    src: str,
-    grammar_path: Optional[str] = None,
-    use_indenter: Optional[bool] = None,
-    grammar_variant: str = "default",
-    source_path: Optional[str] = None,
-) -> ShkValue:  # grammar_path/variant kept for CLI compatibility; ignored
-    init_stdlib()
-
+def _parse_and_lower(src: str, use_indenter: Optional[bool] = None):
     if use_indenter is None:
         preferred = looks_like_offside(src)
         attempts = [preferred, not preferred]
@@ -45,17 +37,46 @@ def run(
 
     ast = Prune().transform(tree)
     ast2 = lower(ast)
+
     # Unwrap start_* roots only when they contain a single child; otherwise keep
     # them so statement lists execute in order during evaluation.
     d = getattr(ast2, "data", None)
-
     if d in ("start_noindent", "start_indented"):
         children = getattr(ast2, "children", None)
-
         if children and len(children) == 1:
             ast2 = children[0]
 
+    return ast2
+
+
+def run(
+    src: str,
+    grammar_path: Optional[str] = None,
+    use_indenter: Optional[bool] = None,
+    grammar_variant: str = "default",
+    source_path: Optional[str] = None,
+) -> ShkValue:  # grammar_path/variant kept for CLI compatibility; ignored
+    init_stdlib()
+    ast2 = _parse_and_lower(src, use_indenter=use_indenter)
     return eval_expr(ast2, Frame(source=src, source_path=source_path), source=src)
+
+
+def run_with_env(
+    src: str,
+    source_path: Optional[str] = None,
+) -> Frame:
+    """Run source and return the frame with all defined names accessible."""
+    init_stdlib()
+    ast2 = _parse_and_lower(src)
+    frame = Frame(source=src, source_path=source_path)
+    eval_expr(ast2, frame, source=src)
+    return frame
+
+
+def eval_in_env(src: str, frame: Frame) -> ShkValue:
+    """Evaluate an expression in an existing frame/environment."""
+    ast2 = _parse_and_lower(src)
+    return eval_expr(ast2, frame, source=src)
 
 
 def _load_source(arg: Optional[str]) -> tuple[str, Optional[str]]:
@@ -100,25 +121,7 @@ def main() -> None:
     if show_tree:
         # Parse and show AST without executing
         init_stdlib()
-        preferred = looks_like_offside(source)
-        attempts = [preferred, not preferred]
-
-        last_error = None
-        tree = None
-        for flag in attempts:
-            try:
-                tree = parse_source(source, use_indenter=flag)
-                break
-            except (ParseError, LexError) as exc:
-                last_error = exc
-
-        if tree is None:
-            if last_error is not None:
-                raise last_error
-            raise RuntimeError("Parser failed without producing a parse tree")
-
-        ast = Prune().transform(tree)
-        ast2 = lower(ast)
+        ast2 = _parse_and_lower(source)
         print(ast2.pretty())
     else:
         print(

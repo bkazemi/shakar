@@ -208,35 +208,69 @@ def std_union(_frame, args: List[ShkValue]) -> ShkUnion:
     return ShkUnion(tuple(args))
 
 
-def _term_read_key(_frame, args: List[ShkValue]) -> ShkString:
+# --- Unified io module ---
+# Platform-agnostic I/O that works in terminal and browser.
+
+_TERM_RAW_STATE: Optional[list[int]] = None
+
+
+def _detect_platform() -> str:
+    """Detect runtime platform: 'browser' or 'terminal'."""
+    try:
+        import js  # Pyodide provides this in browser
+
+        return "browser"
+    except ImportError:
+        return "terminal"
+
+
+# Browser key queue - JavaScript pushes keys here via shk_io_push_key
+_io_key_queue: List[str] = []
+
+
+def _io_read_key(_frame, args: List[ShkValue]) -> ShkString:
+    """Read a single key. Optional timeout in ms; blocks forever if omitted."""
+    if len(args) > 1:
+        raise ShakarTypeError("io.read_key([timeout_ms]) expects at most one argument")
+
+    timeout_ms: Optional[float] = None
     if args:
-        raise ShakarTypeError("term.read_key() expects no arguments")
-    import sys
+        duration = args[0]
+        if isinstance(duration, ShkDuration):
+            timeout_ms = max(0.0, float(duration.nanos) / 1_000_000.0)
+        elif isinstance(duration, ShkNumber):
+            timeout_ms = max(0.0, float(duration.value))
+        else:
+            raise ShakarTypeError(
+                "io.read_key([timeout_ms]) expects number or duration"
+            )
 
-    data = sys.stdin.buffer.read(1)
-    if not data:
-        return ShkString("")
-    return ShkString(data.decode("latin-1"))
-
-
-def _term_read_key_timeout(_frame, args: List[ShkValue]) -> ShkString:
-    if len(args) != 1:
-        raise ShakarTypeError("term.read_key_timeout(ms) expects one argument")
-    duration = args[0]
-
-    if isinstance(duration, ShkDuration):
-        seconds = max(0.0, float(duration.nanos) / 1_000_000_000.0)
-    elif isinstance(duration, ShkNumber):
-        seconds = max(0.0, float(duration.value)) / 1000.0
+    if _detect_platform() == "browser":
+        return _io_browser_read_key(timeout_ms)
     else:
-        raise ShakarTypeError("term.read_key_timeout(ms) expects number or duration")
+        return _io_term_read_key(timeout_ms)
 
+
+def _io_term_read_key(timeout_ms: Optional[float]) -> ShkString:
+    """Terminal implementation using select."""
     import select
     import sys
     import os
 
+    if not sys.stdin.isatty():
+        return ShkString("")
+
     fd = sys.stdin.fileno()
-    ready, _, _ = select.select([fd], [], [], seconds)
+
+    if timeout_ms is None:
+        # Blocking read
+        data = os.read(fd, 1)
+        if not data:
+            return ShkString("")
+        return ShkString(data.decode("latin-1"))
+
+    # Timeout read
+    ready, _, _ = select.select([fd], [], [], timeout_ms / 1000.0)
     if not ready:
         return ShkString("")
 
@@ -246,14 +280,102 @@ def _term_read_key_timeout(_frame, args: List[ShkValue]) -> ShkString:
     return ShkString(data.decode("latin-1"))
 
 
-_TERM_RAW_STATE: Optional[list[int]] = None
+def _io_browser_read_key(timeout_ms: Optional[float]) -> ShkString:
+    """Browser implementation using Pyodide's run_sync for async sleep."""
+    global _io_key_queue
+
+    if _io_key_queue:
+        return ShkString(_io_key_queue.pop(0))
+
+    try:
+        from pyodide.ffi import run_sync
+        import asyncio
+
+        async def wait_for_key():
+            elapsed = 0.0
+            interval = 16  # ms
+            while timeout_ms is None or elapsed < timeout_ms:
+                await asyncio.sleep(interval / 1000.0)
+                if timeout_ms is not None:
+                    elapsed += interval
+                if _io_key_queue:
+                    return _io_key_queue.pop(0)
+            return ""
+
+        return ShkString(run_sync(wait_for_key()))
+    except ImportError:
+        # Fallback: just return empty
+        return ShkString("")
 
 
-def _term_raw(_frame, args: List[ShkValue]) -> ShkBool:
+def _io_write(_frame, args: List[ShkValue]) -> ShkNull:
+    """Write text to output."""
+    if len(args) != 1 or not isinstance(args[0], ShkString):
+        raise ShakarTypeError("io.write(str) expects one string argument")
+
+    text = args[0].value
+
+    if _detect_platform() == "browser":
+        import re
+        import js
+
+        # Strip ANSI escape codes for browser
+        clean = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
+        clean = re.sub(r"\x1b\[\?[0-9;]*[a-zA-Z]", "", clean)
+        js.shk_io_write(clean)
+    else:
+        import sys
+
+        try:
+            sys.stdout.buffer.write(text.encode("latin-1"))
+        except UnicodeEncodeError:
+            sys.stdout.write(text)
+        sys.stdout.flush()
+
+    return ShkNull()
+
+
+def _io_clear(_frame, args: List[ShkValue]) -> ShkNull:
+    """Clear the screen/output."""
+    if args:
+        raise ShakarTypeError("io.clear() expects no arguments")
+
+    if _detect_platform() == "browser":
+        import js
+
+        js.shk_io_clear()
+    else:
+        import sys
+
+        # ANSI clear screen + home
+        sys.stdout.write("\x1b[2J\x1b[H")
+        sys.stdout.flush()
+
+    return ShkNull()
+
+
+def _io_is_interactive(_frame, args: List[ShkValue]) -> ShkBool:
+    """Check if interactive I/O is available."""
+    if args:
+        raise ShakarTypeError("io.is_interactive() expects no arguments")
+
+    if _detect_platform() == "browser":
+        return ShkBool(True)
+    else:
+        import sys
+
+        return ShkBool(sys.stdin.isatty() and sys.stdout.isatty())
+
+
+def _io_raw(_frame, args: List[ShkValue]) -> ShkBool:
+    """Set raw mode (terminal only, no-op in browser)."""
     if len(args) != 1:
-        raise ShakarTypeError("term.raw(on) expects one boolean argument")
+        raise ShakarTypeError("io.raw(on) expects one boolean argument")
     if not isinstance(args[0], ShkBool):
-        raise ShakarTypeError("term.raw(on) expects a boolean")
+        raise ShakarTypeError("io.raw(on) expects a boolean")
+
+    if _detect_platform() == "browser":
+        return ShkBool(True)
 
     import sys
 
@@ -279,36 +401,17 @@ def _term_raw(_frame, args: List[ShkValue]) -> ShkBool:
     return ShkBool(True)
 
 
-def _term_is_interactive(_frame, args: List[ShkValue]) -> ShkBool:
-    if args:
-        raise ShakarTypeError("term.is_interactive() expects no arguments")
-    import sys
-
-    return ShkBool(sys.stdin.isatty() and sys.stdout.isatty())
-
-
-def _term_write(_frame, args: List[ShkValue]) -> ShkNull:
-    if len(args) != 1 or not isinstance(args[0], ShkString):
-        raise ShakarTypeError("term.write(str) expects one string argument")
-    import sys
-
-    try:
-        sys.stdout.buffer.write(args[0].value.encode("latin-1"))
-    except UnicodeEncodeError:
-        sys.stdout.write(args[0].value)
-    sys.stdout.flush()
-    return ShkNull()
-
-
-def _build_term_module() -> ShkModule:
+def _build_io_module() -> ShkModule:
+    """Build the unified io module."""
     slots: dict[str, ShkValue] = {
-        "read_key": StdlibFunction(fn=_term_read_key, arity=0),
-        "read_key_timeout": StdlibFunction(fn=_term_read_key_timeout, arity=1),
-        "is_interactive": StdlibFunction(fn=_term_is_interactive, arity=0),
-        "write": StdlibFunction(fn=_term_write, arity=1),
-        "raw": StdlibFunction(fn=_term_raw, arity=1),
+        "read_key": StdlibFunction(fn=_io_read_key),  # 0 or 1 args
+        "write": StdlibFunction(fn=_io_write, arity=1),
+        "clear": StdlibFunction(fn=_io_clear, arity=0),
+        "is_interactive": StdlibFunction(fn=_io_is_interactive, arity=0),
+        "raw": StdlibFunction(fn=_io_raw, arity=1),
+        "platform": ShkString(_detect_platform()),
     }
-    return ShkModule(slots=slots, name="term")
+    return ShkModule(slots=slots, name="io")
 
 
-register_module_factory("term", _build_term_module)
+register_module_factory("io", _build_io_module)
