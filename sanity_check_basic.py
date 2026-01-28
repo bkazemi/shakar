@@ -4842,6 +4842,56 @@ arr.repeat(0)""",
     )
 )
 
+
+# fn: sugar scenarios
+runtime_scenario(
+    _rt(
+        "fn-sugar-simple",
+        """f := fn: 42
+f()""",
+        ("number", 42),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "fn-sugar-contract",
+        """f := fn ~ Int: 100
+f()""",
+        ("number", 100),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "fn-sugar-block",
+        """f := fn:
+    x := 10
+    x * 2
+f()""",
+        ("number", 20),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "fn-sugar-arglist",
+        """call_wrapper := fn(f, val): f() == val
+call_wrapper(fn: 5, 5)""",
+        ("bool", True),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "fn-sugar-contract-fail",
+        """f := fn ~ Int: "bad"
+f()""",
+        None,
+        ShakarTypeError,
+    )
+)
+
 if __name__ == "__main__":
     report, failures = run(sys.argv[1:])
     out_path = Path("sanity_report.txt")

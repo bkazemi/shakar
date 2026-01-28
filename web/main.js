@@ -1,4 +1,4 @@
-// Shakar Playground - Pyodide-based execution with syntax highlighting
+// Shakar Playground - Web Worker-based execution with syntax highlighting
 
 const EXAMPLES = {
     hello: `print("Hello, Shakar!")`,
@@ -17,11 +17,41 @@ print(sum)`,
     tetris: null  // Special case - loaded from file
 };
 
-let pyodide = null;
+let worker = null;
 let shakarLoaded = false;
 let highlightTimeout = null;
 let tetrisCode = null;
 let tetrisRunning = false;
+
+// SharedArrayBuffer for sending keys to worker while Python blocks.
+// Layout: Int32Array[0]=write_idx, [1..32]=key codes (ring buffer, 32 slots)
+// Key encoding: left=1, right=2, down=3, up=4, space=5, q=6
+const KEY_BUF_SLOTS = 32;
+const supportsSharedArrayBuffer = (
+    typeof SharedArrayBuffer === 'function' &&
+    typeof Atomics === 'object' &&
+    self.crossOriginIsolated === true
+);
+const keyBuffer = supportsSharedArrayBuffer
+    ? new SharedArrayBuffer((1 + KEY_BUF_SLOTS) * 4)
+    : null;
+const keyBufView = keyBuffer ? new Int32Array(keyBuffer) : null;
+
+const KEY_CODES = {
+    'left': 1, 'right': 2, 'down': 3, 'up': 4, ' ': 5, 'q': 6
+};
+
+function pushKey(key) {
+    if (!keyBufView) return;
+    const code = KEY_CODES[key];
+    if (!code) return;
+    const idx = Atomics.load(keyBufView, 0);
+    // Coerce to uint32 so ring math stays correct after Int32 wraparound.
+    const slot = ((idx >>> 0) % KEY_BUF_SLOTS) + 1;
+    Atomics.store(keyBufView, slot, code);
+    Atomics.store(keyBufView, 0, (idx + 1) | 0);
+    Atomics.notify(keyBufView, 0);
+}
 
 const statusEl = document.getElementById('status');
 const codeEl = document.getElementById('code');
@@ -30,6 +60,59 @@ const outputEl = document.getElementById('output');
 const runBtn = document.getElementById('run-btn');
 const clearBtn = document.getElementById('clear-btn');
 const examplesEl = document.getElementById('examples');
+
+// Batch io_write updates to one per animation frame to prevent flicker.
+let pendingWrite = null;
+let pendingClear = false;
+let writeRafId = 0;
+let clearFallbackTimeout = null;
+
+function flushWrite() {
+    if (pendingClear) {
+        outputEl.textContent = '';
+        pendingClear = false;
+    }
+    if (pendingWrite !== null) {
+        outputEl.textContent += pendingWrite;
+        pendingWrite = null;
+    }
+    writeRafId = 0;
+}
+
+function scheduleWrite(text) {
+    if (pendingWrite === null) {
+        pendingWrite = text;
+    } else {
+        pendingWrite += text;
+    }
+    
+    // If we receive a write, cancel any pending clear fallback 
+    // and ensure we schedule a frame immediately.
+    if (clearFallbackTimeout) {
+        clearTimeout(clearFallbackTimeout);
+        clearFallbackTimeout = null;
+    }
+
+    if (!writeRafId) {
+        writeRafId = requestAnimationFrame(flushWrite);
+    }
+}
+
+function scheduleClear() {
+    pendingClear = true;
+    pendingWrite = null;
+    
+    // Do not schedule RAF immediately. Wait a brief moment for a subsequent 
+    // write to arrive so they can be painted together (anti-flicker).
+    if (clearFallbackTimeout) clearTimeout(clearFallbackTimeout);
+    
+    clearFallbackTimeout = setTimeout(() => {
+        if (!writeRafId) {
+            writeRafId = requestAnimationFrame(flushWrite);
+        }
+        clearFallbackTimeout = null;
+    }, 5);
+}
 
 function setStatus(text, state = '') {
     statusEl.textContent = text;
@@ -179,7 +262,7 @@ function applyHighlights(code, highlights) {
     highlightEl.innerHTML = result.join('');
 }
 
-async function updateHighlights() {
+function updateHighlights() {
     if (!shakarLoaded) {
         highlightEl.textContent = codeEl.value;
         return;
@@ -191,24 +274,7 @@ async function updateHighlights() {
         return;
     }
 
-    try {
-        const escaped = code.replace(/\\/g, '\\\\').replace(/'''/g, "\\'\\'\\'");
-        const resultJson = await pyodide.runPythonAsync(`
-import json
-json.dumps(shk_highlight('''${escaped}'''))
-`);
-        const result = JSON.parse(resultJson);
-        let highlights = result.highlights || [];
-
-        if (currentError) {
-            highlights = highlights.concat([currentError]);
-        }
-
-        applyHighlights(code, highlights);
-    } catch (err) {
-        highlightEl.textContent = code;
-        console.error('Highlight error:', err);
-    }
+    worker.postMessage({type: 'highlight', code: code});
 }
 
 function scheduleHighlight() {
@@ -223,34 +289,6 @@ function scheduleHighlight() {
 function syncScroll() {
     highlightEl.scrollTop = codeEl.scrollTop;
     highlightEl.scrollLeft = codeEl.scrollLeft;
-}
-
-// --- io module JavaScript interface ---
-
-// DOM output for io.write()
-window.shk_io_write = (text) => {
-    outputEl.textContent = text;
-};
-
-// DOM clear for io.clear()
-window.shk_io_clear = () => {
-    outputEl.textContent = '';
-};
-
-// Push key to Python io key queue (direct access avoids runPython blocking)
-let ioKeyQueue = null;
-
-function pushKeyToQueue(key) {
-    if (!shakarLoaded) return;
-    try {
-        if (!ioKeyQueue) {
-            const stdlib = pyodide.pyimport('shakar_ref.stdlib');
-            ioKeyQueue = stdlib._io_key_queue;
-        }
-        ioKeyQueue.append(key);
-    } catch (e) {
-        console.error('pushKeyToQueue error:', e);
-    }
 }
 
 // --- Tetris ---
@@ -268,108 +306,13 @@ async function loadTetrisCode() {
     }
 }
 
-async function startTetris() {
-    if (tetrisRunning) return;
-
-    const code = await loadTetrisCode();
-    if (!code) {
-        setOutput('Failed to load tetris game', true);
-        return;
-    }
-
-    tetrisRunning = true;
-    runBtn.textContent = 'Stop';
-
-    // Blur textarea so arrow keys don't get captured by it
-    codeEl.blur();
-
-    setOutput('Starting Tetris...');
-
-    // Clear any stale keys from previous run
-    await pyodide.runPythonAsync(`
-from shakar_ref.stdlib import _io_key_queue
-_io_key_queue.clear()
-`);
-
-    try {
-        const escaped = code.replace(/\\/g, '\\\\').replace(/"""/g, '\\"\\"\\"');
-        await pyodide.runPythonAsync(`
-import sys
-from io import StringIO
-
-_shk_stdout = StringIO()
-sys.stdout = _shk_stdout
-
-try:
-    shk_run("""${escaped}""")
-except Exception as e:
-    print(f"Error: {e}")
-finally:
-    sys.stdout = sys.__stdout__
-`);
-    } catch (err) {
-        setOutput('Tetris error: ' + err.message, true);
-    } finally {
-        stopTetris();
-    }
-}
-
-function stopTetris() {
-    const wasRunning = tetrisRunning;
-    tetrisRunning = false;
-
-    // Push 'q' to exit game loop if it was actually running
-    if (wasRunning && shakarLoaded) {
-        pushKeyToQueue('q');
-    }
-
-    runBtn.textContent = 'Run';
-}
-
 function isTetrisExample() {
     return examplesEl.value === 'tetris';
-}
-
-async function initPyodide() {
-    try {
-        setStatus('Loading Pyodide...');
-        pyodide = await loadPyodide();
-
-        setStatus('Loading dependencies...');
-        await pyodide.loadPackage('typing-extensions');
-
-        setStatus('Loading Shakar...');
-        await loadShakar();
-
-        shakarLoaded = true;
-        runBtn.disabled = false;
-        setStatus('Ready', 'ready');
-
-        updateHighlights();
-    } catch (err) {
-        setStatus('Failed to load: ' + err.message, 'error');
-        console.error(err);
-    }
-}
-
-async function loadShakar() {
-    const response = await fetch('shakar_bundle.py');
-    if (!response.ok) {
-        throw new Error('Failed to load shakar_bundle.py');
-    }
-    const bundleCode = await response.text();
-    await pyodide.runPythonAsync(bundleCode);
-
-    // Cache the key queue reference for keyboard events
-    await pyodide.runPythonAsync(`import shakar_ref.stdlib`);
-    const stdlib = pyodide.pyimport('shakar_ref.stdlib');
-    ioKeyQueue = stdlib._io_key_queue;
 }
 
 async function runCode() {
     if (!shakarLoaded) return;
 
-    // Handle tetris specially - it needs interactive keyboard input
     if (isTetrisExample()) {
         if (tetrisRunning) {
             stopTetris();
@@ -389,49 +332,109 @@ async function runCode() {
     runBtn.classList.add('loading');
     setOutput('Running...');
 
-    try {
-        await pyodide.runPythonAsync(`
-import sys
-from io import StringIO
+    worker.postMessage({type: 'run', code: code, isTetris: false});
+}
 
-_shk_stdout = StringIO()
-_shk_stderr = StringIO()
-sys.stdout = _shk_stdout
-sys.stderr = _shk_stderr
-`);
+async function startTetris() {
+    if (tetrisRunning) return;
 
-        const escaped = code.replace(/\\/g, '\\\\').replace(/"""/g, '\\"\\"\\"');
-        await pyodide.runPythonAsync(`
-try:
-    _shk_result = shk_run("""${escaped}""")
-    if _shk_result is not None:
-        print(_shk_result)
-    _shk_error = None
-except Exception as e:
-    _shk_error = str(e)
-`);
-
-        const stdout = await pyodide.runPythonAsync('_shk_stdout.getvalue()');
-        const stderr = await pyodide.runPythonAsync('_shk_stderr.getvalue()');
-        const error = await pyodide.runPythonAsync('_shk_error');
-
-        await pyodide.runPythonAsync(`
-sys.stdout = sys.__stdout__
-sys.stderr = sys.__stderr__
-`);
-
-        if (error) {
-            setOutput(error, true);
-        } else {
-            const output = (stdout + stderr).trim();
-            setOutput(output || '(no output)');
-        }
-    } catch (err) {
-        setOutput('Error: ' + err.message, true);
-    } finally {
-        runBtn.disabled = false;
-        runBtn.classList.remove('loading');
+    if (!supportsSharedArrayBuffer) {
+        setOutput('Tetris requires cross-origin isolation (SharedArrayBuffer). Reload in a COOP/COEP-enabled context or use a browser that supports it.', true);
+        return;
     }
+
+    const code = await loadTetrisCode();
+    if (!code) {
+        setOutput('Failed to load tetris game', true);
+        return;
+    }
+
+    tetrisRunning = true;
+    runBtn.textContent = 'Stop';
+    codeEl.blur();
+    setOutput('Starting Tetris...');
+
+    worker.postMessage({type: 'run', code: code, isTetris: true});
+}
+
+function stopTetris() {
+    const wasRunning = tetrisRunning;
+    tetrisRunning = false;
+
+    if (wasRunning && shakarLoaded) {
+        pushKey('q');
+    }
+
+    runBtn.textContent = 'Run';
+}
+
+// --- Worker setup ---
+
+function initWorker() {
+    setStatus('Loading Pyodide...');
+
+    worker = new Worker('shakar_worker.js');
+
+    worker.onmessage = (e) => {
+        const msg = e.data;
+
+        switch (msg.type) {
+            case 'ready':
+                shakarLoaded = true;
+                runBtn.disabled = false;
+                setStatus('Ready', 'ready');
+                updateHighlights();
+                break;
+
+            case 'io_write':
+                scheduleWrite(msg.text);
+                break;
+
+            case 'io_clear':
+                scheduleClear();
+                break;
+
+            case 'output':
+                setOutput(msg.text, msg.isError);
+                if (!msg.isError) {
+                    runBtn.disabled = false;
+                    runBtn.classList.remove('loading');
+                }
+                if (msg.isError) {
+                    runBtn.disabled = false;
+                    runBtn.classList.remove('loading');
+                }
+                break;
+
+            case 'running':
+                if (!msg.value) {
+                    // Execution finished
+                    if (tetrisRunning) {
+                        tetrisRunning = false;
+                        runBtn.textContent = 'Run';
+                    }
+                    runBtn.disabled = false;
+                    runBtn.classList.remove('loading');
+                }
+                break;
+
+            case 'highlight_result': {
+                let highlights = msg.highlights;
+                if (currentError) {
+                    highlights = highlights.concat([currentError]);
+                }
+                applyHighlights(codeEl.value, highlights);
+                break;
+            }
+        }
+    };
+
+    worker.onerror = (err) => {
+        setStatus('Worker error: ' + err.message, 'error');
+        console.error('Worker error:', err);
+    };
+
+    worker.postMessage({type: 'init', keyBuffer: keyBuffer});
 }
 
 // Event listeners
@@ -478,7 +481,7 @@ codeEl.addEventListener('keydown', (e) => {
     }
 });
 
-// Global keyboard handler for game - pushes to io key queue
+// Global keyboard handler for game - pushes keys to worker
 document.addEventListener('keydown', (e) => {
     if (!tetrisRunning) return;
 
@@ -494,10 +497,10 @@ document.addEventListener('keydown', (e) => {
 
     if (keyMap[e.key]) {
         e.preventDefault();
-        pushKeyToQueue(keyMap[e.key]);
+        pushKey(keyMap[e.key]);
     }
 });
 
 highlightEl.textContent = codeEl.value;
 
-initPyodide();
+initWorker();

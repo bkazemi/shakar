@@ -224,8 +224,12 @@ def _detect_platform() -> str:
         return "terminal"
 
 
-# Browser key queue - JavaScript pushes keys here via shk_io_push_key
-_io_key_queue: List[str] = []
+# Browser key input via SharedArrayBuffer.
+# Key codes: left=1, right=2, down=3, up=4, space=5, q=6
+_IO_KEY_NAMES = {1: "left", 2: "right", 3: "down", 4: "up", 5: " ", 6: "q"}
+
+# Mutable read index (list so it's writable from inline runPython)
+_io_key_read_idx: List[int] = [0]
 
 
 def _io_read_key(_frame, args: List[ShkValue]) -> ShkString:
@@ -281,31 +285,59 @@ def _io_term_read_key(timeout_ms: Optional[float]) -> ShkString:
 
 
 def _io_browser_read_key(timeout_ms: Optional[float]) -> ShkString:
-    """Browser implementation using Pyodide's run_sync for async sleep."""
-    global _io_key_queue
+    """Browser implementation reading keys from SharedArrayBuffer ring buffer.
+    Main thread writes key codes; we read via Atomics.wait + Atomics.load.
+    This works while runPython blocks the worker because SAB is shared memory."""
+    import js
 
-    if _io_key_queue:
-        return ShkString(_io_key_queue.pop(0))
-
-    try:
-        from pyodide.ffi import run_sync
-        import asyncio
-
-        async def wait_for_key():
-            elapsed = 0.0
-            interval = 16  # ms
-            while timeout_ms is None or elapsed < timeout_ms:
-                await asyncio.sleep(interval / 1000.0)
-                if timeout_ms is not None:
-                    elapsed += interval
-                if _io_key_queue:
-                    return _io_key_queue.pop(0)
-            return ""
-
-        return ShkString(run_sync(wait_for_key()))
-    except ImportError:
-        # Fallback: just return empty
+    buf = js.self.shk_key_buf
+    if buf is None:
         return ShkString("")
+
+    buf_len = int(buf.length)
+    if buf_len <= 1:
+        return ShkString("")
+    buf_slots = buf_len - 1
+
+    def _try_read() -> Optional[str]:
+        write_idx = int(js.Atomics.load(buf, 0)) & 0xFFFFFFFF
+        read_idx = _io_key_read_idx[0] & 0xFFFFFFFF
+        if read_idx != write_idx:
+            slot = (read_idx % buf_slots) + 1
+            code = js.Atomics.load(buf, slot)
+            _io_key_read_idx[0] = (read_idx + 1) & 0xFFFFFFFF
+            return _IO_KEY_NAMES.get(code, "")
+        return None
+
+    # Check immediately
+    key = _try_read()
+    if key is not None:
+        return ShkString(key)
+
+    # Poll with Atomics.wait (blocks worker thread, not main thread)
+    cur_idx = int(js.Atomics.load(buf, 0)) & 0xFFFFFFFF
+    if timeout_ms is None:
+        # Block indefinitely, waking every 200ms to recheck
+        while True:
+            js.Atomics.wait(buf, 0, cur_idx | 0, 200)
+            key = _try_read()
+            if key is not None:
+                return ShkString(key)
+            cur_idx = int(js.Atomics.load(buf, 0)) & 0xFFFFFFFF
+
+    # Timed wait
+    start = time.monotonic() * 1000
+    remaining = timeout_ms
+    while remaining > 0:
+        wait_ms = min(remaining, 200)
+        js.Atomics.wait(buf, 0, cur_idx | 0, int(wait_ms))
+        key = _try_read()
+        if key is not None:
+            return ShkString(key)
+        cur_idx = int(js.Atomics.load(buf, 0)) & 0xFFFFFFFF
+        remaining = timeout_ms - (time.monotonic() * 1000 - start)
+
+    return ShkString("")
 
 
 def _io_write(_frame, args: List[ShkValue]) -> ShkNull:
@@ -322,7 +354,7 @@ def _io_write(_frame, args: List[ShkValue]) -> ShkNull:
         # Strip ANSI escape codes for browser
         clean = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
         clean = re.sub(r"\x1b\[\?[0-9;]*[a-zA-Z]", "", clean)
-        js.shk_io_write(clean)
+        js.self.shk_io_write(clean)
     else:
         import sys
 
@@ -343,7 +375,7 @@ def _io_clear(_frame, args: List[ShkValue]) -> ShkNull:
     if _detect_platform() == "browser":
         import js
 
-        js.shk_io_clear()
+        js.self.shk_io_clear()
     else:
         import sys
 

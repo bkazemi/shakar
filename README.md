@@ -1,4 +1,6 @@
-**Shakar** is a WIP scripting language for the Python and Lua niche: small CLI tools and embeddable runtimes that want nicer expression syntax and subjectful flows without dragging in a giant runtime.
+<h3 align="center"><a href="https://b.shirkadeh.org/shakar">Playground</a></h3>
+
+**Shakar** is a WIP scripting language for the Python and Lua niche: small CLI tools and embeddable runtimes that want nicer expression syntax and 'subjectful' flows.
 
 Shakar stays deliberately small: eager evaluation, dynamic types, exceptions, and a focused set of sugars for the kinds of things you do in scripts all the time (clean a value, check a few conditions, update a map or object, maybe bail).
 

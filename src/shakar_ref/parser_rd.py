@@ -4026,23 +4026,24 @@ class Parser:
     def parse_anonymous_fn_decl(self) -> Tree:
         """
         Anonymous function literal: fn(params): body
+        Thunk sugar: fn: body
         Auto-invoked form: fn(()): body
         """
-        self.expect(TT.LPAR)
         auto_invoke = False
         params: Tree = Tree("paramlist", [])
 
         if self.match(TT.LPAR):
-            # fn ( ( ) ) : body  -> auto invoke
+            if self.match(TT.LPAR):
+                # fn ( ( ) ) : body  -> auto invoke
+                self.expect(TT.RPAR)
+                auto_invoke = True
+            else:
+                params = (
+                    self.parse_param_list()
+                    if not self.check(TT.RPAR)
+                    else Tree("paramlist", [])
+                )
             self.expect(TT.RPAR)
-            auto_invoke = True
-        else:
-            params = (
-                self.parse_param_list()
-                if not self.check(TT.RPAR)
-                else Tree("paramlist", [])
-            )
-        self.expect(TT.RPAR)
 
         # Optional return contract: ~ Schema
         return_contract = None

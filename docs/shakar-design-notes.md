@@ -738,7 +738,10 @@ u := makeUser() and .isValid()
 
 ### Function forms
 
-- `fn(params?): body` is an expression producing a callable value. Bodies match named `fn` syntax (inline or indented). Zero-arg IIFE sugar: `fn(()): body` desugars to `(fn(): body)()`. Expression bodies execute on call, not on literal creation. Lambdas with `&` covered below.
+- `fn(params?): body` is an expression producing a callable value. Bodies match named `fn` syntax (inline or indented).
+- **Thunk sugar**: `fn: body` (no parens) desugars to `fn(): body`. Useful for zero-arg callbacks or delayed execution blocks (e.g. `spawn fn: ...`).
+- **Zero-arg IIFE sugar**: `fn(()): body` desugars to `(fn(): body)()`.
+- Expression bodies execute on call, not on literal creation. Lambdas with `&` covered below.
 - **Type contracts**: Parameters may specify schemas using `param ~ Schema` syntax. Return values may specify schemas using `fn(params) ~ ReturnSchema:` syntax. Both desugar to runtime assertions. See the Structural Match section for details.
   - **Grouped + implicit param contracts**: In function parameter lists only, a trailing contract applies to **all preceding uncontracted params** since the last contract: `fn clamp(val, lo, hi ~ Int): ...`. To opt out, wrap a param in parens: `(name)` (isolated, no contract) or `(name ~ Contract)` (isolated with its own contract). Explicit groups are also valid: `fn clamp((val, lo, hi) ~ Int): ...` (group requires **2+ identifiers** and **no `~` inside**). For `...rest ~ Contract`, checks are **per element** of the varargs array.
   - **Order**: defaults must precede contracts (`name = default ~ Contract`). `name ~ Contract = default` is invalid.
@@ -940,7 +943,7 @@ db := env"DB_TYPE" == "postgres" ? import "./pg" : import "./sqlite"
 - **spawn** runs a call or block concurrently and returns a result channel (buffered(1)). Receiving from it yields the value or raises the error thrown inside the task. Closing it signals cancellation; receiving then raises `CancelledError`.
   - If the expression evaluates to an **array or fan of callables**, each element is called in its own task and the result is the same container shape filled with result channels. Elements must be callable; channels are rejected.
   - The iterable expression is evaluated in the caller; only the element calls run in spawned tasks.
-  - Elements are called with zero args; wrap with `fn(): ...` when arguments are needed.
+  - Elements are called with zero args; wrap with `fn: ...` or `fn(): ...` when arguments are needed.
 - **wait[any]** selects over channel ops; cases are `x := <-ch`, `val -> ch`, `timeout <duration>`, or `default`. Closed-and-empty channels are skipped; if all channels are closed and no `default`/`timeout` exists, raises `AllChannelsClosed`.
 - **wait[all]** starts all calls concurrently (spawn is implicit) and returns an object of results. On error, cancels remaining tasks and re-raises the first error.
 - **wait[group]** is like `wait[all]` but discards results (structured concurrency for side effects).

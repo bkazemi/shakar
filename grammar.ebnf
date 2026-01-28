@@ -399,7 +399,7 @@ pattern_list = pattern , "," , pattern , { "," , pattern } ;
 amp_lambda1 = "&" , "(" , expression , ")" ;
 amp_lambdan = "&" , "[" , param_list , "]" , "(" , expression , ")" ;
 
-anonymous_function = "fn" , "(" , [ param_list ] , ")" , [ "~" , expression ] , ":" , ( inline_body | indent_block ) ;
+anonymous_function = "fn" , [ "(" , [ param_list ] , ")" ] , [ "~" , expression ] , ":" , ( inline_body | indent_block ) ;
 anonymous_function_auto = "fn" , "(" , "(" , ")" , ")" , [ "~" , expression ] , ":" , ( inline_body | indent_block ) ;
 
 param_list = param , { "," , param } ;
