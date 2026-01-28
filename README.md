@@ -1,4 +1,4 @@
-<h3 align="center"><a href="https://b.shirkadeh.org/shakar">Playground</a></h3>
+<h3 align="center"><a href="https://b.shirkadeh.org/shakar" target="_blank" rel="noopener noreferrer">Playground</a></h3>
 
 **Shakar** is a WIP scripting language for the Python and Lua niche: small CLI tools and embeddable runtimes that want nicer expression syntax and 'subjectful' flows.
 
