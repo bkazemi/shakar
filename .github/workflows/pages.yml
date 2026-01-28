@@ -25,6 +25,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: Inject build version
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          path = pathlib.Path("web/index.html")
+          text = path.read_text()
+          sha = os.environ.get("GITHUB_SHA", "dev")[:7]
+          text = re.sub(r"(window\\.SHAKAR_VERSION\\s*=\\s*')[^']*(')", r"\\1" + sha + r"\\2", text)
+          path.write_text(text)
+          PY
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./web

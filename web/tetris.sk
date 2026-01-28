@@ -189,8 +189,7 @@ fn render(state ~ GameState):
     frame += "  " + row_str(row) + nl
   frame += nl + "Controls: Arrow keys to move/rotate, Space to drop, Q to quit"
 
-  io.clear()
-  io.write(frame)
+  io.overwrite(frame)
 
 fn run_interactive():
   spawn_piece(st := new_state())

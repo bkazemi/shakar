@@ -61,18 +61,24 @@ const runBtn = document.getElementById('run-btn');
 const clearBtn = document.getElementById('clear-btn');
 const examplesEl = document.getElementById('examples');
 
+const DEBUG_IO = localStorage.getItem('shakar_debug_io') === '1';
+const SHAKAR_VERSION = window.SHAKAR_VERSION || 'dev';
+
 // Batch io_write updates to one per animation frame to prevent flicker.
 let pendingWrite = null;
 let pendingClear = false;
 let writeRafId = 0;
-let clearFallbackTimeout = null;
 
 function flushWrite() {
     if (pendingClear) {
-        outputEl.textContent = '';
+        if (pendingWrite !== null) {
+            outputEl.textContent = pendingWrite;
+            pendingWrite = null;
+        } else {
+            outputEl.textContent = '';
+        }
         pendingClear = false;
-    }
-    if (pendingWrite !== null) {
+    } else if (pendingWrite !== null) {
         outputEl.textContent += pendingWrite;
         pendingWrite = null;
     }
@@ -85,14 +91,6 @@ function scheduleWrite(text) {
     } else {
         pendingWrite += text;
     }
-    
-    // If we receive a write, cancel any pending clear fallback 
-    // and ensure we schedule a frame immediately.
-    if (clearFallbackTimeout) {
-        clearTimeout(clearFallbackTimeout);
-        clearFallbackTimeout = null;
-    }
-
     if (!writeRafId) {
         writeRafId = requestAnimationFrame(flushWrite);
     }
@@ -101,17 +99,17 @@ function scheduleWrite(text) {
 function scheduleClear() {
     pendingClear = true;
     pendingWrite = null;
-    
-    // Do not schedule RAF immediately. Wait a brief moment for a subsequent 
-    // write to arrive so they can be painted together (anti-flicker).
-    if (clearFallbackTimeout) clearTimeout(clearFallbackTimeout);
-    
-    clearFallbackTimeout = setTimeout(() => {
-        if (!writeRafId) {
-            writeRafId = requestAnimationFrame(flushWrite);
-        }
-        clearFallbackTimeout = null;
-    }, 5);
+    if (!writeRafId) {
+        writeRafId = requestAnimationFrame(flushWrite);
+    }
+}
+
+function scheduleOverwrite(text) {
+    pendingClear = true;
+    pendingWrite = text;
+    if (!writeRafId) {
+        writeRafId = requestAnimationFrame(flushWrite);
+    }
 }
 
 function setStatus(text, state = '') {
@@ -296,7 +294,7 @@ function syncScroll() {
 async function loadTetrisCode() {
     if (tetrisCode) return tetrisCode;
     try {
-        const response = await fetch('tetris.sk');
+        const response = await fetch('tetris.sk?v=' + SHAKAR_VERSION);
         if (!response.ok) throw new Error('Failed to load tetris.sk');
         tetrisCode = await response.text();
         return tetrisCode;
@@ -377,6 +375,10 @@ function initWorker() {
 
     worker.onmessage = (e) => {
         const msg = e.data;
+        if (DEBUG_IO && typeof msg?.type === 'string' && msg.type.startsWith('io_')) {
+            const textLen = typeof msg.text === 'string' ? msg.text.length : 0;
+            console.debug('[io]', msg.type, 'len=', textLen);
+        }
 
         switch (msg.type) {
             case 'ready':
@@ -392,6 +394,10 @@ function initWorker() {
 
             case 'io_clear':
                 scheduleClear();
+                break;
+
+            case 'io_overwrite':
+                scheduleOverwrite(msg.text);
                 break;
 
             case 'output':

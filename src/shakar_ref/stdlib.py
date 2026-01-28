@@ -386,6 +386,35 @@ def _io_clear(_frame, args: List[ShkValue]) -> ShkNull:
     return ShkNull()
 
 
+def _io_overwrite(_frame, args: List[ShkValue]) -> ShkNull:
+    """Atomic clear and write to prevent flickering."""
+    if len(args) != 1 or not isinstance(args[0], ShkString):
+        raise ShakarTypeError("io.overwrite(str) expects one string argument")
+
+    text = args[0].value
+
+    if _detect_platform() == "browser":
+        import re
+        import js
+
+        # Strip ANSI escape codes for browser
+        clean = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
+        clean = re.sub(r"\x1b\[\?[0-9;]*[a-zA-Z]", "", clean)
+        js.self.shk_io_overwrite(clean)
+    else:
+        import sys
+
+        # ANSI clear screen + home
+        sys.stdout.write("\x1b[2J\x1b[H")
+        try:
+            sys.stdout.buffer.write(text.encode("latin-1"))
+        except UnicodeEncodeError:
+            sys.stdout.write(text)
+        sys.stdout.flush()
+
+    return ShkNull()
+
+
 def _io_is_interactive(_frame, args: List[ShkValue]) -> ShkBool:
     """Check if interactive I/O is available."""
     if args:
@@ -439,6 +468,7 @@ def _build_io_module() -> ShkModule:
         "read_key": StdlibFunction(fn=_io_read_key),  # 0 or 1 args
         "write": StdlibFunction(fn=_io_write, arity=1),
         "clear": StdlibFunction(fn=_io_clear, arity=0),
+        "overwrite": StdlibFunction(fn=_io_overwrite, arity=1),
         "is_interactive": StdlibFunction(fn=_io_is_interactive, arity=0),
         "raw": StdlibFunction(fn=_io_raw, arity=1),
         "platform": ShkString(_detect_platform()),

@@ -19,6 +19,10 @@ self.shk_io_clear = () => {
     self.postMessage({type: 'io_clear'});
 };
 
+self.shk_io_overwrite = (text) => {
+    self.postMessage({type: 'io_overwrite', text: text});
+};
+
 // Expose keyBuf on self so Python can access it via js.self.shk_key_buf
 self.shk_key_buf = null;
 
