@@ -1,18 +1,69 @@
-<h3 align="center"><a href="https://b.shirkadeh.org/shakar" target="_blank" rel="noopener noreferrer">Playground</a></h3>
+# Shakar
 
-**Shakar** is a WIP scripting language for the Python and Lua niche: small CLI tools and embeddable runtimes that want nicer expression syntax and 'subjectful' flows.
+**A subjectful scripting language.**
 
-Shakar stays deliberately small: eager evaluation, dynamic types, exceptions, and a focused set of sugars for the kinds of things you do in scripts all the time (clean a value, check a few conditions, update a map or object, maybe bail).
+Shakar is a work-in-progress general-purpose scripting language. It targets boilerplate like repeated variable names, defensive null checks, and verbose read-transform-write cycles. Its core idea is **subjectful flow**, where the language tracks what you're operating on so you don't have to repeat it. Chains, guards, fan-outs, and apply-assign all share a single implicit-subject model that keeps code compact without hiding control flow.
 
-The **source of truth** for the language is the [design notes](./shakar-design-notes.md). It describe the grammar, implicit subject rules for `.`, and the rest of the semantics in detail.
+The **source of truth** for the language is the [design notes](docs/shakar-design-notes.md). It describes the grammar, implicit subject rules for `.`, and the rest of the semantics in detail.
+
+[**Playground**](https://b.shirkadeh.org/shakar) | [**Design Notes**](docs/shakar-design-notes.md) | [**Grammar**](grammar.ebnf)
+
+---
+
+## Design Goals
+
+*   **Subject-Oriented**: Most scripting involves reading a value, transforming it, and writing it back. Shakar makes that the default path instead of a pattern you hand-wire every time.
+*   **Zero Ceremony**: Implicit main, eager evaluation, and dynamic typing suitable for scripting.
+*   **Tooling First**: The grammar is developed with a recursive-descent parser (Tree-sitter grammar exists but is currently unmaintained).
+
+## Setup & Usage
+
+### Prerequisites
+
+*   Python 3.10 or higher
+*   Git
+
+### Installation
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/bkazemi/shakar.git
+    cd shakar
+    ```
+
+2.  **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+### Running the Reference Interpreter
+
+The reference implementation (`src/shakar_ref`) is a Python-based parser and interpreter used for validating the language design.
+
+Run a script file:
+```bash
+PYTHONPATH=src python -m shakar_ref.runner sample.shk
+```
+
+Or execute code from stdin:
+```bash
+echo 'print("Hello from Shakar!")' | PYTHONPATH=src python -m shakar_ref.runner -
+```
+
+Inspect the parse tree with `--tree`:
+```bash
+PYTHONPATH=src python -m shakar_ref.runner --tree path/to/file.shk
+```
 
 ---
 
 ## Highlights
 
-### Subjectful statements and apply-assign
+The following features are implemented in the reference runtime. See the [design notes](docs/shakar-design-notes.md) for the full specification.
 
-Shakar has a first-class notion of a “statement subject”. A line that starts with `=LHS<tail>` evaluates `<tail>` with `.` bound to the current value of `LHS`, then writes the final result back to `LHS`:
+### 1. Subjectful Statements and Apply-Assign
+
+Shakar has a first-class notion of a "statement subject". A line that starts with `=LHS<tail>` evaluates `<tail>` with `.` bound to the current value of `LHS`, then writes the final result back to `LHS`:
 
 ```shakar
 # boring, fully spelled
@@ -24,12 +75,12 @@ user.name = user.name.trim().title() ?? "guest"
 line := "name=  Ada "
 =line.split("=").last().trim().title()  # still assigns back to `line`
 
-=(user).profile.contact.name.trim()  # only when you absolutely mean to rewrite `user`
+=(user).profile.contact.name.trim()  # grouping: write lands on `user`, not deeper
 ```
 
-Statement-subjects always begin the statement. The plain form (`=name<tail>`) already lets you walk fields or selectors - `=user.profile.email.trim()` writes back to `user.profile.email`. Grouping only exists so you can keep a different identifier as the destination while visiting another branch; `=(user)` says "no matter how deep this tail goes, the write still lands on `user`." Use that escape hatch sparingly.
+The plain form (`=name<tail>`) writes back to the deepest field walked — `=user.profile.email.trim()` writes back to `user.profile.email`. Grouping with `=(user)` overrides that: no matter how deep the tail goes, the write lands on `user`. Use that escape hatch sparingly.
 
-Apply-assign `.=` does the same thing at expression level: inside the right-hand side, `.` is the old value of the left-hand side and the result is written back in place, while also yielding the updated value:
+Apply-assign `.=` does the same thing at expression level: inside the right-hand side, `.` is the old value of the left-hand side and the result is written back in place:
 
 ```shakar
 user.name .= .trim().title() ?? user.name
@@ -40,116 +91,41 @@ user.{name, email} .= ??(.trim().lower()) ?? "unknown"
 cfg["db", default: {}]["host"] .= .trim() ?? "localhost"
 ```
 
-Both forms are built on the same implicit-subject rules, which makes “update this thing based on its old value” cheap to write without making the flow mysterious.
+Both forms are built on the same [implicit-subject / anchor model](docs/shakar-design-notes.md#the-anchor-model-) rules, which makes "update this thing based on its old value" cheap to write without making the flow mysterious.
 
-### Fan-out helpers and loops
+#### Implicit Subject and Anchor Stack
 
-- Assignment fan-out: `=user.{name, email}.trim()` and `user.{first, last} .= .title()` walk a single base and apply the tail to each listed field (identifiers only on the LHS).
-- Value fan-out: `user.{fullName(), email}` collects multiple projections from one base into an array and auto-spreads in positional calls: `send(user.{fullName(), email})` ⇒ `send(user.fullName(), user.email)`. Duplicate paths error; named args never auto-spread (wrap to pass as one argument).
-- Fieldfan chaining: `state.{a, b}.c = 5` and `state.{a, b}.nested .= .update()` let you navigate fields after the fanout, updating each target independently.
-- Fan-out block statement: `state{ .cur = .next; .x += 1; .name .= .trim() }` anchors `.` to `state`, runs clauses top→down, and errors on duplicate targets. Supports selector broadcasting: `state{ .rows[1:3].v = 0 }` applies the update to each selected element.
-- `while` loops support inline or indented bodies and honor `break`/`continue`.
+The implicit subject `.` only exists inside constructs that explicitly bind it (`=LHS<tail>`, `.=`, subjectful `for` loops, selectors, amp-lambdas). It never leaks across statements.
 
----
-
-### Fan literals
-
-`fan { a, b, c }` creates a broadcast collection. Property access and method calls broadcast to each element and return a new fan:
-
-```shakar
-fan { "hello", "world" }.len        # → fan { 5, 5 }
-fan { obj1, obj2 }.x = 5            # sets .x on both
-```
-
-During broadcast, `.` binds to the current element, so arguments are evaluated per-element:
-
-```shakar
-fan { user1, user2 }.greet("Hi, " + .name)
-```
-
-Fans are first-class values—store them, pass them, return them:
-
-```shakar
-svcs := fan { db, cache, worker }
-svcs.restart()                      # restarts all three sequentially
-
-fn get_deps(env):
-    env == "prod": return fan { db, cache, auth }
-    return fan { db }
-```
-
-Fans are iterable:
-
-```shakar
-for svc in fan { db, cache }: svc.ping()
-names := [ .name over fan { user1, user2 } ]
-```
-
-Convert to array with spread when needed: `results := [...svcs.status()]`.
-
----
-
-### Call blocks and emit `>`
-
-Call blocks bind a callable as an **emit target** for the duration of a block. Inside, `>` invokes that target using the normal argument rules, giving you vertical, imperative sequences without losing declarative structure.
-
-```shakar
-call self.expect:
-  > TT.IN
-  expr := > TT.EXPR
-  > TT.COLON
-```
-
----
-
-### Implicit subject and anchor stack
-
-The implicit subject `.` only exists inside constructs that explicitly bind it (statement-subject `=LHS<tail>`, `.=` apply-assign, subjectful `for` loops, selectors, path-lambdas, and a few others). It never leaks across statements.
-
-```shakar
-=user.profile.settings.ensureDefaults()
-user.name .= .trim()
-
-for orders:
-  .status == "open" and .total > 100:
-    notify(.customer)
-
-# numeric subject loop iterates 0..n-1 with '.' as the index.
-for 10: print(.)
-```
-
-The first explicit subject in an expression sets the anchor; leading-dot chains hang off it:
+The first explicit subject in an expression sets the **anchor**; leading-dot chains hang off it:
 
 ```shakar
 user and .profile and .id
 # `user` sets the anchor
-# `.profile` and `.id` both use it: user.profile, user.id
+# `.profile` → user.profile, `.id` → user.id
 ```
 
-Parentheses isolate anchor changes, so retargeting inside a group doesn't leak out:
+Parentheses isolate anchor changes — retargeting inside a group doesn't leak out:
 
 ```shakar
 user and (other and .name) and .id
-# `user` sets outer anchor
-# inside group: `other` retargets, `.name` is other.name
-# `.id` uses outer anchor: user.id
+# inside group: `other` retargets, `.name` → other.name
+# `.id` uses outer anchor → user.id
 ```
 
-`$expr` is shorthand for `(expr)` — use it to suppress retargeting on a single unit without the visual noise of parens:
+`$expr` suppresses retargeting on a single unit without parens:
 
 ```shakar
 for items:
   .price > $config.limits.max: flag(.)
-# $config.limits.max doesn't retarget; `.price` and `.` use the loop element
+# $config doesn't retarget; `.price` and `.` use the loop element
 ```
 
-The anchor stack rules in the design notes spell out exactly where `.` comes from and when it is restored, so even heavy dot-chains still have predictable meaning.
+See the [anchor model](docs/shakar-design-notes.md#the-anchor-model-) in the design notes for the full rules.
 
----
+### 2. Control Flow Guards
 
-### Punctuation guards
-
-Guards replace most `if / elif / else` boilerplate with vertical chains. This keeps the “happy path” at the top and exception or retry paths lined up beneath it.
+Vertical punctuation guards replace `if/elif/else` chains to keep the primary logic flow linear. See [Guards & postfix conditionals](docs/shakar-design-notes.md#guards--postfix-conditionals).
 
 ```shakar
 ready():
@@ -160,56 +136,53 @@ ready():
   log("not ready")
 ```
 
-Each `| expr:` is an `elif`, and `|:` is the final `else`. Guards are layout based and use the same colon-plus-indent blocks as the rest of the language. Single-line forms (`stmt if cond` and `if cond: stmt`) are still available when you want something terse.
+Each `| expr:` is an `elif`, and `|:` is the final `else`. Single-line forms (`stmt if cond` and `if cond: stmt`) are still available.
 
----
+### 3. Selectors, Fan-out & Broadcasting
 
-### Nil-safe chains `??(...)` and coalescing `??`
-
-Prefix `??(...)` evaluates a chain of calls or indexing and short-circuits to `nil` on the first failure. Infix `??` is a standard null-coalescing operator.
+[Selectors](docs/shakar-design-notes.md#selector-values-slices-and-selectors) address multiple fields or regions of a structure in one shot. Fan literals broadcast an operation across multiple values.
 
 ```shakar
-nickname := ??(user.profile.nick.trim()) ?? "guest"
-```
+# Update multiple fields at once
+user.{name, email} .= .trim()
 
-You get “try this whole chain, if anything in it falls apart use this fallback” as a single expression instead of hand-rolled `if` plus temporary variables.
+# Fieldfan chaining: navigate fields after the fanout
+state.{a, b}.nested .= .update()
 
----
+# Fan-out block: anchors `.` to state, runs clauses top→down
+state{ .cur = .next; .x += 1; .name .= .trim() }
 
-### Comparison comma-chains (CCC)
+# Fan literal: broadcast a method call
+fan{db, cache, worker}.restart()
 
-CCC locks in a subject once, then lets you stream more comparisons with commas. You do not repeat the left operand, and you can still mix `and` and `or` in a controlled way.
-
-```shakar
-temp := read_temp()
-temp > 40, < 60, != 55:
-  fan.on()
-
-# Mix joins explicitly; AND legs can inherit the comparator, OR legs must restate it
-alert := temp > 70, or >= limits.max
-ok    := temp >= 45, and <= 65, or == preferred
-
-# Selector literals work inside CCC legs
-level := sensor.level
+# Selector literals in comparisons
 level == `warn, error`, or >= `critical:`:
   notify(level)
+
+# Destructure directly from a selector list
+key, val := arr[0,1]  # binds arr[0] → key, arr[1] → val
 ```
 
-- A chain begins with any comparison followed by a comma; the left operand is evaluated once and becomes the chain subject.
-- Each comma leg is `[, and|or] [explicit comparator] Expr`. The joiner defaults to `and` and stays in effect until another `, or` or `, and` appears.
-- When the joiner is `and`, you may omit the comparator to reuse the previous one. `, or` legs must spell the comparator they want (`temp > 5, or > limit`).
-- Any bare `and` or `or` that is not preceded by a comma exits chain mode and resumes normal boolean parsing.
-- The chain desugars to ordinary comparisons joined by the current sticky boolean operator, so short-circuit behavior and precedence match explicit `and` and `or`.
+Selector literals use backticks and have precise semantics for ranges, lists, and membership; the [design notes](docs/shakar-design-notes.md#selector-values-slices-and-selectors) cover the details.
 
----
+### 4. Comparison Comma-Chains (CCC)
 
-### Decorators (`@wrap`)
-
-Attach lightweight wrappers without hand-writing higher-order functions. Decorator bodies see two implicit names: `f` (the next callable in the chain) and `args` (the current positional arguments as a mutable array). If the body finishes without `return`, the runtime automatically calls `f(args)` for you.
+CCC locks in a subject once and lets you stream more comparisons with commas, avoiding repeated left operands. The joiner defaults to `and` and sticks until changed; `and` legs can inherit the previous comparator, but `, or` legs must restate the comparator they want. See [Comparison & identity (CCC)](docs/shakar-design-notes.md#comparison--identity-ccc).
 
 ```shakar
-log := []
+temp > 40, < 60, != 55:   # temp > 40 and temp < 60 and temp != 55
+  fan.on()
 
+# AND legs inherit comparator, OR legs must restate
+alert := temp > 70, or >= limits.max   # temp > 70 or temp >= limits.max
+ok    := temp >= 45, and <= 65, or == preferred   # temp >= 45 and temp <= 65 or temp == preferred
+```
+
+### 5. Decorators
+
+Attach lightweight wrappers to functions. Decorator bodies see `f` (the next callable) and `args` (positional arguments as a mutable array). If the body finishes without `return`, the runtime calls `f(args)` automatically. Stacking is deterministic: the decorator closest to `fn` runs first. See [Decorators](docs/shakar-design-notes.md#decorators).
+
+```shakar
 decorator log_calls():
   log += [args[0]]
 
@@ -225,57 +198,57 @@ announce("ready")   # => "[prefix] ready"
 log                 # => ["ready"]
 ```
 
-Stacking `@decorator` lines is deterministic: the decorator closest to the `fn` header runs first. Pass arguments normally (`@with_prefix(">> ")`). You can mutate `args`, replace it entirely, or `return` early to short-circuit.
+### 6. Call Blocks and Emit `>`
 
----
-
-### Selectors and bulk updates
-
-Selectors let you address multiple fields or shaped regions of a structure in one shot, and they compose naturally with `.=` and other subjectful operations.
+Call blocks bind a callable as an emit target for the duration of a block. Inside, `>` invokes that target. See [Call blocks](docs/shakar-design-notes.md#call-blocks-call-and-emit-).
 
 ```shakar
-# Fan-out updates over multiple fields
-user.{name, email} .= ??(.trim().lower()) ?? "unknown"
-
-# Nested defaults with a selector and default key
-cfg["db", default: {}]["host"] .= .trim() ?? "localhost"
-
-# Destructure directly from a selector list
-key, val := arr[0,1]  # binds arr[0] -> key, arr[1] -> val and returns the selected slice
-
-# CCC with selector literals
-assert 4 < `5:{someNum}`, != `7, 8`
+call self.expect:       # binds self.expect as the emit target
+  > TT.IN               # self.expect(TT.IN)
+  expr := > TT.EXPR     # expr := self.expect(TT.EXPR)
+  > TT.COLON             # self.expect(TT.COLON)
 ```
 
-Selector literals use backticks and have precise semantics for ranges, lists, and membership; the design notes cover the details.
+### 7. Concurrency (Experimental)
+
+The reference runtime includes prototypes for structured concurrency primitives. *Note: These are active areas of design experimentation.* See [Channels & Wait](docs/shakar-design-notes.md#channels--wait).
+
+```shakar
+# Channels
+ch := channel(1)
+"msg" -> ch
+
+# Spawning & Waiting
+task := spawn fetch_data()
+result := wait task
+```
+
+### 8. Other Features
+
+*   **Nil-safe chains & coalescing**: Prefix `??(...)` evaluates a chain and short-circuits to `nil` on the first failure; infix `??` is null-coalescing. Together: `nickname := ??(user.profile.nick.trim()) ?? "guest"`. See [Null safety](docs/shakar-design-notes.md#null-safety).
+*   **Match expressions**: `match val: pattern: body` — see [Match Expression](docs/shakar-design-notes.md#match-expression-v01).
+*   **Amp-lambdas**: `&(. * 2)` and `&[a, b](a + b)` — see [Amp-lambdas](docs/shakar-design-notes.md#amp-lambdas--and-implicit-parameters).
+*   **Imports**: `import "path"`, `import[a, b] "path"` — see [Modules & Imports](docs/shakar-design-notes.md#modules--imports).
 
 ---
 
-### Tooling and introspection
+## Development Status
 
-Shakar ships with a recursive-descent parser and runtime, plus a `--tree` mode so you can inspect the AST of a file when you want to see exactly what your sugars are doing.
+*   **Spec**: [`docs/shakar-design-notes.md`](docs/shakar-design-notes.md) is the source of truth.
+*   **Runtime**: `src/shakar_ref/` contains the Python reference implementation.
+*   **Grammar**: `tree-sitter-shakar/` contains the Tree-sitter grammar (currently unmaintained; may lag behind the spec).
+*   **Hooks / decorators**: implemented.
+*   **Concurrency**: channels, spawn, wait — experimental.
+*   **Tests**: run `python sanity_check_basic.py` after semantic changes; it exercises the grammar/runtime end-to-end.
 
-```bash
-PYTHONPATH=src python -m shakar_ref.runner --tree path/to/file.shk
-```
+### Running Tests
 
-There is no hidden control flow beyond what is written in the spec, which keeps it friendly to formatters, linters, and AI-assisted refactors.
-
-## Status / Roadmap
-
-- **Spec + reference runtime**: this repo contains both; the spec lives in `docs/`.
-- **Hooks / decorators / tracing**: hooks + decorators implemented; tracing is still tracked in the design notes.
-- **Tree-sitter grammar**: maintained in `tree-sitter-shakar/`.
-- **Tests**: run `python sanity_check_basic.py` after semantic changes; it exercises the grammar/runtime end-to-end.
-
-### Running the reference interpreter
-
-The Python runtime now lives under `src/shakar_ref/`. Run programs via:
+To verify the grammar and runtime against regression tests:
 
 ```bash
-PYTHONPATH=src python -m shakar_ref.runner path/to/program.shk
+python sanity_check_basic.py
 ```
 
-Use `-` instead of a path to read from stdin.
+---
 
-This is early research. Expect breaking changes while the surface syntax settles. Always treat the [design notes](./docs/shakar-design-notes.md) as the source of truth. Contributions that improve the spec, runtime, or tests are welcome :-)
+This is early research. Expect breaking changes while the surface syntax settles. Always treat the [design notes](docs/shakar-design-notes.md) as the source of truth. Contributions that improve the spec, runtime, or tests are welcome :-)
