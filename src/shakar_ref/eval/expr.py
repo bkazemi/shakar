@@ -581,14 +581,20 @@ def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
                 return _div_size(lhs, rhs)
             lhs_num = require_number(lhs)
             rhs_num = require_number(rhs)
+            if rhs_num.value == 0:
+                raise ShakarRuntimeError("Division by zero")
             return ShkNumber(lhs_num.value / rhs_num.value)
         case "//":
             lhs_num = require_number(lhs)
             rhs_num = require_number(rhs)
+            if rhs_num.value == 0:
+                raise ShakarRuntimeError("Division by zero")
             return ShkNumber(math.floor(lhs_num.value / rhs_num.value))
         case "%":
             lhs_num = require_number(lhs)
             rhs_num = require_number(rhs)
+            if rhs_num.value == 0:
+                raise ShakarRuntimeError("Division by zero")
             return ShkNumber(lhs_num.value % rhs_num.value)
         case "**":
             lhs_num = require_number(lhs)
