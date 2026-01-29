@@ -91,8 +91,12 @@ sys.stdout = _shk_stdout
 sys.stderr = _shk_stderr
 
 try:
+    from shakar_ref.types import ShkNil as _ShkNil
+    from shakar_ref.runner import _parse_and_lower, _last_is_stmt
+    _shk_ast = _parse_and_lower("""${escaped}""")
+    _shk_is_stmt = _last_is_stmt(_shk_ast)
     _shk_result = shk_run("""${escaped}""")
-    if _shk_result is not None:
+    if not _shk_is_stmt and not isinstance(_shk_result, _ShkNil):
         print(_shk_result)
     _shk_error = None
 except Exception as e:

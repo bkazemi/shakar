@@ -12,6 +12,66 @@ from .evaluator import eval_expr
 from .runtime import ShkValue
 from .runtime import Frame, init_stdlib
 from .types import ShkNil
+from .tree import Tree
+
+_STMT_LABELS = frozenset(
+    {
+        "walrus",
+        "destructure_walrus",
+        "assignstmt",
+        "let",
+        "compound_assign",
+        "fndef",
+        "decorator_def",
+        "hook",
+        "deferstmt",
+        "assert",
+        "bind",
+        "destructure",
+        "returnstmt",
+        "returnif",
+        "throwstmt",
+        "postfixif",
+        "postfixunless",
+        "ifstmt",
+        "whilestmt",
+        "breakstmt",
+        "continuestmt",
+        "forin",
+        "forsubject",
+        "forindexed",
+        "formap1",
+        "formap2",
+        "waitanyblock",
+        "waitallblock",
+        "waitgroupblock",
+        "waitallcall",
+        "waitgroupcall",
+        "usingstmt",
+        "callstmt",
+        "catchstmt",
+        "import_stmt",
+        "import_destructure",
+        "import_mixin",
+    }
+)
+
+
+def _last_is_stmt(ast: object) -> bool:
+    """Check if the last meaningful node in the AST is a statement."""
+    if isinstance(ast, Tree):
+        label = getattr(ast, "data", None)
+        if label in ("stmtlist", "start_noindent", "start_indented"):
+            # Find last tree child (skip tokens like SEMI/NEWLINE)
+            for child in reversed(ast.children):
+                if isinstance(child, Tree):
+                    return _last_is_stmt(child)
+
+            return False
+
+        return label in _STMT_LABELS
+
+    return False
 
 
 def _parse_and_lower(src: str, use_indenter: Optional[bool] = None):
@@ -125,13 +185,13 @@ def main() -> None:
         ast2 = _parse_and_lower(source)
         print(ast2.pretty())
     else:
-        result = run(
-            source,
-            grammar_path=grammar_path,
-            grammar_variant=grammar_variant,
-            source_path=source_path,
+        init_stdlib()
+        ast2 = _parse_and_lower(source)
+        stmt = _last_is_stmt(ast2)
+        result = eval_expr(
+            ast2, Frame(source=source, source_path=source_path), source=source
         )
-        if not isinstance(result, ShkNil):
+        if not stmt and not isinstance(result, ShkNil):
             print(result)
 
 
