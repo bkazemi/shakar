@@ -3929,6 +3929,40 @@ risky() catch err: throw""",
         ShakarRuntimeError,
     )
 )
+runtime_scenario(
+    _rt(
+        "throw-rethrow-verify",
+        """fn risky(): { throw "original_error" }
+fn wrapper(): {
+    risky() catch:
+        throw
+}
+wrapper() catch err: err.message""",
+        ("string", "original_error"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "throw-bare-inline-else",
+        """fn risky(): { throw "boom" }
+fn wrapper():
+    risky() catch: if true: throw else: 0
+wrapper() catch err: err.message""",
+        ("string", "boom"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "throw-bare-postfix-if",
+        """fn risky(): { throw "boom" }
+risky() catch err: throw if err.message == "boom"
+""",
+        None,
+        ShakarRuntimeError,
+    )
+)
 runtime_scenario(_rt("return-outside-fn", "return 1", None, ShakarRuntimeError))
 runtime_scenario(
     _rt("lambda-subject-missing-arg", "a := &(.trim()); a()", None, ShakarArityError)

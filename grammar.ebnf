@@ -436,7 +436,7 @@ destr_rhs = expression , ( "," , expression )+ ;
 
 (* Control flow statements *)
 return_statement = "return" , [ destr_rhs | expression ] , [ terminator ] ;
-throw_statement = "throw" , expression , [ terminator ] ;
+throw_statement = "throw" , [ expression ] , [ terminator ] ;
 break_statement = "break" , [ terminator ] ;
 continue_statement = "continue" , [ terminator ] ;
 return_if = "?ret" , expression ;

@@ -1654,8 +1654,18 @@ class Parser:
         """Parse return statement: return [expr | pack]"""
         self.expect(TT.RETURN)
 
-        # Check if there's a value
-        if self.check(TT.NEWLINE, TT.EOF, TT.SEMI, TT.RBRACE):
+        # Check if there's a value — clause delimiters also end bare return
+        if self.check(
+            TT.NEWLINE,
+            TT.EOF,
+            TT.SEMI,
+            TT.RBRACE,
+            TT.ELSE,
+            TT.ELIF,
+            TT.IF,
+            TT.UNLESS,
+            TT.PIPE,
+        ):
             return Tree("returnstmt", [self._tok("RETURN", "return")])
 
         # Parse first expression
@@ -1682,8 +1692,24 @@ class Parser:
         return Tree("continuestmt", [self._tok("CONTINUE", "continue")])
 
     def parse_throw_stmt(self) -> Tree:
-        """Parse throw statement: throw expr"""
+        """Parse throw statement: throw [expr]"""
         self.expect(TT.THROW)
+        # Optional expression — treat clause delimiters as bare-throw boundaries
+        # so that inline forms like `if x: throw else: ...` work.
+        if self.check(
+            TT.NEWLINE,
+            TT.EOF,
+            TT.SEMI,
+            TT.RBRACE,
+            TT.RPAR,
+            TT.COMMA,
+            TT.ELSE,
+            TT.ELIF,
+            TT.IF,
+            TT.UNLESS,
+            TT.PIPE,
+        ):
+            return Tree("throwstmt", [])
         value = self.parse_expr()
         return Tree("throwstmt", [value])
 
@@ -1867,15 +1893,16 @@ class Parser:
                 binder = self.advance()
 
             self.expect(TT.COLON)
-            # Choose expression vs block handler
-            if self.check(TT.LBRACE, TT.INDENT) or (
-                self.check(TT.NEWLINE) and self.peek(1).type == TT.INDENT
-            ):
-                handler = self.parse_body()
-                is_stmt = True
-            else:
-                handler = self.parse_expr()
-                is_stmt = False
+            # Use parse_body to allow both inline statements (like 'throw') and indented blocks
+            # But we need to know if it was a block or not to choose node type
+            # Peek past any newlines to find the real body start
+            is_stmt = self.check(TT.LBRACE, TT.INDENT)
+            if not is_stmt and self.check(TT.NEWLINE):
+                k = 1
+                while self.peek(k).type == TT.NEWLINE:
+                    k += 1
+                is_stmt = self.peek(k).type == TT.INDENT
+            handler = self.parse_body()
 
             # Build catch node
             children: list[Node] = [expr]
@@ -2324,7 +2351,19 @@ class Parser:
         # Throw as expression-form
         if self.check(TT.THROW):
             self.advance()
-            if self.check(TT.NEWLINE, TT.EOF, TT.SEMI, TT.RBRACE, TT.RPAR, TT.COMMA):
+            if self.check(
+                TT.NEWLINE,
+                TT.EOF,
+                TT.SEMI,
+                TT.RBRACE,
+                TT.RPAR,
+                TT.COMMA,
+                TT.ELSE,
+                TT.ELIF,
+                TT.IF,
+                TT.UNLESS,
+                TT.PIPE,
+            ):
                 return Tree("throwstmt", [])
             value = self.parse_unary_expr()
             return Tree("throwstmt", [value])
