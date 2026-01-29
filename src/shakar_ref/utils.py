@@ -7,7 +7,7 @@ from .types import (
     DecoratorConfigured,
     DecoratorContinuation,
     ShkEnvVar,
-    ShkNull,
+    ShkNil,
     ShkNumber,
     ShkString,
     ShkBool,
@@ -54,7 +54,7 @@ def envvar_value_by_name(name: str) -> Optional[str]:
 
 def is_nil_like(value: ShkValue) -> bool:
     """Check if a value is nil or an env var with missing value."""
-    if isinstance(value, ShkNull):
+    if isinstance(value, ShkNil):
         return True
     if isinstance(value, ShkEnvVar):
         return envvar_is_nil(value)
@@ -63,10 +63,10 @@ def is_nil_like(value: ShkValue) -> bool:
 
 def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
     match (lhs, rhs):
-        case (ShkNull(), ShkNull()):
+        case (ShkNil(), ShkNil()):
             return True
         # EnvVar compared with nil: true if env var doesn't exist
-        case (ShkEnvVar() as env, ShkNull()) | (ShkNull(), ShkEnvVar() as env):
+        case (ShkEnvVar() as env, ShkNil()) | (ShkNil(), ShkEnvVar() as env):
             return envvar_is_nil(env)
         # EnvVar compared with EnvVar: compare resolved values (nil if missing)
         case (ShkEnvVar() as env_a, ShkEnvVar() as env_b):
@@ -165,8 +165,8 @@ def normalize_object_key(value: ShkValue) -> str:
             return str(int(num)) if num.is_integer() else str(num)
         case ShkBool(value=b):
             return "true" if b else "false"
-        case ShkNull():
-            return "null"
+        case ShkNil():
+            return "nil"
         case ShkEnvVar() as env:
             env_val = envvar_value(env)
             if env_val is None:
@@ -197,7 +197,7 @@ def stringify(value: Optional[ShkValue]) -> str:
     if isinstance(value, ShkBool):
         return "true" if value.value else "false"
 
-    if isinstance(value, ShkNull) or value is None:
+    if isinstance(value, ShkNil) or value is None:
         return "nil"
 
     if isinstance(value, ShkCommand):

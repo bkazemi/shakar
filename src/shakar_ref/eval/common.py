@@ -19,7 +19,7 @@ from ..types import (
     ShakarRuntimeError,
     ShakarTypeError,
     ShkValue,
-    ShkNull,
+    ShkNil,
 )
 from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
 from ..tree import token_kind

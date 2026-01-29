@@ -6,7 +6,7 @@ import subprocess
 from typing import Callable, Dict, List, Optional, Tuple, Union
 from .tree import Node
 from .types import (
-    ShkNull,
+    ShkNil,
     ShkNumber,
     ShkDuration,
     ShkSize,
@@ -71,7 +71,7 @@ from .utils import envvar_value_by_name, stringify
 
 __all__ = [
     "Frame",
-    "ShkNull",
+    "ShkNil",
     "ShkNumber",
     "ShkDuration",
     "ShkSize",
@@ -401,15 +401,15 @@ def _regex_arg(method: str, arg: ShkValue) -> str:
 
 
 @register_array("push")
-def _array_push(_frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkNull:
+def _array_push(_frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkNil:
     if len(args) != 1:
         raise ShakarArityError(f"array.push expects 1 argument; got {len(args)}")
     recv.items.append(args[0])
-    return ShkNull()
+    return ShkNil()
 
 
 @register_array("append")
-def _array_append(_frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkNull:
+def _array_append(_frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkNil:
     # Alias for push
     return _array_push(_frame, recv, args)
 
@@ -553,7 +553,7 @@ def _command_run(_frame: Frame, recv: ShkCommand, args: List[ShkValue]) -> ShkVa
 def regex_match_value(regex: ShkRegex, text: str) -> ShkValue:
     match = regex.compiled.search(text)
     if match is None:
-        return ShkNull()
+        return ShkNil()
 
     groups = list(match.groups())
     if regex.include_full:
@@ -562,7 +562,7 @@ def regex_match_value(regex: ShkRegex, text: str) -> ShkValue:
         values = groups if groups else [match.group(0)]
 
     items: List[ShkValue] = [
-        ShkString(val) if val is not None else ShkNull() for val in values
+        ShkString(val) if val is not None else ShkNil() for val in values
     ]
     return ShkArray(items)
 
@@ -622,7 +622,7 @@ def _path_read(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkString:
 
 
 @register_path("write")
-def _path_write(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNull:
+def _path_write(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNil:
     _path_expect_arity("write", args, 1)
     content = _path_arg_string("write", args[0])
     path = recv.as_path()
@@ -630,11 +630,11 @@ def _path_write(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNull:
         path.write_text(content)
     except OSError as exc:
         raise ShakarRuntimeError(f"Path write failed: {exc}") from exc
-    return ShkNull()
+    return ShkNil()
 
 
 @register_path("chmod")
-def _path_chmod(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNull:
+def _path_chmod(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNil:
     _path_expect_arity("chmod", args, 1)
     mode = _path_arg_number("chmod", args[0])
     path = recv.as_path()
@@ -642,7 +642,7 @@ def _path_chmod(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNull:
         path.chmod(mode)
     except OSError as exc:
         raise ShakarRuntimeError(f"Path chmod failed: {exc}") from exc
-    return ShkNull()
+    return ShkNil()
 
 
 # ---------- Channel methods ----------
@@ -656,10 +656,10 @@ def _channel_expect_arity(method: str, args: List[ShkValue], expected: int) -> N
 
 
 @register_channel("close")
-def _channel_close(_frame: Frame, recv: ShkChannel, args: List[ShkValue]) -> ShkNull:
+def _channel_close(_frame: Frame, recv: ShkChannel, args: List[ShkValue]) -> ShkNil:
     _channel_expect_arity("close", args, 0)
     recv.close()
-    return ShkNull()
+    return ShkNil()
 
 
 # ---------- EnvVar methods ----------
@@ -687,7 +687,7 @@ def _envvar_assign(_frame: Frame, recv: ShkEnvVar, args: List[ShkValue]) -> ShkE
             _os.environ.pop(recv.name, None)
             return recv
         str_val = env_val
-    elif isinstance(val, ShkNull):
+    elif isinstance(val, ShkNil):
         # Setting to nil is equivalent to unset
         _os.environ.pop(recv.name, None)
         return recv
@@ -698,11 +698,11 @@ def _envvar_assign(_frame: Frame, recv: ShkEnvVar, args: List[ShkValue]) -> ShkE
 
 
 @register_envvar("unset")
-def _envvar_unset(_frame: Frame, recv: ShkEnvVar, args: List[ShkValue]) -> ShkNull:
+def _envvar_unset(_frame: Frame, recv: ShkEnvVar, args: List[ShkValue]) -> ShkNil:
     """Remove the environment variable."""
     _envvar_expect_arity("unset", args, 0)
     _os.environ.pop(recv.name, None)
-    return ShkNull()
+    return ShkNil()
 
 
 def call_builtin_method(
@@ -1038,7 +1038,7 @@ TYPE_STR = ShkType("Str", ShkString)
 TYPE_BOOL = ShkType("Bool", ShkBool)
 TYPE_ARRAY = ShkType("Array", ShkArray)
 TYPE_OBJECT = ShkType("Object", ShkObject)
-TYPE_NIL = ShkType("Nil", ShkNull)
+TYPE_NIL = ShkType("Nil", ShkNil)
 TYPE_PATH = ShkType("Path", ShkPath)
 
 Builtins.type_constants = {

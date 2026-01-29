@@ -36,7 +36,7 @@ def _load_shakar_modules():
     from shakar_ref.runtime import (
         CommandError,
         ShkCommand,
-        ShkNull,
+        ShkNil,
         ShkNumber,
         ShkString,
         ShkBool,
@@ -62,7 +62,7 @@ def _load_shakar_modules():
         run_program,
         CommandError,
         ShkCommand,
-        ShkNull,
+        ShkNil,
         ShkNumber,
         ShkString,
         ShkBool,
@@ -89,7 +89,7 @@ def _load_shakar_modules():
     run_program,
     CommandError,
     ShkCommand,
-    ShkNull,
+    ShkNil,
     ShkNumber,
     ShkString,
     ShkBool,
@@ -4696,8 +4696,8 @@ class SanitySuite:
                 return f"expected {expected}, got {value.value}"
             return None
         if kind == "null":
-            if not isinstance(value, ShkNull):
-                return f"expected ShkNull, got {type(value).__name__}"
+            if not isinstance(value, ShkNil):
+                return f"expected ShkNil, got {type(value).__name__}"
             return None
         if kind == "command":
             if not isinstance(value, ShkCommand):
@@ -4743,7 +4743,7 @@ class SanitySuite:
             desc = f"produced {value.value!r}"
         elif isinstance(value, ShkNumber):
             desc = f"produced {int(value.value) if value.value.is_integer() else value.value}"
-        elif isinstance(value, ShkNull):
+        elif isinstance(value, ShkNil):
             desc = "produced null"
         elif isinstance(value, ShkCommand):
             desc = f"produced sh<{value.render()}>"

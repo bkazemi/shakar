@@ -6,7 +6,7 @@ from ..tree import Tok
 from ..runtime import (
     Frame,
     ShkBool,
-    ShkNull,
+    ShkNil,
     ShkObject,
     ShkSelector,
     ShkString,
@@ -54,7 +54,7 @@ def eval_return_stmt(
     if _current_function_frame(frame) is None:
         raise ShakarRuntimeError("return outside of a function")
 
-    value = eval_func(children[0], frame) if children else ShkNull()
+    value = eval_func(children[0], frame) if children else ShkNil()
 
     raise ShakarReturnSignal(value)
 
@@ -70,7 +70,7 @@ def eval_return_if(children: list[Node], frame: Frame, eval_func: EvalFunc) -> S
     if _is_truthy(value):
         raise ShakarReturnSignal(value)
 
-    return ShkNull()
+    return ShkNil()
 
 
 def eval_throw_stmt(
@@ -114,7 +114,7 @@ def coerce_throw_value(value: ShkValue) -> ShakarRuntimeError:
 
             err = ShakarRuntimeError(msg_slot.value)
             err.shk_type = type_slot.value
-            err.shk_data = slots.get("data", ShkNull())
+            err.shk_data = slots.get("data", ShkNil())
             err.shk_payload = value
             return err
 
@@ -133,7 +133,7 @@ def eval_assert(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
     cond_val = eval_func(children[0], frame)
 
     if _is_truthy(cond_val):
-        return ShkNull()
+        return ShkNil()
 
     message = f"Assertion failed: {_assert_source_snippet(children[0], frame)}"
 
@@ -280,11 +280,11 @@ def eval_catch_stmt(
 
     try:
         eval_func(try_node, frame)
-        return ShkNull()
+        return ShkNil()
     except ShakarRuntimeError as exc:
         payload = _build_error_payload(exc)
         _run_catch_handler(body, frame, binder, payload, exc, type_names, eval_func)
-        return ShkNull()
+        return ShkNil()
 
 
 def _assert_source_snippet(node: Node, frame: Frame) -> str:
@@ -370,7 +370,7 @@ def eval_if_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if else_body is not None:
         return eval_body_node(else_body, frame, eval_func, allow_loop_control=True)
 
-    return ShkNull()
+    return ShkNil()
 
 
 def eval_match_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:

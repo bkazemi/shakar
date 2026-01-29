@@ -11,7 +11,7 @@ from ..runtime import (
     ShkArray,
     ShkFan,
     ShkChannel,
-    ShkNull,
+    ShkNil,
     ShkNumber,
     ShkObject,
     ShkModule,
@@ -243,7 +243,7 @@ def _iter_path_values(value: ShkPath) -> List[ShkValue]:
 
 def _iterable_values(value: ShkValue) -> list[ShkValue]:
     match value:
-        case ShkNull():
+        case ShkNil():
             return []
         case ShkNumber(value=num):
             num_val = float(num)
@@ -389,7 +389,7 @@ def eval_while_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     finally:
         frame.dot = outer_dot
 
-    return ShkNull()
+    return ShkNil()
 
 
 def eval_for_in(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
@@ -471,7 +471,7 @@ def eval_for_in(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
                 break
     finally:
         frame.dot = outer_dot
-    return ShkNull()
+    return ShkNil()
 
 
 def eval_for_subject(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
@@ -512,7 +512,7 @@ def eval_for_subject(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
                 break
     finally:
         frame.dot = outer_dot
-    return ShkNull()
+    return ShkNil()
 
 
 def eval_for_indexed(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
@@ -568,7 +568,7 @@ def eval_for_indexed(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
                 break
     finally:
         frame.dot = outer_dot
-    return ShkNull()
+    return ShkNil()
 
 
 def eval_for_map2(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:

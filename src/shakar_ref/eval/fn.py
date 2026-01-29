@@ -11,7 +11,7 @@ from ..runtime import (
     Frame,
     ShkDecorator,
     ShkFn,
-    ShkNull,
+    ShkNil,
     ShkValue,
     ShakarRuntimeError,
     ShakarTypeError,
@@ -48,7 +48,7 @@ def eval_hook_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     handler_node = children[1]
     _ = eval_func(handler_node, frame)
 
-    return ShkNull()
+    return ShkNil()
 
 
 def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
@@ -108,7 +108,7 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
 
     frame.define(name, fn_value)
 
-    return ShkNull()
+    return ShkNil()
 
 
 def _inject_contract_assertions(
@@ -223,7 +223,7 @@ def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
     )
     frame.define(name, decorator)
 
-    return ShkNull()
+    return ShkNil()
 
 
 def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:

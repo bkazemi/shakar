@@ -12,7 +12,7 @@ from ..runtime import (
     ShkArray,
     ShkBool,
     ShkChannel,
-    ShkNull,
+    ShkNil,
     ShkValue,
     ShakarRuntimeError,
     ShakarAssertionError,
@@ -48,7 +48,7 @@ def evaluate_destructure_rhs(
         if not children:
             raise ShakarRuntimeError("Malformed receive expression")
         chan_val = eval_fn(children[0], frame)
-        if isinstance(chan_val, ShkNull):
+        if isinstance(chan_val, ShkNil):
             raise ShakarRuntimeError("Receive on nil channel")
         if not isinstance(chan_val, ShkChannel):
             raise ShakarRuntimeError("Expected channel on receive")
@@ -248,4 +248,4 @@ def eval_destructure(
             eval_func=eval_func,
         )
 
-    return result if allow_broadcast else ShkNull()
+    return result if allow_broadcast else ShkNil()

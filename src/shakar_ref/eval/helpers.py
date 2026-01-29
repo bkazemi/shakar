@@ -17,7 +17,7 @@ from ..runtime import (
     ShkEnvVar,
     ShkChannel,
     ShkFn,
-    ShkNull,
+    ShkNil,
     ShkNumber,
     ShkObject,
     ShkOptional,
@@ -45,7 +45,7 @@ def is_truthy(val: ShkValue) -> bool:
     match val:
         case ShkBool(value=b):
             return b
-        case ShkNull():
+        case ShkNil():
             return False
         case ShkNumber(value=num):
             return num != 0

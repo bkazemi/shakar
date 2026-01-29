@@ -14,7 +14,7 @@ from ..runtime import (
     ShkCommand,
     ShkEnvVar,
     ShkFn,
-    ShkNull,
+    ShkNil,
     ShkNumber,
     ShkDuration,
     ShkSize,
@@ -202,7 +202,7 @@ def index_value(
                     # getter-only descriptor behaves like a computed property.
                     getter = val.getter
                     if getter is None:
-                        return ShkNull()
+                        return ShkNil()
 
                     return call_shkfn(getter, [], subject=recv, caller_frame=frame)
 
@@ -256,7 +256,7 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
                     getter = slot.getter
 
                     if getter is None:
-                        return ShkNull()
+                        return ShkNil()
                     return call_shkfn(getter, [], subject=recv, caller_frame=frame)
 
                 if isinstance(slot, ShkFn):
@@ -325,7 +325,7 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
                 return ShkString(recv.name)
             if name == "value":
                 val = envvar_value_by_name(recv.name)
-                return ShkNull() if val is None else ShkString(val)
+                return ShkNil() if val is None else ShkString(val)
             if name == "exists":
                 return ShkBool(envvar_value_by_name(recv.name) is not None)
             if name == "len":

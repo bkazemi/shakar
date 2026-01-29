@@ -11,6 +11,7 @@ from .lower import lower
 from .evaluator import eval_expr
 from .runtime import ShkValue
 from .runtime import Frame, init_stdlib
+from .types import ShkNil
 
 
 def _parse_and_lower(src: str, use_indenter: Optional[bool] = None):
@@ -124,14 +125,14 @@ def main() -> None:
         ast2 = _parse_and_lower(source)
         print(ast2.pretty())
     else:
-        print(
-            run(
-                source,
-                grammar_path=grammar_path,
-                grammar_variant=grammar_variant,
-                source_path=source_path,
-            )
+        result = run(
+            source,
+            grammar_path=grammar_path,
+            grammar_variant=grammar_variant,
+            source_path=source_path,
         )
+        if not isinstance(result, ShkNil):
+            print(result)
 
 
 if __name__ == "__main__":

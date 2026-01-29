@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, List
 
-from ..runtime import Frame, ShkNull, ShkValue, ShakarRuntimeError
+from ..runtime import Frame, ShkNil, ShkValue, ShakarRuntimeError
 from ..tree import Node, Tree, is_tree, tree_children, tree_label
 from .bind import assign_ident, eval_assign_stmt
 from .common import expect_ident_token
@@ -88,7 +88,7 @@ def eval_let_destructure(
             allow_broadcast=allow_broadcast,
         )
 
-    return result if allow_broadcast else ShkNull()
+    return result if allow_broadcast else ShkNil()
 
 
 def eval_let_stmt(

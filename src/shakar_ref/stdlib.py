@@ -8,7 +8,7 @@ from typing import List, Optional
 from .runtime import (
     register_stdlib,
     register_module_factory,
-    ShkNull,
+    ShkNil,
     ShkString,
     ShkNumber,
     ShkDuration,
@@ -62,16 +62,16 @@ def _render(value):
     if isinstance(value, (ShkNumber, ShkBool)):
         return str(value.value)
 
-    if isinstance(value, ShkNull):
-        return "null"
+    if isinstance(value, ShkNil):
+        return "nil"
     return str(value)
 
 
 @register_stdlib("print")
-def std_print(_frame, args: List[ShkValue]) -> ShkNull:
+def std_print(_frame, args: List[ShkValue]) -> ShkNil:
     rendered = [_render(arg) for arg in args]
     print(*rendered)
-    return ShkNull()
+    return ShkNil()
 
 
 @register_stdlib("sleep")
@@ -89,7 +89,7 @@ def std_sleep(_frame, args: List[ShkValue]):
         raise ShakarTypeError("sleep expects a numeric duration")
 
     time.sleep(seconds)
-    return ShkNull()
+    return ShkNil()
 
 
 @register_stdlib("channel")
@@ -115,7 +115,7 @@ def std_error(_frame, args: List[ShkValue]) -> ShkObject:
 
     if not isinstance(type_arg, ShkString) or not isinstance(message_arg, ShkString):
         raise ShakarTypeError("error expects string type and message")
-    data = rest[0] if rest else ShkNull()
+    data = rest[0] if rest else ShkNil()
     slots: dict[str, ShkValue] = {
         "__error__": ShkBool(True),
         "type": type_arg,
@@ -153,7 +153,7 @@ def std_any(_frame, args: List[ShkValue]) -> ShkBool:
 
 
 @register_stdlib("mixin")
-def std_mixin(frame, args: List[ShkValue]) -> ShkNull:
+def std_mixin(frame, args: List[ShkValue]) -> ShkNil:
     if len(args) != 1:
         raise ShakarTypeError("mixin() expects exactly one argument")
 
@@ -171,7 +171,7 @@ def std_mixin(frame, args: List[ShkValue]) -> ShkNull:
     for key, value in slots.items():
         target.define(key, value)
 
-    return ShkNull()
+    return ShkNil()
 
 
 def _iter_coerce(value: ShkValue):
@@ -340,7 +340,7 @@ def _io_browser_read_key(timeout_ms: Optional[float]) -> ShkString:
     return ShkString("")
 
 
-def _io_write(_frame, args: List[ShkValue]) -> ShkNull:
+def _io_write(_frame, args: List[ShkValue]) -> ShkNil:
     """Write text to output."""
     if len(args) != 1 or not isinstance(args[0], ShkString):
         raise ShakarTypeError("io.write(str) expects one string argument")
@@ -364,10 +364,10 @@ def _io_write(_frame, args: List[ShkValue]) -> ShkNull:
             sys.stdout.write(text)
         sys.stdout.flush()
 
-    return ShkNull()
+    return ShkNil()
 
 
-def _io_clear(_frame, args: List[ShkValue]) -> ShkNull:
+def _io_clear(_frame, args: List[ShkValue]) -> ShkNil:
     """Clear the screen/output."""
     if args:
         raise ShakarTypeError("io.clear() expects no arguments")
@@ -383,10 +383,10 @@ def _io_clear(_frame, args: List[ShkValue]) -> ShkNull:
         sys.stdout.write("\x1b[2J\x1b[H")
         sys.stdout.flush()
 
-    return ShkNull()
+    return ShkNil()
 
 
-def _io_overwrite(_frame, args: List[ShkValue]) -> ShkNull:
+def _io_overwrite(_frame, args: List[ShkValue]) -> ShkNil:
     """Atomic clear and write to prevent flickering."""
     if len(args) != 1 or not isinstance(args[0], ShkString):
         raise ShakarTypeError("io.overwrite(str) expects one string argument")
@@ -412,7 +412,7 @@ def _io_overwrite(_frame, args: List[ShkValue]) -> ShkNull:
             sys.stdout.write(text)
         sys.stdout.flush()
 
-    return ShkNull()
+    return ShkNil()
 
 
 def _io_is_interactive(_frame, args: List[ShkValue]) -> ShkBool:

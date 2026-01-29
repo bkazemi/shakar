@@ -26,9 +26,9 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class ShkNull:
+class ShkNil:
     def __repr__(self) -> str:
-        return "null"
+        return "nil"
 
 
 @dataclass
@@ -450,13 +450,13 @@ class ShkChannel:
         """Blocking receive. Returns (value, ok)."""
         result = self._recv(block=True, cancel_token=cancel_token)
         if result.ok:
-            return result.value if result.value is not None else ShkNull(), True
-        return ShkNull(), False
+            return result.value if result.value is not None else ShkNil(), True
+        return ShkNil(), False
 
     def recv_value(self, *, cancel_token: Optional[CancelToken] = None) -> "ShkValue":
         """Blocking receive that returns value directly (nil if closed)."""
         result = self._recv(block=True, cancel_token=cancel_token)
-        return result.value if result.value is not None else ShkNull()
+        return result.value if result.value is not None else ShkNil()
 
     def recv_with_ok(
         self, *, cancel_token: Optional[CancelToken] = None
@@ -663,7 +663,7 @@ class ShkResultChannel(ShkChannel):
         if not result.ok:
             if self._cancelled and self._closed:
                 raise ShakarCancelledError("Spawn task cancelled")
-            return ShkNull()
+            return ShkNil()
 
         value = result.value
         if value is None:
@@ -672,7 +672,7 @@ class ShkResultChannel(ShkChannel):
         if isinstance(value, _ResultItem):
             if value.error is not None:
                 raise value.error
-            return value.value if value.value is not None else ShkNull()
+            return value.value if value.value is not None else ShkNil()
 
         return value
 
@@ -817,7 +817,7 @@ class StdlibFunction:
 
 
 ShkValue: TypeAlias = Union[
-    ShkNull,
+    ShkNil,
     ShkNumber,
     ShkDuration,
     ShkSize,
@@ -1125,7 +1125,7 @@ class ShakarContinueSignal(Exception):
 
 
 _SHK_VALUE_TYPES: Tuple[type, ...] = (
-    ShkNull,
+    ShkNil,
     ShkNumber,
     ShkDuration,
     ShkSize,
@@ -1160,7 +1160,7 @@ def is_shk_value(value: ShkValue | Node) -> TypeGuard[ShkValue]:
 
 def _ensure_shk_value(value: ShkValue | Node) -> ShkValue:
     if value is None:
-        return ShkNull()
+        return ShkNil()
     if is_shk_value(value):
         return value
     raise ShakarTypeError(f"Unexpected value type {type(value).__name__}")

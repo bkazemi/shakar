@@ -12,7 +12,7 @@ from ..runtime import (
     ShkBool,
     ShkEnvVar,
     ShkFan,
-    ShkNull,
+    ShkNil,
     ShkNumber,
     ShkDuration,
     ShkSize,
@@ -232,7 +232,7 @@ def eval_infix(
     right_assoc_ops: Optional[Set[str]] = None,
 ) -> ShkValue:
     if not children:
-        return ShkNull()
+        return ShkNil()
 
     def _should_retarget(node: Node) -> bool:
         return retargets_anchor(node)
@@ -273,7 +273,7 @@ def eval_infix(
 
 def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not children:
-        return ShkNull()
+        return ShkNil()
 
     if len(children) == 1:
         return eval_func(children[0], frame)
@@ -343,7 +343,7 @@ def eval_logical(
     kind: str, children: List[Tree], frame: Frame, eval_func: EvalFunc
 ) -> ShkValue:
     if not children:
-        return ShkNull()
+        return ShkNil()
 
     normalized = "and" if "and" in kind else "or"
     prev_dot = frame.dot
@@ -377,7 +377,7 @@ def eval_nullish(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
     ]
 
     if not exprs:
-        return ShkNull()
+        return ShkNil()
 
     current = eval_anchor_scoped(exprs[0], frame, eval_func)
 
@@ -399,31 +399,31 @@ def eval_nullsafe(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             try:
                 return eval_func(target, frame)
             except (ShakarKeyError, ShakarIndexError):
-                return ShkNull()
+                return ShkNil()
 
         children = tree_children(target)
         if not children:
-            return ShkNull()
+            return ShkNil()
 
         head = children[0]
         current = eval_func(head, frame)
 
         if is_nil_like(current):
-            return ShkNull()
+            return ShkNil()
 
         for op in children[1:]:
             try:
                 current = chain_apply_op(current, op, frame, eval_func)
             except (ShakarRuntimeError, ShakarTypeError) as err:
                 if _nullsafe_recovers(err, current):
-                    return ShkNull()
+                    return ShkNil()
                 raise
 
             if isinstance(current, RebindContext):
                 current = current.value
 
             if is_nil_like(current):
-                return ShkNull()
+                return ShkNil()
         return current
 
 
@@ -760,6 +760,6 @@ def _contains(container: ShkValue, item: ShkValue) -> bool:
 
 
 def _nullsafe_recovers(err: Exception, recv: ShkValue) -> bool:
-    if isinstance(recv, ShkNull):
+    if isinstance(recv, ShkNil):
         return True
     return isinstance(err, (ShakarKeyError, ShakarIndexError))

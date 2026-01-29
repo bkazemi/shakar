@@ -8,7 +8,7 @@ from ..runtime import (
     ShkEnvVar,
     ShkString,
     ShkNumber,
-    ShkNull,
+    ShkNil,
     ShkSelector,
     SelectorIndex,
     SelectorSlice,
@@ -326,7 +326,7 @@ def _eval_seloptstop(
     node: Optional[Tree], frame: Frame, eval_fn: EvalFunc
 ) -> tuple[ShkValue, bool]:
     if node is None:
-        return ShkNull(), False
+        return ShkNil(), False
 
     children = tree_children(node)
     exclusive = False
@@ -344,7 +344,7 @@ def _eval_seloptstop(
     selatom = child_by_label(node, "selatom")
     value = _eval_selector_atom(selatom, frame, eval_fn)
     if value is None:
-        value = ShkNull()
+        value = ShkNil()
 
     return value, exclusive
 
@@ -361,7 +361,7 @@ def _validate_slice_signs(start: Optional[int], stop: Optional[int]) -> None:
 def _coerce_selector_number(
     value: Optional[ShkValue], allow_none: bool = False
 ) -> Optional[int]:
-    if value is None or isinstance(value, ShkNull):
+    if value is None or isinstance(value, ShkNil):
         if allow_none:
             return None
         raise ShakarTypeError("Selector expects a numeric bound")

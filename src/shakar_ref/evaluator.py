@@ -13,7 +13,7 @@ from .runtime import (
     ShkArray,
     ShkFan,
     ShkBool,
-    ShkNull,
+    ShkNil,
     ShkString,
     ShkValue,
     ShakarBreakSignal,
@@ -263,7 +263,7 @@ def _eval_formap1(n: Tree, frame: Frame) -> ShkValue:
 def _eval_group(n: Tree, frame: Frame) -> ShkValue:
     child = n.children[0] if n.children else None
     if child is None:
-        return ShkNull()
+        return ShkNil()
 
     saved = frame.dot
 
@@ -425,15 +425,15 @@ def _eval_subject(_n: Tree, frame: Frame) -> ShkValue:
 
 
 def _eval_keyexpr(n: Tree, frame: Frame) -> ShkValue:
-    return eval_node(n.children[0], frame) if n.children else ShkNull()
+    return eval_node(n.children[0], frame) if n.children else ShkNil()
 
 
 def _eval_slicearm_expr(n: Tree, frame: Frame) -> ShkValue:
-    return eval_node(n.children[0], frame) if n.children else ShkNull()
+    return eval_node(n.children[0], frame) if n.children else ShkNil()
 
 
 def _eval_slicearm_empty(_n: Tree, _frame: Frame) -> ShkValue:
-    return ShkNull()
+    return ShkNil()
 
 
 def _eval_pack(n: Tree, frame: Frame) -> ShkValue:
@@ -743,7 +743,7 @@ def _eval_import_destructure(n: Tree, frame: Frame) -> ShkValue:
                 f"Import name '{name}' already defined in this scope"
             )
 
-    last_value: ShkValue = ShkNull()
+    last_value: ShkValue = ShkNil()
     for name in names:
         value = slots[name]
         frame.define(name, value)
@@ -902,5 +902,5 @@ _TOKEN_DISPATCH: dict[TT, Callable[[Tok, Frame], ShkValue]] = {
     TT.REGEX: token_regex,
     TT.TRUE: lambda _, __: ShkBool(True),
     TT.FALSE: lambda _, __: ShkBool(False),
-    TT.NIL: lambda _, __: ShkNull(),
+    TT.NIL: lambda _, __: ShkNil(),
 }

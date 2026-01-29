@@ -13,7 +13,7 @@ from ..runtime import (
     Frame,
     ShkDecorator,
     ShkFn,
-    ShkNull,
+    ShkNil,
     ShkValue,
     StdlibFunction,
     DecoratorContinuation,
@@ -36,7 +36,7 @@ def eval_program(
     allow_loop_control: bool = False,
 ) -> ShkValue:
     """Run a stmt list under a fresh defer scope, returning last value."""
-    result: ShkValue = ShkNull()
+    result: ShkValue = ShkNil()
     skip_tokens = {"SEMI", "_NL", "INDENT", "DEDENT"}
     push_defer_scope(frame)
     push_let_scope(frame)
@@ -164,7 +164,7 @@ def eval_inline_body(
                 )
 
         if not tree_children(node):
-            return ShkNull()
+            return ShkNil()
         push_let_scope(frame)
         try:
             return eval_func(node.children[0], frame)
@@ -215,7 +215,7 @@ def eval_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkVa
 
     frame.dot = outer_dot
 
-    return ShkNull()
+    return ShkNil()
 
 
 def eval_body_node(
@@ -247,8 +247,9 @@ def run_body_with_subject(
     extra_bindings: Optional[dict[str, ShkValue]] = None,
 ) -> ShkValue:
     if extra_bindings:
-        with temporary_subject(frame, subject_value), temporary_bindings(
-            frame, extra_bindings
+        with (
+            temporary_subject(frame, subject_value),
+            temporary_bindings(frame, extra_bindings),
         ):
             return eval_body_node(body_node, frame, eval_func)
 
@@ -279,7 +280,7 @@ def temporary_bindings(frame: Frame, bindings: dict[str, ShkValue]) -> Iterator[
 
         if target is None:
             frame.define(name, value)
-            records.append((frame, name, ShkNull(), False))
+            records.append((frame, name, ShkNil(), False))
         else:
             prev = target.vars[name]
             target.vars[name] = value
@@ -431,4 +432,4 @@ def eval_defer_stmt(
 
     schedule_defer(frame, thunk, label=label, deps=deps)
 
-    return ShkNull()
+    return ShkNil()

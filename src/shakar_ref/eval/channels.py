@@ -15,7 +15,7 @@ from ..runtime import (
     ShkResultChannel,
     ShkDuration,
     ShkFan,
-    ShkNull,
+    ShkNil,
     ShkNumber,
     ShkObject,
     ShkSelector,
@@ -64,7 +64,7 @@ class _TimeoutCase:
 
 
 def _coerce_channel(value: ShkValue) -> ShkChannel:
-    if isinstance(value, ShkNull):
+    if isinstance(value, ShkNil):
         raise ShakarRuntimeError("Send/receive on nil channel")
     if not isinstance(value, ShkChannel):
         raise ShakarTypeError("Expected channel")
@@ -342,7 +342,7 @@ def _maybe_call_value(
 ) -> ShkValue:
     if _explicit_call_in_node(node):
         return value
-    if isinstance(value, (ShkChannel, ShkNull)):
+    if isinstance(value, (ShkChannel, ShkNil)):
         return value
     if isinstance(
         value,
@@ -497,7 +497,7 @@ def eval_wait_group_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValu
         _cancel_pending([ch for _, ch in pending])
         raise exc
 
-    return ShkNull()
+    return ShkNil()
 
 
 def eval_wait_all_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
@@ -513,7 +513,7 @@ def eval_wait_all_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         channels.append(item)
 
     pending = list(enumerate(channels))
-    results: list[ShkValue] = [ShkNull()] * len(channels)
+    results: list[ShkValue] = [ShkNil()] * len(channels)
     try:
         while pending:
             idx, val = _wait_for_any_channel(
@@ -551,4 +551,4 @@ def eval_wait_group_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue
         _cancel_pending([ch for _, ch in pending])
         raise exc
 
-    return ShkNull()
+    return ShkNil()

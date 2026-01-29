@@ -9,7 +9,7 @@ from ..token_types import TT
 from ..runtime import (
     Frame,
     ShkFn,
-    ShkNull,
+    ShkNil,
     ShkValue,
     ShakarRuntimeError,
     ShakarTypeError,
@@ -98,7 +98,7 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
     exc: Optional[BaseException] = None
     err_value: Optional[ShkValue] = None
-    result: ShkValue = ShkNull()
+    result: ShkValue = ShkNil()
 
     ctx = (
         temporary_bindings(frame, {bind_name: value})
@@ -143,7 +143,7 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
                         and target_fn.params is not None
                         and len(target_fn.params) == 1
                     ):
-                        return [ShkNull()]
+                        return [ShkNil()]
                     return []
 
                 args = _exit_args(exit_method)

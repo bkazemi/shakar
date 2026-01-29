@@ -17,7 +17,7 @@ from ..types import (
     ShkOptional,
     ShkUnion,
     ShkEnvVar,
-    ShkNull,
+    ShkNil,
     ShkString,
 )
 from ..utils import shk_equals, envvar_value_by_name
@@ -36,7 +36,7 @@ def match_structure(lhs: ShkValue, rhs: ShkValue) -> bool:
     """
     if isinstance(lhs, ShkEnvVar):
         env_val = envvar_value_by_name(lhs.name)
-        lhs = ShkNull() if env_val is None else ShkString(env_val)
+        lhs = ShkNil() if env_val is None else ShkString(env_val)
 
     if isinstance(rhs, ShkUnion):
         return any(match_structure(lhs, alt) for alt in rhs.alternatives)

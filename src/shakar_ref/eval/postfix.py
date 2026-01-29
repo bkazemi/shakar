@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, Iterable, List, Sequence
 
-from ..runtime import Frame, ShkNull, ShkValue, ShakarRuntimeError
+from ..runtime import Frame, ShkNil, ShkValue, ShakarRuntimeError
 from ..tree import Node, find_tree_by_label, is_token, tree_children
 from .common import token_kind
 
@@ -107,6 +107,6 @@ def _eval_postfix_guard(
         return eval_func(stmt_node, frame)
 
     if walrus_name is not None:
-        define_new_ident(walrus_name, ShkNull(), frame)
+        define_new_ident(walrus_name, ShkNil(), frame)
 
-    return ShkNull()
+    return ShkNil()

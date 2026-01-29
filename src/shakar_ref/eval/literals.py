@@ -13,7 +13,7 @@ from ..runtime import (
     ShkBool,
     ShkCommand,
     ShkEnvVar,
-    ShkNull,
+    ShkNil,
     ShkObject,
     ShkPath,
     ShkString,
@@ -42,7 +42,7 @@ def eval_keyword_literal(node: Tree) -> ShkValue:
     width = end - start
     match width:
         case 3:
-            return ShkNull()
+            return ShkNil()
         case 4:
             return ShkBool(True)
         case 5:
