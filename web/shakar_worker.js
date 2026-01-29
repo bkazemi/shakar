@@ -80,7 +80,7 @@ _io_key_read_idx[0] = int(js.Atomics.load(js.self.shk_key_buf, 0)) & 0xFFFFFFFF
     }
 
     try {
-        const escaped = code.replace(/\\/g, '\\\\').replace(/"""/g, '\\"\\"\\"');
+        const escaped = code.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'");
         pyodide.runPython(`
 import sys
 from io import StringIO
@@ -127,7 +127,7 @@ function handleHighlight(code) {
     if (!pyodide) return;
 
     try {
-        const escaped = code.replace(/\\/g, '\\\\').replace(/'''/g, "\\'\\'\\'");
+        const escaped = code.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'");
         const resultJson = pyodide.runPython(`
 import json
 json.dumps(shk_highlight('''${escaped}'''))
