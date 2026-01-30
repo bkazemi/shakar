@@ -1,0 +1,706 @@
+# ===== Shakar Exhaustive Feature Demo =====
+# Every language construct in one runnable script.
+
+# --- Imports ---
+import "io" bind io
+
+# --- Literals ---
+i := 42
+f := 3.14
+neg := -7
+sci := 1.5e3
+big := 1_000_000
+bin := 0b1010
+oct := 0o755
+hex := 0xCAFE
+b_true := true
+b_false := false
+nothing := nil
+
+print("--- Literals ---",
+    i, f, neg, sci, big, bin, oct, hex,
+    b_true, b_false, nothing
+)
+
+# --- Strings ---
+basic := "hello"
+single := 'world'
+interp := "sum is {i + 1}"
+raw := raw"no \n escape"
+raw_hash := raw#"no \n escape and no {interp}"#
+print("--- Strings ---",
+    basic, single,
+    interp,
+    raw,
+    raw_hash
+)
+
+# String methods
+print("  HELLO  ".trim().lower(),
+    "hello".upper(),
+    ", ".join("a-b-c".split("-")),
+    "foobar".hasPrefix("foo"), "foobar".hasSuffix("baz")
+)
+
+# --- Env Strings ---
+print("--- Env Strings ---")
+fn(()):
+    home := env"HOME"
+    print("env name:", home.name, "exists:", home.exists,
+        "env value:", home.value
+    )
+    demo := env"SHAKAR_DEMO"
+    demo.assign("1")
+    print("demo value:", demo.value)
+    demo.unset()
+catch err:
+    print("env strings unavailable:", err)
+
+# --- Path Strings ---
+print("--- Path Strings ---")
+fn(()):
+    fname := "exhaustive.txt"
+    path := p"/tmp/{fname}"
+    print("path name:", path.name, "exists:", path.exists)
+catch err:
+    print("path strings unavailable:", err)
+
+# --- Duration & Size literals ---
+dur := 1min30sec
+sz := 2gb500mb
+print("--- Duration & Size ---",
+    dur.sec, "seconds",
+    sz.mb, "megabytes"
+)
+
+# --- Arrays ---
+arr := [10, 20, 30, 40, 50]
+print("--- Arrays ---",
+    arr, "len:", arr.len, "high:", arr.high
+)
+arr.push(60)
+popped := arr.pop()
+print("after push/pop:", arr,
+    "slice:", arr[1:3],
+    "last:", arr[arr.high],
+    "popped:", popped
+)
+
+# --- Selector Literals ---
+sel := `1:4`
+print("--- Selectors ---")
+print([0, 1, 2, 3, 4, 5][sel])
+
+# --- Objects ---
+person := {name: "Ada", age: 30}
+print("--- Objects ---",
+    person,
+    "keys:", person.keys(),
+    "values:", person.values(),
+    "name:", person.name, "len:", person.len
+)
+
+# --- Object Advanced ---
+advanced := {
+    "a-b": 7,
+    (1 + 2): "three",
+    get size: 123,
+    set size(v): print("set size to", v)
+}
+print("--- Objects Advanced ---")
+print(advanced["a-b"], advanced[3], advanced.size)
+advanced.size = 999
+
+# --- Sets ---
+s := set{1, 2, 3, 2, 1}
+print("--- Sets ---")
+print(s)
+
+# --- Algebra (Preview) ---
+print("--- Algebra ---")
+fn(()):
+    set_a := set{1, 2, 3}
+    set_b := set{3, 4}
+    print("set +:", set_a + set_b,
+        "set -:", set_a - set_b,
+        "set *:", set_a * set_b,
+        "set ^:", set_a ^ set_b
+    )
+
+    obj_a := {a: 1, b: 2}
+    obj_b := {b: 3, c: 4}
+    print("obj +:", obj_a + obj_b,
+        "obj -:", obj_a - obj_b,
+        "obj *:", obj_a * obj_b,
+        "obj ^:", obj_a ^ obj_b
+    )
+
+    print("repeat str:", "ha" * 3,
+        "repeat arr:", [1] * 4
+    )
+catch err:
+    print("algebra not yet supported:", err)
+
+# --- Let (freeze binding) ---
+pi := 3.14159
+let pi = 3.14159
+print("--- Let ---", "pi:", pi)
+
+# --- Walrus binding ---
+w := 99
+print("--- Walrus ---", "w:", w)
+
+# --- Compound assignment ---
+x := 10
+x += 5
+x -= 2
+x *= 3
+x //= 4
+x %= 7
+print(sep: "\n", "--- Compound Assign ---", "x:", x)
+
+# --- Increments ---
+y := 5
+print("--- Increments ---")
+print("++y:", ++y)
+print("y--:", y--)
+print("y now:", y)
+
+# --- Ternary ---
+val := x > 5 ? "big" : "small"
+print(sep: "\n", "--- Ternary ---", val)
+
+# --- Nullish coalescing ---
+maybe := nil
+fallback := maybe ?? "default"
+print(sep: "\n", "--- Nullish ---", fallback)
+
+# --- Null-safe chain ---
+print("--- Null-safe ---")
+maybe_user := nil
+safe_name := ??(maybe_user.profile.name)
+print(safe_name ?? "no user")
+
+# --- Named functions ---
+fn add(a, b):
+    return a + b
+
+fn greet(name, prefix = "Hello"):
+    return "{prefix}, {name}!"
+
+print("--- Functions ---")
+print(add(3, 4))
+print(greet("world"))
+print(greet("Shakar", "Hi"))
+
+# --- Named Arguments ---
+print("--- Named Args ---")
+print(greet(name: "Shakar", prefix: "Hey"))
+print(greet(prefix: "Yo", name: "World"))
+print(add(b: 10, a: 5))
+
+# --- Dependent Defaults ---
+fn take(arr, start, end = arr.len):
+    return arr[start:end]
+
+print("--- Dependent Defaults ---")
+print(take([10, 20, 30, 40], 1))
+print(take([10, 20, 30, 40], 1, 3))
+
+# --- Function Contracts ---
+fn add_ints(a ~ Int, b ~ Int) ~ Int:
+    return a + b
+
+print("--- Contracts ---")
+print(add_ints(2, 3))
+
+# --- Varargs ---
+fn collect(head, ...rest):
+    return [head, rest]
+
+print("--- Varargs ---")
+print(collect(1, 2, 3))
+
+# --- Recursive function ---
+fn factorial(n):
+    if n <= 1: return 1
+    return n * factorial(n - 1)
+
+print("factorial(6):", factorial(6))
+
+# --- Anonymous function ---
+double := fn(x): x * 2
+print("--- Anonymous Fn ---")
+print(double(21))
+
+# --- Amp-lambda (implicit subject) ---
+triple := &(. * 3)
+print("--- Amp-Lambda ---")
+print(triple(5))
+
+# --- Amp-lambda with params ---
+adder := &[a, b](a + b)
+print(adder(10, 20))
+
+# --- Decorators ---
+log := []
+
+decorator log_calls():
+    log.push("called")
+
+@log_calls
+fn tracked():
+    return "ok"
+
+tracked()
+tracked()
+print("--- Decorators ---")
+print("call count:", log.len)
+
+# --- If / Else ---
+fn classify(n):
+    if n > 0: return "positive"
+    if n < 0: return "negative"
+    return "zero"
+
+print("--- If/Else ---")
+print(classify(5), classify(-3), classify(0))
+
+# --- Guard chains ---
+fn temp_status(t):
+    t > 100:
+        return "boiling"
+    | t > 50:
+        return "hot"
+    | t > 20:
+        return "warm"
+    |:
+        return "cold"
+
+print("--- Guards ---")
+print(temp_status(120), temp_status(70), temp_status(30), temp_status(5))
+
+# --- While loop ---
+print("--- While ---")
+count := 0
+while count < 5:
+    count += 1
+print("counted to:", count)
+
+# --- For-in loop ---
+print("--- For-In ---")
+nums := [1, 2, 3, 4, 5]
+total := 0
+for n in nums:
+    total += n
+print("sum:", total)
+
+# --- Indexed for ---
+print("--- Indexed For ---")
+for[idx] ["a", "b", "c"]:
+    print(idx, "->", .)
+
+# --- For with index and value ---
+print("--- For [idx, val] ---")
+for[i, v] [10, 20, 30]:
+    print(i, ":", v)
+
+# --- List comprehension ---
+squares := [x ** 2 over x in [1, 2, 3, 4, 5]]
+print("--- Comprehension ---")
+print(squares)
+
+# --- Filtered comprehension ---
+evens := [x over x in [1, 2, 3, 4, 5, 6] if x % 2 == 0]
+print("evens:", evens)
+
+# --- Set comprehension ---
+unique := set{x % 3 over x in [1, 2, 3, 4, 5, 6]}
+print("--- Set Comp ---")
+print(unique)
+
+# --- Dict comprehension ---
+index_map := {x: x ** 2 over x in [1, 2, 3]}
+print("--- Dict Comp ---")
+print(index_map)
+
+# --- Match expression ---
+fn describe(val):
+    match val:
+        1: "one"
+        2: "two"
+        3: "three"
+        else: "other"
+
+print("--- Match ---")
+print(describe(1), describe(2), describe(5))
+
+# --- Structural Match ---
+print("--- Structural Match ---")
+UserSchema := {name: Str, age?: Int}
+print({name: "Ada"} ~ UserSchema)
+print({name: "Ada", age: 30} ~ {name: Str, age: `18:<120`})
+print(5 ~ Union(Int, Str), "hi" ~ Union(Int, Str))
+
+# --- Break / Continue ---
+print("--- Break/Continue ---")
+result := []
+for [1, 2, 3, 4, 5, 6, 7, 8]:
+    . == 7: break
+    . % 2 == 0: continue
+    result.push(.)
+print(result)
+
+# --- Postfix if / unless ---
+print("--- Postfix Conditionals ---")
+msg := "yes"
+print("shown") if msg == "yes"
+print("hidden") unless msg == "yes"
+
+# --- Throw / Catch ---
+fn risky():
+    throw "boom"
+
+caught := risky() catch e: "caught: {e}"
+print("--- Throw/Catch ---")
+print(caught)
+
+# --- Typed Catch / Rethrow ---
+fn typed_risky():
+    throw error("TypeError", "bad")
+
+typed := typed_risky() catch (TypeError) bind err: "typed: {err.message}"
+print("typed:", typed)
+
+(typed_risky() catch err: throw) catch err:
+    print("rethrow ok:", err.message)
+
+# --- Assert ---
+assert 1 + 1 == 2
+print("--- Assert ---")
+print("assert passed")
+
+# --- Chained comparison (CCC) ---
+val2 := 15
+in_range := val2 >= 10, and <= 20
+print("--- CCC ---")
+print("in range:", in_range)
+
+# --- Destructuring ---
+a, b, c := 1, 2, 3
+print("--- Destructure ---")
+print(a, b, c)
+
+# --- Destructure Contracts ---
+pair := [1, "two"]
+dx ~ Int, dy ~ Str := pair
+print("--- Destructure Contracts ---")
+print(dx, dy)
+
+# --- Spread operator ---
+first := [1, 2]
+second := [3, 4]
+merged := [...first, ...second, 5]
+print("--- Spread ---")
+print(merged)
+
+# --- Object spread ---
+base := {x: 1, y: 2}
+extended := {...base, z: 3}
+print(extended)
+
+# --- Deep Merge (Preview) ---
+fn(()):
+    config := {ui: {theme: "dark", scale: 1.0}}
+    override := {ui: {theme: "light"}}
+    full_config := config +> override
+    print(full_config)
+catch err:
+    print("deep merge not yet supported:", err)
+
+# --- Nullish on nil field ---
+safe := nil ?? "none"
+print("--- Nullish fallback ---")
+print(safe)
+
+# --- Apply-assign (.=) ---
+name := "  Ada Lovelace  "
+name .= .trim()
+print("--- Apply-Assign ---")
+print(name)
+
+# --- Statement-Subject ---
+title := "  Hello  "
+=title.trim()
+print("--- Statement-Subject ---")
+print(title)
+
+# --- Fanout Block ---
+state := {cur: 1, next: 2, x: 0, name: "Ada"}
+state{
+    .cur = .next
+    .x += 1
+    .name .= .lower()
+}
+print("--- Fanout Block ---")
+print(state)
+
+# --- Value Fanout ---
+print("--- Value Fanout ---")
+vals := state.{cur, x}
+print(vals)
+fn sum3(a, b, c):
+    return a + b + c
+print(sum3(state.{cur, x}, 2))
+
+# --- Fanout Updates (Preview) ---
+user_f := {name: " Ada ", email: " ADA@EXAMPLE.COM "}
+fn(()):
+    =user_f.{name, email}.trim()
+    user_f.{name, email} .= .lower()
+    print(user_f)
+catch err:
+    print("fanout updates unavailable:", err)
+
+# --- Implicit subject in for ---
+print("--- Subject For ---")
+for [1, 2, 3]:
+    print(. * 10)
+
+# --- Closures ---
+fn make_counter():
+    n := 0
+    return fn:
+        n += 1
+        return n
+
+counter := make_counter()
+print("--- Closures ---")
+print(counter(), counter(), counter())
+
+# --- Higher-order functions ---
+fn apply(f, val):
+    return f(val)
+
+print("--- Higher-Order ---")
+print(apply(&(. + 100), 5))
+
+# --- Callee Amp-Lambda ---
+fn zip_with(xs, ys, f):
+    out := []
+    for[i] xs:
+        if i > ys.high: break
+        out.push(f(xs[i], ys[i]))
+    return out
+
+print("--- Zip With ---")
+print(zip_with([1, 2], [3, 4], &[a, b](a + b)))
+print(zip_with&[l, r](l + r)([1, 2], [3, 4])) catch err:
+    print("callee amp-lambda unavailable:", err)
+
+print(zip_with&(left + right)([1, 2], [3, 4])) catch err:
+    print("implicit param inference unavailable:", err)
+
+# --- Regex ---
+pat := r"(\d+)"
+print("--- Regex ---")
+print("abc123" ~~ pat)
+print("test:", pat.test("abc123"))
+print("search:", pat.search("abc123"))
+print("replace:", pat.replace("abc123", "X"))
+
+# --- Number bases display ---
+print("--- Number Bases ---")
+print("bin:", 0b1111, "oct:", 0o77, "hex:", 0xFF)
+
+# --- Nested objects & access ---
+db := {
+    users: [
+        {name: "Alice", role: "admin"},
+        {name: "Bob", role: "user"}
+    ]
+}
+print("--- Nested Access ---")
+print(db.users[0].name, "is", db.users[0].role)
+
+# --- Multiline expressions ---
+long_arr := [
+    "alpha",
+    "beta",
+    "gamma",
+    "delta"
+]
+print("--- Multiline ---")
+print(" | ".join(long_arr))
+
+# --- Chained methods ---
+result2 := "  Hello, World!  ".trim().upper()
+print("--- Chaining ---")
+print(result2)
+
+# --- Dot-chain continuation ---
+user2 := {profile: {name: "Ada"}}
+name2 := user2.profile
+    .name
+print("--- Dot Continuation ---")
+print(name2)
+
+# --- Return-if (?ret) ---
+fn first_found(...lookups):
+    for v in lookups:
+        ?ret v
+    return nil
+
+print("--- Return-if ---")
+print(first_found(nil, nil, "found it", "ignored"))
+
+# --- all() / any() builtins ---
+print("--- all/any ---")
+print("all positive:", all(1, 2, 3))
+print("any zero:", any(0, 0, 5))
+
+# --- Object field access ---
+point := {x: 10, y: 20}
+print("--- Object Access ---")
+print(point.x, point.y)
+
+# --- Object index with default ---
+hits := {"/": 1}
+print("--- Default Index ---")
+print(hits["/"], hits["/missing", default: 0])
+
+# --- error() builtin ---
+err := error("TypeError", "expected number")
+print("--- Errors ---")
+print(err.type, err.message)
+
+# --- Repeat methods ---
+print("--- Repeat ---")
+print("ha".repeat(3))
+print([0].repeat(4))
+
+# --- Multiline Strings ---
+multi := "
+    This string will be
+    automatically dedented
+    preserving relative whitespace.
+"
+print("--- Multiline ---")
+print(multi)
+
+# --- Shell Commands ---
+print("--- Shell ---")
+fn(()):
+    # Use echo for safety in exhaustive
+    echo_cmd := sh"echo 'Hello from Shell'"
+    print(echo_cmd.run())
+    print(sh!"echo 'Hello from Shell (eager)'")
+    raw_cmd := sh_raw"echo 'raw   spacing'"
+    print(raw_cmd.run())
+catch err:
+    print("shell unavailable:", err)
+
+# --- Concurrency (Channels & Spawn) ---
+print("--- Concurrency ---")
+ch := channel() # Unbuffered by default
+
+# Spawn a background task
+spawn:
+    sleep(10msec)
+    "ping" -> ch
+
+# Receive
+recv_msg := <-ch
+print("received:", recv_msg)
+
+# Receive with ok
+ch2 := channel()
+spawn:
+    "pong" -> ch2
+recv_val, recv_ok := <-ch2
+print("received:", recv_val, "ok:", recv_ok)
+
+# --- Wait Any ---
+print("--- Wait Any ---")
+c1 := channel()
+c2 := channel()
+spawn:
+    sleep(5msec)
+    "a" -> c1
+spawn:
+    sleep(10msec)
+    "b" -> c2
+winner := wait[any]:
+    any_msg := <-c1: "c1:{any_msg}"
+    any_msg := <-c2: "c2:{any_msg}"
+    timeout 50msec: "timeout"
+print("wait any:", winner)
+
+# --- Wait All ---
+print("--- Wait All ---")
+results := wait[all]:
+    first: fn: "first"
+    second: fn: "second"
+print(results.first, results.second)
+
+# --- Structured Concurrency ---
+print("--- Wait Groups ---")
+# wait[group] waits for all calls to finish, discarding results
+wait[group]:
+    fn: print("task 1 done")
+    fn: print("task 2 done")
+
+# --- Call Blocks (Builder Pattern) ---
+print("--- Call Blocks ---")
+# Defines a context where '>' emits values to the target
+fn logger(msg):
+    print("LOG:", msg)
+
+call logger:
+    > "Starting process"
+    > "Process complete"
+
+# --- Fan Literals ---
+print("--- Fans ---")
+# A fan broadcasts method calls to all members
+bots := fan{
+    {name: "A", ping: fn: "pong A"},
+    {name: "B", ping: fn: "pong B"}
+}
+# Broadcasts .ping() to A and B, returns fan of results
+pings := bots.ping()
+print(pings)
+
+# --- Hook / Debug (Preview) ---
+fn(()):
+    hook "demo": print("hook handler")
+    dbg 1, 2
+catch err:
+    print("hook/dbg unavailable:", err)
+
+# --- Resource Management ---
+print("--- Defer/Using ---")
+fn scoped_work():
+    defer: print("cleanup done")
+    print("doing work")
+
+scoped_work()
+
+resource := {
+    using_enter(): "entered",
+    using_exit(err): print("exit err?", err != nil)
+}
+
+using resource bind handle:
+    print("using:", handle)
+
+# --- Known Gaps (Syntax Only) ---
+# Computed object key ["a-b"]: 7
+# ?? expr        # nullsafe sugar (not implemented)
+# or=            # default assignment (parser rejects)
+# fn f(a, ...rest, z): ...  # mid-spread params
+# f(...{a: 1})   # named-arg spread
+# expr bind name # bind expression
+# trace "msg"    # tracing hook (not implemented)
+
+print("\n=== All features demonstrated! ===")

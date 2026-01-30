@@ -14,13 +14,15 @@ sum := 0
 for x in [1, 2, 3, 4, 5]:
     sum = sum + x
 print(sum)`,
-    tetris: null  // Special case - loaded from file
+    tetris: null,  // Special case - loaded from file
+    exhaustive: null  // Special case - loaded from file
 };
 
 let worker = null;
 let shakarLoaded = false;
 let highlightTimeout = null;
 let tetrisCode = null;
+let exhaustiveCode = null;
 let tetrisRunning = false;
 
 // SharedArrayBuffer for sending keys to worker while Python blocks.
@@ -304,6 +306,19 @@ async function loadTetrisCode() {
     }
 }
 
+async function loadExhaustiveCode() {
+    if (exhaustiveCode) return exhaustiveCode;
+    try {
+        const response = await fetch('exhaustive.sk?v=' + SHAKAR_VERSION);
+        if (!response.ok) throw new Error('Failed to load exhaustive.sk');
+        exhaustiveCode = await response.text();
+        return exhaustiveCode;
+    } catch (err) {
+        console.error('Failed to load exhaustive:', err);
+        return null;
+    }
+}
+
 function isTetrisExample() {
     return examplesEl.value === 'tetris';
 }
@@ -455,6 +470,12 @@ examplesEl.addEventListener('change', async (e) => {
 
     if (e.target.value === 'tetris') {
         const code = await loadTetrisCode();
+        if (code) {
+            codeEl.value = code;
+            scheduleHighlight();
+        }
+    } else if (e.target.value === 'exhaustive') {
+        const code = await loadExhaustiveCode();
         if (code) {
             codeEl.value = code;
             scheduleHighlight();
