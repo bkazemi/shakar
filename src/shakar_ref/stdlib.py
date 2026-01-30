@@ -67,10 +67,22 @@ def _render(value):
     return str(value)
 
 
-@register_stdlib("print")
-def std_print(_frame, args: List[ShkValue]) -> ShkNil:
+@register_stdlib("print", named=True)
+def std_print(_frame, args: List[ShkValue], named=None) -> ShkNil:
     rendered = [_render(arg) for arg in args]
-    print(*rendered)
+    sep = " "
+
+    if named:
+        unknown = set(named.keys()) - {"sep"}
+        if unknown:
+            raise ShakarTypeError(
+                f"print: unknown named argument(s): {', '.join(sorted(unknown))}"
+            )
+        sep_val = named.get("sep")
+        if sep_val is not None:
+            sep = _render(sep_val)
+
+    print(*rendered, sep=sep)
     return ShkNil()
 
 

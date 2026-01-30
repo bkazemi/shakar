@@ -24,7 +24,7 @@ from ..runtime import (
 from ..tree import Node, is_token, is_tree, tree_children, tree_label
 from .common import expect_ident_token as _expect_ident_token, token_kind as _token_kind
 from .helpers import is_truthy as _is_truthy
-from .chains import call_value, eval_args_node
+from .chains import call_value, eval_args_node_with_named
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
@@ -363,8 +363,12 @@ def eval_call_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 def eval_emit_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     emit_target = frame.get_emit_target()
     args_node = n.children[0] if n.children else None
-    args = eval_args_node(args_node, frame, eval_func)
-    return call_value(emit_target, args, frame, eval_func)
+    positional, named, interleaved = eval_args_node_with_named(
+        args_node, frame, eval_func
+    )
+    return call_value(
+        emit_target, positional, frame, eval_func, named=named, interleaved=interleaved
+    )
 
 
 def eval_defer_stmt(

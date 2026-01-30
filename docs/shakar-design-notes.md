@@ -625,7 +625,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
   - **Parameters**: `fn f(a, ...middle, z): ...` collects variable arguments into array `middle`. Allowed at any position (greedy match for the rest, leaving enough for trailing required args).
 - **Interaction with `.`**: `...` is distinct from the anchor `.`. When spreading a field of the subject, prefer a space or grouping for visual separation: `{ ... .config }` or `{ ...(.config) }`. Avoid `....config`.
 - **Constraints**: Spreading an object into an array is a type error. Spreading an array into an object literal is a type error.
-- **Implementation status**: Named-arg spreading from objects in calls is specified here but **not implemented yet** in the reference runtime; object spreads in call positions currently behave positionally. This will be corrected when named-arg calls are fully implemented.
+- **Implementation status**: Named-arg binding to user functions, stdlib functions, and bound methods is implemented in the reference runtime. Named-arg spreading from objects in calls (`f(...{a: 1})` ⇒ `f(a: 1)`) is **not yet implemented**; object spreads in call positions currently behave positionally.
 
 ### Expression examples
 
@@ -745,11 +745,15 @@ u := makeUser() and .isValid()
 
 ## Functions & Abstractions
 
-- **Named-arg calls**: all invocations use parentheses, even with named args. Example:
+- **Named-arg calls**: all invocations use parentheses, even with named args. Named args use `name: value` syntax and bind to parameters by name. Positional args fill remaining (non-named) slots left-to-right; named args fill their specific slots. For user functions, positional and named args may be freely interleaved. Example:
   ```shakar
   fn send(to, subject, body): …
-  send("bob@x.com", subject: "Hi", body: "…")
+  send("bob@x.com", subject: "Hi", body: "…")     # positional + named
+  send(subject: "Hi", body: "…", to: "bob@x.com") # all named, any order
+  send("bob@x.com", subject: "Hi", "…")            # interleaved is fine
   ```
+  Errors: unknown named arg name, same parameter filled by both positional and named, arity mismatch, duplicate named arg. Stdlib functions with `accepts_named` receive the raw named dict for open-ended named args (e.g., `print(sep: "\n")`); for these, positional args must not appear on both sides of named args (`print("a", sep: "\n", "b")` is an error). Decorated functions do not currently support named args.
+  - **Style**: when mixing positional and named args, place named args **after** positional args and keep them in parameter-declaration order. `f(1, b: 2)` is clear; `f(b: 2, 1)` is legal but misleading — the reader may assume `1` relates to the parameter adjacent to `b`, not the first unfilled slot.
 
 ### Function forms
 
@@ -760,6 +764,7 @@ u := makeUser() and .isValid()
 - **Type contracts**: Parameters may specify schemas using `param ~ Schema` syntax. Return values may specify schemas using `fn(params) ~ ReturnSchema:` syntax. Both desugar to runtime assertions. See the Structural Match section for details.
   - **Grouped + implicit param contracts**: In function parameter lists only, a trailing contract applies to **all preceding uncontracted params** since the last contract: `fn clamp(val, lo, hi ~ Int): ...`. To opt out, wrap a param in parens: `(name)` (isolated, no contract) or `(name ~ Contract)` (isolated with its own contract). Explicit groups are also valid: `fn clamp((val, lo, hi) ~ Int): ...` (group requires **2+ identifiers** and **no `~` inside**). For `...rest ~ Contract`, checks are **per element** of the varargs array.
   - **Order**: defaults must precede contracts (`name = default ~ Contract`). `name ~ Contract = default` is invalid.
+  - **Dependent defaults**: default expressions are evaluated left-to-right at call time and may reference earlier parameters: `fn range(start, end, step = end - start)`. This works for both positional and named-arg calls.
 
 ### Decorators
 

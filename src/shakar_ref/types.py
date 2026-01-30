@@ -814,6 +814,7 @@ StdlibFn = Callable[["Frame", List["ShkValue"]], "ShkValue"]
 class StdlibFunction:
     fn: StdlibFn
     arity: Optional[int] = None
+    accepts_named: bool = False
 
 
 ShkValue: TypeAlias = Union[

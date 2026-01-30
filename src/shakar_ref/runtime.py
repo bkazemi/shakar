@@ -353,9 +353,11 @@ def register_channel(name: str):
     return register_method(Builtins.channel_methods, name)
 
 
-def register_stdlib(name: str, *, arity: Optional[int] = None):
+def register_stdlib(name: str, *, arity: Optional[int] = None, named: bool = False):
     def dec(fn: StdlibFn):
-        Builtins.stdlib_functions[name] = StdlibFunction(fn=fn, arity=arity)
+        Builtins.stdlib_functions[name] = StdlibFunction(
+            fn=fn, arity=arity, accepts_named=named
+        )
         return fn
 
     return dec
@@ -767,18 +769,24 @@ def call_shkfn(
     positional: List[ShkValue],
     subject: Optional[ShkValue],
     caller_frame: "Frame",
+    named: Optional[Dict[str, ShkValue]] = None,
 ) -> ShkValue:
     """
     Subjectful call semantics:
     - subject is available to callee as frame.dot
     - If fn.params is None, treat as unary subject-lambda: ignore positional, evaluate body with dot bound.
     - Else: arity must match len(fn.params); bind params; dot=subject.
+    - Named args bind to parameters by name.
     """
 
     if fn.decorators:
+        if named:
+            raise ShakarTypeError(
+                "Named arguments are not supported with decorated functions"
+            )
         return _call_shkfn_with_decorators(fn, positional, subject, caller_frame)
 
-    return _call_shkfn_raw(fn, positional, subject, caller_frame)
+    return _call_shkfn_raw(fn, positional, subject, caller_frame, named=named)
 
 
 def _bind_params_with_defaults(
@@ -892,16 +900,98 @@ def _bind_decorator_params(
     )
 
 
+_UNFILLED = object()
+
+
+def _merge_named_args(
+    params: List[str],
+    positional: List[ShkValue],
+    named: Dict[str, ShkValue],
+    vararg_indices: List[int],
+    defaults: Optional[List[Optional[Node]]],
+    eval_default: Callable[[Node], ShkValue],
+    on_bind: Callable[[str, ShkValue], None],
+) -> None:
+    """Merge named and positional args, binding each into the frame sequentially.
+
+    Named args fill their corresponding parameter slot; positional args
+    fill remaining slots left-to-right. Unfilled slots use defaults or
+    raise arity errors. Each parameter is bound via on_bind before
+    evaluating subsequent defaults, so defaults can reference earlier params.
+    """
+    param_set = set(params)
+    for key in named:
+        if key not in param_set:
+            raise ShakarTypeError(f"Unknown named argument: {key}")
+
+    spread_index: Optional[int] = None
+    if vararg_indices and len(vararg_indices) == 1:
+        spread_index = vararg_indices[0]
+
+    defaults_list = defaults or []
+    if len(defaults_list) < len(params):
+        defaults_list = defaults_list + [None] * (len(params) - len(defaults_list))
+
+    merged: List[object] = [_UNFILLED] * len(params)
+    named_indices: set[int] = set()
+
+    for key, val in named.items():
+        idx = params.index(key)
+        merged[idx] = val
+        named_indices.add(idx)
+
+    # Fill remaining slots with positional args left-to-right
+    pos_iter = iter(positional)
+    for idx in range(len(params)):
+        if idx in named_indices:
+            continue
+        if idx == spread_index:
+            merged[idx] = ShkArray(list(pos_iter))
+            break
+        val = next(pos_iter, _UNFILLED)
+        if val is not _UNFILLED:
+            merged[idx] = val
+
+    # Check for leftover positional args (only if no vararg consumed them)
+    if spread_index is None:
+        leftover = list(pos_iter)
+        if leftover:
+            raise ShakarArityError(
+                f"Too many positional arguments: {len(positional)} positional "
+                f"+ {len(named)} named for {len(params)} parameters"
+            )
+
+    # Resolve and bind sequentially so defaults can reference earlier params
+    for idx in range(len(params)):
+        if merged[idx] is not _UNFILLED:
+            on_bind(params[idx], merged[idx])  # type: ignore[arg-type]
+            continue
+        if idx == spread_index:
+            val = ShkArray([])
+            on_bind(params[idx], val)
+            continue
+        default_node = defaults_list[idx]
+        if default_node is not None:
+            resolved = eval_default(default_node)
+            on_bind(params[idx], resolved)
+        else:
+            raise ShakarArityError(f"Missing required argument: {params[idx]}")
+
+
 def _call_shkfn_raw(
     fn: ShkFn,
     positional: List[ShkValue],
     subject: Optional[ShkValue],
     caller_frame: "Frame",
+    named: Optional[Dict[str, ShkValue]] = None,
 ) -> ShkValue:
     _ = caller_frame
     from .evaluator import eval_node  # local import to avoid cycle
 
     if fn.params is None:
+        if named:
+            raise ShakarTypeError("Subject-only lambda does not accept named arguments")
+
         if subject is None:
             if not positional:
                 raise ShakarArityError(
@@ -934,15 +1024,26 @@ def _call_shkfn_raw(
         cancel_token=caller_frame.cancel_token,
     )
 
-    _bind_params_with_defaults(
-        params=fn.params,
-        vararg_indices=fn.vararg_indices or [],
-        positional=positional,
-        defaults=fn.param_defaults,
-        label="Function",
-        eval_default=lambda node: _ensure_shk_value(eval_node(node, callee_frame)),
-        on_bind=callee_frame.define,
-    )
+    if named:
+        _merge_named_args(
+            fn.params,
+            positional,
+            named,
+            vararg_indices=fn.vararg_indices or [],
+            defaults=fn.param_defaults,
+            eval_default=lambda node: _ensure_shk_value(eval_node(node, callee_frame)),
+            on_bind=callee_frame.define,
+        )
+    else:
+        _bind_params_with_defaults(
+            params=fn.params,
+            vararg_indices=fn.vararg_indices or [],
+            positional=positional,
+            defaults=fn.param_defaults,
+            label="Function",
+            eval_default=lambda node: _ensure_shk_value(eval_node(node, callee_frame)),
+            on_bind=callee_frame.define,
+        )
 
     callee_frame.mark_function_frame()
 

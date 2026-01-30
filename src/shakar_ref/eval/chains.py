@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 from ..tree import Tok
 from ..token_types import TT
 
@@ -88,17 +88,80 @@ def eval_args_node(
     return []
 
 
+def eval_args_node_with_named(
+    args_node: Optional[Union[Tree, List[Tree]]],
+    frame: Frame,
+    eval_func: EvalFunc,
+) -> Tuple[List[ShkValue], Dict[str, ShkValue], bool]:
+    def label(node: Node) -> Optional[str]:
+        return tree_label(node)
+
+    def flatten(node: Node) -> List[Node]:
+        if is_tree(node):
+            tag = label(node)
+
+            if tag in {"args", "arglist", "arglistnamedmixed"}:
+                out: List[Node] = []
+
+                for ch in node.children:
+                    out.extend(flatten(ch))
+                return out
+
+            if tag in {"argitem", "arg"} and node.children:
+                return flatten(node.children[0])
+
+            if tag == "namedarg" and node.children:
+                return [node]
+
+        return [node]
+
+    if is_tree(args_node):
+        return _eval_args_with_named(flatten(args_node), frame, eval_func)
+
+    if isinstance(args_node, list):
+        res: List[Tree] = []
+        for n in args_node:
+            res.extend(flatten(n))
+        return _eval_args_with_named(res, frame, eval_func)
+
+    return [], {}, False
+
+
 def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[ShkValue]:
-    values: List[ShkValue] = []
+    positional, named, _interleaved = _eval_args_with_named(nodes, frame, eval_func)
+    if named:
+        raise ShakarTypeError(
+            f"Unexpected named argument(s): {', '.join(named.keys())}"
+        )
+    return positional
+
+
+def _eval_args_with_named(
+    nodes: List[Node], frame: Frame, eval_func: EvalFunc
+) -> Tuple[List[ShkValue], Dict[str, ShkValue], bool]:
+    positional: List[ShkValue] = []
+    named: Dict[str, ShkValue] = {}
+    _positional_before_named = False
+    _saw_named = False
+    _positional_after_named = False
 
     for node in nodes:
         if _is_namedarg(node):
-            # named args: evaluate value once; no auto-spread
+            _saw_named = True
+            name_tok = node.children[0] if node.children else None
             value_expr = node.children[-1] if node.children else None
-            if value_expr is None:
+            if name_tok is None or value_expr is None:
                 raise ShakarRuntimeError("Malformed named argument")
-            values.append(eval_anchor_scoped(value_expr, frame, eval_func))
+            key = name_tok.value if hasattr(name_tok, "value") else str(name_tok)
+            if key in named:
+                raise ShakarTypeError(f"Duplicate named argument: {key}")
+            named[key] = eval_anchor_scoped(value_expr, frame, eval_func)
             continue
+
+        if _saw_named:
+            _positional_after_named = True
+        else:
+            _positional_before_named = True
 
         if _is_spread(node):
             spread_expr = node.children[0] if is_tree(node) and node.children else None
@@ -106,10 +169,10 @@ def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[Shk
                 raise ShakarRuntimeError("Malformed spread argument")
             spread_val = eval_anchor_scoped(spread_expr, frame, eval_func)
             if isinstance(spread_val, (ShkArray, ShkFan)):
-                values.extend(spread_val.items)
+                positional.extend(spread_val.items)
                 continue
             if isinstance(spread_val, ShkObject):
-                values.extend(spread_val.slots.values())
+                positional.extend(spread_val.slots.values())
                 continue
             raise ShakarRuntimeError("Spread argument must be an array or object value")
 
@@ -121,12 +184,13 @@ def _eval_args(nodes: List[Node], frame: Frame, eval_func: EvalFunc) -> List[Shk
                     "Fanout argument did not produce an array value"
                 )
 
-            values.extend(spread_val.items)
+            positional.extend(spread_val.items)
             continue
 
-        values.append(eval_anchor_scoped(node, frame, eval_func))
+        positional.append(eval_anchor_scoped(node, frame, eval_func))
 
-    return values
+    interleaved = _positional_before_named and _positional_after_named
+    return positional, named, interleaved
 
 
 def _is_namedarg(node: Node) -> bool:
@@ -240,8 +304,12 @@ def apply_op(
         result = _valuefan(recv, op, frame, eval_func)
     elif op_name == "call":
         args_node = op.children[0] if op.children else None
-        args = eval_args_node(args_node, frame, eval_func)
-        result = call_value(recv, args, frame, eval_func)
+        positional, named, interleaved = eval_args_node_with_named(
+            args_node, frame, eval_func
+        )
+        result = call_value(
+            recv, positional, frame, eval_func, named=named, interleaved=interleaved
+        )
     elif op_name == "method":
         result = _call_method(recv, op, frame, eval_func)
     else:
@@ -278,19 +346,36 @@ def _call_method(
     recv: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc
 ) -> ShkValue:
     method_name = _expect_ident_token(op.children[0], "Method call")
-    args = eval_args_node(
+    positional, named, _interleaved = eval_args_node_with_named(
         op.children[1] if len(op.children) > 1 else None, frame, eval_func
     )
 
+    if named:
+        # Builtin methods don't support named args; try user-defined method
+        cal = get_field_value(recv, method_name, frame)
+
+        if isinstance(cal, BoundMethod):
+            return call_shkfn(
+                cal.fn, positional, subject=cal.subject, caller_frame=frame, named=named
+            )
+        if isinstance(cal, ShkFn):
+            return call_shkfn(
+                cal, positional, subject=recv, caller_frame=frame, named=named
+            )
+
+        raise ShakarTypeError("Builtin methods do not accept named arguments")
+
     try:
-        return call_builtin_method(recv, method_name, args, frame)
+        return call_builtin_method(recv, method_name, positional, frame)
     except ShakarMethodNotFound:
         cal = get_field_value(recv, method_name, frame)
 
         if isinstance(cal, BoundMethod):
-            return call_shkfn(cal.fn, args, subject=cal.subject, caller_frame=frame)
+            return call_shkfn(
+                cal.fn, positional, subject=cal.subject, caller_frame=frame
+            )
         if isinstance(cal, ShkFn):
-            return call_shkfn(cal, args, subject=recv, caller_frame=frame)
+            return call_shkfn(cal, positional, subject=recv, caller_frame=frame)
         raise
 
 
@@ -300,30 +385,59 @@ def _valuefan(base: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc) -> Sh
 
 
 def call_value(
-    cal: ShkValue, args: List[ShkValue], frame: Frame, eval_func: EvalFunc
+    cal: ShkValue,
+    args: List[ShkValue],
+    frame: Frame,
+    eval_func: EvalFunc,
+    named: Optional[Dict[str, ShkValue]] = None,
+    interleaved: bool = False,
 ) -> ShkValue:
     match cal:
         case BoundMethod(fn=fn, subject=subject):
-            return call_shkfn(fn, args, subject=subject, caller_frame=frame)
+            return call_shkfn(
+                fn, args, subject=subject, caller_frame=frame, named=named
+            )
         case BuiltinMethod(name=name, subject=subject):
+            if named:
+                raise ShakarTypeError("Builtin methods do not accept named arguments")
             return call_builtin_method(subject, name, args, frame)
-        case StdlibFunction(fn=fn, arity=arity):
+        case StdlibFunction(fn=fn, arity=arity, accepts_named=accepts_n):
+            if accepts_n:
+                if interleaved:
+                    raise ShakarTypeError(
+                        "Positional arguments cannot appear on both sides of named arguments"
+                    )
+                if arity is not None and len(args) != arity:
+                    raise ShakarArityError(
+                        f"Function expects {arity} args; got {len(args)}"
+                    )
+                return fn(frame, args, named or {})
+            if named:
+                raise ShakarTypeError(
+                    f"Unexpected named argument(s): {', '.join(named.keys())}"
+                )
             if arity is not None and len(args) != arity:
                 raise ShakarArityError(
                     f"Function expects {arity} args; got {len(args)}"
                 )
             return fn(frame, args)
         case DecoratorContinuation():
+            if named:
+                raise ShakarTypeError(
+                    "Decorator continuations do not accept named arguments"
+                )
             if len(args) != 1:
                 raise ShakarArityError(
                     "Decorator continuation expects exactly 1 argument (the args array)"
                 )
             return cal.invoke(args[0])
         case ShkDecorator():
+            if named:
+                raise ShakarTypeError("Decorators do not accept named arguments")
             bound = _bind_decorator_params(cal, args)
             return DecoratorConfigured(decorator=cal, args=list(bound))
         case ShkFn():
-            return call_shkfn(cal, args, subject=None, caller_frame=frame)
+            return call_shkfn(cal, args, subject=None, caller_frame=frame, named=named)
         case _:
             raise ShakarTypeError(f"Cannot call value of type {type(cal).__name__}")
 

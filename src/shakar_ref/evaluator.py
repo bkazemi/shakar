@@ -92,7 +92,13 @@ from .eval.channels import (
     eval_wait_all_call,
     eval_wait_group_call,
 )
-from .eval.chains import apply_op, evaluate_index_operand, eval_args_node, call_value
+from .eval.chains import (
+    apply_op,
+    evaluate_index_operand,
+    eval_args_node,
+    eval_args_node_with_named,
+    call_value,
+)
 from .eval.valuefan import eval_valuefan
 from .eval.expr import (
     eval_unary,
@@ -355,9 +361,18 @@ def _eval_spread(_n: Tree, _frame: Frame) -> ShkValue:
 
 def _eval_call(n: Tree, frame: Frame) -> ShkValue:
     args_node = n.children[0] if n.children else None
-    args = eval_args_node(args_node, frame, eval_node)
+    positional, named, interleaved = eval_args_node_with_named(
+        args_node, frame, eval_node
+    )
 
-    return call_value(frame.get(""), args, frame, eval_node)
+    return call_value(
+        frame.get(""),
+        positional,
+        frame,
+        eval_node,
+        named=named,
+        interleaved=interleaved,
+    )
 
 
 def _eval_and(n: Tree, frame: Frame) -> ShkValue:

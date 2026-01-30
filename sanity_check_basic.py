@@ -2228,8 +2228,120 @@ runtime_scenario(
 runtime_scenario(
     _rt(
         "fanout-named-arg-no-spread",
-        "state := {a: 1, b: 2}; fn wrap(x): x[1]; wrap(named: state.{a, b})",
+        "state := {a: 1, b: 2}; fn wrap(x): x[1]; wrap(x: state.{a, b})",
         ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-binding-by-name",
+        'fn greet(name, greeting): greeting + " " + name; greet(greeting: "Hi", name: "Bob")',
+        ("string", "Hi Bob"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-out-of-order",
+        "fn add(a, b, c): a * 100 + b * 10 + c; add(b: 5, a: 1, c: 3)",
+        ("number", 153),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-before-positional",
+        "fn f(a, b): a + b; f(a: 10, 20)",
+        ("number", 30),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-after-positional",
+        "fn f(a, b): a + b; f(10, b: 20)",
+        ("number", 30),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-interleaved-userfn",
+        "fn f(a, b, c): a * 100 + b * 10 + c; f(1, b: 2, 3)",
+        ("number", 123),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-interleaved-stdlib-error",
+        'print("a", sep: "\\n", "b")',
+        None,
+        ShakarTypeError,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-stdlib-after-positional",
+        'print("a", "b", sep: "\\n")',
+        ("null", None),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-unknown-param-error",
+        "fn f(a, b): a; f(a: 1, c: 2)",
+        None,
+        ShakarTypeError,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-duplicate-slot-error",
+        "fn f(a, b): a; f(1, 2, a: 3)",
+        None,
+        ShakarArityError,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-missing-required-error",
+        "fn f(a, b): a + b; f(b: 2)",
+        None,
+        ShakarArityError,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-with-default",
+        "fn f(a, b = 10): a + b; f(a: 5)",
+        ("number", 15),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-default-refs-earlier-param",
+        "fn f(a, b = a + 1): b; f(a: 5)",
+        ("number", 6),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-stdlib-named-first",
+        'print(sep: "\\n", "a")',
+        ("null", None),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "named-arg-vararg",
+        "fn f(a, ...rest): a + rest.len; f(a: 1, 2, 3)",
+        ("number", 3),
         None,
     )
 )
