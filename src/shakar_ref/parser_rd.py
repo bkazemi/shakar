@@ -155,6 +155,46 @@ class Parser:
             raise ParseError(message, self.current)
         return self.advance()
 
+    def _start_chain_continuation(self) -> bool:
+        """
+        Detect and consume NEWLINE+INDENT that starts a dot-chain continuation.
+        Leaves the DOT as the next token.
+        """
+        if not self.check(TT.NEWLINE):
+            return False
+        k = 0
+        while self.peek(k).type == TT.NEWLINE:
+            k += 1
+        if self.peek(k).type != TT.INDENT or self.peek(k + 1).type != TT.DOT:
+            return False
+        while self.match(TT.NEWLINE):
+            pass
+        self.expect(TT.INDENT)
+        return True
+
+    def _continue_chain_continuation(self) -> Optional[bool]:
+        """
+        Continue or close a dot-chain continuation block.
+        Returns True to continue (DOT next), False to end (DEDENT consumed),
+        or None if not a continuation line.
+        """
+        if not self.check(TT.NEWLINE):
+            return None
+        k = 0
+        while self.peek(k).type == TT.NEWLINE:
+            k += 1
+        next_tok = self.peek(k)
+        if next_tok.type == TT.DOT:
+            while self.match(TT.NEWLINE):
+                pass
+            return True
+        if next_tok.type == TT.DEDENT:
+            while self.match(TT.NEWLINE):
+                pass
+            self.expect(TT.DEDENT)
+            return False
+        return None
+
     # ========================================================================
     # Tok Navigation
     # ========================================================================
@@ -378,6 +418,10 @@ class Parser:
                 TT.ASSERT: self.parse_assert_stmt,
                 TT.DBG: self.parse_dbg_stmt,
             }
+
+        if self.check(TT.FN) and self.peek(1).type != TT.IDENT:
+            # Allow anonymous fn literals as expression statements.
+            return None
 
         handler = self._stmt_dispatch.get(self.current.type)
         if handler:
@@ -639,7 +683,19 @@ class Parser:
 
     def _parse_catch_stmt_after_expr(self, expr_start: int) -> Optional[Tree]:
         # Catch statement form: expr catch ... : body
-        if not (
+        if self.check(TT.NEWLINE):
+            # Allow blank lines before a trailing catch so multiline expressions can attach.
+            k = 0
+            while self.peek(k).type == TT.NEWLINE:
+                k += 1
+            next_tok = self.peek(k)
+            next_next = self.peek(k + 1)
+            if not (
+                next_tok.type == TT.CATCH
+                or (next_tok.type == TT.AT and next_next.type == TT.AT)
+            ):
+                return None
+        elif not (
             self.check(TT.CATCH) or (self.check(TT.AT) and self.peek(1).type == TT.AT)
         ):
             return None
@@ -1920,6 +1976,21 @@ class Parser:
         """Parse catch statement starting at current position."""
         try_expr = self.parse_expr()
 
+        if self.check(TT.NEWLINE):
+            # Permit catch after blank lines when it immediately follows the expression.
+            k = 0
+            while self.peek(k).type == TT.NEWLINE:
+                k += 1
+            next_tok = self.peek(k)
+            next_next = self.peek(k + 1)
+            if not (
+                next_tok.type == TT.CATCH
+                or (next_tok.type == TT.AT and next_next.type == TT.AT)
+            ):
+                return try_expr
+            while self.match(TT.NEWLINE):
+                pass
+
         if not (
             self.check(TT.CATCH) or (self.check(TT.AT) and self.peek(1).type == TT.AT)
         ):
@@ -2497,6 +2568,7 @@ class Parser:
 
             # Now collect any additional postfix operations
             postfix_ops = [imphead]
+            continuation_active = False
             while True:
                 if self.match(TT.DOT):
                     noanchor = self._take_noanchor_once(seen_noanchor)
@@ -2570,6 +2642,29 @@ class Parser:
                 elif self.check(TT.INCR, TT.DECR):
                     op = self.advance()
                     postfix_ops.append(Tree(op.type.name.lower(), []))
+                elif continuation_active and self.check(TT.DEDENT):
+                    self.advance()
+                    continuation_active = False
+                    break
+                elif self.check(TT.NEWLINE):
+                    if not continuation_active:
+                        if self._start_chain_continuation():
+                            continuation_active = True
+                            continue
+                        break
+                    cont = self._continue_chain_continuation()
+                    if cont is True:
+                        continue
+                    if cont is False:
+                        continuation_active = False
+                        break
+                    k = 0
+                    while self.peek(k).type == TT.NEWLINE:
+                        k += 1
+                    raise ParseError(
+                        "Expected '.' to continue indented chain or end indentation",
+                        self.peek(k),
+                    )
                 else:
                     break
 
@@ -2581,6 +2676,7 @@ class Parser:
         # Collect postfix operations
         postfix_ops = []
         seen_noanchor = [False]
+        continuation_active = False
 
         while True:
             # Field access
@@ -2683,6 +2779,29 @@ class Parser:
                     postfix_ops.append(Tree("lambdacalln", lam.children))
                 else:  # Subject-based lambda
                     postfix_ops.append(Tree("lambdacall1", lam.children))
+            elif continuation_active and self.check(TT.DEDENT):
+                self.advance()
+                continuation_active = False
+                break
+            elif self.check(TT.NEWLINE):
+                if not continuation_active:
+                    if self._start_chain_continuation():
+                        continuation_active = True
+                        continue
+                    break
+                cont = self._continue_chain_continuation()
+                if cont is True:
+                    continue
+                if cont is False:
+                    continuation_active = False
+                    break
+                k = 0
+                while self.peek(k).type == TT.NEWLINE:
+                    k += 1
+                raise ParseError(
+                    "Expected '.' to continue indented chain or end indentation",
+                    self.peek(k),
+                )
 
             else:
                 break

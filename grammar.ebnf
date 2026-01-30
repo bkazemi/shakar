@@ -259,7 +259,11 @@ postfix_expression = ( primary , chain_suffix )
                    | ( implicit_head , chain_suffix )
                    | DOT ;
 
-chain_suffix = [ postfix ]* , [ postfix_incr ] ;
+chain_suffix = [ postfix ]* , [ postfix_incr ] , { chain_cont } ;
+
+(* Dot-chain continuation across lines (not implicit subject). *)
+chain_cont = NEWLINE+ , INDENT , DOT , postfix , { postfix }* , [ postfix_incr ] ,
+             { NEWLINE+ , DOT , postfix , { postfix }* , [ postfix_incr ] } , NEWLINE* , DEDENT ;
 
 postfix = postfix_field
         | postfix_index

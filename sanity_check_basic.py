@@ -535,6 +535,23 @@ def build_postfix_incr_cases(_: KeywordPlan) -> List[Case]:
 
 
 @case_builder
+def build_dot_continuation_cases(_: KeywordPlan) -> List[Case]:
+    samples = [
+        """user := {profile: {contact: {name: "Ada"}}}
+name := user.profile
+  .contact
+  .name""",
+        """value := "  hi "
+  .trim()
+  .upper()""",
+    ]
+    return [
+        Case(name=f"dot-continuation-{i}", code=src, start="indented")
+        for i, src in enumerate(samples)
+    ]
+
+
+@case_builder
 def build_valuefan_cases(_: KeywordPlan) -> List[Case]:
     samples = [
         "state.{a, b}",
@@ -1061,6 +1078,21 @@ def _check_channel_cancel_race() -> Optional[str]:
     if outcome["status"] != "cancelled":
         return "expected ShakarCancelledError"
     return None
+
+
+def _check_dot_continuation_invalid() -> Optional[str]:
+    src = """user := {profile: {name: "Ada"}}
+name := user.profile
+  .name
+  oops
+"""
+    try:
+        parse_rd(src, use_indenter=True)
+    except ParseError:
+        return None
+    except Exception as exc:  # pragma: no cover - defensive
+        return f"unexpected {type(exc).__name__}: {exc}"
+    return "expected ParseError for invalid dot continuation"
 
 
 runtime_scenario(
@@ -1714,6 +1746,17 @@ runtime_scenario(_rt("join-array", '", ".join(["a", "b"])', ("string", "a, b"), 
 runtime_scenario(_rt("join-varargs", '"-".join("a", "b")', ("string", "a-b"), None))
 runtime_scenario(
     _rt("join-mixed", '"|".join("a", 1, true)', ("string", "a|1|true"), None)
+)
+runtime_scenario(
+    _rt(
+        "dot-continuation",
+        """user := {profile: {name: "Ada"}}
+name := user.profile
+  .name
+name""",
+        ("string", "Ada"),
+        None,
+    )
 )
 runtime_scenario(
     _rt(
@@ -3000,6 +3043,9 @@ ch.close()
     )
 )
 internal_scenario(InternalScenario("channel-cancel-race", _check_channel_cancel_race))
+internal_scenario(
+    InternalScenario("dot-continuation-invalid", _check_dot_continuation_invalid)
+)
 runtime_scenario(
     _rt(
         "hook-raw-string",

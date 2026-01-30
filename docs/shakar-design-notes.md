@@ -28,6 +28,21 @@ This is a living technical spec. Every surface sugar has a deterministic desugar
 - **Identifiers**: `[_A-Za-z][_A-Za-z0-9]*`; case-sensitive. Unicode ids ❓ (later).
 - **Comments**: `#` to end-of-line.
 - **Whitespace & layout**: indentation (spaces only) after `:` starts blocks.
+- **Line continuation (dot-chain)**: an indented line starting with `.` continues the
+  prior expression’s member chain. Example:
+  ```
+  user.profile
+    .contact
+    .email
+  ```
+  This is not an implicit-subject chain; it continues the explicit receiver.
+  Indented non-`.` lines are errors (no implicit line continuation). Indentation
+  changes are only valid for blocks after `:` or dot-chain continuation; inside
+  groupings, indentation is ignored, so continuation there does not apply.
+  - ❓ **Considering**: end-dot continuation (`a.` newline `b()`), which would allow
+    continuation inside groupings without relying on INDENT/DEDENT. Tradeoffs:
+    conflicts with numeric literals like `1.` (currently invalid), and turns a
+    dangling dot into a continuation marker rather than a hard error.
 - **Semicolons**: hard statement delimiters at top level and inside braced inline suites `{ ... }`. Multiple statements may share a line. Grammar shape: `stmtlist := stmt (SEMI stmt)* SEMI?`.
 - **Inline suites after `:`**: exactly one simple statement. Wrap a braced inline suite on the right of the colon for multiple statements.
 - **Reserved keywords**: `and, or, not, if, elif, else, unless, for, in, break, continue, return, assert, using, call, defer, after, catch, decorator, decorate, hook, fn, get, set, bind, import, over, fan, true, false, nil`.
