@@ -1671,7 +1671,7 @@ runtime_scenario(
 runtime_scenario(
     _rt(
         "import-file-basic",
-        """import "./test/import_basic.shk"
+        """import "./tests/import_basic.shk"
 import_basic.value + 1""",
         ("number", 42),
         None,
@@ -1680,7 +1680,7 @@ import_basic.value + 1""",
 runtime_scenario(
     _rt(
         "import-file-missing",
-        'import "./test/missing_import.shk"',
+        'import "./tests/missing_import.shk"',
         None,
         ShakarImportError,
     )

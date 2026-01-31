@@ -154,7 +154,7 @@ def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
     type_hint = getattr(exc, "shk_type", None) or type(exc).__name__
 
     slots: dict[str, ShkValue] = {
-        "message": ShkString(str(exc)),
+        "message": ShkString(exc.args[0] if exc.args else str(exc)),
         "type": ShkString(str(type_hint)),
     }
 
