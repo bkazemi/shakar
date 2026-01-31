@@ -31,9 +31,9 @@ The **source of truth** for the language is the [design notes](docs/shakar-desig
     cd shakar
     ```
 
-2.  **Install dependencies:**
+2.  **Install in editable mode:**
     ```bash
-    pip install -r requirements.txt
+    pip install -e .
     ```
 
 ### Running the Reference Interpreter
@@ -42,17 +42,23 @@ The reference implementation (`src/shakar_ref`) is a Python-based parser and int
 
 Run a script file:
 ```bash
-PYTHONPATH=src python -m shakar_ref.runner sample.shk
+shakar sample.shk
 ```
 
 Or execute code from stdin:
 ```bash
-echo 'print("Hello from Shakar!")' | PYTHONPATH=src python -m shakar_ref.runner -
+echo 'print("Hello from Shakar!")' | shakar -
+```
+
+Start the interactive REPL (or just run `shakar` with no args).
+Requires the `readline` module (available on Linux/macOS; not included with Windows Python):
+```bash
+shakar --repl
 ```
 
 Inspect the parse tree with `--tree`:
 ```bash
-PYTHONPATH=src python -m shakar_ref.runner --tree path/to/file.shk
+shakar --tree path/to/file.shk
 ```
 
 ---

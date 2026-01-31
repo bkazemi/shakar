@@ -17,6 +17,9 @@ sanity_report.txt
 sanity_tree_report.txt
 pylint.log
 
+# Build artifacts
+*.egg-info/
+
 # Misc
 .DS_Store
 *.swp

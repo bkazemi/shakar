@@ -169,6 +169,7 @@ def main() -> None:
     arg = None
     show_tree = False
     enable_py_trace = False
+    start_repl = False
     it = iter(sys.argv[1:])
 
     for token in it:
@@ -176,10 +177,23 @@ def main() -> None:
             show_tree = True
         elif token == "--py-trace":
             enable_py_trace = True
+        elif token == "--repl":
+            start_repl = True
         elif arg is None:
             arg = token
         else:
             raise SystemExit(f"Unexpected argument: {token}")
+
+    if start_repl or (arg is None and not show_tree and sys.stdin.isatty()):
+        try:
+            from .repl import repl
+        except ImportError:
+            raise SystemExit(
+                "REPL requires the 'readline' module, which is not available on this platform."
+            )
+
+        repl()
+        return
 
     arg = arg or "-"
     source, source_path = _load_source(arg)
