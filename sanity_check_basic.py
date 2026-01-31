@@ -1656,7 +1656,7 @@ runtime_scenario(
         "import-io-binding",
         """import "io"
 io.len""",
-        ("number", 6),
+        ("number", 7),
         None,
     )
 )
