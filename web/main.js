@@ -59,11 +59,29 @@ const statusEl = document.getElementById('status');
 const codeEl = document.getElementById('code');
 const highlightEl = document.getElementById('highlight-layer');
 const outputEl = document.getElementById('output');
+const tracebackEl = document.getElementById('traceback');
+const tracebackTextEl = document.getElementById('traceback-text');
 const runBtn = document.getElementById('run-btn');
 const clearBtn = document.getElementById('clear-btn');
 const examplesEl = document.getElementById('examples');
 
 const DEBUG_IO = localStorage.getItem('shakar_debug_io') === '1';
+let DEBUG_PY_TRACE = localStorage.getItem('shakar_debug_py_trace') === '1';
+
+const pyTraceBtn = document.getElementById('py-trace-btn');
+function _syncPyTraceBtn() {
+    pyTraceBtn.classList.toggle('active', DEBUG_PY_TRACE);
+}
+_syncPyTraceBtn();
+pyTraceBtn.addEventListener('click', () => {
+    DEBUG_PY_TRACE = !DEBUG_PY_TRACE;
+    if (DEBUG_PY_TRACE) {
+        localStorage.setItem('shakar_debug_py_trace', '1');
+    } else {
+        localStorage.removeItem('shakar_debug_py_trace');
+    }
+    _syncPyTraceBtn();
+});
 const SHAKAR_VERSION = window.SHAKAR_VERSION || 'dev';
 
 // Batch io_write updates to one per animation frame to prevent flicker.
@@ -119,7 +137,20 @@ function setStatus(text, state = '') {
     statusEl.className = 'status ' + state;
 }
 
-function setOutput(text, isError = false) {
+function setTraceback(text) {
+    if (!tracebackEl || !tracebackTextEl) return;
+    if (!text) {
+        tracebackTextEl.textContent = '';
+        tracebackEl.open = false;
+        tracebackEl.classList.add('hidden');
+        return;
+    }
+    tracebackTextEl.textContent = text;
+    tracebackEl.open = false;
+    tracebackEl.classList.remove('hidden');
+}
+
+function setOutput(text, isError = false, traceback = '') {
     outputEl.textContent = text;
     outputEl.className = isError ? 'error' : '';
 
@@ -128,6 +159,12 @@ function setOutput(text, isError = false) {
         if (errInfo) {
             highlightError(errInfo.line, errInfo.col);
         }
+    }
+
+    if (isError && traceback) {
+        setTraceback(traceback);
+    } else {
+        setTraceback('');
     }
 }
 
@@ -416,7 +453,7 @@ function initWorker() {
                 break;
 
             case 'output':
-                setOutput(msg.text, msg.isError);
+                setOutput(msg.text, msg.isError, msg.traceback || '');
                 if (!msg.isError) {
                     runBtn.disabled = false;
                     runBtn.classList.remove('loading');
@@ -455,7 +492,11 @@ function initWorker() {
         console.error('Worker error:', err);
     };
 
-    worker.postMessage({type: 'init', keyBuffer: keyBuffer});
+    worker.postMessage({
+        type: 'init',
+        keyBuffer: keyBuffer,
+        debugPyTrace: DEBUG_PY_TRACE
+    });
 }
 
 // Event listeners

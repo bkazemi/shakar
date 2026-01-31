@@ -5,6 +5,7 @@
 importScripts('https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js');
 
 let pyodide = null;
+let debugPyTrace = false;
 
 // SharedArrayBuffer for key input: Int32Array[0]=write_idx, [1..32]=key ring buffer
 // Allocated by main thread, passed to us via 'init' message.
@@ -33,6 +34,8 @@ self.onmessage = async (e) => {
         case 'init':
             keyBuf = msg.keyBuffer ? new Int32Array(msg.keyBuffer) : null;
             self.shk_key_buf = keyBuf;
+            debugPyTrace = msg.debugPyTrace === true;
+            self.shk_debug_py_trace = debugPyTrace;
             await handleInit();
             break;
         case 'run':
@@ -83,12 +86,21 @@ _io_key_read_idx[0] = int(js.Atomics.load(js.self.shk_key_buf, 0)) & 0xFFFFFFFF
         const escaped = code.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'");
         pyodide.runPython(`
 import sys
+import traceback
+import os
+import js
 from io import StringIO
 
 _shk_stdout = StringIO()
 _shk_stderr = StringIO()
+_shk_traceback = None
 sys.stdout = _shk_stdout
 sys.stderr = _shk_stderr
+
+if bool(getattr(js.self, "shk_debug_py_trace", False)):
+    os.environ["SHAKAR_DEBUG_PY_TRACE"] = "1"
+else:
+    os.environ.pop("SHAKAR_DEBUG_PY_TRACE", None)
 
 try:
     from shakar_ref.types import ShkNil as _ShkNil
@@ -101,6 +113,8 @@ try:
     _shk_error = None
 except Exception as e:
     _shk_error = str(e)
+    if os.environ.get("SHAKAR_DEBUG_PY_TRACE"):
+        _shk_traceback = traceback.format_exc()
 finally:
     sys.stdout = sys.__stdout__
     sys.stderr = sys.__stderr__
@@ -109,15 +123,22 @@ finally:
         const stdout = pyodide.runPython('_shk_stdout.getvalue()');
         const stderr = pyodide.runPython('_shk_stderr.getvalue()');
         const error = pyodide.runPython('_shk_error');
+        const tracebackText = pyodide.runPython('_shk_traceback');
+        const detailText = tracebackText || '';
 
         if (error) {
-            self.postMessage({type: 'output', text: error, isError: true});
+            self.postMessage({type: 'output', text: error, isError: true, traceback: detailText});
         } else {
             const output = (stdout + stderr).trim();
             self.postMessage({type: 'output', text: output || '(no output)', isError: false});
         }
     } catch (err) {
-        self.postMessage({type: 'output', text: 'Error: ' + err.message, isError: true});
+        self.postMessage({
+            type: 'output',
+            text: 'Error: ' + err.message,
+            isError: true,
+            traceback: err?.stack || String(err) || ''
+        });
     } finally {
         self.postMessage({type: 'running', value: false});
     }

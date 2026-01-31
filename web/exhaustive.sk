@@ -601,54 +601,57 @@ catch err:
     print("shell unavailable:", err)
 
 # --- Concurrency (Channels & Spawn) ---
-print("--- Concurrency ---")
-ch := channel() # Unbuffered by default
+fn(()):
+    print("--- Concurrency ---")
+    ch := channel() # Unbuffered by default
 
-# Spawn a background task
-spawn:
-    sleep(10msec)
-    "ping" -> ch
+    # Spawn a background task
+    spawn:
+        sleep(10msec)
+        "ping" -> ch
 
-# Receive
-recv_msg := <-ch
-print("received:", recv_msg)
+    # Receive
+    recv_msg := <-ch
+    print("received:", recv_msg)
 
-# Receive with ok
-ch2 := channel()
-spawn:
-    "pong" -> ch2
-recv_val, recv_ok := <-ch2
-print("received:", recv_val, "ok:", recv_ok)
+    # Receive with ok
+    ch2 := channel()
+    spawn:
+        "pong" -> ch2
+    recv_val, recv_ok := <-ch2
+    print("received:", recv_val, "ok:", recv_ok)
 
-# --- Wait Any ---
-print("--- Wait Any ---")
-c1 := channel()
-c2 := channel()
-spawn:
-    sleep(5msec)
-    "a" -> c1
-spawn:
-    sleep(10msec)
-    "b" -> c2
-winner := wait[any]:
-    any_msg := <-c1: "c1:{any_msg}"
-    any_msg := <-c2: "c2:{any_msg}"
-    timeout 50msec: "timeout"
-print("wait any:", winner)
+    # --- Wait Any ---
+    print("--- Wait Any ---")
+    c1 := channel()
+    c2 := channel()
+    spawn:
+        sleep(5msec)
+        "a" -> c1
+    spawn:
+        sleep(10msec)
+        "b" -> c2
+    winner := wait[any]:
+        any_msg := <-c1: "c1:{any_msg}"
+        any_msg := <-c2: "c2:{any_msg}"
+        timeout 50msec: "timeout"
+    print("wait any:", winner)
 
-# --- Wait All ---
-print("--- Wait All ---")
-results := wait[all]:
-    first: fn: "first"
-    second: fn: "second"
-print(results.first, results.second)
+    # --- Wait All ---
+    print("--- Wait All ---")
+    results := wait[all]:
+        first: fn: "first"
+        second: fn: "second"
+    print(results.first, results.second)
 
-# --- Structured Concurrency ---
-print("--- Wait Groups ---")
-# wait[group] waits for all calls to finish, discarding results
-wait[group]:
-    fn: print("task 1 done")
-    fn: print("task 2 done")
+    # --- Structured Concurrency ---
+    print("--- Wait Groups ---")
+    # wait[group] waits for all calls to finish, discarding results
+    wait[group]:
+        fn: print("task 1 done")
+        fn: print("task 2 done")
+catch err:
+    print("concurrency unavailable:", err)
 
 # --- Call Blocks (Builder Pattern) ---
 print("--- Call Blocks ---")

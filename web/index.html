@@ -25,7 +25,7 @@
                         <option value="tetris">Tetris</option>
                         <option value="exhaustive">Exhaustive Demo</option>
                     </select>
-                    <button id="run-btn" disabled>Run</button>
+                    <button id="run-btn" disabled title="Run code (Ctrl+Enter)">Run</button>
                 </div>
             </div>
             <div class="editor-container">
@@ -37,9 +37,18 @@
         <div class="output-pane">
             <div class="pane-header">
                 <span>Output</span>
-                <button id="clear-btn">Clear</button>
+                <div class="controls">
+                    <button id="py-trace-btn" class="toggle-btn" title="Show Python traceback on errors">Py Traceback</button>
+                    <button id="clear-btn" title="Clear output">Clear</button>
+                </div>
             </div>
-            <pre id="output"></pre>
+            <div class="output-body">
+                <pre id="output"></pre>
+                <details id="traceback" class="traceback hidden">
+                    <summary>Traceback</summary>
+                    <pre id="traceback-text"></pre>
+                </details>
+            </div>
         </div>
     </main>
 
