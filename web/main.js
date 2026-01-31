@@ -382,7 +382,7 @@ async function runCode() {
     runBtn.classList.add('loading');
     setOutput('Running...');
 
-    worker.postMessage({type: 'run', code: code, isTetris: false});
+    worker.postMessage({type: 'run', code: code, isTetris: false, debugPyTrace: DEBUG_PY_TRACE});
 }
 
 async function startTetris() {
@@ -404,7 +404,7 @@ async function startTetris() {
     codeEl.blur();
     setOutput('Starting Tetris...');
 
-    worker.postMessage({type: 'run', code: code, isTetris: true});
+    worker.postMessage({type: 'run', code: code, isTetris: true, debugPyTrace: DEBUG_PY_TRACE});
 }
 
 function stopTetris() {

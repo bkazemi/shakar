@@ -39,6 +39,9 @@ self.onmessage = async (e) => {
             await handleInit();
             break;
         case 'run':
+            if (msg.debugPyTrace !== undefined) {
+                self.shk_debug_py_trace = msg.debugPyTrace === true;
+            }
             handleRun(msg.code, msg.isTetris);
             break;
         case 'highlight':
