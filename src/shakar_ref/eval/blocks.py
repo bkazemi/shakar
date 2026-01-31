@@ -367,7 +367,13 @@ def eval_emit_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         args_node, frame, eval_func
     )
     return call_value(
-        emit_target, positional, frame, eval_func, named=named, interleaved=interleaved
+        emit_target,
+        positional,
+        frame,
+        eval_func,
+        named=named,
+        interleaved=interleaved,
+        call_node=n,
     )
 
 

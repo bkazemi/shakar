@@ -7,6 +7,7 @@ from ..tree import Tree, Tok
 from ..token_types import TT
 
 from ..types import (
+    CallSite,
     Frame,
     ShkBool,
     ShkEnvVar,
@@ -254,6 +255,59 @@ def node_source_span(node: Node) -> SourceSpan:
             return min(child_starts), max(child_ends)
 
     return None, None
+
+
+def node_first_token_pos(node: Node) -> tuple[Optional[int], Optional[int]]:
+    if is_token(node):
+        if node.line > 0:
+            return node.line, max(1, node.column)
+        return None, None
+    if is_tree(node):
+        for child in tree_children(node):
+            line, col = node_first_token_pos(child)
+            if line is not None and col is not None:
+                return line, col
+    return None, None
+
+
+def _resolve_line_col(node: Node, frame: Frame) -> tuple[Optional[int], Optional[int]]:
+    """Resolve line/col from a node using three fallback tiers: meta, first token, source span."""
+    line = None
+    col = None
+
+    meta = node_meta(node)
+    if meta is not None:
+        meta_line = getattr(meta, "line", None)
+        meta_col = getattr(meta, "column", None)
+        if isinstance(meta_line, int) and meta_line > 0:
+            line = meta_line
+        if isinstance(meta_col, int) and meta_col > 0:
+            col = meta_col
+
+    if line is None or col is None:
+        tok_line, tok_col = node_first_token_pos(node)
+        if line is None:
+            line = tok_line
+        if col is None:
+            col = tok_col
+
+    if line is None or col is None:
+        start, _end = node_source_span(node)
+        source = getattr(frame, "source", None)
+        if start is not None and source is not None:
+            line = source.count("\n", 0, start) + 1
+            last_nl = source.rfind("\n", 0, start)
+            col = start + 1 if last_nl == -1 else start - last_nl
+
+    return line, col
+
+
+def callsite_from_node(name: str, node: Node, frame: Frame) -> CallSite:
+    line, col = _resolve_line_col(node, frame)
+
+    return CallSite(
+        name=name, line=int(line or 0), column=int(col or 0), path=frame.source_path
+    )
 
 
 def require_number(value: ShkValue) -> ShkNumber:

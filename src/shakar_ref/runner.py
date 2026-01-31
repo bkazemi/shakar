@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -11,7 +12,8 @@ from .lower import lower
 from .evaluator import eval_expr
 from .runtime import ShkValue
 from .runtime import Frame, init_stdlib
-from .types import ShkNil
+from .types import ShkNil, ShakarRuntimeError
+from .utils import debug_py_trace_enabled
 from .tree import Tree
 
 _STMT_LABELS = frozenset(
@@ -166,11 +168,14 @@ def main() -> None:
     grammar_path = None
     arg = None
     show_tree = False
+    enable_py_trace = False
     it = iter(sys.argv[1:])
 
     for token in it:
         if token == "--tree":
             show_tree = True
+        elif token == "--py-trace":
+            enable_py_trace = True
         elif arg is None:
             arg = token
         else:
@@ -185,14 +190,31 @@ def main() -> None:
         ast2 = _parse_and_lower(source)
         print(ast2.pretty())
     else:
-        init_stdlib()
-        ast2 = _parse_and_lower(source)
-        stmt = _last_is_stmt(ast2)
-        result = eval_expr(
-            ast2, Frame(source=source, source_path=source_path), source=source
-        )
-        if not stmt and not isinstance(result, ShkNil):
-            print(result)
+        if enable_py_trace:
+            os.environ["SHAKAR_DEBUG_PY_TRACE"] = "1"
+        try:
+            init_stdlib()
+            ast2 = _parse_and_lower(source)
+            stmt = _last_is_stmt(ast2)
+            result = eval_expr(
+                ast2, Frame(source=source, source_path=source_path), source=source
+            )
+        except ShakarRuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            if debug_py_trace_enabled():
+                import traceback
+
+                tb = getattr(exc, "shk_py_trace", None)
+                if tb is not None:
+                    print("\nPython traceback:", file=sys.stderr)
+                    print("".join(traceback.format_tb(tb)), file=sys.stderr, end="")
+            raise SystemExit(1) from None
+        else:
+            if not stmt and not isinstance(result, ShkNil):
+                print(result)
+        finally:
+            if enable_py_trace:
+                os.environ.pop("SHAKAR_DEBUG_PY_TRACE", None)
 
 
 if __name__ == "__main__":

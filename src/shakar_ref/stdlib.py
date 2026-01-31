@@ -477,12 +477,14 @@ def _io_raw(_frame, args: List[ShkValue]) -> ShkBool:
 def _build_io_module() -> ShkModule:
     """Build the unified io module."""
     slots: dict[str, ShkValue] = {
-        "read_key": StdlibFunction(fn=_io_read_key),  # 0 or 1 args
-        "write": StdlibFunction(fn=_io_write, arity=1),
-        "clear": StdlibFunction(fn=_io_clear, arity=0),
-        "overwrite": StdlibFunction(fn=_io_overwrite, arity=1),
-        "is_interactive": StdlibFunction(fn=_io_is_interactive, arity=0),
-        "raw": StdlibFunction(fn=_io_raw, arity=1),
+        "read_key": StdlibFunction(fn=_io_read_key, name="read_key"),  # 0 or 1 args
+        "write": StdlibFunction(fn=_io_write, arity=1, name="write"),
+        "clear": StdlibFunction(fn=_io_clear, arity=0, name="clear"),
+        "overwrite": StdlibFunction(fn=_io_overwrite, arity=1, name="overwrite"),
+        "is_interactive": StdlibFunction(
+            fn=_io_is_interactive, arity=0, name="is_interactive"
+        ),
+        "raw": StdlibFunction(fn=_io_raw, arity=1, name="raw"),
         "platform": ShkString(_detect_platform()),
     }
     return ShkModule(slots=slots, name="io")

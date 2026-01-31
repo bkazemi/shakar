@@ -36,6 +36,7 @@ from .types import (
     BuiltinMethod,
     Descriptor,
     StdlibFunction,
+    CallSite,
     DeferEntry,
     ShkValue,
     EvalResult,
@@ -356,7 +357,7 @@ def register_channel(name: str):
 def register_stdlib(name: str, *, arity: Optional[int] = None, named: bool = False):
     def dec(fn: StdlibFn):
         Builtins.stdlib_functions[name] = StdlibFunction(
-            fn=fn, arity=arity, accepts_named=named
+            fn=fn, arity=arity, accepts_named=named, name=name
         )
         return fn
 
@@ -770,6 +771,7 @@ def call_shkfn(
     subject: Optional[ShkValue],
     caller_frame: "Frame",
     named: Optional[Dict[str, ShkValue]] = None,
+    call_site: Optional[CallSite] = None,
 ) -> ShkValue:
     """
     Subjectful call semantics:
@@ -779,14 +781,24 @@ def call_shkfn(
     - Named args bind to parameters by name.
     """
 
-    if fn.decorators:
-        if named:
-            raise ShakarTypeError(
-                "Named arguments are not supported with decorated functions"
-            )
-        return _call_shkfn_with_decorators(fn, positional, subject, caller_frame)
+    if call_site is not None:
+        caller_frame.call_stack.append(call_site)
+    try:
+        if fn.decorators:
+            if named:
+                raise ShakarTypeError(
+                    "Named arguments are not supported with decorated functions"
+                )
+            return _call_shkfn_with_decorators(fn, positional, subject, caller_frame)
 
-    return _call_shkfn_raw(fn, positional, subject, caller_frame, named=named)
+        return _call_shkfn_raw(fn, positional, subject, caller_frame, named=named)
+    except ShakarRuntimeError as exc:
+        if getattr(exc, "shk_call_stack", None) is None and call_site is not None:
+            exc.shk_call_stack = list(caller_frame.call_stack)
+        raise
+    finally:
+        if call_site is not None:
+            caller_frame.call_stack.pop()
 
 
 def _bind_params_with_defaults(
@@ -1008,6 +1020,7 @@ def _call_shkfn_raw(
             parent=fn.frame,
             dot=subject,
             cancel_token=caller_frame.cancel_token,
+            call_stack=caller_frame.call_stack,
         )
         callee_frame.mark_function_frame()
 
@@ -1022,6 +1035,7 @@ def _call_shkfn_raw(
         parent=fn.frame,
         dot=subject,
         cancel_token=caller_frame.cancel_token,
+        call_stack=caller_frame.call_stack,
     )
 
     if named:
@@ -1104,6 +1118,7 @@ def _execute_decorator_instance(
         parent=inst.decorator.frame,
         dot=subject,
         cancel_token=caller_frame.cancel_token,
+        call_stack=caller_frame.call_stack,
     )
     deco_frame.mark_function_frame()
     params = inst.decorator.params or []

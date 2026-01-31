@@ -5,11 +5,13 @@ from collections import deque
 import pathlib
 import re
 import threading
+import types as _pytypes
 from typing import (
     Callable,
     Deque,
     Dict,
     List,
+    NamedTuple,
     Optional,
     Tuple,
     TypeVar,
@@ -747,6 +749,7 @@ class ShkFn:
     frame: "Frame"  # Closure frame
     decorators: Optional[Tuple[DecoratorConfigured, ...]] = None
     kind: str = "fn"
+    name: Optional[str] = None
     return_contract: Optional[Node] = None  # AST node for return type contract
     vararg_indices: Optional[List[int]] = None
     param_defaults: Optional[List[Optional[Node]]] = None
@@ -767,6 +770,7 @@ class ShkFn:
 class BoundMethod:
     fn: ShkFn
     subject: "ShkValue"
+    name: Optional[str] = None
 
 
 @dataclass
@@ -815,6 +819,7 @@ class StdlibFunction:
     fn: StdlibFn
     arity: Optional[int] = None
     accepts_named: bool = False
+    name: Optional[str] = None
 
 
 ShkValue: TypeAlias = Union[
@@ -853,6 +858,13 @@ EvalResult: TypeAlias = Union[ShkValue, "RebindContext", "FanContext"]
 DotValue: TypeAlias = Optional[ShkValue]
 
 
+class CallSite(NamedTuple):
+    name: str
+    line: int
+    column: int
+    path: Optional[str]
+
+
 class Frame:
     def __init__(
         self,
@@ -862,6 +874,7 @@ class Frame:
         cancel_token: Optional[CancelToken] = None,
         source: Optional[str] = None,
         source_path: Optional[str] = None,
+        call_stack: Optional[List[CallSite]] = None,
     ):
         self.parent = parent
         self.vars: Dict[str, ShkValue] = {}
@@ -873,6 +886,7 @@ class Frame:
         self._is_function_frame = False
         self._active_error: Optional[ShakarRuntimeError] = None
         self.pending_anchor_override: Optional[ShkValue] = None
+        self.call_stack: List[CallSite]
         self.cancel_token: Optional[CancelToken]
         if cancel_token is not None:
             self.cancel_token = cancel_token
@@ -902,6 +916,16 @@ class Frame:
             self.source_path = parent.source_path
         else:
             self.source_path = None
+
+        # NOTE: call_stack is shared by reference across synchronous child
+        # frames so that push/pop in call_shkfn stays balanced.  Spawned
+        # threads MUST snapshot (list(frame.call_stack)) to avoid races.
+        if call_stack is not None:
+            self.call_stack = call_stack
+        elif parent is not None and hasattr(parent, "call_stack"):
+            self.call_stack = parent.call_stack
+        else:
+            self.call_stack = []
 
     def define(self, name: str, val: ShkValue) -> None:
         self.vars[name] = val
@@ -1015,6 +1039,8 @@ class ShakarRuntimeError(Exception):
     shk_data: Optional[ShkValue]
     shk_payload: Optional[ShkValue]
     shk_meta: Optional[object]
+    shk_py_trace: Optional[_pytypes.TracebackType]
+    shk_call_stack: Optional[List["CallSite"]]
 
     def __init__(self, message: str):
         super().__init__(message)
@@ -1022,24 +1048,37 @@ class ShakarRuntimeError(Exception):
         self.shk_data = None
         self.shk_payload = None
         self.shk_meta = None
+        self.shk_py_trace = None
+        self.shk_call_stack = None
 
     def __str__(self) -> str:  # pragma: no cover - trivial formatting
         msg = super().__str__()
 
         meta = getattr(self, "shk_meta", None)
         if meta is None:
-            return msg
+            rendered = msg
+        else:
+            line = getattr(meta, "line", None)
+            col = getattr(meta, "column", None)
 
-        line = getattr(meta, "line", None)
-        col = getattr(meta, "column", None)
+            if line is None:
+                rendered = msg
+            elif col is None:
+                rendered = f"{msg} (line {line})"
+            else:
+                rendered = f"{msg} (line {line}, col {col})"
 
-        if line is None:
-            return msg
+        stack = getattr(self, "shk_call_stack", None)
+        if not stack:
+            return rendered
 
-        if col is None:
-            return f"{msg} (line {line})"
-
-        return f"{msg} (line {line}, col {col})"
+        lines = [rendered]
+        for site in reversed(stack):
+            location = f"line {site.line}, col {site.column}"
+            if site.path:
+                location = f"{location} ({site.path})"
+            lines.append(f"  in {site.name} called at {location}")
+        return "\n".join(lines)
 
 
 class ShakarImportError(ShakarRuntimeError):

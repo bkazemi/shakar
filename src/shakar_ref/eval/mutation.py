@@ -261,7 +261,7 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
 
                 if isinstance(slot, ShkFn):
                     # methods capture the receiver via BoundMethod to keep dot semantics.
-                    return BoundMethod(slot, recv)
+                    return BoundMethod(slot, recv, name=name)
 
                 return slot
             raise ShakarKeyError(name)

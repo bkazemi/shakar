@@ -35,7 +35,7 @@ from ..runtime import (
 from ..tree import Node, Tree, is_tree, tree_children, tree_label
 from .blocks import eval_body_node
 from .chains import call_value
-from .common import expect_ident_token
+from .common import callsite_from_node, expect_ident_token
 from .helpers import check_cancel
 from .postfix import define_new_ident
 from .selector import selector_iter_values
@@ -104,11 +104,16 @@ def _is_callable_value(value: ShkValue) -> bool:
     )
 
 
-def _spawn_callable(frame: Frame, value: ShkValue, eval_func: EvalFunc) -> ShkChannel:
+def _spawn_callable(
+    frame: Frame,
+    value: ShkValue,
+    eval_func: EvalFunc,
+    spawn_site: Optional["CallSite"] = None,
+) -> ShkChannel:
     def thunk(spawn_frame: Frame) -> ShkValue:
         return call_value(value, [], spawn_frame, eval_func)
 
-    return _spawn_task(frame, thunk)
+    return _spawn_task(frame, thunk, spawn_site=spawn_site)
 
 
 def eval_recv_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
@@ -129,7 +134,9 @@ def eval_send_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     return ShkBool(sent)
 
 
-def _spawn_frame(parent: Frame, token: CancelToken) -> Frame:
+def _spawn_frame(
+    parent: Frame, token: CancelToken, call_stack: Optional[list["CallSite"]] = None
+) -> Frame:
     return Frame(
         parent=parent,
         dot=parent.dot,
@@ -137,15 +144,23 @@ def _spawn_frame(parent: Frame, token: CancelToken) -> Frame:
         cancel_token=token,
         source=parent.source,
         source_path=parent.source_path,
+        call_stack=call_stack,
     )
 
 
-def _spawn_task(frame: Frame, thunk: Callable[[Frame], ShkValue]) -> ShkResultChannel:
+def _spawn_task(
+    frame: Frame,
+    thunk: Callable[[Frame], ShkValue],
+    spawn_site: Optional["CallSite"] = None,
+) -> ShkResultChannel:
     cancel_token = CancelToken()
     result_ch = ShkResultChannel(cancel_token)
 
     def runner() -> None:
-        spawn_frame = _spawn_frame(frame, cancel_token)
+        call_stack = list(frame.call_stack)
+        if spawn_site is not None:
+            call_stack.append(spawn_site)
+        spawn_frame = _spawn_frame(frame, cancel_token, call_stack=call_stack)
         try:
             result = thunk(spawn_frame)
             check_cancel(spawn_frame)
@@ -161,7 +176,10 @@ def _spawn_task(frame: Frame, thunk: Callable[[Frame], ShkValue]) -> ShkResultCh
             result_ch.send_error(exc)
 
     thread = threading.Thread(target=runner, daemon=True)
-    thread.start()
+    try:
+        thread.start()
+    except Exception as exc:
+        raise ShakarRuntimeError(f"spawn failed: {exc}") from exc
     return result_ch
 
 
@@ -169,6 +187,7 @@ def eval_spawn_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if not n.children:
         raise ShakarRuntimeError("Malformed spawn expression")
     expr = n.children[0]
+    spawn_site = callsite_from_node("spawn", n, frame)
 
     def thunk(spawn_frame: Frame) -> ShkValue:
         if is_tree(expr) and tree_label(expr) in {"inlinebody", "indentblock"}:
@@ -177,9 +196,9 @@ def eval_spawn_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
     expr_node = _unwrap_expr_node(expr)
     if is_tree(expr_node) and tree_label(expr_node) in {"inlinebody", "indentblock"}:
-        return _spawn_task(frame, thunk)
+        return _spawn_task(frame, thunk, spawn_site=spawn_site)
     if _explicit_call_in_node(expr):
-        return _spawn_task(frame, thunk)
+        return _spawn_task(frame, thunk, spawn_site=spawn_site)
 
     # Non-call expressions are evaluated in the caller so we can detect iterable
     # spawn (arrays/fans/selectors). Non-iterables keep the old behavior: a task
@@ -187,7 +206,9 @@ def eval_spawn_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     value = eval_func(expr, frame)
     iterable = _spawn_iterable_values(value)
     if iterable is None:
-        return _spawn_task(frame, lambda _spawn_frame, v=value: v)
+        return _spawn_task(
+            frame, lambda _spawn_frame, v=value: v, spawn_site=spawn_site
+        )
 
     channels: list[ShkChannel] = []
     for item in iterable:
@@ -195,7 +216,7 @@ def eval_spawn_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             raise ShakarTypeError("spawn iterable cannot contain channels")
         if not _is_callable_value(item):
             raise ShakarTypeError("spawn iterable expects callable elements")
-        channels.append(_spawn_callable(frame, item, eval_func))
+        channels.append(_spawn_callable(frame, item, eval_func, spawn_site=spawn_site))
 
     if isinstance(value, ShkFan):
         return ShkFan(channels)

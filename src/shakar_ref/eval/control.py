@@ -43,7 +43,7 @@ from .helpers import (
 )
 from .expr import _compare_values
 from .selector import selector_contains
-from ..utils import shk_equals
+from ..utils import debug_py_trace_enabled, shk_equals
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
@@ -167,6 +167,13 @@ def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
     data = getattr(exc, "shk_data", None)
     if data is not None:
         slots["data"] = data
+
+    if debug_py_trace_enabled():
+        import traceback
+
+        tb = getattr(exc, "shk_py_trace", None)
+        if tb is not None:
+            slots["py_trace"] = ShkString("".join(traceback.format_tb(tb)))
 
     return ShkObject(slots)
 

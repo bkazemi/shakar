@@ -39,13 +39,54 @@ from ..tree import (
     tree_label,
 )
 from .bind import FanContext, RebindContext, apply_fan_op
-from .common import expect_ident_token as _expect_ident_token
+from .common import callsite_from_node, expect_ident_token as _expect_ident_token
 from .helpers import eval_anchor_scoped
 from .mutation import get_field_value, index_value, slice_value
 from .selector import evaluate_selectorlist, apply_selectors_to_value
 from .valuefan import eval_valuefan
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
+
+
+def _call_name_for_value(cal: ShkValue) -> str:
+    match cal:
+        case BoundMethod(name=name) if name:
+            return f"{name}()"
+        case BoundMethod(fn=fn) if fn.name:
+            return f"{fn.name}()"
+        case BuiltinMethod(name=name):
+            return f"{name}()"
+        case StdlibFunction(name=name) if name:
+            return f"{name}()"
+        case StdlibFunction(fn=fn):
+            return f"{fn.__name__}()"
+        case ShkFn(name=name) if name:
+            return f"{name}()"
+        case ShkFn():
+            return "<fn>()"
+        case DecoratorContinuation():
+            return "decorator()"
+        case ShkDecorator():
+            return "decorator()"
+        case _:
+            return f"{type(cal).__name__}()"
+
+
+def _with_call_site(
+    frame: Frame, site: Optional["CallSite"], thunk: Callable[[], ShkValue]
+) -> ShkValue:
+    # Thunks are always called immediately; lambda captures are safe.
+    if site is None:
+        return thunk()
+    frame.call_stack.append(site)
+    try:
+        return thunk()
+    except ShakarRuntimeError as exc:
+        if getattr(exc, "shk_call_stack", None) is None:
+            exc.shk_call_stack = list(frame.call_stack)
+        raise
+    finally:
+        frame.call_stack.pop()
 
 
 def eval_args_node(
@@ -308,7 +349,13 @@ def apply_op(
             args_node, frame, eval_func
         )
         result = call_value(
-            recv, positional, frame, eval_func, named=named, interleaved=interleaved
+            recv,
+            positional,
+            frame,
+            eval_func,
+            named=named,
+            interleaved=interleaved,
+            call_node=op,
         )
     elif op_name == "method":
         result = _call_method(recv, op, frame, eval_func)
@@ -349,6 +396,7 @@ def _call_method(
     positional, named, _interleaved = eval_args_node_with_named(
         op.children[1] if len(op.children) > 1 else None, frame, eval_func
     )
+    call_site = callsite_from_node(f"{method_name}()", op, frame)
 
     if named:
         # Builtin methods don't support named args; try user-defined method
@@ -356,26 +404,46 @@ def _call_method(
 
         if isinstance(cal, BoundMethod):
             return call_shkfn(
-                cal.fn, positional, subject=cal.subject, caller_frame=frame, named=named
+                cal.fn,
+                positional,
+                subject=cal.subject,
+                caller_frame=frame,
+                named=named,
+                call_site=call_site,
             )
         if isinstance(cal, ShkFn):
             return call_shkfn(
-                cal, positional, subject=recv, caller_frame=frame, named=named
+                cal,
+                positional,
+                subject=recv,
+                caller_frame=frame,
+                named=named,
+                call_site=call_site,
             )
 
         raise ShakarTypeError("Builtin methods do not accept named arguments")
 
     try:
-        return call_builtin_method(recv, method_name, positional, frame)
+        return _with_call_site(
+            frame,
+            call_site,
+            lambda: call_builtin_method(recv, method_name, positional, frame),
+        )
     except ShakarMethodNotFound:
         cal = get_field_value(recv, method_name, frame)
 
         if isinstance(cal, BoundMethod):
             return call_shkfn(
-                cal.fn, positional, subject=cal.subject, caller_frame=frame
+                cal.fn,
+                positional,
+                subject=cal.subject,
+                caller_frame=frame,
+                call_site=call_site,
             )
         if isinstance(cal, ShkFn):
-            return call_shkfn(cal, positional, subject=recv, caller_frame=frame)
+            return call_shkfn(
+                cal, positional, subject=recv, caller_frame=frame, call_site=call_site
+            )
         raise
 
 
@@ -391,16 +459,31 @@ def call_value(
     eval_func: EvalFunc,
     named: Optional[Dict[str, ShkValue]] = None,
     interleaved: bool = False,
+    call_node: Optional[Node] = None,
 ) -> ShkValue:
+    call_site = (
+        callsite_from_node(_call_name_for_value(cal), call_node, frame)
+        if call_node is not None
+        else None
+    )
     match cal:
         case BoundMethod(fn=fn, subject=subject):
             return call_shkfn(
-                fn, args, subject=subject, caller_frame=frame, named=named
+                fn,
+                args,
+                subject=subject,
+                caller_frame=frame,
+                named=named,
+                call_site=call_site,
             )
         case BuiltinMethod(name=name, subject=subject):
             if named:
                 raise ShakarTypeError("Builtin methods do not accept named arguments")
-            return call_builtin_method(subject, name, args, frame)
+            return _with_call_site(
+                frame,
+                call_site,
+                lambda: call_builtin_method(subject, name, args, frame),
+            )
         case StdlibFunction(fn=fn, arity=arity, accepts_named=accepts_n):
             if accepts_n:
                 if interleaved:
@@ -411,7 +494,9 @@ def call_value(
                     raise ShakarArityError(
                         f"Function expects {arity} args; got {len(args)}"
                     )
-                return fn(frame, args, named or {})
+                return _with_call_site(
+                    frame, call_site, lambda: fn(frame, args, named or {})
+                )
             if named:
                 raise ShakarTypeError(
                     f"Unexpected named argument(s): {', '.join(named.keys())}"
@@ -420,7 +505,7 @@ def call_value(
                 raise ShakarArityError(
                     f"Function expects {arity} args; got {len(args)}"
                 )
-            return fn(frame, args)
+            return _with_call_site(frame, call_site, lambda: fn(frame, args))
         case DecoratorContinuation():
             if named:
                 raise ShakarTypeError(
@@ -430,14 +515,21 @@ def call_value(
                 raise ShakarArityError(
                     "Decorator continuation expects exactly 1 argument (the args array)"
                 )
-            return cal.invoke(args[0])
+            return _with_call_site(frame, call_site, lambda: cal.invoke(args[0]))
         case ShkDecorator():
             if named:
                 raise ShakarTypeError("Decorators do not accept named arguments")
             bound = _bind_decorator_params(cal, args)
             return DecoratorConfigured(decorator=cal, args=list(bound))
         case ShkFn():
-            return call_shkfn(cal, args, subject=None, caller_frame=frame, named=named)
+            return call_shkfn(
+                cal,
+                args,
+                subject=None,
+                caller_frame=frame,
+                named=named,
+                call_site=call_site,
+            )
         case _:
             raise ShakarTypeError(f"Cannot call value of type {type(cal).__name__}")
 

@@ -99,6 +99,7 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
         return_contract=return_contract_expr,
         vararg_indices=varargs,
         param_defaults=defaults,
+        name=name,
     )
 
     if decorators_node is not None:
@@ -266,6 +267,7 @@ def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
         return_contract=return_contract_expr,
         vararg_indices=varargs,
         param_defaults=defaults,
+        name=None,
     )
 
 
@@ -276,6 +278,7 @@ def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
             body=n.children[0],
             frame=closure_frame(frame),
             kind="amp",
+            name=None,
         )
 
     if len(n.children) == 2:
@@ -293,6 +296,7 @@ def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
             kind="amp",
             vararg_indices=varargs,
             param_defaults=defaults,
+            name=None,
         )
 
     raise ShakarRuntimeError("amp_lambda malformed")

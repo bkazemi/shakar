@@ -52,6 +52,14 @@ def envvar_value_by_name(name: str) -> Optional[str]:
     return _os.environ.get(name)
 
 
+def debug_py_trace_enabled() -> bool:
+    """Check if Python traceback capture is enabled (debug-only)."""
+    raw = envvar_value_by_name("SHAKAR_DEBUG_PY_TRACE")
+    if raw is None:
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def is_nil_like(value: ShkValue) -> bool:
     """Check if a value is nil or an env var with missing value."""
     if isinstance(value, ShkNil):

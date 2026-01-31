@@ -137,7 +137,10 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 if method_sig:
                     name, params = method_sig
                     method_fn = ShkFn(
-                        params=params, body=val_node, frame=closure_frame(frame)
+                        params=params,
+                        body=val_node,
+                        frame=closure_frame(frame),
+                        name=name,
                     )
                     slots[name] = method_fn
                     return
@@ -151,7 +154,12 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                     raise ShakarRuntimeError("Getter missing name")
 
                 key = _expect_ident_token(name_tok, "Getter name")
-                getter_fn = ShkFn(params=None, body=body, frame=closure_frame(frame))
+                getter_fn = ShkFn(
+                    params=None,
+                    body=body,
+                    frame=closure_frame(frame),
+                    name=f"{key}.get",
+                )
                 _install_descriptor(key, getter=getter_fn)
             case "obj_set":
                 name_tok, param_tok, body = item.children
@@ -162,7 +170,10 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 key = _expect_ident_token(name_tok, "Setter name")
                 param_name = _expect_ident_token(param_tok, "Setter parameter")
                 setter_fn = ShkFn(
-                    params=[param_name], body=body, frame=closure_frame(frame)
+                    params=[param_name],
+                    body=body,
+                    frame=closure_frame(frame),
+                    name=f"{key}.set",
                 )
                 _install_descriptor(key, setter=setter_fn)
             case "obj_method":
@@ -180,6 +191,7 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                     frame=closure_frame(frame),
                     vararg_indices=varargs,
                     param_defaults=defaults,
+                    name=method_name,
                 )
                 slots[method_name] = method_fn
             case "obj_spread":

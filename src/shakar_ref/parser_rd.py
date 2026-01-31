@@ -13,6 +13,7 @@ Structure:
 """
 
 from typing import Optional, List, Any
+from types import SimpleNamespace
 from enum import Enum
 from .tree import Tree, Node, is_tree, is_token, tree_label, tree_children
 
@@ -81,6 +82,13 @@ class Parser:
 
     def _tok(self, type_name: str, value: str, line: int = 0, column: int = 0) -> Tok:
         return Tok(TT[type_name], value, line, column)
+
+    def _call_tree(self, args: List[Node], call_tok: Tok) -> Tree:
+        return Tree(
+            "call",
+            args,
+            meta=SimpleNamespace(line=call_tok.line, column=call_tok.column),
+        )
 
     def _parse_number_literal(self, literal: object) -> int | float:
         """Parse NUMBER token value, handling bases and underscores."""
@@ -2530,14 +2538,15 @@ class Parser:
                     ),
                     noanchor,
                 )
-            elif self.match(TT.LPAR):
+            elif self.check(TT.LPAR):
+                lpar_tok = self.advance()
                 if noanchor:
                     raise ParseError(
                         "No-anchor '$' is not valid on call segments", self.current
                     )
                 args = self.parse_arg_list()
                 self.expect(TT.RPAR)
-                imphead = Tree("call", args if args else [])
+                imphead = self._call_tree(args if args else [], lpar_tok)
             elif self.check(TT.LSQB):
                 self.advance()
                 selectors = self.parse_selector_list()
@@ -2631,14 +2640,15 @@ class Parser:
                     postfix_ops.append(
                         self._maybe_noanchor(Tree("index", children), noanchor)
                     )
-                elif self.match(TT.LPAR):
+                elif self.check(TT.LPAR):
+                    lpar_tok = self.advance()
                     args = self.parse_arg_list()
                     self.expect(TT.RPAR)
                     if args:
                         args = [Tree("arglistnamedmixed", args)]
                     else:
                         args = []
-                    postfix_ops.append(Tree("call", args))
+                    postfix_ops.append(self._call_tree(args, lpar_tok))
                 elif self.check(TT.INCR, TT.DECR):
                     op = self.advance()
                     postfix_ops.append(Tree(op.type.name.lower(), []))
@@ -2757,14 +2767,15 @@ class Parser:
                 )
 
             # Call
-            elif self.match(TT.LPAR):
+            elif self.check(TT.LPAR):
+                lpar_tok = self.advance()
                 args = self.parse_arg_list()
                 self.expect(TT.RPAR)
                 if args:
                     args = [Tree("arglistnamedmixed", args)]
                 else:
                     args = []
-                postfix_ops.append(Tree("call", args))
+                postfix_ops.append(self._call_tree(args, lpar_tok))
 
             # Postfix increment/decrement
             elif self.check(TT.INCR, TT.DECR):
@@ -4115,7 +4126,8 @@ class Parser:
                 # Check for postfix operations (calls, field access, etc.)
                 postfix_ops: list[Node] = []
                 while True:
-                    if self.match(TT.LPAR):
+                    if self.check(TT.LPAR):
+                        lpar_tok = self.advance()
                         # Call
                         args = self.parse_arg_list()
                         self.expect(TT.RPAR)
@@ -4123,7 +4135,7 @@ class Parser:
                             args = [Tree("arglistnamedmixed", args)]
                         else:
                             args = []
-                        postfix_ops.append(Tree("call", args))
+                        postfix_ops.append(self._call_tree(args, lpar_tok))
                     elif self.match(TT.DOT):
                         # Field access
                         if self.check(TT.IDENT):
@@ -4188,13 +4200,17 @@ class Parser:
         Auto-invoked form: fn(()): body
         """
         auto_invoke = False
+        auto_call_tok: Optional[Tok] = None
         params: Tree = Tree("paramlist", [])
 
-        if self.match(TT.LPAR):
-            if self.match(TT.LPAR):
+        if self.check(TT.LPAR):
+            outer_lpar = self.advance()
+            if self.check(TT.LPAR):
+                self.advance()
                 # fn ( ( ) ) : body  -> auto invoke
                 self.expect(TT.RPAR)
                 auto_invoke = True
+                auto_call_tok = outer_lpar
             else:
                 params = (
                     self.parse_param_list()
@@ -4241,7 +4257,8 @@ class Parser:
         anon = Tree("anonfn", anon_children)
 
         if auto_invoke:
-            return Tree("explicit_chain", [anon, Tree("call", [])])
+            assert auto_call_tok is not None
+            return Tree("explicit_chain", [anon, self._call_tree([], auto_call_tok)])
         return anon
 
     def parse_anonymous_fn(self) -> Tree:
