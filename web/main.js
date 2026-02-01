@@ -877,6 +877,7 @@ function handleReplEnter() {
     if (!replContinuation && line.trim() === '/clear') {
         initReplTranscript();
         setReplInputText('');
+        replInput.focus();
         replLineEls = [];
         return;
     }
