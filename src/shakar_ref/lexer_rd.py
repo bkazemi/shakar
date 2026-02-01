@@ -159,12 +159,18 @@ class Lexer:
         "tib": 1_099_511_627_776,
     }
 
-    def __init__(self, source: str, track_indentation: bool = False):
+    def __init__(
+        self,
+        source: str,
+        track_indentation: bool = False,
+        emit_comments: bool = False,
+    ):
         self.source = source
         self.pos = 0
         self.line = 1
         self.column = 1
         self.tokens: List[Tok] = []
+        self.emit_comments = emit_comments
 
         # Indentation tracking
         self.track_indentation = track_indentation
@@ -209,7 +215,18 @@ class Lexer:
 
         # Comments
         if self.peek() == "#":
+            start_line = self.line
+            start_col = self.column
+            start_pos = self.pos
             self.skip_comment()
+            if self.emit_comments:
+                value = self.source[start_pos : self.pos]
+                self.emit(
+                    TT.COMMENT,
+                    value,
+                    start_line=start_line,
+                    start_col=start_col,
+                )
             return
 
         # Newlines
@@ -1110,9 +1127,17 @@ class LexError(Exception):
 # ============================================================================
 
 
-def tokenize(source: str, track_indentation: bool = False) -> List[Tok]:
+def tokenize(
+    source: str,
+    track_indentation: bool = False,
+    emit_comments: bool = False,
+) -> List[Tok]:
     """Convenience function to tokenize source"""
-    lexer = Lexer(source, track_indentation=track_indentation)
+    lexer = Lexer(
+        source,
+        track_indentation=track_indentation,
+        emit_comments=emit_comments,
+    )
     return lexer.tokenize()
 
 

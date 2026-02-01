@@ -51,7 +51,7 @@ echo 'print("Hello from Shakar!")' | shakar -
 ```
 
 Start the interactive REPL (or just run `shakar` with no args).
-Requires the `readline` module (available on Linux/macOS; not included with Windows Python):
+Requires `prompt_toolkit` (installed automatically with `pip install -e .`):
 ```bash
 shakar --repl
 ```

@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Shakar reference implementation - parser and runtime"
 requires-python = ">=3.10"
 license = {text = "MIT"}
+dependencies = ["prompt_toolkit>=3.0"]
 
 [project.scripts]
 shakar = "shakar_ref.runner:main"

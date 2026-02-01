@@ -1,0 +1,206 @@
+"""prompt_toolkit lexer for live Shakar syntax highlighting in the REPL."""
+
+from __future__ import annotations
+
+from typing import Callable, List
+
+from prompt_toolkit.document import Document
+from prompt_toolkit.formatted_text import StyleAndTextTuples
+from prompt_toolkit.lexers import Lexer
+
+from .lexer_rd import Lexer as ShkLexer, LexError
+from .token_types import TT
+
+# Map highlight groups → prompt_toolkit style strings.
+GROUP_STYLE = {
+    "keyword": "bold ansicyan",
+    "boolean": "ansicyan",
+    "constant": "ansicyan",
+    "number": "ansimagenta",
+    "string": "ansigreen",
+    "regex": "ansiyellow",
+    "path": "ansiyellow",
+    "identifier": "",
+    "function": "bold ansiyellow",
+    "decorator": "bold ansimagenta",
+    "hook": "bold ansimagenta",
+    "operator": "",
+    "punctuation": "",
+    "comment": "italic ansigray",
+    "error": "bold ansired",
+    "type": "bold ansiblue",
+}
+
+# Token type → highlight group (mirrors nvim-plugin/highlight_server.py TOKEN_GROUPS).
+_TT_GROUP = {
+    TT.IF: "keyword",
+    TT.ELIF: "keyword",
+    TT.ELSE: "keyword",
+    TT.UNLESS: "keyword",
+    TT.WHILE: "keyword",
+    TT.FOR: "keyword",
+    TT.IN: "keyword",
+    TT.IMPORT: "keyword",
+    TT.BREAK: "keyword",
+    TT.CONTINUE: "keyword",
+    TT.RETURN: "keyword",
+    TT.FN: "keyword",
+    TT.LET: "keyword",
+    TT.WAIT: "keyword",
+    TT.SPAWN: "keyword",
+    TT.USING: "keyword",
+    TT.BIND: "keyword",
+    TT.CALL: "keyword",
+    TT.DEFER: "keyword",
+    TT.AFTER: "keyword",
+    TT.THROW: "keyword",
+    TT.CATCH: "keyword",
+    TT.ASSERT: "keyword",
+    TT.DBG: "keyword",
+    TT.DECORATOR: "keyword",
+    TT.GET: "keyword",
+    TT.SET: "keyword",
+    TT.HOOK: "keyword",
+    TT.OVER: "keyword",
+    TT.ANY: "keyword",
+    TT.ALL: "keyword",
+    TT.GROUP: "keyword",
+    TT.FAN: "keyword",
+    TT.MATCH: "keyword",
+    TT.NOT: "keyword",
+    TT.AND: "keyword",
+    TT.OR: "keyword",
+    TT.IS: "keyword",
+    TT.TRUE: "boolean",
+    TT.FALSE: "boolean",
+    TT.NIL: "constant",
+    TT.NUMBER: "number",
+    TT.DURATION: "number",
+    TT.SIZE: "number",
+    TT.STRING: "string",
+    TT.RAW_STRING: "string",
+    TT.RAW_HASH_STRING: "string",
+    TT.SHELL_STRING: "string",
+    TT.SHELL_BANG_STRING: "string",
+    TT.REGEX: "regex",
+    TT.PATH_STRING: "path",
+    TT.ENV_STRING: "string",
+    TT.IDENT: "identifier",
+    TT.PLUS: "operator",
+    TT.MINUS: "operator",
+    TT.STAR: "operator",
+    TT.SLASH: "operator",
+    TT.FLOORDIV: "operator",
+    TT.MOD: "operator",
+    TT.POW: "operator",
+    TT.DEEPMERGE: "operator",
+    TT.CARET: "operator",
+    TT.EQ: "operator",
+    TT.NEQ: "operator",
+    TT.LT: "operator",
+    TT.LTE: "operator",
+    TT.GT: "operator",
+    TT.GTE: "operator",
+    TT.SEND: "operator",
+    TT.RECV: "operator",
+    TT.NEG: "operator",
+    TT.NULLISH: "operator",
+    TT.ASSIGN: "operator",
+    TT.WALRUS: "operator",
+    TT.APPLYASSIGN: "operator",
+    TT.PLUSEQ: "operator",
+    TT.MINUSEQ: "operator",
+    TT.STAREQ: "operator",
+    TT.SLASHEQ: "operator",
+    TT.FLOORDIVEQ: "operator",
+    TT.MODEQ: "operator",
+    TT.POWEQ: "operator",
+    TT.INCR: "operator",
+    TT.DECR: "operator",
+    TT.TILDE: "operator",
+    TT.REGEXMATCH: "operator",
+    TT.AMP: "operator",
+    TT.PIPE: "operator",
+    TT.LPAR: "punctuation",
+    TT.RPAR: "punctuation",
+    TT.LSQB: "punctuation",
+    TT.RSQB: "punctuation",
+    TT.LBRACE: "punctuation",
+    TT.RBRACE: "punctuation",
+    TT.DOT: "punctuation",
+    TT.COMMA: "punctuation",
+    TT.COLON: "punctuation",
+    TT.SEMI: "punctuation",
+    TT.QMARK: "punctuation",
+    TT.AT: "punctuation",
+    TT.DOLLAR: "punctuation",
+    TT.BACKQUOTE: "punctuation",
+    TT.COMMENT: "comment",
+    TT.SPREAD: "operator",
+}
+
+_LAYOUT = {TT.NEWLINE, TT.INDENT, TT.DEDENT, TT.EOF}
+
+
+def _highlight_line(text: str) -> StyleAndTextTuples:
+    """Tokenize a single line and return styled fragments."""
+    if not text:
+        return [("", "")]
+
+    try:
+        lexer = ShkLexer(text, track_indentation=False, emit_comments=True)
+        tokens = lexer.tokenize()
+    except LexError:
+        return [("", text)]
+
+    result: StyleAndTextTuples = []
+    pos = 0
+
+    for tok in tokens:
+        if tok.type in _LAYOUT:
+            continue
+        tok_start = tok.column
+        tok_text = str(tok.value) if tok.value is not None else ""
+        if not tok_text:
+            continue
+
+        # Find actual position of this token value in the line from pos onwards.
+        idx = text.find(tok_text, pos)
+        if idx < 0:
+            continue
+
+        # Unstyled gap before token.
+        if idx > pos:
+            result.append(("", text[pos:idx]))
+
+        group = _TT_GROUP.get(tok.type, "")
+        style = GROUP_STYLE.get(group, "")
+        result.append((style, tok_text))
+        pos = idx + len(tok_text)
+
+    # Trailing unstyled text.
+    if pos < len(text):
+        result.append(("", text[pos:]))
+
+    return result if result else [("", text)]
+
+
+class ShakarLexer(Lexer):
+    """prompt_toolkit Lexer that highlights Shakar source using the RD lexer."""
+
+    def lex_document(self, document: Document) -> Callable[[int], StyleAndTextTuples]:
+        lines = document.lines
+
+        # Pre-compute highlights for all lines.
+        cache: dict[int, StyleAndTextTuples] = {}
+
+        def get_line(lineno: int) -> StyleAndTextTuples:
+            if lineno not in cache:
+                if lineno < len(lines):
+                    cache[lineno] = _highlight_line(lines[lineno])
+                else:
+                    cache[lineno] = [("", "")]
+
+            return cache[lineno]
+
+        return get_line

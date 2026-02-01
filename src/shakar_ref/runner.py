@@ -197,7 +197,7 @@ def main() -> None:
             from .repl import repl
         except ImportError:
             raise SystemExit(
-                "REPL requires the 'readline' module, which is not available on this platform."
+                "REPL requires 'prompt_toolkit'. Install it with: pip install prompt_toolkit"
             )
 
         repl()
