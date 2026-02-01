@@ -335,7 +335,7 @@ def _eval_seloptstop(
     if children and is_token(children[0]) and children[0].type == TT.LT:
         exclusive = True
 
-    # Also check source segment for backwards compatibility with Lark parser
+    # Also check source segment for a leading "<" to detect exclusive slices
     if not exclusive:
         segment = _get_source_segment(node, frame)
         if segment is not None and segment.lstrip().startswith("<"):

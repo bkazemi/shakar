@@ -118,7 +118,7 @@ def run(
     use_indenter: Optional[bool] = None,
     grammar_variant: str = "default",
     source_path: Optional[str] = None,
-) -> ShkValue:  # grammar_path/variant kept for CLI compatibility; ignored
+) -> ShkValue:  # grammar_path/variant accepted but ignored
     init_stdlib()
     ast2 = _parse_and_lower(src, use_indenter=use_indenter)
     return eval_expr(ast2, Frame(source=src, source_path=source_path), source=src)

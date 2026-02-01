@@ -1,7 +1,6 @@
 """
 AST transformation utilities (Prune/ChainNormalize/ArgTidy) and helpers that
-were previously defined inside parse_auto.py. These are kept independent of the
-Lark parser so they can be used with the RD parser pipeline.
+were previously defined inside parse_auto.py.
 """
 
 from __future__ import annotations
@@ -572,7 +571,7 @@ class Prune(Transformer):
         return None, index
 
     def _parse_interpolation_expr(self, expr_src: str) -> Node:
-        # Use RD fragment parser to avoid Lark dependency for fragments
+        # Use RD fragment parser to keep fragment parsing self-contained
         tree = parse_expr_fragment(expr_src)
         pruned = self.__class__().transform(tree)
         return self._unwrap_fragment_expr(pruned)

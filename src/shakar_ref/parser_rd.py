@@ -3,13 +3,12 @@ Recursive Descent Parser for Shakar
 
 This serves as:
 1. A reference implementation for the C parser
-2. A faster alternative to Lark's Earley parser
-3. Documentation of parsing strategy and disambiguation
+2. Documentation of parsing strategy and disambiguation
 
 Structure:
 - Lexer: Tok stream from source
 - Parser: Recursive descent with Pratt parsing for expressions
-- AST: Same tree structure as Lark output for compatibility
+- AST: Tree structure expected by the evaluator
 """
 
 from typing import Optional, List, Any
@@ -1860,7 +1859,7 @@ class Parser:
 
         if self.match(TT.LBRACE):
             # Inline block: { stmts }
-            # Build a stmtlist and wrap in inlinebody to match Lark grammar
+            # Build a stmtlist and wrap in inlinebody to match the expected AST
             stmts: list[Node] = []
             while not self.check(TT.RBRACE, TT.EOF):
                 if self.match(TT.NEWLINE):
@@ -1924,7 +1923,7 @@ class Parser:
         Parse expression (top level).
         Handles catch, ternary, binary ops, etc.
         """
-        # Wrap in expr node to match Lark
+        # Wrap in expr node to match evaluator expectations
         return Tree("expr", [self.parse_catch_expr()])
 
     def parse_catch_expr(self) -> Node:
@@ -4311,7 +4310,7 @@ def parse_source(source: str, use_indenter: bool = True) -> Tree:
     """
     Parse Shakar source code to AST.
 
-    Returns Lark-compatible Tree structure for evaluator.
+    Returns Tree structure expected by the evaluator.
 
     Args:
         source: Source code to parse

@@ -16,7 +16,7 @@ from typing_extensions import TypeAlias
 
 from .token_types import Tok, TT
 
-# Backwards compatibility alias
+# Alias for Tok
 Token = Tok
 
 __all__ = [
@@ -42,7 +42,7 @@ __all__ = [
 
 
 class Tree:
-    """Minimal Tree class compatible with Lark-like interface."""
+    """Minimal Tree class used across the runtime."""
 
     __slots__ = ("data", "children", "meta", "_meta")
 
@@ -52,7 +52,7 @@ class Tree:
         self.data = data
         self.children: List[Node] = list(children)
         self.meta = meta
-        self._meta = None  # Lark compatibility
+        self._meta = None  # Optional metadata slot
 
     def __repr__(self) -> str:
         return f"Tree({self.data!r}, {self.children!r})"
@@ -90,7 +90,7 @@ class Discard:
 
 
 class Transformer:
-    """Base class for tree transformers (compatible with Lark's Transformer)."""
+    """Base class for tree transformers."""
 
     def transform(self, tree: Tree) -> Union[Node, Discard]:
         """Transform a tree by recursively visiting nodes."""
@@ -133,7 +133,7 @@ class Transformer:
 def v_args(
     inline: bool = False, meta: bool = False, tree: bool = False
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator for transformer methods (Lark compatibility)."""
+    """Decorator for transformer methods."""
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         func._v_args_inline = inline  # type: ignore[attr-defined]
