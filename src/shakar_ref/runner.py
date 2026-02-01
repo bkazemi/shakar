@@ -142,6 +142,14 @@ def eval_in_env(src: str, frame: Frame) -> ShkValue:
     return eval_expr(ast2, frame, source=src)
 
 
+def repl_eval(src: str, frame: Frame) -> tuple[ShkValue, bool]:
+    """Evaluate src in a persistent frame. Returns (result, is_statement)."""
+    ast2 = _parse_and_lower(src)
+    is_stmt = _last_is_stmt(ast2)
+    result = eval_expr(ast2, frame, source=src)
+    return result, is_stmt
+
+
 def _load_source(arg: Optional[str]) -> tuple[str, Optional[str]]:
     """
     Resolve CLI input into source text.

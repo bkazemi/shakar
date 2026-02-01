@@ -24,6 +24,75 @@ body {
     flex-direction: column;
 }
 
+.splash {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    z-index: 50;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+.splash.splash-hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.splash.error .splash-spinner {
+    display: none;
+}
+
+.splash-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 2rem 2.5rem;
+    border-radius: 14px;
+    border: 1px solid rgba(233, 69, 96, 0.35);
+    background: rgba(22, 33, 62, 0.9);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    text-align: center;
+}
+
+.splash-title {
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.splash-spinner {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 3px solid rgba(238, 238, 238, 0.18);
+    border-top-color: var(--accent);
+    animation: splash-spin 0.9s linear infinite;
+}
+
+.splash-status {
+    font-size: 0.95rem;
+    color: var(--text);
+}
+
+.splash-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.hidden {
+    display: none !important;
+}
+
+@keyframes splash-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 header {
     display: flex;
     align-items: center;
@@ -37,8 +106,26 @@ header h1 {
     font-weight: 600;
 }
 
+.header-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.status-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.2rem;
+}
+
 .status {
     font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+.status-hint {
+    font-size: 0.75rem;
     color: var(--text-muted);
 }
 
@@ -50,6 +137,27 @@ header h1 {
     color: var(--error);
 }
 
+.status.error {
+    display: inline-block;
+    padding: 0.25rem 0.6rem;
+    border-radius: 8px;
+    border: 1px solid rgba(248, 113, 113, 0.6);
+    background: rgba(248, 113, 113, 0.18);
+}
+
+.status.error + .status-hint {
+    color: #fca5a5;
+}
+
+.splash.error .splash-status {
+    display: inline-block;
+    padding: 0.25rem 0.6rem;
+    border-radius: 8px;
+    border: 1px solid rgba(248, 113, 113, 0.6);
+    background: rgba(248, 113, 113, 0.18);
+    color: var(--error);
+}
+
 main {
     flex: 1;
     display: grid;
@@ -58,10 +166,17 @@ main {
     background: var(--border);
 }
 
+main.repl-mode {
+    grid-template-columns: 1fr;
+}
+
 @media (max-width: 768px) {
     main {
         grid-template-columns: 1fr;
         grid-template-rows: 1fr 1fr;
+    }
+    main.repl-mode {
+        grid-template-rows: 1fr;
     }
 }
 
@@ -70,6 +185,22 @@ main {
     display: flex;
     flex-direction: column;
     background: var(--bg);
+}
+
+.repl-pane {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    min-height: 0;
+}
+
+.repl-body {
+    flex: 1;
+    overflow: hidden;
+}
+
+.hidden {
+    display: none !important;
 }
 
 .pane-header {
@@ -136,6 +267,11 @@ button:disabled {
     color: var(--text);
     border-color: var(--accent);
     background: rgba(233, 69, 96, 0.15);
+}
+
+.repl-toggle.active {
+    border-color: var(--text-muted);
+    background: transparent;
 }
 
 /* Editor with syntax highlighting overlay */
@@ -236,6 +372,141 @@ button:disabled {
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+#repl-transcript {
+    height: 100%;
+    padding: 1rem;
+    font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    cursor: text;
+}
+
+.repl-line {
+    display: block;
+    white-space: pre-wrap;
+}
+
+.repl-line-input,
+.repl-line-live {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.repl-input-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 1ch;
+    min-height: 1.5em;
+}
+
+.repl-input-hl,
+.repl-input {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    display: block;
+    white-space: pre-wrap;
+}
+
+.repl-input-hl {
+    color: var(--text);
+    pointer-events: none;
+    min-height: 1.5em;
+    width: 100%;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.repl-input-hl .hl-line,
+.repl-line .hl-line {
+    margin-left: 0;
+    padding-left: 0;
+}
+
+.repl-line-meta-output {
+    color: var(--text-muted);
+    font-style: italic;
+    border-left: 2px solid rgba(136, 136, 136, 0.45);
+    padding-left: 0.5rem;
+    margin-left: -0.5rem;
+}
+
+.repl-suggestions {
+    margin: 0.25rem 0 0.25rem 2.5ch;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    overflow: hidden;
+}
+
+.repl-suggestion {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.35rem 0.6rem;
+    cursor: pointer;
+}
+
+.repl-suggestion:hover,
+.repl-suggestion.selected {
+    background: rgba(233, 69, 96, 0.15);
+}
+
+.repl-suggest-cmd {
+    font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+    color: var(--text);
+}
+
+.repl-suggest-desc {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.repl-prompt {
+    font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+    color: var(--text-muted);
+}
+
+.repl-input {
+    font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.875rem;
+    color: transparent;
+    caret-color: var(--text);
+    outline: none;
+    white-space: pre-wrap;
+    width: 100%;
+    line-height: 1.5;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: none;
+    resize: none;
+    overflow: hidden;
+    word-break: break-word;
+}
+
+.repl-line-input {
+    color: var(--text);
+}
+
+.repl-line-output {
+    color: var(--text);
+}
+
+.repl-line-error {
+    color: var(--error);
+}
+
+.repl-input.disabled {
+    opacity: 0.6;
 }
 
 #output.error {

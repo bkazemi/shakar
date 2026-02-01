@@ -7,9 +7,24 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div id="splash" class="splash" role="status" aria-live="polite" aria-busy="true">
+        <div class="splash-card">
+            <div class="splash-title">Shakar Playground</div>
+            <div class="splash-spinner" aria-hidden="true"></div>
+            <div id="splash-status" class="splash-status">Loading Pyodide...</div>
+            <div id="splash-hint" class="splash-hint">First load can take a few seconds.</div>
+        </div>
+    </div>
     <header>
         <h1>Shakar Playground</h1>
-        <span class="status" id="status">Loading Pyodide...</span>
+        <div class="header-controls">
+            <div class="status-wrap">
+                <span class="status" id="status">Loading Pyodide...</span>
+                <span class="status-hint hidden" id="status-hint">Open your web console for details.</span>
+            </div>
+            <button id="py-trace-btn" class="toggle-btn" title="Show Python traceback on errors">Py Traceback</button>
+            <button id="repl-toggle-btn" class="toggle-btn repl-toggle" title="Toggle REPL mode">REPL</button>
+        </div>
     </header>
 
     <main>
@@ -30,7 +45,28 @@
             </div>
             <div class="editor-container">
                 <pre id="highlight-layer" aria-hidden="true"></pre>
-                <textarea id="code" spellcheck="false">print("Hello, Shakar!")</textarea>
+                <textarea id="code" spellcheck="false">print("Hello, World!")</textarea>
+            </div>
+        </div>
+
+        <div class="repl-pane hidden">
+            <div class="pane-header">
+                <span>REPL</span>
+                <div class="controls">
+                    <button id="repl-reset-btn">Reset</button>
+                </div>
+            </div>
+            <div class="repl-body">
+                <div id="repl-transcript" class="repl-transcript" role="log" aria-live="polite">
+                    <div id="repl-live-line" class="repl-line repl-line-input repl-line-live">
+                        <span id="repl-prompt" class="repl-prompt">&gt;&gt;&gt; </span>
+                        <span class="repl-input-wrap">
+                            <span id="repl-input-hl" class="repl-input-hl" aria-hidden="true"></span>
+                            <textarea id="repl-input" class="repl-input" rows="1" spellcheck="false"></textarea>
+                        </span>
+                    </div>
+                    <div id="repl-suggestions" class="repl-suggestions hidden" role="listbox" aria-label="REPL commands"></div>
+                </div>
             </div>
         </div>
 
@@ -38,7 +74,6 @@
             <div class="pane-header">
                 <span>Output</span>
                 <div class="controls">
-                    <button id="py-trace-btn" class="toggle-btn" title="Show Python traceback on errors">Py Traceback</button>
                     <button id="clear-btn" title="Clear output">Clear</button>
                 </div>
             </div>
@@ -60,6 +95,11 @@
 
     <script>window.SHAKAR_VERSION = 'dev';</script>
     <script src="coi-serviceworker.min.js"></script>
-    <script src="main.js"></script>
+    <script>
+        const mainScript = document.createElement('script');
+        // Use a static version or build hash for production caching.
+        mainScript.src = `main.js?v=${window.SHAKAR_VERSION || 'dev'}`;
+        document.body.appendChild(mainScript);
+    </script>
 </body>
 </html>
