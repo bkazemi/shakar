@@ -131,8 +131,8 @@ function wasmHighlight(source) {
 
         // Read HlSpan array directly from WASM memory.
         // HlSpan is { int line, int col_start, int col_end, int group } = 4 ints = 16 bytes.
-        const ptr = wasmApi.hlSpansPtr();
-        const heap = new Int32Array(wasmHL.HEAP32.buffer, ptr, count * 4);
+        const spansPtr = wasmApi.hlSpansPtr();
+        const heap = new Int32Array(wasmHL.HEAP32.buffer, spansPtr, count * 4);
         const spans = new Array(count);
         for (let i = 0; i < count; i++) {
             const base = i * 4;

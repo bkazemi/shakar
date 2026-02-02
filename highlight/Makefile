@@ -8,7 +8,7 @@ EXPORTED = _shk_src_ptr,_shk_set_src_len,\
            _malloc,_free
 
 EMFLAGS  = -s EXPORTED_FUNCTIONS='[$(EXPORTED)]' \
-           -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","stringToUTF8","lengthBytesUTF8"]' \
+           -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","stringToUTF8","lengthBytesUTF8","HEAP32"]' \
            -s MODULARIZE=1 \
            -s EXPORT_NAME=ShakarHL \
            -s ALLOW_MEMORY_GROWTH=1 \
