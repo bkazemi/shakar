@@ -20,6 +20,7 @@ print(sum)`,
 
 let worker = null;
 let shakarLoaded = false;
+let wasmHighlightActive = false;
 let highlightTimeout = null;
 let tetrisCode = null;
 let exhaustiveCode = null;
@@ -1285,7 +1286,7 @@ function updateHighlights() {
         highlightEl.textContent = '';
         return;
     }
-    if (isLargeEditorDoc(code)) {
+    if (!wasmHighlightActive && isLargeEditorDoc(code)) {
         const lines = code.split('\n');
         if (highlightEl.children.length !== lines.length) {
             highlightEl.innerHTML = lines
@@ -1324,7 +1325,7 @@ function scheduleHighlight() {
     if (highlightTimeout) {
         clearTimeout(highlightTimeout);
     }
-    const delay = isLargeEditorDoc(codeEl.value)
+    const delay = (!wasmHighlightActive && isLargeEditorDoc(codeEl.value))
         ? EDITOR_HIGHLIGHT_DELAY_LARGE
         : EDITOR_HIGHLIGHT_DELAY_SMALL;
     highlightTimeout = setTimeout(updateHighlights, delay);
@@ -1446,6 +1447,7 @@ function initWorker() {
         switch (msg.type) {
             case 'ready':
                 shakarLoaded = true;
+                wasmHighlightActive = msg.wasmHighlight === true;
                 runBtn.disabled = false;
                 setStatus('Ready', 'ready');
                 if (splashEl) {
@@ -1777,14 +1779,16 @@ codeEl.addEventListener('input', () => {
 
     value = codeEl.value;
     pos = codeEl.selectionStart;
-    if (isLargeEditorDoc(value)) {
+    if (!wasmHighlightActive && isLargeEditorDoc(value)) {
         applyEditorLightUpdate(value, pos);
     }
     scheduleHighlight();
 });
 codeEl.addEventListener('scroll', () => {
     syncScroll();
-    refreshVisibleEditorHighlights();
+    if (!wasmHighlightActive) {
+        refreshVisibleEditorHighlights();
+    }
 });
 
 codeEl.addEventListener('keydown', (e) => {
@@ -1819,7 +1823,7 @@ codeEl.addEventListener('keydown', (e) => {
         }
         editorLastHighlightCode = '';
         editorHighlightRequestLines = null;
-        applyEditorLightUpdate(codeEl.value, newPos);
+        if (!wasmHighlightActive) applyEditorLightUpdate(codeEl.value, newPos);
         scheduleHighlight();
         return;
     }
@@ -1837,7 +1841,7 @@ codeEl.addEventListener('keydown', (e) => {
         }
         editorLastHighlightCode = '';
         editorHighlightRequestLines = null;
-        applyEditorLightUpdate(codeEl.value, codeEl.selectionStart);
+        if (!wasmHighlightActive) applyEditorLightUpdate(codeEl.value, codeEl.selectionStart);
         scheduleHighlight();
     }
 });

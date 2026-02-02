@@ -7,6 +7,10 @@ importScripts('https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js');
 let pyodide = null;
 let debugPyTrace = false;
 
+// WASM highlighter (loaded alongside Pyodide)
+let wasmHL = null;
+let wasmApi = null;
+
 // SharedArrayBuffer for key input: Int32Array[0]=write_idx, [1..32]=key ring buffer
 // Allocated by main thread, passed to us via 'init' message.
 let keyBuf = null;
@@ -80,17 +84,89 @@ function runPythonWithGlobals(globals, source) {
     }
 }
 
+// Group name table (must match HL_ enum in highlight.h)
+const HL_GROUP_NAMES = [
+    '',            // HL_NONE
+    'keyword', 'boolean', 'constant', 'number', 'unit',
+    'string', 'regex', 'path', 'comment', 'operator',
+    'punctuation', 'identifier', 'function', 'decorator',
+    'hook', 'property', 'type',
+];
+
+async function initWasmHL() {
+    try {
+        importScripts('shakar_hl_glue.js');
+        wasmHL = await ShakarHL({
+            locateFile: (path) => {
+                if (path.endsWith('.wasm')) return 'shakar_hl_glue.wasm';
+                return path;
+            }
+        });
+        wasmApi = {
+            srcPtr:      wasmHL.cwrap('shk_src_ptr', 'number', []),
+            setSrcLen:   wasmHL.cwrap('shk_set_src_len', null, ['number']),
+            highlight:   wasmHL.cwrap('shk_highlight', 'number', []),
+            hlSpansPtr:  wasmHL.cwrap('shk_hl_spans_ptr', 'number', []),
+            hlCount:     wasmHL.cwrap('shk_hl_count', 'number', []),
+        };
+    } catch (err) {
+        console.warn('WASM highlighter not available, falling back to Python:', err.message);
+        wasmApi = null;
+    }
+}
+
+function wasmHighlight(source) {
+    if (!wasmApi) return null;
+
+    try {
+        const MAX_SRC = 1024 * 1024;  // must match api.c MAX_SRC
+        const ptr = wasmApi.srcPtr();
+        const len = wasmHL.lengthBytesUTF8(source);
+        if (len >= MAX_SRC) return null;  // too large — fall back to Python
+        wasmHL.stringToUTF8(source, ptr, len + 1);
+        wasmApi.setSrcLen(len);
+
+        const count = wasmApi.highlight();
+        if (count < 0) return null;
+
+        // Read HlSpan array directly from WASM memory.
+        // HlSpan is { int line, int col_start, int col_end, int group } = 4 ints = 16 bytes.
+        const ptr = wasmApi.hlSpansPtr();
+        const heap = new Int32Array(wasmHL.HEAP32.buffer, ptr, count * 4);
+        const spans = new Array(count);
+        for (let i = 0; i < count; i++) {
+            const base = i * 4;
+            spans[i] = {
+                line:      heap[base],
+                col_start: heap[base + 1],
+                col_end:   heap[base + 2],
+                group:     HL_GROUP_NAMES[heap[base + 3]] || '',
+            };
+        }
+        return spans;
+    } catch (err) {
+        console.error('WASM highlight error:', err);
+        return null;
+    }
+}
+
 async function handleInit() {
     try {
-        pyodide = await loadPyodide({enableRunUntilComplete: false});
-        await pyodide.loadPackage('typing-extensions');
+        // Load WASM highlighter and Pyodide in parallel
+        const wasmPromise = initWasmHL();
+        const pyodidePromise = (async () => {
+            pyodide = await loadPyodide({enableRunUntilComplete: false});
+            await pyodide.loadPackage('typing-extensions');
 
-        const response = await fetch('shakar_bundle.py?v=' + Date.now());
-        if (!response.ok) throw new Error('Failed to load shakar_bundle.py');
-        const bundleCode = await response.text();
-        pyodide.runPython(bundleCode);
+            const response = await fetch('shakar_bundle.py?v=' + Date.now());
+            if (!response.ok) throw new Error('Failed to load shakar_bundle.py');
+            const bundleCode = await response.text();
+            pyodide.runPython(bundleCode);
+        })();
 
-        self.postMessage({type: 'ready'});
+        await Promise.all([wasmPromise, pyodidePromise]);
+
+        self.postMessage({type: 'ready', wasmHighlight: wasmApi !== null});
     } catch (err) {
         self.postMessage({type: 'output', text: 'Failed to load: ' + err.message, isError: true});
     }
@@ -271,6 +347,19 @@ _shk_repl_frame = Frame(source="", source_path="<web-repl>")
 }
 
 function handleHighlight(code, target, requestId) {
+    // Try WASM path first
+    const wasmResult = wasmHighlight(code);
+    if (wasmResult !== null) {
+        self.postMessage({
+            type: 'highlight_result',
+            highlights: wasmResult,
+            target: target,
+            requestId: requestId
+        });
+        return;
+    }
+
+    // Fall back to Python
     if (!pyodide) return;
 
     try {
@@ -356,6 +445,24 @@ json.dumps({"is_block_header": _is_block_header(_shk_line)})
 }
 
 function handleHighlightRange(code, startLine, requestId) {
+    // Try WASM path first (full highlight + filter)
+    const wasmResult = wasmHighlight(code);
+    if (wasmResult !== null) {
+        // Offset lines and filter to range
+        const highlights = wasmResult.map(s => ({
+            ...s,
+            line: s.line + startLine
+        }));
+        self.postMessage({
+            type: 'highlight_result',
+            highlights: highlights,
+            startLine: startLine,
+            requestId: requestId
+        });
+        return;
+    }
+
+    // Fall back to Python
     if (!pyodide) return;
 
     try {
