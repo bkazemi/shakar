@@ -178,8 +178,26 @@ static void send_semantic_tokens(FILE *out, const ProtocolMessage *msg, LspToken
     strbuf_free(&buf);
 }
 
-static void send_diagnostics(FILE *out, const char *uri, int uri_len, Diagnostic *diag,
-                             int has_diag) {
+static void emit_diag_json(StrBuf *buf, Diagnostic *d, const char *source, int severity) {
+    strbuf_append(buf, "{\"range\":{\"start\":{\"line\":");
+    strbuf_appendf(buf, "%d", d->line);
+    strbuf_append(buf, ",\"character\":");
+    strbuf_appendf(buf, "%d", d->col_start);
+    strbuf_append(buf, "},\"end\":{\"line\":");
+    strbuf_appendf(buf, "%d", d->line);
+    strbuf_append(buf, ",\"character\":");
+    strbuf_appendf(buf, "%d", d->col_end);
+    strbuf_append(buf, "}},\"severity\":");
+    strbuf_appendf(buf, "%d", severity);
+    strbuf_append(buf, ",\"source\":");
+    strbuf_append_json_string(buf, source, (int)strlen(source));
+    strbuf_append(buf, ",\"message\":");
+    strbuf_append_json_string(buf, d->message, (int)strlen(d->message));
+    strbuf_append(buf, "}");
+}
+
+static void send_diagnostics(FILE *out, const char *uri, int uri_len, Diagnostic *diags,
+                             int count) {
     StrBuf buf;
     strbuf_init(&buf);
 
@@ -189,18 +207,10 @@ static void send_diagnostics(FILE *out, const char *uri, int uri_len, Diagnostic
     strbuf_append_json_string(&buf, uri, uri_len);
     strbuf_append(&buf, ",\"diagnostics\":[");
 
-    if (has_diag) {
-        strbuf_append(&buf, "{\"range\":{\"start\":{\"line\":");
-        strbuf_appendf(&buf, "%d", diag->line);
-        strbuf_append(&buf, ",\"character\":");
-        strbuf_appendf(&buf, "%d", diag->col_start);
-        strbuf_append(&buf, "},\"end\":{\"line\":");
-        strbuf_appendf(&buf, "%d", diag->line);
-        strbuf_append(&buf, ",\"character\":");
-        strbuf_appendf(&buf, "%d", diag->col_end);
-        strbuf_append(&buf, "}},\"severity\":1,\"source\":\"shakar-lexer\",\"message\":");
-        strbuf_append_json_string(&buf, diag->message, (int)strlen(diag->message));
-        strbuf_append(&buf, "}");
+    for (int i = 0; i < count; i++) {
+        if (i > 0)
+            strbuf_append(&buf, ",");
+        emit_diag_json(&buf, &diags[i], "shakar", diags[i].severity);
     }
 
     strbuf_append(&buf, "]}}");
@@ -249,9 +259,14 @@ int main(void) {
                 read_version(&msg, doc_tok, &version);
                 session_open(&session, uri, uri_len, text, text_len, version);
 
-                Diagnostic diag;
-                int        has_diag = session_lex_diagnostics(&session, uri, uri_len, &diag);
-                send_diagnostics(stdout, uri, uri_len, &diag, has_diag);
+                Diagnostic all_diags[33];
+                int        count = 0;
+                Diagnostic lex_diag;
+                if (session_lex_diagnostics(&session, uri, uri_len, &lex_diag))
+                    all_diags[count++] = lex_diag;
+                count += session_structural_diagnostics(&session, uri, uri_len, all_diags + count,
+                                                        32 - count);
+                send_diagnostics(stdout, uri, uri_len, all_diags, count);
             }
 
             free(uri);
@@ -269,9 +284,14 @@ int main(void) {
                 read_version(&msg, doc_tok, &version);
                 session_change(&session, uri, uri_len, text, text_len, version);
 
-                Diagnostic diag;
-                int        has_diag = session_lex_diagnostics(&session, uri, uri_len, &diag);
-                send_diagnostics(stdout, uri, uri_len, &diag, has_diag);
+                Diagnostic all_diags[33];
+                int        count = 0;
+                Diagnostic lex_diag;
+                if (session_lex_diagnostics(&session, uri, uri_len, &lex_diag))
+                    all_diags[count++] = lex_diag;
+                count += session_structural_diagnostics(&session, uri, uri_len, all_diags + count,
+                                                        32 - count);
+                send_diagnostics(stdout, uri, uri_len, all_diags, count);
             }
 
             free(uri);
@@ -282,7 +302,7 @@ int main(void) {
             int   uri_len = 0;
             if (read_text_document(&msg, &doc_tok) && read_uri(&msg, doc_tok, &uri, &uri_len)) {
                 session_close(&session, uri, uri_len);
-                send_diagnostics(stdout, uri, uri_len, 0, 0);
+                send_diagnostics(stdout, uri, uri_len, NULL, 0);
             }
             free(uri);
         } else if (protocol_method_is(&msg, "textDocument/semanticTokens/full")) {

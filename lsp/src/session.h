@@ -33,6 +33,7 @@ typedef struct {
     int  line;
     int  col_start;
     int  col_end;
+    int  severity; /* 1=error, 2=warning, 3=info, 4=hint */
     char message[256];
 } Diagnostic;
 
@@ -56,5 +57,10 @@ void lsp_tokens_free(LspTokenBuf *b);
 int session_build_semantic_tokens(Session *s, const char *uri, int uri_len, const LspRange *range,
                                   LspTokenBuf *out);
 int session_lex_diagnostics(Session *s, const char *uri, int uri_len, Diagnostic *out);
+
+/* Structural diagnostics (bracket matching, missing colons).
+ * Returns number of diagnostics written to out (up to max_out). */
+int session_structural_diagnostics(Session *s, const char *uri, int uri_len, Diagnostic *out,
+                                   int max_out);
 
 #endif /* SHK_LSP_SESSION_H */

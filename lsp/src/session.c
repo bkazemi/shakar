@@ -316,6 +316,47 @@ int session_build_semantic_tokens(Session *s, const char *uri, int uri_len, cons
     return 1;
 }
 
+int session_structural_diagnostics(Session *s, const char *uri, int uri_len, Diagnostic *out,
+                                   int max_out) {
+    Document *doc = session_get(s, uri, uri_len);
+    if (!doc || !doc->text)
+        return 0;
+
+    Lexer   lex;
+    HlBuf   hl;
+    DiagBuf diags;
+
+    /* Lex with indent tracking so structural pass can detect missing colons
+     * (it looks for INDENT tokens after block headers without colons). */
+    lexer_init(&lex, doc->text, doc->text_len, 1, 1);
+    int r = lexer_tokenize(&lex);
+    if (r < 0) {
+        lexer_free(&lex);
+        return 0;
+    }
+
+    hlbuf_init(&hl);
+    diagbuf_init(&diags);
+
+    /* Run structural pass for diagnostics only (skip full highlight). */
+    structural_highlight(doc->text, doc->text_len, &lex.tokens, &hl, &diags);
+
+    int count = diags.count < max_out ? diags.count : max_out;
+    for (int i = 0; i < count; i++) {
+        HlDiag *d = &diags.diags[i];
+        out[i].line = d->line;
+        out[i].col_start = d->col_start;
+        out[i].col_end = d->col_end;
+        out[i].severity = d->severity;
+        snprintf(out[i].message, sizeof(out[i].message), "%s", d->message);
+    }
+
+    diagbuf_free(&diags);
+    hlbuf_free(&hl);
+    lexer_free(&lex);
+    return count;
+}
+
 int session_lex_diagnostics(Session *s, const char *uri, int uri_len, Diagnostic *out) {
     Document *doc = session_get(s, uri, uri_len);
     if (!doc || !doc->text)
@@ -335,6 +376,7 @@ int session_lex_diagnostics(Session *s, const char *uri, int uri_len, Diagnostic
     out->line = line;
     out->col_start = col;
     out->col_end = col + 1;
+    out->severity = 1; /* error */
     snprintf(out->message, sizeof(out->message), "%s", lex.error_msg);
 
     lexer_free(&lex);

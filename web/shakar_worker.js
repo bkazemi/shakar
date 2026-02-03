@@ -113,6 +113,13 @@ async function initWasmHL() {
             errorLine:   wasmHL.cwrap('shk_error_line', 'number', []),
             errorCol:    wasmHL.cwrap('shk_error_col', 'number', []),
             errorPos:    wasmHL.cwrap('shk_error_pos', 'number', []),
+            diagnostics: wasmHL.cwrap('shk_diagnostics', 'number', []),
+            diagCount:   wasmHL.cwrap('shk_diag_count', 'number', []),
+            diagLine:    wasmHL.cwrap('shk_diag_line', 'number', ['number']),
+            diagColStart:wasmHL.cwrap('shk_diag_col_start', 'number', ['number']),
+            diagColEnd:  wasmHL.cwrap('shk_diag_col_end', 'number', ['number']),
+            diagSeverity:wasmHL.cwrap('shk_diag_severity', 'number', ['number']),
+            diagMessage: wasmHL.cwrap('shk_diag_message', 'string', ['number']),
         };
     } catch (err) {
         console.warn('WASM highlighter not available, highlights disabled:', err.message);
@@ -199,6 +206,18 @@ function wasmHighlight(source) {
                 group:     HL_GROUP_NAMES[heap[base + 3]] || '',
             };
         }
+
+        // Run structural diagnostics and append error spans.
+        const diagCount = wasmApi.diagnostics();
+        for (let i = 0; i < diagCount; i++) {
+            spans.push({
+                line:      wasmApi.diagLine(i),
+                col_start: wasmApi.diagColStart(i),
+                col_end:   wasmApi.diagColEnd(i),
+                group:     wasmApi.diagSeverity(i) === 1 ? 'error' : 'warning',
+            });
+        }
+
         return spans;
     } catch (err) {
         console.error('WASM highlight error:', err);

@@ -171,6 +171,78 @@ EXPORT const char *shk_hl_group_name(int i) {
 }
 
 /* ======================================================================== */
+/* Diagnostic API                                                            */
+/* ======================================================================== */
+
+static DiagBuf g_diagbuf;
+static int     g_diag_ready = 0;
+
+/* Run structural diagnostics on the current source.
+ * Requires a separate lex pass with indent tracking for colon detection.
+ * Returns diagnostic count. */
+EXPORT int shk_diagnostics(void) {
+    diagbuf_free(&g_diagbuf);
+    diagbuf_init(&g_diagbuf);
+    g_diag_ready = 0;
+
+    /* Lex with indent tracking + comments for structural analysis. */
+    Lexer lex;
+    lexer_init(&lex, g_src, g_src_len, 1, 1);
+    int r = lexer_tokenize(&lex);
+    if (r < 0) {
+        /* Lex error — report via the existing shk_error API; no structural
+         * diagnostics possible on a failed lex. */
+        lexer_free(&lex);
+        g_diag_ready = 1;
+        return 0;
+    }
+
+    /* Run structural pass for diagnostics only (skip full highlight). */
+    HlBuf hl;
+    hlbuf_init(&hl);
+    structural_highlight(g_src, g_src_len, &lex.tokens, &hl, &g_diagbuf);
+
+    hlbuf_free(&hl);
+    lexer_free(&lex);
+    g_diag_ready = 1;
+    return g_diagbuf.count;
+}
+
+EXPORT int shk_diag_count(void) {
+    return g_diag_ready ? g_diagbuf.count : 0;
+}
+
+EXPORT int shk_diag_line(int i) {
+    if (!g_diag_ready || i < 0 || i >= g_diagbuf.count)
+        return -1;
+    return g_diagbuf.diags[i].line;
+}
+
+EXPORT int shk_diag_col_start(int i) {
+    if (!g_diag_ready || i < 0 || i >= g_diagbuf.count)
+        return -1;
+    return g_diagbuf.diags[i].col_start;
+}
+
+EXPORT int shk_diag_col_end(int i) {
+    if (!g_diag_ready || i < 0 || i >= g_diagbuf.count)
+        return -1;
+    return g_diagbuf.diags[i].col_end;
+}
+
+EXPORT int shk_diag_severity(int i) {
+    if (!g_diag_ready || i < 0 || i >= g_diagbuf.count)
+        return -1;
+    return g_diagbuf.diags[i].severity;
+}
+
+EXPORT const char *shk_diag_message(int i) {
+    if (!g_diag_ready || i < 0 || i >= g_diagbuf.count)
+        return "";
+    return g_diagbuf.diags[i].message;
+}
+
+/* ======================================================================== */
 /* Native test main: reads stdin, tokenizes, prints tokens for validation.   */
 /* Output: one line per token: type line col start len                       */
 /* ======================================================================== */

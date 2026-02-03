@@ -43,9 +43,36 @@ typedef struct {
 void hlbuf_init(HlBuf *b);
 void hlbuf_free(HlBuf *b);
 
+/* ---- Diagnostics ---- */
+
+typedef struct {
+    int  line;      /* 0-based */
+    int  col_start; /* 0-based */
+    int  col_end;   /* 0-based, exclusive */
+    int  severity;  /* 1=error, 2=warning, 3=info */
+    char message[128];
+} HlDiag;
+
+typedef struct {
+    HlDiag *diags;
+    int     count;
+    int     capacity;
+} DiagBuf;
+
+void diagbuf_init(DiagBuf *b);
+void diagbuf_free(DiagBuf *b);
+
+/* ---- Highlighting ---- */
+
 /* Perform lexical + structural highlighting on the token stream.
  * Source is needed for multiline span computation. */
 void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out);
+
+/* Structural highlight pass: implicit-subject chain detection, fanpath
+ * overrides, bracket-matching and block-header-colon diagnostics.
+ * Modifies hl in-place (structural groups override lexical groups).
+ * If diags is non-NULL, collects diagnostics. */
+void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *hl, DiagBuf *diags);
 
 /* Group ID to string name. */
 const char *hl_group_name(HlGroup g);

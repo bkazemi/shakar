@@ -6,6 +6,7 @@ EXPORTED = _shk_src_ptr,_shk_set_src_len,\
            _shk_lex,_shk_tok_count,_shk_tok_type,_shk_tok_line,_shk_tok_col,_shk_tok_start,_shk_tok_len,\
            _shk_error,_shk_error_line,_shk_error_col,_shk_error_pos,\
            _shk_highlight,_shk_hl_spans_ptr,_shk_hl_count,_shk_hl_line,_shk_hl_col_start,_shk_hl_col_end,_shk_hl_group,_shk_hl_group_name,\
+           _shk_diagnostics,_shk_diag_count,_shk_diag_line,_shk_diag_col_start,_shk_diag_col_end,_shk_diag_severity,_shk_diag_message,\
            _malloc,_free
 
 EMFLAGS  = -s EXPORTED_FUNCTIONS='[$(EXPORTED)]' \

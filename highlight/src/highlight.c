@@ -7,6 +7,7 @@
 
 #include "highlight.h"
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -444,6 +445,270 @@ static void emit_token_spans(const char *src, Tok *tok, HlGroup group, HlBuf *ou
 }
 
 /* ======================================================================== */
+/* DiagBuf                                                                   */
+/* ======================================================================== */
+
+void diagbuf_init(DiagBuf *b) {
+    b->diags = 0;
+    b->count = 0;
+    b->capacity = 0;
+}
+
+void diagbuf_free(DiagBuf *b) {
+    free(b->diags);
+    b->diags = 0;
+    b->count = 0;
+    b->capacity = 0;
+}
+
+static void diagbuf_push(DiagBuf *b, int line, int cs, int ce, int sev, const char *msg) {
+    if (!b)
+        return;
+    if (b->count >= b->capacity) {
+        int cap = b->capacity ? b->capacity * 2 : 16;
+        b->diags = realloc(b->diags, (size_t)cap * sizeof(HlDiag));
+        b->capacity = cap;
+    }
+    HlDiag *d = &b->diags[b->count++];
+    d->line = line;
+    d->col_start = cs;
+    d->col_end = ce;
+    d->severity = sev;
+    snprintf(d->message, sizeof(d->message), "%s", msg);
+}
+
+/* ======================================================================== */
+/* Structural highlight pass                                                 */
+/* ======================================================================== */
+
+/* Compare spans by document position for sorted lookup. */
+static int span_pos_cmp(const void *a, const void *b) {
+    const HlSpan *sa = (const HlSpan *)a;
+    const HlSpan *sb = (const HlSpan *)b;
+    if (sa->line != sb->line)
+        return (sa->line < sb->line) ? -1 : 1;
+    if (sa->col_start != sb->col_start)
+        return (sa->col_start < sb->col_start) ? -1 : 1;
+    return 0;
+}
+
+/* Override the group of a span matching (line, col_start).
+ * Uses cursor to avoid rescanning from the start. */
+static void override_span(HlBuf *hl, int line, int col_start, HlGroup group, int *cursor) {
+    for (int i = *cursor; i < hl->count; i++) {
+        HlSpan *s = &hl->spans[i];
+        if (s->line > line || (s->line == line && s->col_start > col_start))
+            break;
+        if (s->line == line && s->col_start == col_start) {
+            s->group = group;
+            *cursor = i;
+            return;
+        }
+    }
+}
+
+/* Is this a block-header keyword that expects a colon? */
+static int is_block_header(TT t) {
+    switch (t) {
+    case TT_IF:
+    case TT_ELIF:
+    case TT_ELSE:
+    case TT_WHILE:
+    case TT_FOR:
+    case TT_MATCH:
+    case TT_FN:
+    case TT_UNLESS:
+    case TT_CATCH:
+    case TT_DECORATOR:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *hl, DiagBuf *diags) {
+    (void)src;
+    (void)src_len;
+
+    int  tc = tokens->count;
+    Tok *toks = tokens->toks;
+
+    /* Sort spans for cursor-based override lookup. */
+    if (hl->count > 1)
+        qsort(hl->spans, (size_t)hl->count, sizeof(HlSpan), span_pos_cmp);
+
+    /* State */
+    int at_stmt_start = 1;
+    int in_chain = 0; /* inside a .IDENT chain from stmt-start dot */
+    int bracket_depth = 0;
+    int cursor = 0; /* span search cursor */
+
+    /* Bracket matching stack */
+    typedef struct {
+        TT  type;
+        int line;
+        int col;
+    } BracketEntry;
+
+    BracketEntry bstack[256];
+    int          bcount = 0;
+
+    /* Block header colon tracking */
+    int need_colon = 0;
+    int nc_line = -1;
+    int nc_col = -1;
+
+    TT prev_sig = TT_EOF;
+
+    for (int i = 0; i < tc; i++) {
+        Tok *tok = &toks[i];
+        TT   t = tok->type;
+        int  line = tok->line - 1;
+        int  col = tok->col - 1;
+
+        /* ---- Layout tokens: update statement boundary ---- */
+        if (t == TT_NEWLINE || t == TT_INDENT || t == TT_DEDENT) {
+            if (bracket_depth == 0) {
+                /* Missing colon check: block keyword seen, then NEWLINE→INDENT
+                 * without an intervening colon. */
+                if (need_colon && t == TT_NEWLINE && diags) {
+                    int j = i + 1;
+                    /* Skip consecutive NEWLINEs */
+                    while (j < tc && toks[j].type == TT_NEWLINE)
+                        j++;
+                    if (j < tc && toks[j].type == TT_INDENT)
+                        diagbuf_push(diags, nc_line, nc_col, nc_col + 1, 2,
+                                     "missing colon after block header");
+                    need_colon = 0;
+                }
+                at_stmt_start = 1;
+                in_chain = 0;
+            }
+            continue;
+        }
+        if (t == TT_COMMENT || t == TT_EOF)
+            continue;
+
+        /* ---- Semicolon: statement boundary ---- */
+        if (t == TT_SEMI) {
+            at_stmt_start = 1;
+            in_chain = 0;
+            need_colon = 0;
+            prev_sig = t;
+            continue;
+        }
+
+        /* ---- Colon at depth 0: clears block-header expectation ---- */
+        if (t == TT_COLON && bracket_depth == 0) {
+            need_colon = 0;
+            at_stmt_start = 0;
+            in_chain = 0;
+            prev_sig = t;
+            continue;
+        }
+
+        /* ---- Bracket tracking + diagnostics ---- */
+        if (t == TT_LPAR || t == TT_LSQB || t == TT_LBRACE) {
+            bracket_depth++;
+            if (bcount < 256) {
+                bstack[bcount].type = t;
+                bstack[bcount].line = line;
+                bstack[bcount].col = col;
+                bcount++;
+            }
+            at_stmt_start = 0;
+            in_chain = 0;
+            prev_sig = t;
+            continue;
+        }
+        if (t == TT_RPAR || t == TT_RSQB || t == TT_RBRACE) {
+            TT expected = (t == TT_RPAR) ? TT_LPAR : (t == TT_RSQB) ? TT_LSQB : TT_LBRACE;
+            if (bcount > 0 && bstack[bcount - 1].type == expected) {
+                bcount--;
+                if (bracket_depth > 0)
+                    bracket_depth--;
+            } else {
+                if (diags)
+                    diagbuf_push(diags, line, col, col + 1, 1,
+                                 bcount > 0 ? "mismatched closing bracket"
+                                            : "unexpected closing bracket");
+                if (bracket_depth > 0)
+                    bracket_depth--;
+            }
+            at_stmt_start = 0;
+            in_chain = 0;
+            prev_sig = t;
+            continue;
+        }
+
+        /* ---- Implicit-subject chain detection (depth 0 only) ---- */
+        if (bracket_depth == 0) {
+            /* Starting dot at statement start → begin chain */
+            if (at_stmt_start && t == TT_DOT) {
+                in_chain = 1;
+                /* Lexical pass likely already set this to HL_IMPLICIT_SUBJECT,
+                 * but ensure it via override. */
+                override_span(hl, line, col, HL_IMPLICIT_SUBJECT, &cursor);
+                at_stmt_start = 0;
+                prev_sig = t;
+                continue;
+            }
+
+            /* Ident after dot in chain */
+            if (in_chain && prev_sig == TT_DOT && t == TT_IDENT) {
+                /* Peek at the next significant token */
+                TT next_type = TT_EOF;
+                for (int j = i + 1; j < tc; j++) {
+                    TT nt = toks[j].type;
+                    if (nt != TT_COMMENT && !is_layout(nt)) {
+                        next_type = nt;
+                        break;
+                    }
+                }
+
+                if (next_type == TT_LPAR) {
+                    /* Method call — keep lexical classification (function).
+                     * Chain ends after this ident. */
+                    in_chain = 0;
+                } else {
+                    /* Subject ident (fanpath target or implicit-subject access) */
+                    override_span(hl, line, col, HL_IMPLICIT_SUBJECT, &cursor);
+                }
+                at_stmt_start = 0;
+                prev_sig = t;
+                continue;
+            }
+
+            /* Continuation dot in chain */
+            if (in_chain && t == TT_DOT) {
+                override_span(hl, line, col, HL_IMPLICIT_SUBJECT, &cursor);
+                prev_sig = t;
+                continue;
+            }
+        }
+
+        /* ---- Block header keyword detection ---- */
+        if (bracket_depth == 0 && is_block_header(t)) {
+            need_colon = 1;
+            nc_line = line;
+            nc_col = col;
+        }
+
+        /* Any other token breaks the chain */
+        in_chain = 0;
+        at_stmt_start = 0;
+        prev_sig = t;
+    }
+
+    /* Unclosed bracket diagnostics */
+    if (diags) {
+        for (int i = 0; i < bcount; i++)
+            diagbuf_push(diags, bstack[i].line, bstack[i].col, bstack[i].col + 1, 1,
+                         "unclosed bracket");
+    }
+}
+
+/* ======================================================================== */
 /* Main highlight function                                                   */
 /* ======================================================================== */
 
@@ -532,4 +797,7 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
     }
 
     free(sig_idx);
+
+    /* Structural pass: fanpath chain overrides, diagnostics. */
+    structural_highlight(src, src_len, tokens, out, 0);
 }
