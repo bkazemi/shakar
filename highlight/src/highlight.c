@@ -48,9 +48,9 @@ static void hlbuf_push(HlBuf *b, int line, int cs, int ce, HlGroup g) {
 
 static const char *GROUP_NAMES[] = {
     "", /* HL_NONE */
-    "keyword",  "boolean",   "constant", "number",   "unit",        "string",
-    "regex",    "path",      "comment",  "operator", "punctuation", "identifier",
-    "function", "decorator", "hook",     "property", "type",
+    "keyword", "boolean",  "constant",         "number",      "unit",       "string",   "regex",
+    "path",    "comment",  "operator",         "punctuation", "identifier", "function", "decorator",
+    "hook",    "property", "implicit_subject", "type",
 };
 
 const char *hl_group_name(HlGroup g) {
@@ -201,7 +201,107 @@ static HlGroup base_group(TT t) {
 /* ======================================================================== */
 
 static int is_layout(TT t) {
-    return t == TT_NEWLINE || t == TT_INDENT || t == TT_DEDENT || t == TT_EOF;
+    return t == TT_NEWLINE || t == TT_INDENT || t == TT_DEDENT || t == TT_EOF || t == TT_SEMI;
+}
+
+static int is_line_blank_or_comment(const char *src, int start, int end) {
+    int i = start;
+    while (i < end) {
+        char ch = src[i];
+        if (ch == ' ' || ch == '\t') {
+            i++;
+            continue;
+        }
+        if (ch == '#' || ch == '\r' || ch == '\n')
+            return 1;
+        return 0;
+    }
+    return 1;
+}
+
+static int line_start_for_pos(const char *src, int pos) {
+    int i = pos;
+    while (i > 0) {
+        char ch = src[i - 1];
+        if (ch == '\n' || ch == '\r')
+            break;
+        i--;
+    }
+    return i;
+}
+
+static int line_indent_width(const char *src, int line_start, int src_len) {
+    int i = line_start;
+    int indent = 0;
+    while (i < src_len) {
+        char ch = src[i];
+        if (ch == ' ')
+            indent += 1;
+        else if (ch == '\t')
+            indent += 8;
+        else
+            break;
+        i++;
+    }
+    return indent;
+}
+
+static int line_is_ws_before_pos(const char *src, int line_start, int pos) {
+    for (int i = line_start; i < pos; i++) {
+        char ch = src[i];
+        if (ch != ' ' && ch != '\t')
+            return 0;
+    }
+    return 1;
+}
+
+static int prev_nonblank_indent(const char *src, int src_len, int line_start) {
+    int i = line_start;
+    while (i > 0) {
+        int j = i - 1;
+        if (src[j] == '\n') {
+            if (j > 0 && src[j - 1] == '\r')
+                j--;
+        } else if (src[j] == '\r') {
+            j--;
+        }
+        int line_end = j + 1;
+        int k = j;
+        while (k > 0 && src[k - 1] != '\n' && src[k - 1] != '\r')
+            k--;
+        if (!is_line_blank_or_comment(src, k, line_end))
+            return line_indent_width(src, k, src_len);
+        i = k;
+    }
+    return -1;
+}
+
+static int is_expr_end(TT t) {
+    switch (t) {
+    case TT_IDENT:
+    case TT_NUMBER:
+    case TT_DURATION:
+    case TT_SIZE:
+    case TT_STRING:
+    case TT_RAW_STRING:
+    case TT_RAW_HASH_STRING:
+    case TT_SHELL_STRING:
+    case TT_SHELL_BANG_STRING:
+    case TT_ENV_STRING:
+    case TT_REGEX:
+    case TT_PATH_STRING:
+    case TT_TRUE:
+    case TT_FALSE:
+    case TT_NIL:
+    case TT_RPAR:
+    case TT_RSQB:
+    case TT_RBRACE:
+    case TT_INCR:
+    case TT_DECR:
+        return 1;
+    default:
+        return 0;
+    }
 }
 
 /* Classify identifier based on prev/next significant token. */
@@ -212,7 +312,7 @@ static HlGroup classify_ident(const char *src, Tok *tok, Tok *next_sig, TT prev_
         return HL_DECORATOR;
     if (prev_sig == TT_HOOK)
         return HL_HOOK;
-    if (prev_sig == TT_GET || prev_sig == TT_SET)
+    if (prev_sig == TT_GET || prev_sig == TT_SET || prev_sig == TT_DOT)
         return HL_PROPERTY;
     if (prev_sig == TT_TILDE)
         return HL_TYPE;
@@ -367,23 +467,46 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
     }
 
     for (int i = 0; i < tc; i++) {
-        if (!is_layout(toks[i].type) && toks[i].type != TT_COMMENT)
-            sig_idx[sig_count++] = i;
+        TT t = toks[i].type;
+        if (t == TT_COMMENT || is_layout(t))
+            continue;
+        sig_idx[sig_count] = i;
+        sig_count++;
     }
 
     for (int si = 0; si < sig_count; si++) {
-        Tok *tok = &toks[sig_idx[si]];
-        Tok *next_sig_tok = (si + 1 < sig_count) ? &toks[sig_idx[si + 1]] : 0;
-        TT   next_sig_type = next_sig_tok ? next_sig_tok->type : TT_EOF;
-
+        Tok    *tok = &toks[sig_idx[si]];
+        Tok    *next_sig_tok = (si + 1 < sig_count) ? &toks[sig_idx[si + 1]] : 0;
+        TT      next_sig_type = next_sig_tok ? next_sig_tok->type : TT_EOF;
         HlGroup group = base_group(tok->type);
         if (group == HL_NONE) {
             prev_sig = tok->type;
             continue;
         }
 
+        int subject_override = 0;
+        if (tok->type == TT_DOT) {
+            int line_start = line_start_for_pos(src, tok->start);
+            int at_line_start = line_is_ws_before_pos(src, line_start, tok->start);
+            if (!at_line_start) {
+                if (!is_expr_end(prev_sig))
+                    subject_override = 1;
+            } else {
+                if (!is_expr_end(prev_sig)) {
+                    subject_override = 1;
+                } else {
+                    int prev_indent = prev_nonblank_indent(src, src_len, line_start);
+                    int cur_indent = line_indent_width(src, line_start, src_len);
+                    if (prev_indent < 0 || cur_indent <= prev_indent)
+                        subject_override = 1;
+                }
+            }
+        }
+
         /* Structural classification */
-        if (tok->type == TT_IDENT) {
+        if (subject_override) {
+            group = HL_IMPLICIT_SUBJECT;
+        } else if (tok->type == TT_IDENT) {
             group = classify_ident(src, tok, next_sig_tok, prev_sig);
         } else if (tok->type == TT_STRING || tok->type == TT_RAW_STRING ||
                    tok->type == TT_RAW_HASH_STRING || tok->type == TT_SHELL_STRING ||

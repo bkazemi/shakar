@@ -22,6 +22,7 @@ typedef enum {
     HL_DECORATOR,
     HL_HOOK,
     HL_PROPERTY,
+    HL_IMPLICIT_SUBJECT,
     HL_TYPE,
     HL__COUNT
 } HlGroup;

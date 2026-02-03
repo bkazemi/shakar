@@ -334,6 +334,7 @@ button:disabled {
 .hl-unit { color: #ffcb6b; }
 .hl-type { color: #ffcb6b; }
 .hl-subject { color: #82aaff; font-weight: bold; }
+.hl-implicit_subject { color: #f78c6c; font-weight: bold; font-size: 1.1em; }
 .hl-selector { color: #89ddff; }
 .hl-hook { color: #c792ea; }
 /* Line wrappers */

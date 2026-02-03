@@ -1435,7 +1435,8 @@ function initWorker() {
         splashEl.classList.remove('splash-hidden');
     }
 
-    worker = new Worker('shakar_worker.js');
+    const cacheV = window.SHAKAR_VERSION && window.SHAKAR_VERSION !== 'dev' ? window.SHAKAR_VERSION : Date.now();
+    worker = new Worker('shakar_worker.js?v=' + cacheV);
 
     worker.onmessage = (e) => {
         const msg = e.data;
@@ -1560,7 +1561,8 @@ function initWorker() {
     worker.postMessage({
         type: 'init',
         keyBuffer: keyBuffer,
-        debugPyTrace: DEBUG_PY_TRACE
+        debugPyTrace: DEBUG_PY_TRACE,
+        version: cacheV
     });
 }
 

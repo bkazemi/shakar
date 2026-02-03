@@ -10,6 +10,7 @@ let debugPyTrace = false;
 // WASM highlighter (loaded alongside Pyodide)
 let wasmHL = null;
 let wasmApi = null;
+let cacheV = Date.now();
 
 // SharedArrayBuffer for key input: Int32Array[0]=write_idx, [1..32]=key ring buffer
 // Allocated by main thread, passed to us via 'init' message.
@@ -40,6 +41,7 @@ self.onmessage = async (e) => {
             self.shk_key_buf = keyBuf;
             debugPyTrace = msg.debugPyTrace === true;
             self.shk_debug_py_trace = debugPyTrace;
+            cacheV = msg.version || Date.now();
             await handleInit();
             break;
         case 'run':
@@ -90,15 +92,15 @@ const HL_GROUP_NAMES = [
     'keyword', 'boolean', 'constant', 'number', 'unit',
     'string', 'regex', 'path', 'comment', 'operator',
     'punctuation', 'identifier', 'function', 'decorator',
-    'hook', 'property', 'type',
+    'hook', 'property', 'implicit_subject', 'type',
 ];
 
 async function initWasmHL() {
     try {
-        importScripts('shakar_hl_glue.js');
+        importScripts('shakar_hl_glue.js?v=' + cacheV);
         wasmHL = await ShakarHL({
             locateFile: (path) => {
-                if (path.endsWith('.wasm')) return 'shakar_hl_glue.wasm';
+                if (path.endsWith('.wasm')) return 'shakar_hl_glue.wasm?v=' + cacheV;
                 return path;
             }
         });
@@ -108,9 +110,12 @@ async function initWasmHL() {
             highlight:   wasmHL.cwrap('shk_highlight', 'number', []),
             hlSpansPtr:  wasmHL.cwrap('shk_hl_spans_ptr', 'number', []),
             hlCount:     wasmHL.cwrap('shk_hl_count', 'number', []),
+            errorLine:   wasmHL.cwrap('shk_error_line', 'number', []),
+            errorCol:    wasmHL.cwrap('shk_error_col', 'number', []),
+            errorPos:    wasmHL.cwrap('shk_error_pos', 'number', []),
         };
     } catch (err) {
-        console.warn('WASM highlighter not available, falling back to Python:', err.message);
+        console.warn('WASM highlighter not available, highlights disabled:', err.message);
         wasmApi = null;
     }
 }
@@ -122,12 +127,63 @@ function wasmHighlight(source) {
         const MAX_SRC = 1024 * 1024;  // must match api.c MAX_SRC
         const ptr = wasmApi.srcPtr();
         const len = wasmHL.lengthBytesUTF8(source);
-        if (len >= MAX_SRC) return null;  // too large — fall back to Python
+        if (len >= MAX_SRC) return null;  // too large — skip highlighting
         wasmHL.stringToUTF8(source, ptr, len + 1);
         wasmApi.setSrcLen(len);
 
         const count = wasmApi.highlight();
-        if (count < 0) return null;
+        if (count < 0) {
+            // Lex error: synthesize a single error span from WASM error coordinates.
+            const line = wasmApi.errorLine ? wasmApi.errorLine() : 0;
+            const col = wasmApi.errorCol ? wasmApi.errorCol() : 0;
+            const pos = wasmApi.errorPos ? wasmApi.errorPos() : -1;
+            let lineIdxResolved = -1;
+            let colStartResolved = -1;
+
+            if (line > 0 && col > 0) {
+                lineIdxResolved = line - 1;
+                colStartResolved = col - 1;
+            } else if (pos >= 0) {
+                // Fall back to byte offset when line/col are unavailable.
+                const before = source.slice(0, pos);
+                lineIdxResolved = (before.match(/\n/g) || []).length;
+                const lastNl = before.lastIndexOf('\n');
+                colStartResolved = pos - (lastNl + 1);
+            }
+
+            if (lineIdxResolved < 0 || colStartResolved < 0) {
+                // Final fallback: mark the first line if we can't resolve coordinates.
+                lineIdxResolved = 0;
+                colStartResolved = 0;
+            }
+
+            // Clamp to actual line length (or 1 for empty lines) to place a 1-char error span.
+            let lineStart = 0;
+            let idx = 0;
+            let remaining = lineIdxResolved;
+            while (idx < source.length && remaining > 0) {
+                const nl = source.indexOf('\n', idx);
+                if (nl < 0) break;
+                lineStart = nl + 1;
+                idx = lineStart;
+                remaining--;
+            }
+            let lineEnd = source.indexOf('\n', lineStart);
+            if (lineEnd < 0) lineEnd = source.length;
+            let lineLen = lineEnd - lineStart;
+            if (lineLen > 0 && source[lineEnd - 1] === '\r') {
+                lineLen -= 1;
+            }
+            // Highlight the full line so errors are visible even on empty/short lines.
+            const safeLen = Math.max(1, lineLen);
+            const clampedStart = Math.min(Math.max(0, colStartResolved), safeLen - 1);
+            return [{
+                line: lineIdxResolved,
+                col_start: clampedStart,
+                col_end: Math.min(clampedStart + 1, safeLen),
+                group: 'error',
+            }];
+        }
 
         // Read HlSpan array directly from WASM memory.
         // HlSpan is { int line, int col_start, int col_end, int group } = 4 ints = 16 bytes.
@@ -158,7 +214,7 @@ async function handleInit() {
             pyodide = await loadPyodide({enableRunUntilComplete: false});
             await pyodide.loadPackage('typing-extensions');
 
-            const response = await fetch('shakar_bundle.py?v=' + Date.now());
+            const response = await fetch('shakar_bundle.py?v=' + cacheV);
             if (!response.ok) throw new Error('Failed to load shakar_bundle.py');
             const bundleCode = await response.text();
             pyodide.runPython(bundleCode);
@@ -359,30 +415,13 @@ function handleHighlight(code, target, requestId) {
         return;
     }
 
-    // Fall back to Python
-    if (!pyodide) return;
-
-    try {
-        const resultJson = runPythonWithGlobals({_shk_src: code}, `
-import json
-json.dumps(shk_highlight(_shk_src))
-`);
-        const result = JSON.parse(resultJson);
-        self.postMessage({
-            type: 'highlight_result',
-            highlights: result.highlights || [],
-            target: target,
-            requestId: requestId
-        });
-    } catch (err) {
-        self.postMessage({
-            type: 'highlight_result',
-            highlights: [],
-            target: target,
-            requestId: requestId
-        });
-        console.error('Highlight error:', err);
-    }
+    // WASM unavailable or source too large — return empty
+    self.postMessage({
+        type: 'highlight_result',
+        highlights: [],
+        target: target,
+        requestId: requestId
+    });
 }
 
 function handleLexProbe(line, requestId) {
@@ -462,42 +501,11 @@ function handleHighlightRange(code, startLine, requestId) {
         return;
     }
 
-    // Fall back to Python
-    if (!pyodide) return;
-
-    try {
-        const resultJson = runPythonWithGlobals(
-            {_shk_src: code, _shk_start_line: startLine},
-            `
-import json
-from shakar_ref import lexer_rd
-from highlight_server import _tokens_to_highlights, _scan_comments
-
-def _range_highlight(src: str, line_offset: int) -> dict:
-    tokens = lexer_rd.tokenize(src, track_indentation=False)
-    highlights = _tokens_to_highlights(tokens)
-    highlights.extend(_scan_comments(src))
-    for hl in highlights:
-        hl["line"] = hl.get("line", 0) + line_offset
-    return {"highlights": highlights}
-
-json.dumps(_range_highlight(_shk_src, _shk_start_line))
-`
-        );
-        const result = JSON.parse(resultJson);
-        self.postMessage({
-            type: 'highlight_result',
-            highlights: result.highlights || [],
-            startLine: startLine,
-            requestId: requestId
-        });
-    } catch (err) {
-        self.postMessage({
-            type: 'highlight_result',
-            highlights: [],
-            startLine: startLine,
-            requestId: requestId
-        });
-        console.error('Highlight range error:', err);
-    }
+    // WASM highlight unavailable — return empty
+    self.postMessage({
+        type: 'highlight_result',
+        highlights: [],
+        startLine: startLine,
+        requestId: requestId
+    });
 }

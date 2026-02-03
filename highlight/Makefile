@@ -3,7 +3,8 @@ CFLAGS   = -O2 -Wall -Wextra -Wno-unused-parameter
 SOURCES  = src/lexer.c src/highlight.c src/api.c
 
 EXPORTED = _shk_src_ptr,_shk_set_src_len,\
-           _shk_lex,_shk_tok_count,_shk_tok_type,_shk_tok_line,_shk_tok_col,_shk_tok_start,_shk_tok_len,_shk_error,\
+           _shk_lex,_shk_tok_count,_shk_tok_type,_shk_tok_line,_shk_tok_col,_shk_tok_start,_shk_tok_len,\
+           _shk_error,_shk_error_line,_shk_error_col,_shk_error_pos,\
            _shk_highlight,_shk_hl_spans_ptr,_shk_hl_count,_shk_hl_line,_shk_hl_col_start,_shk_hl_col_end,_shk_hl_group,_shk_hl_group_name,\
            _malloc,_free
 

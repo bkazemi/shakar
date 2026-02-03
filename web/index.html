@@ -98,7 +98,8 @@
     <script>
         const mainScript = document.createElement('script');
         // Use a static version or build hash for production caching.
-        mainScript.src = `main.js?v=${window.SHAKAR_VERSION || 'dev'}`;
+        const _v = window.SHAKAR_VERSION && window.SHAKAR_VERSION !== 'dev' ? window.SHAKAR_VERSION : Date.now();
+        mainScript.src = `main.js?v=${_v}`;
         document.body.appendChild(mainScript);
     </script>
 </body>

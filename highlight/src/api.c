@@ -91,6 +91,25 @@ EXPORT const char *shk_error(void) {
     return "";
 }
 
+/* Error location (1-based line/col, byte offset). */
+EXPORT int shk_error_line(void) {
+    if (g_lexer.has_error)
+        return g_lexer.error_line;
+    return 0;
+}
+
+EXPORT int shk_error_col(void) {
+    if (g_lexer.has_error)
+        return g_lexer.error_col;
+    return 0;
+}
+
+EXPORT int shk_error_pos(void) {
+    if (g_lexer.has_error)
+        return g_lexer.error_pos;
+    return 0;
+}
+
 /* ======================================================================== */
 /* Highlight API                                                             */
 /* ======================================================================== */

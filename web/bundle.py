@@ -17,7 +17,6 @@ import io
 
 def create_bundle():
     src_dir = Path(__file__).parent.parent / "src"
-    nvim_dir = Path(__file__).parent.parent / "nvim-plugin"
 
     # Files to exclude (tests, dev utilities)
     exclude_patterns = {"test_", "updater"}
@@ -35,22 +34,6 @@ def create_bundle():
             info = zipfile.ZipInfo(arcname, date_time=(2000, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             zf.writestr(info, py_file.read_text(encoding="utf-8"))
-
-        # Add highlight_server.py as a top-level module (patched for bundle)
-        hl_server = nvim_dir / "highlight_server.py"
-        if hl_server.exists():
-            hl_content = hl_server.read_text(encoding="utf-8")
-            # Remove the path manipulation that's not needed in bundle
-            hl_content = hl_content.replace(
-                "REPO_ROOT = Path(__file__).resolve().parent.parent\n"
-                'sys.path.insert(0, str(REPO_ROOT / "src"))\n',
-                "# Path setup removed for bundle\n",
-            )
-            hl_info = zipfile.ZipInfo(
-                "highlight_server.py", date_time=(2000, 1, 1, 0, 0, 0)
-            )
-            hl_info.compress_type = zipfile.ZIP_DEFLATED
-            zf.writestr(hl_info, hl_content)
 
     # Base64 encode
     zip_data = base64.b64encode(zip_buffer.getvalue()).decode("ascii")
@@ -134,9 +117,7 @@ _install_bundle()
 # Export the run function for easy access
 from shakar_ref.runner import run as shk_run
 from shakar_ref.runner import run_with_env, eval_in_env
-
-# Export the highlight function
-from highlight_server import handle_parse as shk_highlight'''
+'''
 
     return bundle
 

@@ -28,6 +28,9 @@ typedef struct {
     /* Error state */
     int  has_error;
     char error_msg[256];
+    int  error_line;
+    int  error_col;
+    int  error_pos;
 } Lexer;
 
 void lexer_init(Lexer *L, const char *src, int len, int track_indent, int emit_comments);

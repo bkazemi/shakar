@@ -53,8 +53,23 @@ static void adv_lit(Lexer *L) {
 }
 
 static void lexer_error(Lexer *L, const char *msg) {
-    L->has_error = 1;
-    snprintf(L->error_msg, sizeof(L->error_msg), "%s", msg);
+    if (!L->has_error) {
+        L->has_error = 1;
+        L->error_line = L->line;
+        L->error_col = L->col;
+        L->error_pos = L->pos;
+        snprintf(L->error_msg, sizeof(L->error_msg), "%s", msg);
+    }
+}
+
+static void lexer_error_at(Lexer *L, int line, int col, int pos, const char *msg) {
+    if (!L->has_error) {
+        L->has_error = 1;
+        L->error_line = line;
+        L->error_col = col;
+        L->error_pos = pos;
+        snprintf(L->error_msg, sizeof(L->error_msg), "%s", msg);
+    }
 }
 
 /* Ensure capacity in token buffer. */
@@ -341,7 +356,8 @@ static int scan_prefixed_int(Lexer *L, int sline, int scol, int spos) {
         return 0;
     char pfx = pk(L, 1);
     if (pfx == 'B' || pfx == 'O' || pfx == 'X') {
-        lexer_error(L, "Uppercase base prefixes are not allowed");
+        /* Point at the invalid prefix character, not the leading zero. */
+        lexer_error_at(L, sline, scol + 1, spos + 1, "Uppercase base prefixes are not allowed");
         return -1;
     }
     int base;
@@ -505,7 +521,8 @@ static void scan_string(Lexer *L) {
     if (scan_quoted(L, quote, 1, 1) < 0)
         return;
     if (L->pos >= L->src_len) {
-        lexer_error(L, "Unterminated string");
+        /* Anchor unterminated string errors at the opening quote. */
+        lexer_error_at(L, sline, scol, spos, "Unterminated string");
         return;
     }
     adv(L, 1); /* closing quote */
@@ -529,7 +546,7 @@ static void scan_raw_string(Lexer *L) {
             }
             adv_lit(L);
         }
-        lexer_error(L, "Unterminated hash raw string");
+        lexer_error_at(L, sline, scol, spos, "Unterminated hash raw string");
         return;
     }
 
@@ -538,7 +555,7 @@ static void scan_raw_string(Lexer *L) {
     if (scan_quoted(L, quote, 0, 1) < 0)
         return;
     if (L->pos >= L->src_len) {
-        lexer_error(L, "Unterminated raw string");
+        lexer_error_at(L, sline, scol, spos, "Unterminated raw string");
         return;
     }
     adv(L, 1);
@@ -552,7 +569,7 @@ static void scan_shell_string(Lexer *L, int prefix_len, int allow_esc) {
     if (scan_quoted(L, quote, allow_esc, 1) < 0)
         return;
     if (L->pos >= L->src_len) {
-        lexer_error(L, "Unterminated shell string");
+        lexer_error_at(L, sline, scol, spos, "Unterminated shell string");
         return;
     }
     adv(L, 1);
@@ -566,7 +583,7 @@ static void scan_shell_bang_string(Lexer *L, int prefix_len, int allow_esc) {
     if (scan_quoted(L, quote, allow_esc, 1) < 0)
         return;
     if (L->pos >= L->src_len) {
-        lexer_error(L, "Unterminated shell string");
+        lexer_error_at(L, sline, scol, spos, "Unterminated shell string");
         return;
     }
     adv(L, 1);
@@ -581,7 +598,7 @@ static void scan_path_string(Lexer *L) {
     if (scan_quoted(L, quote, 1, 0) < 0)
         return;
     if (L->pos >= L->src_len) {
-        lexer_error(L, "Unterminated path string");
+        lexer_error_at(L, sline, scol, spos, "Unterminated path string");
         return;
     }
     adv(L, 1);
@@ -596,7 +613,7 @@ static void scan_env_string(Lexer *L) {
     if (scan_quoted(L, quote, 1, 0) < 0)
         return;
     if (L->pos >= L->src_len) {
-        lexer_error(L, "Unterminated env string");
+        lexer_error_at(L, sline, scol, spos, "Unterminated env string");
         return;
     }
     adv(L, 1);
@@ -612,7 +629,7 @@ static void scan_regex_literal(Lexer *L) {
     if (scan_quoted(L, quote, 1, 1) < 0)
         return;
     if (L->pos >= L->src_len) {
-        lexer_error(L, "Unterminated regex literal");
+        lexer_error_at(L, sline, scol, spos, "Unterminated regex literal");
         return;
     }
     adv(L, 1); /* closing quote */
@@ -895,6 +912,9 @@ void lexer_init(Lexer *L, const char *src, int len, int track_indent, int emit_c
     L->indent_after_colon = 0;
     L->prev_line_indent = -1;
     L->has_error = 0;
+    L->error_line = 0;
+    L->error_col = 0;
+    L->error_pos = 0;
     tokbuf_init(&L->tokens);
 }
 
