@@ -31,6 +31,7 @@ __all__ = [
     "is_token",
     "tree_label",
     "tree_children",
+    "tree_attr",
     "node_meta",
     "child_by_label",
     "child_by_labels",
@@ -38,21 +39,29 @@ __all__ = [
     "find_tree_by_label",
     "ident_value",
     "token_kind",
+    "is_inline_body",
+    "is_optional_field",
+    "is_grouped_rebind",
 ]
 
 
 class Tree:
     """Minimal Tree class used across the runtime."""
 
-    __slots__ = ("data", "children", "meta", "_meta")
+    __slots__ = ("data", "children", "meta", "_meta", "attrs")
 
     def __init__(
-        self, data: str, children: Sequence["Node"], meta: Optional[Any] = None
+        self,
+        data: str,
+        children: Sequence["Node"],
+        meta: Optional[Any] = None,
+        attrs: Optional[dict[str, Any]] = None,
     ):
         self.data = data
         self.children: List[Node] = list(children)
         self.meta = meta
         self._meta = None  # Optional metadata slot
+        self.attrs = attrs  # Semantic attributes (inline, optional, grouped, etc.)
 
     def __repr__(self) -> str:
         return f"Tree({self.data!r}, {self.children!r})"
@@ -109,8 +118,8 @@ class Transformer:
             if not isinstance(result, Discard):
                 new_children.append(result)
 
-        # Create new tree with transformed children
-        new_tree = Tree(tree.data, new_children, tree.meta)
+        # Create new tree with transformed children, preserving attrs
+        new_tree = Tree(tree.data, new_children, tree.meta, tree.attrs)
 
         # Try to find and call a method for this rule
         method_name = tree.data
@@ -212,3 +221,25 @@ def ident_value(node: Node) -> Optional[str]:
     if is_token(node) and node.type == TT.IDENT:
         return str(node.value)
     return None
+
+
+def tree_attr(node: Node, attr: str, default: Any = None) -> Any:
+    """Get an attribute from a Tree node, or default if not present."""
+    if is_tree(node) and node.attrs:
+        return node.attrs.get(attr, default)
+    return default
+
+
+def is_inline_body(node: Node) -> bool:
+    """Check if a body node is inline."""
+    return tree_attr(node, "inline", False)
+
+
+def is_optional_field(node: Node) -> bool:
+    """Check if a field access node is optional."""
+    return tree_attr(node, "optional", False)
+
+
+def is_grouped_rebind(node: Node) -> bool:
+    """Check if a rebind node is grouped."""
+    return tree_attr(node, "grouped", False)

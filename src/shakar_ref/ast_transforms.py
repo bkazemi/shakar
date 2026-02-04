@@ -63,22 +63,14 @@ def enforce_subject_scope(tree: Tree) -> None:
             return
         if label in {"hook"}:
             for ch in children:
-                if is_tree(ch) and tree_label(ch) in {"inlinebody", "indentblock"}:
+                if is_tree(ch) and tree_label(ch) in {"body"}:
                     visit(ch, depth + 1)
                 else:
                     visit(ch, depth)
             return
         if label in {"waitany_arm"}:
             for idx, ch in enumerate(children):
-                if (
-                    idx == 1
-                    and is_tree(ch)
-                    and tree_label(ch)
-                    in {
-                        "inlinebody",
-                        "indentblock",
-                    }
-                ):
+                if idx == 1 and is_tree(ch) and tree_label(ch) == "body":
                     visit(ch, depth + 1)
                 else:
                     visit(ch, depth)
@@ -88,11 +80,7 @@ def enforce_subject_scope(tree: Tree) -> None:
                 if (
                     idx == len(children) - 1
                     and is_tree(ch)
-                    and tree_label(ch)
-                    in {
-                        "inlinebody",
-                        "indentblock",
-                    }
+                    and tree_label(ch) == "body"
                 ):
                     visit(ch, depth + 1)
                 else:
@@ -615,7 +603,7 @@ class Prune(Transformer):
         if c:
             return c[0]
 
-        return Tree("indentblock", [])
+        return Tree("body", [], attrs={"inline": False})
 
     def obj_method(self, c):
         name = None
@@ -682,8 +670,7 @@ class Prune(Transformer):
         return Tree("onelineguard", c)
 
     # Subject assignment =a syntax
-    def rebind_primary(self, c):
-        return Tree("rebind_primary", c)
+    # NOTE: rebind_primary is handled by base Transformer to preserve attrs
 
     def subjectassign(self, c):
         return Tree("subjectassign", c)
@@ -776,7 +763,7 @@ class Prune(Transformer):
         binder: Optional[str] = None
 
         for node in c:
-            if is_tree(node) and tree_label(node) in {"inlinebody", "indentblock"}:
+            if is_tree(node) and tree_label(node) in {"body"}:
                 body = node
             elif is_tree(node) and tree_label(node) == "using_handle":
                 handle = _first_ident(node)
@@ -844,7 +831,7 @@ class Prune(Transformer):
                 name = node
             elif is_tree(node) and tree_label(node) == "paramlist":
                 params = node
-            elif is_tree(node) and tree_label(node) in {"inlinebody", "indentblock"}:
+            elif is_tree(node) and tree_label(node) in {"body"}:
                 body = node
 
         children: List[Node] = []
@@ -876,7 +863,7 @@ class Prune(Transformer):
                 elif label == "paramlist":
                     params = node
                     continue
-                elif label in {"inlinebody", "indentblock"}:
+                elif label in {"body"}:
                     body = node
                     continue
                 elif label == "return_contract":

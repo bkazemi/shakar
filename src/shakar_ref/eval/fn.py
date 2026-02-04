@@ -16,7 +16,15 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-from ..tree import is_tree, tree_children, tree_label, child_by_label, is_token
+from ..tree import (
+    Tree,
+    is_tree,
+    tree_children,
+    tree_label,
+    child_by_label,
+    is_token,
+    is_inline_body,
+)
 from .common import (
     expect_ident_token as _expect_ident_token,
     extract_function_signature,
@@ -66,7 +74,7 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
             label = tree_label(node)
             if params_node is None and label == "paramlist":
                 params_node = node
-            elif body_node is None and label in {"inlinebody", "indentblock"}:
+            elif body_node is None and label == "body":
                 body_node = node
             elif return_contract_node is None and label == "return_contract":
                 return_contract_node = node
@@ -74,7 +82,7 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
                 decorators_node = node
 
     if body_node is None:
-        body_node = Tree("inlinebody", [])
+        body_node = Tree("body", [], attrs={"inline": True})
 
     params, varargs, defaults, contracts, spread_contracts = extract_function_signature(
         params_node, context="function definition"
@@ -128,17 +136,17 @@ def _inject_contract_assertions(
     if body_label is None:
         raise ShakarRuntimeError("Malformed function body")
 
-    # For inline bodies, we need to convert to an indentblock to preserve semantics
-    # because inlinebody only evaluates the first child
-    if body_label == "inlinebody":
+    # For inline bodies, we need to convert to block to preserve semantics
+    # because inline body only evaluates the first child
+    if is_inline_body(body):
         body_children = tree_children(body)
         new_children = assertions + list(body_children)
-        return Tree("indentblock", new_children)
+        return Tree("body", new_children, attrs={"inline": False})
 
-    # For indentblock, just prepend assertions
+    # For block body, just prepend assertions
     body_children = tree_children(body)
     new_children = assertions + list(body_children)
-    return Tree(body_label, new_children)
+    return Tree("body", new_children, attrs={"inline": False})
 
 
 def _build_contract_assertions(
@@ -177,7 +185,7 @@ def _build_contract_assertions(
                 )
             ],
         )
-        loop_body = Tree("indentblock", [assertion])
+        loop_body = Tree("body", [assertion], attrs={"inline": False})
         loop = Tree(
             "forsubject",
             [
@@ -202,15 +210,11 @@ def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
     for node in children[1:]:
         if params_node is None and is_tree(node) and tree_label(node) == "paramlist":
             params_node = node
-        elif (
-            body_node is None
-            and is_tree(node)
-            and tree_label(node) in {"inlinebody", "indentblock"}
-        ):
+        elif body_node is None and is_tree(node) and tree_label(node) == "body":
             body_node = node
 
     if body_node is None:
-        body_node = Tree("inlinebody", [])
+        body_node = Tree("body", [], attrs={"inline": True})
 
     params, varargs, defaults, _contracts, _spread_contracts = (
         extract_function_signature(params_node, context="decorator definition")
@@ -235,13 +239,13 @@ def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
     for node in children:
         if is_tree(node) and tree_label(node) == "paramlist":
             params_node = node
-        elif is_tree(node) and tree_label(node) in {"inlinebody", "indentblock"}:
+        elif is_tree(node) and tree_label(node) == "body":
             body_node = node
         elif is_tree(node) and tree_label(node) == "return_contract":
             return_contract_node = node
 
     if body_node is None:
-        body_node = Tree("inlinebody", [])
+        body_node = Tree("body", [], attrs={"inline": True})
 
     params, varargs, defaults, contracts, spread_contracts = extract_function_signature(
         params_node, context="anonymous function"
@@ -288,7 +292,7 @@ def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
         )
         if contracts or spread_contracts:
             assertions = _build_contract_assertions(contracts, spread_contracts)
-            body = Tree("indentblock", assertions + [body])
+            body = Tree("body", assertions + [body], attrs={"inline": False})
         return ShkFn(
             params=params,
             body=body,

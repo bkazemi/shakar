@@ -404,33 +404,20 @@ def _extract_fieldfan_names(
     *,
     missing_msg: str,
     empty_msg: str,
-    non_ident_msg: str,
 ) -> List[str]:
-    fieldlist_node = child_by_label(fan_node, "fieldlist")
-    valuefan_list = child_by_label(fan_node, "valuefan_list")
+    """Extract field names from a normalized fieldfan node.
 
-    if fieldlist_node is None and valuefan_list is None:
+    After AST normalization, fieldfan always contains a fieldlist with IDENT tokens.
+    """
+    fieldlist_node = child_by_label(fan_node, "fieldlist")
+
+    if fieldlist_node is None:
         raise ShakarRuntimeError(missing_msg)
 
-    if fieldlist_node is not None:
-        names: List[str] = []
-        for tok in tree_children(fieldlist_node):
-            name = ident_value(tok)
-            if name:
-                names.append(name)
-    else:
-        names = []
-        for item in tree_children(valuefan_list):
-            if is_tree(item) and tree_label(item) == "valuefan_item":
-                for ch in tree_children(item):
-                    if name := ident_value(ch):
-                        names.append(name)
-                    else:
-                        raise ShakarRuntimeError(non_ident_msg)
-            elif name := ident_value(item):
-                names.append(name)
-            else:
-                raise ShakarRuntimeError(non_ident_msg)
+    names: List[str] = []
+    for tok in tree_children(fieldlist_node):
+        if name := ident_value(tok):
+            names.append(name)
 
     if not names:
         raise ShakarRuntimeError(empty_msg)
@@ -447,7 +434,6 @@ def build_fieldfan_context(owner: ShkValue, fan_node: Tree, frame: Frame) -> Fan
         fan_node,
         missing_msg="Malformed field fan",
         empty_msg="Field fan requires at least one identifier",
-        non_ident_msg="Field fan only supports identifier entries",
     )
 
     contexts: List[RebindContext] = []
@@ -586,7 +572,6 @@ def apply_assign(
                 final_op,
                 missing_msg="Malformed field fan-out list",
                 empty_msg="Empty field fan-out list",
-                non_ident_msg="Field fan only supports identifier entries",
             )
 
             results: List[ShkValue] = []
@@ -699,7 +684,6 @@ def _complete_chain_assignment(
                 final_op,
                 missing_msg="Malformed field fan-out list",
                 empty_msg="Empty field fan-out list",
-                non_ident_msg="Field fan only supports identifier entries",
             )
 
             vals = fanout_values(value, len(names))

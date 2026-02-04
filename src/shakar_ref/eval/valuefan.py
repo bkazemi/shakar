@@ -4,7 +4,8 @@ from typing import List, Optional
 from ..tree import Tree
 
 from ..runtime import Frame, ShkArray, ShkValue, ShakarRuntimeError
-from ..tree import Node, is_tree, tree_children, tree_label
+from ..token_types import TT
+from ..tree import Node, is_tree, is_token, tree_children, tree_label
 from .bind import RebindContext
 from .mutation import get_field_value
 
@@ -59,7 +60,7 @@ def _eval_item(
 def _iter_items(fan_node: Tree):
     for ch in tree_children(fan_node):
         label = tree_label(ch)
-        if is_tree(ch) and label in {"fieldfan", "valuefan_list"}:
+        if is_tree(ch) and label in {"fieldfan", "valuefan_list", "fieldlist"}:
             yield from _iter_items(ch)
         elif is_tree(ch) and label == "valuefan_item":
             for gc in tree_children(ch):
@@ -67,12 +68,14 @@ def _iter_items(fan_node: Tree):
                     yield gc
                 elif is_tree(gc) and tree_label(gc) == "field":
                     yield gc
-                elif not is_tree(gc):  # bare IDENT token
+                elif is_token(gc) and gc.type == TT.IDENT:
                     yield Tree("field", [gc])
         elif is_tree(ch) and label in {"valuefan_chain", "identchain"}:
             yield ch
         elif is_tree(ch) and label == "field":
             yield ch
+        elif is_token(ch) and ch.type == TT.IDENT:
+            yield Tree("field", [ch])
 
 
 def _wrap_chain(chain: Tree) -> Tree:

@@ -15,7 +15,7 @@ from ..runtime import (
     ShakarTypeError,
 )
 from ..tree import Node, is_token, is_tree, tree_label
-from .blocks import eval_indent_block, eval_inline_body, temporary_bindings
+from .blocks import eval_body_node, temporary_bindings
 from .chains import call_value
 from .common import expect_ident_token as _expect_ident_token
 from .control import _build_error_payload
@@ -59,7 +59,7 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             binder_tok = child.children[0] if child.children else None
             continue
 
-        if is_tree(child) and str(label) in {"indentblock", "inlinebody"}:
+        if is_tree(child) and label == "body":
             body_node = child  # type: ignore[assignment]
             continue
 
@@ -108,11 +108,7 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
     with ctx:
         try:
-            label = tree_label(body_node)
-            if label == "inlinebody":
-                result = eval_inline_body(body_node, frame, eval_func)
-            else:
-                result = eval_indent_block(body_node, frame, eval_func)
+            result = eval_body_node(body_node, frame, eval_func)
         except BaseException as e:  # noqa: BLE001
             exc = e
 

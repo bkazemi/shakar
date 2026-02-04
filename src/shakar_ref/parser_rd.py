@@ -1847,10 +1847,10 @@ class Parser:
                 stmt = self.parse_statement()
                 stmts.append(Tree("stmt", [stmt]))
             self.expect(TT.RBRACE)
-            # Wrap stmtlist in inlinebody
+            # Wrap stmtlist in body (inline)
             if stmts:
-                return Tree("inlinebody", [Tree("stmtlist", stmts)])
-            return Tree("inlinebody", [])
+                return Tree("body", [Tree("stmtlist", stmts)], attrs={"inline": True})
+            return Tree("body", [], attrs={"inline": True})
 
         if self.check(TT.INDENT):
             # Indented block
@@ -1882,14 +1882,14 @@ class Parser:
                     "DEDENT", dedent_tok.value if dedent_tok.value is not None else ""
                 )
             )
-            return Tree("indentblock", children)
+            return Tree("body", children, attrs={"inline": False})
 
         # Single statement inline
         old_inline = self.in_inline_body
         self.in_inline_body = True
         stmt = self.parse_statement()
         self.in_inline_body = old_inline
-        return Tree("inlinebody", [stmt])
+        return Tree("body", [stmt], attrs={"inline": True})
 
     # ========================================================================
     # Expressions - Precedence Climbing
@@ -2108,6 +2108,33 @@ class Parser:
                     dst.meta = src.meta
                 return dst
 
+            def _convert_valuefan_to_fieldlist(valuefan: Tree) -> Tree:
+                """Convert valuefan(valuefan_list(...)) to fieldlist(IDENT, ...)."""
+                idents: List[Tok] = []
+                for child in valuefan.children:
+                    if isinstance(child, Tree) and child.data == "valuefan_list":
+                        for item in child.children:
+                            if isinstance(item, Tree) and item.data == "valuefan_item":
+                                for inner in item.children:
+                                    if (
+                                        isinstance(inner, Tok)
+                                        and inner.type == TT.IDENT
+                                    ):
+                                        idents.append(inner)
+                                    else:
+                                        raise ParseError(
+                                            "Field fan in assignment only supports identifiers",
+                                            (
+                                                inner
+                                                if isinstance(inner, Tok)
+                                                else self.current
+                                            ),
+                                        )
+                            elif isinstance(item, Tok) and item.type == TT.IDENT:
+                                idents.append(item)
+                            # Skip commas
+                return Tree("fieldlist", idents)
+
             norm_ops: List[Tree | Tok] = []
             for op in ops:
                 if isinstance(op, Tree) and op.data == "index":
@@ -2122,8 +2149,10 @@ class Parser:
                     else:
                         norm_ops.append(op)
                 elif isinstance(op, Tree) and op.data == "valuefan":
-                    # valuefan is expression fan-out; for assignment treat as fieldfan
-                    norm_ops.append(_copy_meta(op, Tree("fieldfan", op.children)))
+                    # valuefan is expression fan-out; for assignment convert to fieldfan
+                    # with proper fieldlist structure
+                    fieldlist = _convert_valuefan_to_fieldlist(op)
+                    norm_ops.append(_copy_meta(op, Tree("fieldfan", [fieldlist])))
                 else:
                     norm_ops.append(op)
 
@@ -2818,11 +2847,11 @@ class Parser:
                 # =(lvalue) - grouped rebind
                 lvalue = self.parse_rebind_lvalue()
                 self.expect(TT.RPAR)
-                return Tree("rebind_primary_grouped", [lvalue])
+                return Tree("rebind_primary", [lvalue], attrs={"grouped": True})
             else:
                 # =ident - simple rebind
                 ident = self.expect(TT.IDENT)
-                return Tree("rebind_primary", [ident])
+                return Tree("rebind_primary", [ident], attrs={"grouped": False})
 
         # Null-safe chain: ??(expr)
         if self.match(TT.NULLISH):
@@ -3879,7 +3908,7 @@ class Parser:
                 else:
                     # Inline expression
                     expr = self.parse_expr()
-                    body = Tree("inlinebody", [expr])
+                    body = Tree("body", [expr], attrs={"inline": True})
                 return Tree("obj_method", [name, params, body])
 
             # Field: name: value or name?: value (optional)
@@ -3928,7 +3957,7 @@ class Parser:
             else:
                 # Inline expression
                 expr = self.parse_expr()
-                body = Tree("inlinebody", [expr])
+                body = Tree("body", [expr], attrs={"inline": True})
             return Tree("obj_get", [name, body])
 
         if self.match(TT.SET):
@@ -3941,7 +3970,7 @@ class Parser:
             else:
                 # Inline expression
                 expr = self.parse_expr()
-                body = Tree("inlinebody", [expr])
+                body = Tree("body", [expr], attrs={"inline": True})
             return Tree("obj_set", [name, param, body])
 
         raise ParseError("Expected object item", self.current)
@@ -3973,7 +4002,7 @@ class Parser:
             if self._looks_like_object_item_start():
                 break
 
-        return Tree("indentblock", stmts)
+        return Tree("body", stmts, attrs={"inline": False})
 
     def parse_pattern_list(self) -> Tree:
         """Parse destructuring pattern list: a, b, c"""
@@ -4201,7 +4230,7 @@ class Parser:
 
             if looks_like_object:
                 expr_body = self.parse_expr()
-                body = Tree("inlinebody", [Tree("stmt", [expr_body])])
+                body = Tree("body", [Tree("stmt", [expr_body])], attrs={"inline": True})
             else:
                 body = self.parse_body()
         else:

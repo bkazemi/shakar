@@ -106,7 +106,7 @@ def _extract_loop_iter_and_body(
             if label in {"binderpattern", "hoist", "pattern"}:
                 continue
 
-            if label in {"inlinebody", "indentblock"}:
+            if label == "body":
                 body_node = child
             elif iter_expr is None:
                 iter_expr = child

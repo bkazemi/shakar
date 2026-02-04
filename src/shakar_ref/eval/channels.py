@@ -190,12 +190,12 @@ def eval_spawn_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     spawn_site = callsite_from_node("spawn", n, frame)
 
     def thunk(spawn_frame: Frame) -> ShkValue:
-        if is_tree(expr) and tree_label(expr) in {"inlinebody", "indentblock"}:
+        if is_tree(expr) and tree_label(expr) == "body":
             return eval_body_node(expr, spawn_frame, eval_func)
         return eval_func(expr, spawn_frame)
 
     expr_node = _unwrap_expr_node(expr)
-    if is_tree(expr_node) and tree_label(expr_node) in {"inlinebody", "indentblock"}:
+    if is_tree(expr_node) and tree_label(expr_node) == "body":
         return _spawn_task(frame, thunk, spawn_site=spawn_site)
     if _explicit_call_in_node(expr):
         return _spawn_task(frame, thunk, spawn_site=spawn_site)

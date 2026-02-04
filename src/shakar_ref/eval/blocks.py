@@ -21,7 +21,15 @@ from ..runtime import (
     ShakarContinueSignal,
     ShakarRuntimeError,
 )
-from ..tree import Node, is_token, is_tree, tree_children, tree_label
+from ..tree import (
+    Node,
+    Tree,
+    is_token,
+    is_tree,
+    tree_children,
+    tree_label,
+    is_inline_body,
+)
 from .common import expect_ident_token as _expect_ident_token, token_kind as _token_kind
 from .helpers import is_truthy as _is_truthy
 from .chains import call_value, eval_args_node_with_named
@@ -150,33 +158,33 @@ def schedule_defer(
     defer_frame.append(entry)
 
 
-def eval_inline_body(
-    node: Node, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool = False
-) -> ShkValue:
-    if tree_label(node) == "inlinebody":
-        for child in tree_children(node):
-            if tree_label(child) == "stmtlist":
-                return eval_program(
-                    child.children,
-                    frame,
-                    eval_func,
-                    allow_loop_control=allow_loop_control,
-                )
-
-        if not tree_children(node):
-            return ShkNil()
-        push_let_scope(frame)
-        try:
-            return eval_func(node.children[0], frame)
-        finally:
-            pop_let_scope(frame)
-
-    return eval_func(node, frame)
-
-
-def eval_indent_block(
+def _eval_inline_body(
     node: Tree, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool = False
 ) -> ShkValue:
+    """Evaluate an inline body node (single statement or brace-enclosed block)."""
+    for child in tree_children(node):
+        if tree_label(child) == "stmtlist":
+            return eval_program(
+                child.children,
+                frame,
+                eval_func,
+                allow_loop_control=allow_loop_control,
+            )
+
+    if not tree_children(node):
+        return ShkNil()
+
+    push_let_scope(frame)
+    try:
+        return eval_func(node.children[0], frame)
+    finally:
+        pop_let_scope(frame)
+
+
+def _eval_indent_block(
+    node: Tree, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool = False
+) -> ShkValue:
+    """Evaluate an indented block body node."""
     return eval_program(
         node.children, frame, eval_func, allow_loop_control=allow_loop_control
     )
@@ -191,7 +199,7 @@ def eval_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkVa
         data = tree_label(child)
         if data == "guardbranch":
             branches.append(child)
-        elif data in {"inlinebody", "indentblock"}:
+        elif data == "body":
             else_body = child
 
     outer_dot = frame.dot
@@ -226,13 +234,12 @@ def eval_body_node(
 ) -> ShkValue:
     label = tree_label(body_node) if is_tree(body_node) else None
 
-    if label == "inlinebody":
-        return eval_inline_body(
-            body_node, frame, eval_func, allow_loop_control=allow_loop_control
-        )
-
-    if label == "indentblock":
-        return eval_indent_block(
+    if label == "body":
+        if is_inline_body(body_node):
+            return _eval_inline_body(
+                body_node, frame, eval_func, allow_loop_control=allow_loop_control
+            )
+        return _eval_indent_block(
             body_node, frame, eval_func, allow_loop_control=allow_loop_control
         )
 
@@ -331,7 +338,7 @@ def eval_call_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             bind_tok = child.children[0] if child.children else None
             continue
 
-        if is_tree(child) and tree_label(child) in {"inlinebody", "indentblock"}:
+        if is_tree(child) and tree_label(child) == "body":
             body_node = child
             continue
 
@@ -422,7 +429,7 @@ def eval_defer_stmt(
         payload = (
             body_wrapper.children[0]
             if is_tree(body_wrapper) and body_wrapper.children
-            else Tree("inlinebody", [])
+            else Tree("body", [], attrs={"inline": True})
         )
 
     saved_dot = frame.dot
@@ -434,7 +441,7 @@ def eval_defer_stmt(
 
         try:
             if body_kind == "block":
-                eval_inline_body(payload, child_frame, eval_func)
+                eval_body_node(payload, child_frame, eval_func)
             else:
                 eval_func(payload, child_frame)
         finally:

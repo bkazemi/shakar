@@ -945,8 +945,8 @@ def _check_hook_inline(ast) -> Optional[str]:
     if getattr(lam, "data", None) != "amp_lambda":
         return "hook handler missing amp_lambda"
     body = lam.children[0] if lam.children else None
-    if getattr(body, "data", None) != "inlinebody":
-        return "hook body not inlinebody"
+    if getattr(body, "data", None) != "body":
+        return "hook body not body"
     return None
 
 
@@ -959,11 +959,7 @@ def _check_decorator_def(ast) -> Optional[str]:
     if getattr(name, "value", None) != "logger":
         return "decorator name mismatch"
     body = next(
-        (
-            ch
-            for ch in deco.children
-            if getattr(ch, "data", None) in {"inlinebody", "indentblock"}
-        ),
+        (ch for ch in deco.children if getattr(ch, "data", None) == "body"),
         None,
     )
     if body is None:
@@ -2102,6 +2098,23 @@ runtime_scenario(
         "fieldfan-apply-assign",
         'state := {name: " Ada ", email: " ADA@EXAMPLE.COM "}; state.{name, email} .= .trim(); state.name + ":" + state.email',
         ("string", "Ada:ADA@EXAMPLE.COM"),
+        None,
+    )
+)
+# Rebind with fieldfan - ensures DOT token in fieldfan node is not yielded as field
+runtime_scenario(
+    _rt(
+        "rebind-fieldfan-assign",
+        "state := {a: 1, b: 2}; =(state).{a, b} = 10; state.a + state.b",
+        ("number", 20),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "rebind-fieldfan-apply",
+        "state := {a: 1, b: 2}; =(state).{a, b} .= . + 5; state.a + state.b",
+        ("number", 13),
         None,
     )
 )

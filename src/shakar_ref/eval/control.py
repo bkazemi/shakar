@@ -24,8 +24,6 @@ from ..runtime import (
 from ..tree import Node, Tree, is_token, is_tree, tree_children, tree_label
 from .blocks import (
     eval_body_node,
-    eval_inline_body,
-    eval_indent_block,
     temporary_bindings,
     temporary_subject,
 )
@@ -242,15 +240,7 @@ def _run_catch_handler(
         binder_name = expect_ident_token(binder, "Catch binder")
 
     def _exec_handler() -> ShkValue:
-        label = tree_label(handler)
-
-        if label == "inlinebody":
-            return eval_inline_body(handler, frame, eval_func)
-
-        if label == "indentblock":
-            return eval_indent_block(handler, frame, eval_func)
-
-        return eval_func(handler, frame)
+        return eval_body_node(handler, frame, eval_func)
 
     # track the currently handled exception so a bare `throw` can rethrow it later
     prev_error = getattr(frame, "_active_error", None)

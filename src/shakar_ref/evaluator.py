@@ -56,8 +56,7 @@ from .utils import debug_py_trace_enabled
 
 from .eval.blocks import (
     eval_program,
-    eval_inline_body,
-    eval_indent_block,
+    eval_body_node,
     eval_guard,
     eval_defer_stmt,
     eval_call_stmt,
@@ -651,12 +650,8 @@ def _eval_env_interp(n: Tree, frame: Frame) -> ShkValue:
 # ---- Block/body handlers ----
 
 
-def _eval_inlinebody(n: Tree, frame: Frame) -> ShkValue:
-    return eval_inline_body(n, frame, eval_node)
-
-
-def _eval_indentblock(n: Tree, frame: Frame) -> ShkValue:
-    return eval_indent_block(n, frame, eval_node)
+def _eval_body(n: Tree, frame: Frame) -> ShkValue:
+    return eval_body_node(n, frame, eval_node)
 
 
 def _eval_onelineguard(n: Tree, frame: Frame) -> ShkValue:
@@ -900,8 +895,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     # Blocks/bodies
     "group": _eval_group,
     "no_anchor": _eval_group,
-    "inlinebody": _eval_inlinebody,
-    "indentblock": _eval_indentblock,
+    "body": _eval_body,
     "onelineguard": _eval_onelineguard,
     "emitexpr": _eval_emitexpr,
     "import_expr": _eval_import_expr,
@@ -909,7 +903,6 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "fanoutblock": _eval_fanoutblock,
     "valuefan": _eval_valuefan,
     "rebind_primary": _eval_rebind_primary,
-    "rebind_primary_grouped": _eval_rebind_primary,
     # Functions
     "amp_lambda": eval_amp_lambda,
     "anonfn": _eval_anonfn,

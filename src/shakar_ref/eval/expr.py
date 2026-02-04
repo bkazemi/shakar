@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Callable, List, Optional, Set
 
-from ..tree import Tok
+from ..tree import Tok, is_grouped_rebind
 from ..token_types import TT
 
 from ..runtime import (
@@ -92,8 +92,8 @@ def eval_explicit_chain(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkVal
             raise ShakarRuntimeError("++/-- not supported on fan broadcasts")
         return eval_fan_chain(val, ops, frame, eval_func)
     head_label = tree_label(head) if is_tree(head) else None
-    head_is_rebind = head_label in {"rebind_primary", "rebind_primary_grouped"}
-    head_is_grouped_rebind = head_label == "rebind_primary_grouped"
+    head_is_rebind = head_label == "rebind_primary"
+    head_is_grouped_rebind = is_grouped_rebind(head) if is_tree(head) else False
     tail_has_effect = False
 
     for op in ops:
