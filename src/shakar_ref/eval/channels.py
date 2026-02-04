@@ -23,6 +23,7 @@ from ..runtime import (
     ShkFn,
     ShkValue,
     BoundMethod,
+    BoundCallable,
     BuiltinMethod,
     DecoratorContinuation,
     StdlibFunction,
@@ -96,6 +97,7 @@ def _is_callable_value(value: ShkValue) -> bool:
         (
             ShkFn,
             BoundMethod,
+            BoundCallable,
             BuiltinMethod,
             StdlibFunction,
             DecoratorContinuation,
@@ -367,7 +369,14 @@ def _maybe_call_value(
         return value
     if isinstance(
         value,
-        (ShkFn, BoundMethod, BuiltinMethod, StdlibFunction, DecoratorContinuation),
+        (
+            ShkFn,
+            BoundMethod,
+            BoundCallable,
+            BuiltinMethod,
+            StdlibFunction,
+            DecoratorContinuation,
+        ),
     ):
         return call_value(value, [], frame, eval_func)
     return value

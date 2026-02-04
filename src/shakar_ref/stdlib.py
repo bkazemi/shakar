@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from .runtime import (
     register_stdlib,
@@ -30,7 +30,13 @@ from .utils import envvar_value_by_name
 
 
 @register_stdlib("int")
-def std_int(_frame, args: List[ShkValue]) -> ShkNumber:
+def std_int(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkNumber:
+    args = _with_subject(subject, args)
     if len(args) != 1:
         raise ShakarTypeError("int() expects exactly one argument")
 
@@ -67,8 +73,20 @@ def _render(value):
     return str(value)
 
 
+def _with_subject(subject: Optional[ShkValue], args: List[ShkValue]) -> List[ShkValue]:
+    if subject is None:
+        return list(args)
+    return [subject, *args]
+
+
 @register_stdlib("print", named=True)
-def std_print(_frame, args: List[ShkValue], named=None) -> ShkNil:
+def std_print(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkNil:
+    args = _with_subject(subject, args)
     rendered = [_render(arg) for arg in args]
     sep = " "
 
@@ -87,7 +105,13 @@ def std_print(_frame, args: List[ShkValue], named=None) -> ShkNil:
 
 
 @register_stdlib("sleep")
-def std_sleep(_frame, args: List[ShkValue]):
+def std_sleep(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+):
+    args = _with_subject(subject, args)
     if len(args) != 1:
         raise ShakarTypeError("sleep expects exactly one argument")
     duration = args[0]
@@ -105,7 +129,13 @@ def std_sleep(_frame, args: List[ShkValue]):
 
 
 @register_stdlib("channel")
-def std_channel(_frame, args: List[ShkValue]) -> ShkChannel:
+def std_channel(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkChannel:
+    args = _with_subject(subject, args)
     if len(args) > 1:
         raise ShakarTypeError("channel() expects at most one argument")
     if not args:
@@ -120,7 +150,13 @@ def std_channel(_frame, args: List[ShkValue]) -> ShkChannel:
 
 
 @register_stdlib("error")
-def std_error(_frame, args: List[ShkValue]) -> ShkObject:
+def std_error(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkObject:
+    args = _with_subject(subject, args)
     if len(args) < 2 or len(args) > 3:
         raise ShakarTypeError("error(type, message[, data]) expects 2 or 3 arguments")
     type_arg, message_arg, *rest = args
@@ -139,7 +175,13 @@ def std_error(_frame, args: List[ShkValue]) -> ShkObject:
 
 
 @register_stdlib("all")
-def std_all(_frame, args: List[ShkValue]) -> ShkBool:
+def std_all(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkBool:
+    args = _with_subject(subject, args)
     if not args:
         raise ShakarRuntimeError("all() expects at least one argument")
 
@@ -152,7 +194,13 @@ def std_all(_frame, args: List[ShkValue]) -> ShkBool:
 
 
 @register_stdlib("any")
-def std_any(_frame, args: List[ShkValue]) -> ShkBool:
+def std_any(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkBool:
+    args = _with_subject(subject, args)
     if not args:
         raise ShakarRuntimeError("any() expects at least one argument")
 
@@ -165,7 +213,13 @@ def std_any(_frame, args: List[ShkValue]) -> ShkBool:
 
 
 @register_stdlib("mixin")
-def std_mixin(frame, args: List[ShkValue]) -> ShkNil:
+def std_mixin(
+    frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkNil:
+    args = _with_subject(subject, args)
     if len(args) != 1:
         raise ShakarTypeError("mixin() expects exactly one argument")
 
@@ -205,16 +259,28 @@ def _iter_coerce(value: ShkValue):
 
 
 @register_stdlib("Optional")
-def std_optional(_frame, args: List[ShkValue]) -> ShkOptional:
+def std_optional(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkOptional:
     """Wrap a schema value to mark it as optional in structural matching."""
+    args = _with_subject(subject, args)
     if len(args) != 1:
         raise ShakarTypeError("Optional() expects exactly one argument")
     return ShkOptional(args[0])
 
 
 @register_stdlib("Union")
-def std_union(_frame, args: List[ShkValue]) -> ShkUnion:
+def std_union(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkUnion:
     """Create a union type that matches any of the provided alternatives."""
+    args = _with_subject(subject, args)
     if len(args) == 0:
         raise ShakarTypeError("Union() requires at least one type alternative")
     return ShkUnion(tuple(args))
@@ -244,8 +310,14 @@ _IO_KEY_NAMES = {1: "left", 2: "right", 3: "down", 4: "up", 5: " ", 6: "q"}
 _io_key_read_idx: List[int] = [0]
 
 
-def _io_read_key(_frame, args: List[ShkValue]) -> ShkString:
+def _io_read_key(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkString:
     """Read a single key. Optional timeout in ms; blocks forever if omitted."""
+    args = _with_subject(subject, args)
     if len(args) > 1:
         raise ShakarTypeError("io.read_key([timeout_ms]) expects at most one argument")
 
@@ -352,8 +424,14 @@ def _io_browser_read_key(timeout_ms: Optional[float]) -> ShkString:
     return ShkString("")
 
 
-def _io_write(_frame, args: List[ShkValue]) -> ShkNil:
+def _io_write(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkNil:
     """Write text to output."""
+    args = _with_subject(subject, args)
     if len(args) != 1 or not isinstance(args[0], ShkString):
         raise ShakarTypeError("io.write(str) expects one string argument")
 
@@ -379,8 +457,14 @@ def _io_write(_frame, args: List[ShkValue]) -> ShkNil:
     return ShkNil()
 
 
-def _io_clear(_frame, args: List[ShkValue]) -> ShkNil:
+def _io_clear(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkNil:
     """Clear the screen/output."""
+    args = _with_subject(subject, args)
     if args:
         raise ShakarTypeError("io.clear() expects no arguments")
 
@@ -398,8 +482,14 @@ def _io_clear(_frame, args: List[ShkValue]) -> ShkNil:
     return ShkNil()
 
 
-def _io_overwrite(_frame, args: List[ShkValue]) -> ShkNil:
+def _io_overwrite(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkNil:
     """Atomic clear and write to prevent flickering."""
+    args = _with_subject(subject, args)
     if len(args) != 1 or not isinstance(args[0], ShkString):
         raise ShakarTypeError("io.overwrite(str) expects one string argument")
 
@@ -427,8 +517,14 @@ def _io_overwrite(_frame, args: List[ShkValue]) -> ShkNil:
     return ShkNil()
 
 
-def _io_is_interactive(_frame, args: List[ShkValue]) -> ShkBool:
+def _io_is_interactive(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkBool:
     """Check if interactive I/O is available."""
+    args = _with_subject(subject, args)
     if args:
         raise ShakarTypeError("io.is_interactive() expects no arguments")
 
@@ -440,8 +536,14 @@ def _io_is_interactive(_frame, args: List[ShkValue]) -> ShkBool:
         return ShkBool(sys.stdin.isatty() and sys.stdout.isatty())
 
 
-def _io_raw(_frame, args: List[ShkValue]) -> ShkBool:
+def _io_raw(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkBool:
     """Set raw mode (terminal only, no-op in browser)."""
+    args = _with_subject(subject, args)
     if len(args) != 1:
         raise ShakarTypeError("io.raw(on) expects one boolean argument")
     if not isinstance(args[0], ShkBool):

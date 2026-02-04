@@ -7,6 +7,7 @@ from ..tree import Tree
 
 from ..runtime import (
     BoundMethod,
+    BoundCallable,
     BuiltinMethod,
     DeferEntry,
     DotValue,
@@ -320,6 +321,7 @@ def _is_callable_emit_target(value: ShkValue) -> bool:
         (
             ShkFn,
             BoundMethod,
+            BoundCallable,
             BuiltinMethod,
             StdlibFunction,
             DecoratorContinuation,

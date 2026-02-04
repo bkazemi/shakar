@@ -66,6 +66,34 @@ This is a living technical spec. Every surface sugar has a deterministic desugar
 
 Within a grouping that has an anchor, any leading dot applies to that anchor. Each step’s result becomes the next receiver within the chain; the anchor stays until explicitly retargeted or popped.
 
+### UFCS (Universal Function Call Syntax)
+
+Method-call syntax can fall back to in-scope callables when the receiver lacks a method. This keeps the dot-flow intact while allowing free functions to read like methods.
+
+- **Call-only**: UFCS applies only to `recv.name(...)` (AST `method`). Plain field access `recv.name` never falls back.
+- **Receiver wins**: if the receiver has `name` (field, property, bound method, or builtin method), it is used even if it’s not callable.
+- **Scope fallback**: if the receiver lacks `name`, look up `name` in the current scope; if callable, invoke it with the receiver.
+  - **Stdlib functions** receive the receiver as their subject.
+  - **User functions** receive the receiver as the first positional argument.
+
+```shakar
+fn double(x): x * 2
+5.double()          # UFCS → double(5)
+
+"hi".print()        # UFCS → print("hi")
+
+fn clamp(x, lo, hi):
+  x < lo: return lo
+  x > hi: return hi
+  x
+
+volume := 120
+volume.clamp(0, 100)
+
+for paths:
+  .read().print()
+```
+
 ### Grouping & the anchor stack
 
 - **Comparison comma-chain legs are no-anchor.** The chain’s subject is the first explicit operand.

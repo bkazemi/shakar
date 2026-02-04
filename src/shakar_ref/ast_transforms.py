@@ -1445,7 +1445,13 @@ def _collect_lambda_free_names(node: Node) -> tuple[List[str], bool]:
             return
 
         if is_token(n) and n.type == TT.IDENT:
-            if parent_label in {"field", "paramlist", "key_ident", "key_string"}:
+            if parent_label in {
+                "field",
+                "method",
+                "paramlist",
+                "key_ident",
+                "key_string",
+            }:
                 return
             append(n.value)
 

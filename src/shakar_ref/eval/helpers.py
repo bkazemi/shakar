@@ -30,6 +30,7 @@ from ..runtime import (
     ShkUnion,
     ShkValue,
     BoundMethod,
+    BoundCallable,
     BuiltinMethod,
     StdlibFunction,
     ShakarTypeError,
@@ -75,6 +76,7 @@ def is_truthy(val: ShkValue) -> bool:
             | DecoratorContinuation()
             | Descriptor()
             | BoundMethod()
+            | BoundCallable()
             | BuiltinMethod()
             | StdlibFunction()
             | ShkType()

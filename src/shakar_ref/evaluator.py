@@ -781,7 +781,7 @@ def _eval_import_mixin(n: Tree, frame: Frame) -> ShkValue:
 
     module_name = _import_name_from_node(n.children[0], frame)
     module = import_module(module_name, frame)
-    return std_mixin(frame, [module])
+    return std_mixin(frame, None, [module])
 
 
 # ---- Fanout/rebind handlers ----

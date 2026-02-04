@@ -33,6 +33,7 @@ from .types import (
     DecoratorConfigured,
     DecoratorContinuation,
     BoundMethod,
+    BoundCallable,
     BuiltinMethod,
     Descriptor,
     StdlibFunction,
@@ -99,6 +100,7 @@ __all__ = [
     "DecoratorConfigured",
     "DecoratorContinuation",
     "BoundMethod",
+    "BoundCallable",
     "BuiltinMethod",
     "Descriptor",
     "StdlibFunction",
@@ -434,6 +436,41 @@ def _array_repeat(_frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArr
     count = _validate_repeat_count("array.repeat", args[0])
 
     return ShkArray(recv.items * count)
+
+
+@register_array("map")
+def _array_map(frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArray:
+    if len(args) != 1:
+        raise ShakarArityError(f"array.map expects 1 argument; got {len(args)}")
+
+    callback = args[0]
+    from .eval.chains import call_value
+    from .evaluator import eval_node
+
+    results = []
+    for item in recv.items:
+        results.append(call_value(callback, [item], frame, eval_func=eval_node))
+
+    return ShkArray(results)
+
+
+@register_array("filter")
+def _array_filter(frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArray:
+    if len(args) != 1:
+        raise ShakarArityError(f"array.filter expects 1 argument; got {len(args)}")
+
+    predicate = args[0]
+    from .eval.chains import call_value
+    from .evaluator import eval_node
+    from .eval.helpers import is_truthy
+
+    results = []
+    for item in recv.items:
+        res = call_value(predicate, [item], frame, eval_func=eval_node)
+        if is_truthy(res):
+            results.append(item)
+
+    return ShkArray(results)
 
 
 @register_string("join")

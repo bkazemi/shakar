@@ -1182,7 +1182,7 @@ class Parser:
 
     def _expr_has_call(self, expr: Tree | Tok) -> bool:
         if isinstance(expr, Tree):
-            if expr.data == "call":
+            if expr.data in {"call", "method"}:
                 return True
             return any(self._expr_has_call(ch) for ch in expr.children)
         return False
@@ -2534,13 +2534,22 @@ class Parser:
             noanchor = self._take_noanchor_once(seen_noanchor)
             if self._check_field_name():
                 tok = self.advance()
-                imphead = self._maybe_noanchor(
-                    Tree(
-                        "field",
-                        [self._tok(tok.type.name, tok.value, tok.line, tok.column)],
-                    ),
-                    noanchor,
-                )
+                field_tok = self._tok(tok.type.name, tok.value, tok.line, tok.column)
+                # Check for immediate call -> method node
+                if self.check(TT.LPAR):
+                    lpar_tok = self.advance()
+                    args = self.parse_arg_list()
+                    self.expect(TT.RPAR)
+                    if args:
+                        args_node = Tree("arglistnamedmixed", args)
+                    else:
+                        args_node = None
+                    children = [field_tok]
+                    if args_node:
+                        children.append(args_node)
+                    imphead = self._maybe_noanchor(Tree("method", children), noanchor)
+                else:
+                    imphead = self._maybe_noanchor(Tree("field", [field_tok]), noanchor)
             elif self.check(TT.LPAR):
                 lpar_tok = self.advance()
                 if noanchor:
@@ -2586,22 +2595,33 @@ class Parser:
                     noanchor = self._take_noanchor_once(seen_noanchor)
                     if self._check_field_name():
                         field = self.advance()
-                        postfix_ops.append(
-                            self._maybe_noanchor(
-                                Tree(
-                                    "field",
-                                    [
-                                        self._tok(
-                                            field.type.name,
-                                            field.value,
-                                            field.line,
-                                            field.column,
-                                        )
-                                    ],
-                                ),
-                                noanchor,
-                            )
+                        field_tok = self._tok(
+                            field.type.name,
+                            field.value,
+                            field.line,
+                            field.column,
                         )
+                        # Check for immediate call -> method node
+                        if self.check(TT.LPAR):
+                            lpar_tok = self.advance()
+                            args = self.parse_arg_list()
+                            self.expect(TT.RPAR)
+                            if args:
+                                args_node = Tree("arglistnamedmixed", args)
+                            else:
+                                args_node = None
+                            children = [field_tok]
+                            if args_node:
+                                children.append(args_node)
+                            postfix_ops.append(
+                                self._maybe_noanchor(Tree("method", children), noanchor)
+                            )
+                        else:
+                            postfix_ops.append(
+                                self._maybe_noanchor(
+                                    Tree("field", [field_tok]), noanchor
+                                )
+                            )
                     elif self.match(TT.LBRACE):
                         if noanchor:
                             raise ParseError(
@@ -2692,27 +2712,36 @@ class Parser:
         continuation_active = False
 
         while True:
-            # Field access
+            # Field access or method call
             if self.match(TT.DOT):
                 noanchor = self._take_noanchor_once(seen_noanchor)
                 if self._check_field_name():
                     field = self.advance()
-                    postfix_ops.append(
-                        self._maybe_noanchor(
-                            Tree(
-                                "field",
-                                [
-                                    self._tok(
-                                        field.type.name,
-                                        field.value,
-                                        field.line,
-                                        field.column,
-                                    )
-                                ],
-                            ),
-                            noanchor,
-                        )
+                    field_tok = self._tok(
+                        field.type.name,
+                        field.value,
+                        field.line,
+                        field.column,
                     )
+                    # Check for immediate call -> method node
+                    if self.check(TT.LPAR):
+                        lpar_tok = self.advance()
+                        args = self.parse_arg_list()
+                        self.expect(TT.RPAR)
+                        if args:
+                            args_node = Tree("arglistnamedmixed", args)
+                        else:
+                            args_node = None
+                        children = [field_tok]
+                        if args_node:
+                            children.append(args_node)
+                        postfix_ops.append(
+                            self._maybe_noanchor(Tree("method", children), noanchor)
+                        )
+                    else:
+                        postfix_ops.append(
+                            self._maybe_noanchor(Tree("field", [field_tok]), noanchor)
+                        )
                 elif self.match(TT.LBRACE):
                     if noanchor:
                         raise ParseError(

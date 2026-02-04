@@ -1997,6 +1997,30 @@ runtime_scenario(
     _rt("compound-assign-number", "a := 1; a += 2; a", ("number", 3), None)
 )
 runtime_scenario(
+    _rt(
+        "array-map-basic",
+        "[1, 2, 3].map&(. * 2)",
+        ("array", [2, 4, 6]),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "array-filter-basic",
+        "[1, 2, 3, 4].filter&(. > 1)",
+        ("array", [2, 3, 4]),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "array-filter-truthy",
+        '[0, 1, "", "hi", nil].filter&(.)',
+        ("array", [1, "hi"]),
+        None,
+    )
+)
+runtime_scenario(
     _rt("compound-assign-string", 's := "a"; s += "b"; s', ("string", "ab"), None)
 )
 runtime_scenario(_rt("compound-assign-mod", "a := 10; a %= 3; a", ("number", 1), None))
@@ -5102,6 +5126,88 @@ runtime_scenario(
 f()""",
         None,
         ShakarTypeError,
+    )
+)
+
+# UFCS (Universal Function Call Syntax) tests
+runtime_scenario(
+    _rt(
+        "ufcs-stdlib-int",
+        '"42".int()',
+        ("number", 42),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "ufcs-user-fn-prepend",
+        """fn double(x): x * 2
+5.double()""",
+        ("number", 10),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "ufcs-user-fn-multi-arg",
+        """fn add(a, b): a + b
+10.add(5)""",
+        ("number", 15),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "ufcs-method-shadows-global",
+        """fn len(x): 999
+[1, 2, 3].len""",
+        ("number", 3),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "ufcs-chain",
+        """fn inc(x): x + 1
+fn double(x): x * 2
+5.inc().double()""",
+        ("number", 12),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "ufcs-implicit-subject",
+        """fn double(x): x * 2
+[.double() over [3]][0]""",
+        ("number", 6),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "ufcs-amp-lambda-implicit-subject",
+        """fn double(x): x * 2
+[1, 2].map&(.double())[0]""",
+        ("number", 2),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "ufcs-non-callable-error",
+        """notfn := 42
+5.notfn()""",
+        None,
+        ShakarTypeError,
+    )
+)
+runtime_scenario(
+    _rt(
+        "ufcs-missing-name-error",
+        "5.nonexistent()",
+        None,
+        ShakarRuntimeError,
     )
 )
 

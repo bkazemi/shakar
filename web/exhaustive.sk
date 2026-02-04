@@ -193,6 +193,17 @@ print(add(3, 4))
 print(greet("world"))
 print(greet("Shakar", "Hi"))
 
+# --- UFCS (Universal Function Call Syntax) ---
+fn clamp(x, lo, hi):
+    x < lo: return lo
+    x > hi: return hi
+    x
+
+print("--- UFCS ---")
+print("clamp:", 120.clamp(0, 100))
+flags := [true, true, false]
+print("all:", flags.all(), "any:", flags.any())
+
 # --- Named Arguments ---
 print("--- Named Args ---")
 print(greet(name: "Shakar", prefix: "Hey"))

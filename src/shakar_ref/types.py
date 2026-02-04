@@ -11,6 +11,7 @@ from typing import (
     Deque,
     Dict,
     List,
+    Literal,
     NamedTuple,
     Optional,
     Tuple,
@@ -19,6 +20,8 @@ from typing import (
     TYPE_CHECKING,
 )
 from typing_extensions import Protocol, TypeAlias, TypeGuard
+
+UfcsStyle = Literal["subject", "prepend"]
 from .tree import Node
 
 if TYPE_CHECKING:
@@ -774,6 +777,14 @@ class BoundMethod:
 
 
 @dataclass
+class BoundCallable:
+    target: "ShkValue"
+    subject: "ShkValue"
+    style: UfcsStyle
+    name: Optional[str] = None
+
+
+@dataclass
 class BuiltinMethod:
     name: str
     subject: "ShkValue"
@@ -811,7 +822,10 @@ class DeferEntry:
     deps: List[str] = field(default_factory=list)
 
 
-StdlibFn = Callable[["Frame", List["ShkValue"]], "ShkValue"]
+StdlibFn: TypeAlias = Callable[
+    ["Frame", Optional["ShkValue"], List["ShkValue"], Optional[Dict[str, "ShkValue"]]],
+    "ShkValue",
+]
 
 
 @dataclass(frozen=True)
@@ -845,6 +859,7 @@ ShkValue: TypeAlias = Union[
     ShkPath,
     ShkEnvVar,
     BoundMethod,
+    BoundCallable,
     BuiltinMethod,
     StdlibFunction,
     ShkType,
@@ -1186,6 +1201,7 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     ShkPath,
     ShkEnvVar,
     BoundMethod,
+    BoundCallable,
     BuiltinMethod,
     StdlibFunction,
     ShkType,

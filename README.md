@@ -171,7 +171,31 @@ key, val := arr[0,1]  # binds arr[0] → key, arr[1] → val
 
 Selector literals use backticks and have precise semantics for ranges, lists, and membership; the [design notes](docs/shakar-design-notes.md#selector-values-slices-and-selectors) cover the details.
 
-### 4. Comparison Comma-Chains (CCC)
+### 4. UFCS (Universal Function Call Syntax)
+
+Any in-scope callable can be invoked with method syntax. When the receiver doesn’t have a matching method or builtin, Shakar falls back to a scope lookup and calls the function with the receiver as its subject/first arg.
+
+```shakar
+fn double(x): x * 2
+5.double()            # UFCS → double(5)
+
+"hello".print()       # UFCS → print("hello")
+
+fn clamp(x, lo, hi):
+  x < lo: return lo
+  x > hi: return hi
+  x
+
+volume := 120
+volume.clamp(0, 100)
+
+for paths:
+  .read().print()
+```
+
+UFCS only applies to **method-call syntax** (`recv.name(...)`). Plain field access (`recv.name`) never falls back.
+
+### 5. Comparison Comma-Chains (CCC)
 
 CCC locks in a subject once and lets you stream more comparisons with commas, avoiding repeated left operands. The joiner defaults to `and` and sticks until changed; `and` legs can inherit the previous comparator, but `, or` legs must restate the comparator they want. See [Comparison & identity (CCC)](docs/shakar-design-notes.md#comparison--identity-ccc).
 
@@ -184,7 +208,7 @@ alert := temp > 70, or >= limits.max   # temp > 70 or temp >= limits.max
 ok    := temp >= 45, and <= 65, or == preferred   # temp >= 45 and temp <= 65 or temp == preferred
 ```
 
-### 5. Decorators
+### 6. Decorators
 
 Attach lightweight wrappers to functions. Decorator bodies see `f` (the next callable) and `args` (positional arguments as a mutable array). If the body finishes without `return`, the runtime calls `f(args)` automatically. Stacking is deterministic: the decorator closest to `fn` runs first. See [Decorators](docs/shakar-design-notes.md#decorators).
 
@@ -204,7 +228,7 @@ announce("ready")   # => "[prefix] ready"
 log                 # => ["ready"]
 ```
 
-### 6. Call Blocks and Emit `>`
+### 7. Call Blocks and Emit `>`
 
 Call blocks bind a callable as an emit target for the duration of a block. Inside, `>` invokes that target. See [Call blocks](docs/shakar-design-notes.md#call-blocks-call-and-emit-).
 
