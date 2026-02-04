@@ -2099,6 +2099,14 @@ runtime_scenario(
 )
 runtime_scenario(
     _rt(
+        "fieldfan-apply-assign",
+        'state := {name: " Ada ", email: " ADA@EXAMPLE.COM "}; state.{name, email} .= .trim(); state.name + ":" + state.email',
+        ("string", "Ada:ADA@EXAMPLE.COM"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
         "selector-assign-broadcast",
         "arr := [0, 1]; o := {a: arr}; o.a[0,1] = 2; o.a[0] + o.a[1]",
         ("number", 4),

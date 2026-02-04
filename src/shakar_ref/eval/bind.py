@@ -399,41 +399,56 @@ def apply_numeric_delta(ref: RebindContext, delta: int) -> tuple[ShkValue, ShkVa
     return current, new_val
 
 
-def build_fieldfan_context(owner: ShkValue, fan_node: Tree, frame: Frame) -> FanContext:
-    """Construct a fan context for `.={a,b}` nodes so updates reach every slot."""
+def _extract_fieldfan_names(
+    fan_node: Tree,
+    *,
+    missing_msg: str,
+    empty_msg: str,
+    non_ident_msg: str,
+) -> List[str]:
     fieldlist_node = child_by_label(fan_node, "fieldlist")
     valuefan_list = child_by_label(fan_node, "valuefan_list")
 
     if fieldlist_node is None and valuefan_list is None:
-        raise ShakarRuntimeError("Malformed field fan")
+        raise ShakarRuntimeError(missing_msg)
 
     if fieldlist_node is not None:
-        names = [
-            name for tok in tree_children(fieldlist_node) if (name := ident_value(tok))
-        ]
+        names: List[str] = []
+        for tok in tree_children(fieldlist_node):
+            name = ident_value(tok)
+            if name:
+                names.append(name)
     else:
-        # valuefan_list form (from valuefan normalization in lvalues)
         names = []
         for item in tree_children(valuefan_list):
-            # valuefan_item -> child may be IDENT token
             if is_tree(item) and tree_label(item) == "valuefan_item":
                 for ch in tree_children(item):
                     if name := ident_value(ch):
                         names.append(name)
                     else:
-                        raise ShakarRuntimeError(
-                            "Field fan only supports identifier entries"
-                        )
+                        raise ShakarRuntimeError(non_ident_msg)
             elif name := ident_value(item):
                 names.append(name)
             else:
-                raise ShakarRuntimeError("Field fan only supports identifier entries")
+                raise ShakarRuntimeError(non_ident_msg)
 
     if not names:
-        raise ShakarRuntimeError("Field fan requires at least one identifier")
+        raise ShakarRuntimeError(empty_msg)
 
     if len(set(names)) != len(names):
         raise ShakarRuntimeError("Field fan cannot contain duplicate fields")
+
+    return names
+
+
+def build_fieldfan_context(owner: ShkValue, fan_node: Tree, frame: Frame) -> FanContext:
+    """Construct a fan context for `.={a,b}` nodes so updates reach every slot."""
+    names = _extract_fieldfan_names(
+        fan_node,
+        missing_msg="Malformed field fan",
+        empty_msg="Field fan requires at least one identifier",
+        non_ident_msg="Field fan only supports identifier entries",
+    )
 
     contexts: List[RebindContext] = []
 
@@ -567,15 +582,12 @@ def apply_assign(
             set_index_value(target, idx_val, new_val, frame)
             return new_val
         case "fieldfan":
-            fieldlist_node = child_by_label(final_op, "fieldlist")
-            if fieldlist_node is None:
-                raise ShakarRuntimeError("Malformed field fan-out list")
-
-            names = [n for tok in fieldlist_node.children if (n := ident_value(tok))]
-            if not names:
-                raise ShakarRuntimeError("Empty field fan-out list")
-            if len(set(names)) != len(names):
-                raise ShakarRuntimeError("Field fan cannot contain duplicate fields")
+            names = _extract_fieldfan_names(
+                final_op,
+                missing_msg="Malformed field fan-out list",
+                empty_msg="Empty field fan-out list",
+                non_ident_msg="Field fan only supports identifier entries",
+            )
 
             results: List[ShkValue] = []
 
@@ -683,18 +695,12 @@ def _complete_chain_assignment(
             idx_val = evaluate_index_operand(final_op, frame, eval_func)
             return set_index_value(target, idx_val, value, frame)
         case "fieldfan":
-            fieldlist_node = child_by_label(final_op, "fieldlist")
-
-            if fieldlist_node is None:
-                raise ShakarRuntimeError("Malformed field fan-out list")
-
-            names = [
-                n for tok in tree_children(fieldlist_node) if (n := ident_value(tok))
-            ]
-            if not names:
-                raise ShakarRuntimeError("Empty field fan-out list")
-            if len(set(names)) != len(names):
-                raise ShakarRuntimeError("Field fan cannot contain duplicate fields")
+            names = _extract_fieldfan_names(
+                final_op,
+                missing_msg="Malformed field fan-out list",
+                empty_msg="Empty field fan-out list",
+                non_ident_msg="Field fan only supports identifier entries",
+            )
 
             vals = fanout_values(value, len(names))
 
