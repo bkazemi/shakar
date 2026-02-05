@@ -374,7 +374,7 @@ object_item = ( ( IDENT | "over" ) , [ QMARK ] , ":" , ( obj_body | ( [ NEWLINE 
 
 obj_body = obj_block_body | inline_body ;
 obj_block_body = NEWLINE , INDENT , { [ statement_list ] , NEWLINE+ }* , [ statement_list ] , DEDENT ;
-key_expr = compare_expression ;
+key_expr = "(" , expression , ")" ;  (* computed key: (expr): value *)
 
 (* Set literals *)
 set_literal = "set" , "{" , "}"

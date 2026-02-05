@@ -709,7 +709,7 @@ using resource bind handle:
     print("using:", handle)
 
 # --- Known Gaps (Syntax Only) ---
-# Computed object key ["a-b"]: 7
+# Computed object key ("a-b"): 7
 # ?? expr        # nullsafe sugar (not implemented)
 # or=            # default assignment (parser rejects)
 # fn f(a, ...rest, z): ...  # mid-spread params

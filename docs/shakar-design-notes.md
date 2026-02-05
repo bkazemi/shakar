@@ -425,7 +425,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
 - Property write: Plain → set; Descriptor.setter → call with `self, value`; strict mode may forbid setting Plain when descriptor exists.
 - Methods: `obj.m(args)` sets `self=obj`.
 - Contextual `get/set` in object literals desugar to descriptor slots. Getter arity 0; setter arity 1.
-- Literal keys: identifier (`a: expr`), string (`"a-b": expr`), computed (`[expr]: expr`).
+- Literal keys: identifier (`a: expr`), string (`"a-b": expr`), computed (`(expr): expr`).
 - Access: `obj.key` for identifier keys (method fusion), `obj[expr]`/`obj["k"]` for all keys.
 - Shape tagging: `closed` when all keys are identifiers and no computed keys or spreads (duplicate identifier keys are errors); `open` otherwise (dict path; last write wins).
 - Validator: enforce getter/setter arities; forbid duplicate identifier keys in closed shapes; require bracket access for non-ident keys. Printer preserves order; block bodies allowed after `:`.
@@ -434,7 +434,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
   user = {
     id: 1,
     name: "Ada",
-    [1+2]: 3,
+    (1+2): 3,
     get size: 1,
     set size(x): x
   }
