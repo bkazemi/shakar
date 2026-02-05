@@ -1797,6 +1797,7 @@ codeEl.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
         runCode();
+        return;
     }
 
     if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.metaKey) {
@@ -1845,6 +1846,7 @@ codeEl.addEventListener('keydown', (e) => {
         editorHighlightRequestLines = null;
         if (!wasmHighlightActive) applyEditorLightUpdate(codeEl.value, codeEl.selectionStart);
         scheduleHighlight();
+        return;
     }
 });
 
