@@ -5211,6 +5211,40 @@ runtime_scenario(
     )
 )
 
+# In-place mutation tests
+runtime_scenario(
+    _rt(
+        "array-update-basic",
+        "a := [1, 2, 3]; a.update&(. * 2); a",
+        ("array", [2, 4, 6]),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "array-update-chaining",
+        "a := [1, 2].update&(. + 1); a",
+        ("array", [2, 3]),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "array-keep-basic",
+        "a := [1, 2, 3, 4]; a.keep&(. > 2); a",
+        ("array", [3, 4]),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "object-update-basic",
+        "o := {a: 1, b: 2}; o.update&(. + 10); o.a",
+        ("number", 11),
+        None,
+    )
+)
+
 if __name__ == "__main__":
     report, failures = run(sys.argv[1:])
     out_path = Path("sanity_report.txt")

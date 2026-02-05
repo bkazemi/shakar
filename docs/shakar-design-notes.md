@@ -94,6 +94,27 @@ for paths:
   .read().print()
 ```
 
+### Collection Methods
+
+Standard collections provide built-in methods that pair naturally with [Amp-lambdas](#amp-lambdas--and-implicit-parameters) for fluent data processing.
+
+- **`Array.map&(body)`**: Returns a new array by applying `body` to each element.
+- **`Array.filter&(body)`**: Returns a new array containing only elements where `body` is truthy.
+- **`Array.update&(body)`**: (**Mutable**) Modifies each element in-place by applying `body`; returns the array reference.
+- **`Array.keep&(body)`**: (**Mutable**) Removes elements where `body` is falsey in-place; returns the array reference.
+- **`Object.update&(body)`**: (**Mutable**) Modifies all values within the object in-place; returns the object reference.
+
+```shakar
+nums := [1, 2, 3, 4]
+
+# Transformation & Filtering (Pure)
+doubled_evens := nums.filter&(. % 2 == 0).map&(. * 2)
+
+# In-place Mutation (Efficient)
+nums.update&(. * 10) # nums is now [10, 20, 30, 40]
+nums.keep&(. > 25)   # nums is now [30, 40]
+```
+
 ### Grouping & the anchor stack
 
 - **Comparison comma-chain legs are no-anchor.** The chain’s subject is the first explicit operand.

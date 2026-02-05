@@ -473,6 +473,43 @@ def _array_filter(frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArra
     return ShkArray(results)
 
 
+@register_array("update")
+def _array_update(frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArray:
+    if len(args) != 1:
+        raise ShakarArityError(f"array.update expects 1 argument; got {len(args)}")
+
+    callback = args[0]
+    from .eval.chains import call_value
+    from .evaluator import eval_node
+
+    for i in range(len(recv.items)):
+        recv.items[i] = call_value(
+            callback, [recv.items[i]], frame, eval_func=eval_node
+        )
+
+    return recv
+
+
+@register_array("keep")
+def _array_keep(frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArray:
+    if len(args) != 1:
+        raise ShakarArityError(f"array.keep expects 1 argument; got {len(args)}")
+
+    predicate = args[0]
+    from .eval.chains import call_value
+    from .eval.helpers import is_truthy
+    from .evaluator import eval_node
+
+    # In-place filter using slice assignment
+    recv.items[:] = [
+        item
+        for item in recv.items
+        if is_truthy(call_value(predicate, [item], frame, eval_func=eval_node))
+    ]
+
+    return recv
+
+
 @register_string("join")
 def _string_join(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkString:
     items: List[ShkValue]
@@ -571,6 +608,22 @@ def _object_values(_frame: Frame, recv: ShkObject, args: List[ShkValue]) -> ShkA
     if len(args) != 0:
         raise ShakarArityError(f"object.values expects 0 arguments; got {len(args)}")
     return ShkArray(list(recv.slots.values()))
+
+
+@register_object("update")
+def _object_update(frame: Frame, recv: ShkObject, args: List[ShkValue]) -> ShkObject:
+    if len(args) != 1:
+        raise ShakarArityError(f"object.update expects 1 argument; got {len(args)}")
+
+    callback = args[0]
+    from .eval.chains import call_value
+    from .evaluator import eval_node
+
+    for key, value in recv.slots.items():
+        # Update values in-place. We don't touch keys to avoid iteration issues.
+        recv.slots[key] = call_value(callback, [value], frame, eval_func=eval_node)
+
+    return recv
 
 
 @register_command("run")

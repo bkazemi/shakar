@@ -195,7 +195,27 @@ for paths:
 
 UFCS only applies to **method-call syntax** (`recv.name(...)`). Plain field access (`recv.name`) never falls back.
 
-### 5. Comparison Comma-Chains (CCC)
+### 5. Collection Flow & In-place Mutation
+
+Built-in collection methods leverage UFCS and [Amp-lambdas](#8-other-features) to provide concise transformation and filtering. Shakar distinguishes between **pure** transformations (creating new arrays) and **in-place** mutations (modifying the original for performance).
+
+```shakar
+arr := [1, 2, 3, 4]
+
+# Pure: returns new arrays
+doubled := arr.map&(. * 2)
+evens   := arr.filter&(. % 2 == 0)
+
+# In-place: modifies `arr` directly (Zero allocation)
+arr.update&(. + 10)  # arr is now [11, 12, 13, 14]
+arr.keep&(. > 12)    # arr is now [13, 14]
+
+# Objects: update all values
+config := { timeout: 5sec, retries: 3 }
+config.update&(. * 2) # config is now { timeout: 10sec, retries: 6 }
+```
+
+### 6. Comparison Comma-Chains (CCC)
 
 CCC locks in a subject once and lets you stream more comparisons with commas, avoiding repeated left operands. The joiner defaults to `and` and sticks until changed; `and` legs can inherit the previous comparator, but `, or` legs must restate the comparator they want. See [Comparison & identity (CCC)](docs/shakar-design-notes.md#comparison--identity-ccc).
 
@@ -208,7 +228,7 @@ alert := temp > 70, or >= limits.max   # temp > 70 or temp >= limits.max
 ok    := temp >= 45, and <= 65, or == preferred   # temp >= 45 and temp <= 65 or temp == preferred
 ```
 
-### 6. Decorators
+### 7. Decorators
 
 Attach lightweight wrappers to functions. Decorator bodies see `f` (the next callable) and `args` (positional arguments as a mutable array). If the body finishes without `return`, the runtime calls `f(args)` automatically. Stacking is deterministic: the decorator closest to `fn` runs first. See [Decorators](docs/shakar-design-notes.md#decorators).
 
@@ -228,7 +248,7 @@ announce("ready")   # => "[prefix] ready"
 log                 # => ["ready"]
 ```
 
-### 7. Call Blocks and Emit `>`
+### 8. Call Blocks and Emit `>`
 
 Call blocks bind a callable as an emit target for the duration of a block. Inside, `>` invokes that target. See [Call blocks](docs/shakar-design-notes.md#call-blocks-call-and-emit-).
 
@@ -239,7 +259,7 @@ call self.expect:       # binds self.expect as the emit target
   > TT.COLON             # self.expect(TT.COLON)
 ```
 
-### 7. Concurrency (Experimental)
+### 9. Concurrency (Experimental)
 
 The reference runtime includes prototypes for structured concurrency primitives. *Note: These are active areas of design experimentation.* See [Channels & Wait](docs/shakar-design-notes.md#channels--wait).
 
