@@ -2533,6 +2533,7 @@ class Parser:
                 TT.IDENT,
                 TT.LPAR,
                 TT.LSQB,
+                TT.LBRACE,
                 TT.OVER,
                 TT.FAN,
                 TT.DOLLAR,
@@ -2602,6 +2603,18 @@ class Parser:
                 if default:
                     children.append(default)
                 imphead = self._maybe_noanchor(Tree("index", children), noanchor)
+            elif self.check(TT.LBRACE):
+                if noanchor:
+                    raise ParseError(
+                        "No-anchor '$' is not valid on fan segments", self.current
+                    )
+                self.advance()  # consume {
+                items = self.parse_fan_items()
+                self.expect(TT.RBRACE)
+                valuefan_items = []
+                for item in items:
+                    valuefan_items.append(Tree("valuefan_item", [item]))
+                imphead = Tree("valuefan", [Tree("valuefan_list", valuefan_items)])
             elif noanchor:
                 raise ParseError(
                     "Expected field or index after '$' in chain", self.current

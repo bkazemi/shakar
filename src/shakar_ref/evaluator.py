@@ -111,6 +111,7 @@ from .eval.expr import (
     eval_ternary,
     eval_explicit_chain,
     eval_fan_chain,
+    maybe_valuefan_broadcast,
 )
 from .eval.literals import (
     eval_array_literal,
@@ -251,8 +252,13 @@ def _eval_implicit_chain(ops: List[Tree], frame: Frame) -> ShkValue:
     if isinstance(val, ShkFan):
         return eval_fan_chain(val, ops, frame, eval_node)
 
-    for op in ops:
+    for i, op in enumerate(ops):
         val = apply_op(val, op, frame, eval_node)
+
+        # Valuefan with trailing ops: switch to fan broadcasting
+        fan_result = maybe_valuefan_broadcast(val, op, ops[i + 1 :], frame, eval_node)
+        if fan_result is not None:
+            return fan_result
 
     return val
 

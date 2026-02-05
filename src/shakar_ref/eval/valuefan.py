@@ -6,8 +6,8 @@ from ..tree import Tree
 from ..runtime import Frame, ShkArray, ShkValue, ShakarRuntimeError
 from ..token_types import TT
 from ..tree import Node, is_tree, is_token, tree_children, tree_label
-from .bind import RebindContext
-from .mutation import get_field_value
+from .bind import FanContext, RebindContext
+from .mutation import get_field_value, set_field_value
 
 
 def eval_valuefan(
@@ -27,6 +27,62 @@ def eval_valuefan(
         items.append(_eval_item(base, item, frame, eval_func, apply_op))
 
     return ShkArray(items)
+
+
+def build_valuefan_context(
+    base: ShkValue, fan_node: Tree, frame: Frame, eval_func, apply_op
+) -> FanContext:
+    """Build a FanContext for valuefan in rebind chains, enabling writeback."""
+    contexts: List[RebindContext] = []
+    seen: set[str] = set()
+
+    for item in _iter_items(fan_node):
+        key = _fingerprint(item)
+        if key is not None:
+            if key in seen:
+                raise ShakarRuntimeError("Value fan cannot contain duplicate fields")
+            seen.add(key)
+
+        label = tree_label(item)
+
+        if label == "field":
+            # Simple field: create a context with a setter
+            name = item.children[0].value
+            value = get_field_value(base, name, frame)
+
+            def make_setter(owner: ShkValue, field_name: str):
+                def setter(new_value: ShkValue) -> None:
+                    set_field_value(owner, field_name, new_value, frame, create=False)
+                    frame.dot = new_value
+
+                return setter
+
+            contexts.append(RebindContext(value, make_setter(base, name)))
+
+        elif label in {"valuefan_chain", "identchain"}:
+            # Chained access like {a.b}: evaluate but no writeback supported
+            children = tree_children(item)
+            if not children:
+                raise ShakarRuntimeError("Malformed value fan item")
+            head = children[0]
+            ops = children[1:]
+            val = get_field_value(base, head.value, frame)
+
+            for op in ops:
+                val = apply_op(val, op, frame, eval_func)
+                if isinstance(val, RebindContext):
+                    val = val.value
+
+            # No-op setter for chained access (writeback not supported)
+            contexts.append(RebindContext(val, lambda v: None))
+
+        else:
+            # Fallback: evaluate with no writeback
+            val_frame = Frame(parent=frame, dot=base)
+            val = eval_func(item, val_frame)
+            contexts.append(RebindContext(val, lambda v: None))
+
+    return FanContext(contexts)
 
 
 def _eval_item(

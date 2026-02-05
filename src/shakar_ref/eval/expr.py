@@ -45,6 +45,26 @@ from .selector import selector_iter_values
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
 
+def _unwrap_op_label(op: Node) -> str:
+    """Get the inner label from an op, unwrapping noanchor if present."""
+    label = tree_label(op)
+    return tree_label(op.children[0]) if label == "noanchor" else label
+
+
+def maybe_valuefan_broadcast(
+    val: ShkValue,
+    op: Node,
+    remaining_ops: List[Node],
+    frame: Frame,
+    eval_func: EvalFunc,
+) -> Optional[ShkFan]:
+    """If valuefan with trailing ops and val is array, return fan chain result; else None."""
+    if _unwrap_op_label(op) == "valuefan" and remaining_ops:
+        if isinstance(val, ShkArray):
+            return eval_fan_chain(ShkFan(val.items), remaining_ops, frame, eval_func)
+    return None
+
+
 def _consume_anchor_override(frame: Frame) -> Optional[ShkValue]:
     """Consume and return any pending anchor override set by chain evaluation."""
     override = frame.pending_anchor_override
@@ -96,12 +116,16 @@ def eval_explicit_chain(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkVal
     head_is_grouped_rebind = is_grouped_rebind(head) if is_tree(head) else False
     tail_has_effect = False
 
-    for op in ops:
-        label = tree_label(op)
-        inner_label = tree_label(op.children[0]) if label == "noanchor" else label
+    for i, op in enumerate(ops):
+        inner_label = _unwrap_op_label(op)
         if inner_label not in {"field", "fieldsel", "index"}:
             tail_has_effect = True
         val = chain_apply_op(val, op, frame, eval_func)
+
+        # Valuefan with trailing ops: switch to fan broadcasting
+        fan_result = maybe_valuefan_broadcast(val, op, ops[i + 1 :], frame, eval_func)
+        if fan_result is not None:
+            return fan_result
 
     if head_is_rebind:
         if not ops:

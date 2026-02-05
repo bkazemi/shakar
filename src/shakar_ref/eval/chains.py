@@ -47,7 +47,7 @@ from .common import callsite_from_node, expect_ident_token as _expect_ident_toke
 from .helpers import eval_anchor_scoped
 from .mutation import get_field_value, index_value, slice_value
 from .selector import evaluate_selectorlist, apply_selectors_to_value
-from .valuefan import eval_valuefan
+from .valuefan import eval_valuefan, build_valuefan_context
 
 # Tokens valid as method names: identifiers and builtin function tokens (any/all).
 METHOD_NAME_TOKENS = frozenset({TT.IDENT, TT.ANY, TT.ALL})
@@ -353,6 +353,9 @@ def apply_op(
     elif op_name == "fieldfan":
         result = apply_fan_op(recv, op, frame, apply_op=apply_op, eval_func=eval_func)
     elif op_name == "valuefan":
+        if context is not None:
+            # In rebind chain: create FanContext for writeback
+            return build_valuefan_context(recv, op, frame, eval_func, apply_op)
         result = _valuefan(recv, op, frame, eval_func)
     elif op_name == "call":
         args_node = op.children[0] if op.children else None
