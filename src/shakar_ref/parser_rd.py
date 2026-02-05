@@ -29,6 +29,9 @@ class ParseContext(Enum):
     DESTRUCTURE_PACK = 3  # Inside destructure RHS pack: commas are value separators
 
 
+UFCS_BUILTIN_TOKENS = frozenset({TT.ANY, TT.ALL})
+
+
 # ============================================================================
 # Parser
 # ============================================================================
@@ -166,8 +169,23 @@ class Parser:
         return Tree("noanchor", [node]) if wrap else node
 
     def _check_field_name(self) -> bool:
-        # Excludes GROUP to keep it reserved as a keyword.
-        return self.check(TT.IDENT, TT.OVER)
+        return self.check(TT.IDENT)
+
+    def _check_ufcs_builtin_call(self) -> bool:
+        if self.current.type not in UFCS_BUILTIN_TOKENS:
+            return False
+        return self.peek(1).type == TT.LPAR
+
+    def _parse_ufcs_builtin_call(self, noanchor: bool) -> Tree:
+        """Parse .all(), .any() - builtin function tokens valid as UFCS method names."""
+        tok = self.advance()
+        field_tok = Tok(tok.type, tok.value, tok.line, tok.column)
+        self.expect(TT.LPAR)
+        args = self.parse_arg_list()
+        self.expect(TT.RPAR)
+        args_node = Tree("arglistnamedmixed", args) if args else None
+        children = [field_tok] + ([args_node] if args_node else [])
+        return self._maybe_noanchor(Tree("method", children), noanchor)
 
     def _expect_field_name(self, message: str = "Expected field name") -> Tok:
         if not self._check_field_name():
@@ -2550,6 +2568,8 @@ class Parser:
                     imphead = self._maybe_noanchor(Tree("method", children), noanchor)
                 else:
                     imphead = self._maybe_noanchor(Tree("field", [field_tok]), noanchor)
+            elif self._check_ufcs_builtin_call():
+                imphead = self._parse_ufcs_builtin_call(noanchor)
             elif self.check(TT.LPAR):
                 lpar_tok = self.advance()
                 if noanchor:
@@ -2622,6 +2642,8 @@ class Parser:
                                     Tree("field", [field_tok]), noanchor
                                 )
                             )
+                    elif self._check_ufcs_builtin_call():
+                        postfix_ops.append(self._parse_ufcs_builtin_call(noanchor))
                     elif self.match(TT.LBRACE):
                         if noanchor:
                             raise ParseError(
@@ -2742,6 +2764,8 @@ class Parser:
                         postfix_ops.append(
                             self._maybe_noanchor(Tree("field", [field_tok]), noanchor)
                         )
+                elif self._check_ufcs_builtin_call():
+                    postfix_ops.append(self._parse_ufcs_builtin_call(noanchor))
                 elif self.match(TT.LBRACE):
                     if noanchor:
                         raise ParseError(

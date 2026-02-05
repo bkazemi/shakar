@@ -38,6 +38,7 @@ from ..tree import (
     child_by_label,
     is_token,
     is_tree,
+    token_kind,
     tree_children,
     tree_label,
 )
@@ -47,6 +48,9 @@ from .helpers import eval_anchor_scoped
 from .mutation import get_field_value, index_value, slice_value
 from .selector import evaluate_selectorlist, apply_selectors_to_value
 from .valuefan import eval_valuefan
+
+# Tokens valid as method names: identifiers and builtin function tokens (any/all).
+METHOD_NAME_TOKENS = frozenset({TT.IDENT, TT.ANY, TT.ALL})
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
@@ -407,10 +411,18 @@ def _is_missing_field_error(err: ShakarTypeError) -> bool:
     )
 
 
+def _method_name_token(node: Node) -> str:
+    if is_token(node) and node.type in METHOD_NAME_TOKENS:
+        return str(node.value)
+    kind = token_kind(node) or tree_label(node)
+    val = getattr(node, "value", None)
+    raise ShakarRuntimeError(f"Method call must be an identifier (got {kind}:{val})")
+
+
 def _call_method(
     recv: ShkValue, op: Tree, frame: Frame, eval_func: EvalFunc
 ) -> ShkValue:
-    method_name = _expect_ident_token(op.children[0], "Method call")
+    method_name = _method_name_token(op.children[0])
     positional, named, interleaved = eval_args_node_with_named(
         op.children[1] if len(op.children) > 1 else None, frame, eval_func
     )
