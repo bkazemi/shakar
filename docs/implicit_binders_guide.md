@@ -19,8 +19,10 @@ result = [x * 2 over src]
 1. **All undefined identifiers** in the body and guard are collected as binders
 2. **Body-first, then guard**: Body expressions are scanned left-to-right first, then guard expressions
 3. **First-appearance order**: Within body or guard, names bind in the order they first appear
-4. **Outer scope names** are captured, NOT treated as implicit binders
-5. **Arity must match** the iterable elements (or runtime error occurs)
+4. **Outer scope names** visible at the comprehension site are captured (lexical snapshot)
+5. **Earlier locals count**: names defined earlier in the same block are captured
+6. **Function defs are hoisted**: function names in the same block are visible even if declared later
+7. **Arity must match** the iterable elements (or runtime error occurs)
 
 ### The Body-First Rule
 

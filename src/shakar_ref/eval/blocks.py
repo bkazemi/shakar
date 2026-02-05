@@ -49,6 +49,12 @@ def eval_program(
     skip_tokens = {"SEMI", "_NL", "INDENT", "DEDENT"}
     push_defer_scope(frame)
     push_let_scope(frame)
+    prev_hoisted = frame.hoisted_names
+    hoisted = _collect_hoisted_defs(children, skip_tokens)
+    if hoisted:
+        if prev_hoisted:
+            hoisted.update(prev_hoisted)
+        frame.hoisted_names = hoisted
 
     try:
         try:
@@ -70,8 +76,29 @@ def eval_program(
             pop_defer_scope(frame)
         finally:
             pop_let_scope(frame)
+        frame.hoisted_names = prev_hoisted
 
     return result
+
+
+def _collect_hoisted_defs(children: List[Node], skip_tokens: set[str]) -> set[str]:
+    """Collect function-like names declared in the current stmt list."""
+    names: set[str] = set()
+    for child in children:
+        if is_token(child) and _token_kind(child) in skip_tokens:
+            continue
+        node = child
+        if is_tree(node) and tree_label(node) == "stmt" and node.children:
+            node = node.children[0]
+        if not is_tree(node):
+            continue
+        label = tree_label(node)
+        if label not in {"fndef", "decorator_def"}:
+            continue
+        first = node.children[0] if node.children else None
+        if first is not None and is_token(first) and _token_kind(first) == "IDENT":
+            names.add(str(first.value))
+    return names
 
 
 def get_subject(frame: Frame) -> ShkValue:

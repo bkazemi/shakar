@@ -10,6 +10,7 @@ from typing import (
     Callable,
     Deque,
     Dict,
+    FrozenSet,
     List,
     Literal,
     NamedTuple,
@@ -903,6 +904,7 @@ class Frame:
         self.pending_anchor_override: Optional[ShkValue] = None
         self.call_stack: List[CallSite]
         self.cancel_token: Optional[CancelToken]
+        self.hoisted_names: Optional[set[str]] = None
         if cancel_token is not None:
             self.cancel_token = cancel_token
         elif parent is not None:
@@ -941,6 +943,8 @@ class Frame:
             self.call_stack = parent.call_stack
         else:
             self.call_stack = []
+        # Frozen outer scope names captured at definition time (lexical boundary).
+        self.frozen_scope_names: Optional[FrozenSet[str]] = None
 
     def define(self, name: str, val: ShkValue) -> None:
         self.vars[name] = val

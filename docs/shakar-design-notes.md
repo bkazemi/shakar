@@ -768,7 +768,7 @@ u := makeUser() and .isValid()
   trimmed := [.trim() over lines]
   ```
 - `bind` introduces names without removing `.`; binder list sugar `over[binders] src` is sugar for `over src bind binders`. Objects: one binder yields key, two yield key/value.
-- Implicit head binders: free, unqualified identifiers in heads (and optional `if` guards) auto-bind to components of each element, first-use order, capped by arity. Only in heads/guards; names resolving in outer scope are captures, not binders; occurrences inside nested lambdas ignored. Error if distinct head-binders exceed element arity.
+- Implicit head binders: free, unqualified identifiers in heads (and optional `if` guards) auto-bind to components of each element, first-use order, capped by arity. Only in heads/guards; names visible at the comprehension site (including earlier locals and same-block function defs) are captures, not binders; nested function defs are not pre-hoisted (they become visible only after execution). Occurrences inside nested lambdas ignored. Later scope injections do not affect binder classification. Error if distinct head-binders exceed element arity.
 - Illegal: `over[...] Expr bind ...` (formatter drops redundant `bind`).
 - Scope: names introduced by `bind`/implicit binders visible throughout the comprehension, not outside.
 - Desugar (list): `lines.map&(.trim()).filter&(.len > 0).to_list()`.

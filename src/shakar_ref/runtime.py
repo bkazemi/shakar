@@ -1112,6 +1112,7 @@ def _call_shkfn_raw(
             cancel_token=caller_frame.cancel_token,
             call_stack=caller_frame.call_stack,
         )
+        callee_frame.frozen_scope_names = fn.frame.frozen_scope_names
         callee_frame.mark_function_frame()
 
         try:
@@ -1127,6 +1128,7 @@ def _call_shkfn_raw(
         cancel_token=caller_frame.cancel_token,
         call_stack=caller_frame.call_stack,
     )
+    callee_frame.frozen_scope_names = fn.frame.frozen_scope_names
 
     if named:
         _merge_named_args(
@@ -1210,6 +1212,7 @@ def _execute_decorator_instance(
         cancel_token=caller_frame.cancel_token,
         call_stack=caller_frame.call_stack,
     )
+    deco_frame.frozen_scope_names = inst.decorator.frame.frozen_scope_names
     deco_frame.mark_function_frame()
     params = inst.decorator.params or []
 

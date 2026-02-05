@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Callable, Iterator, Optional
+from typing import Callable, FrozenSet, Iterator, Optional
 
 from ..runtime import (
     Frame,
@@ -155,11 +155,43 @@ def find_emit_target(frame: Frame) -> Optional[ShkValue]:
     return None
 
 
+def collect_scope_names(frame: Frame, stop_at: Optional[Frame]) -> set[str]:
+    """Collect names visible from frame up to an optional boundary frame."""
+    names: set[str] = set()
+    cur: Optional[Frame] = frame
+    while cur is not None:
+        if cur.hoisted_names:
+            names.update(cur.hoisted_names)
+        for scope in cur.all_let_scopes():
+            names.update(scope.keys())
+        names.update(cur.vars.keys())
+        if stop_at is not None and cur is stop_at:
+            break
+        cur = cur.parent
+    return names
+
+
+def snapshot_visible_names(frame: Frame) -> FrozenSet[str]:
+    """Freeze the visible name set at definition time for lexical scoping."""
+    return frozenset(collect_scope_names(frame, stop_at=None))
+
+
+def find_frozen_scope_frame(frame: Frame) -> Optional[Frame]:
+    """Find the nearest frame that marks a frozen lexical boundary."""
+    cur: Optional[Frame] = frame
+    while cur is not None:
+        if cur.frozen_scope_names is not None:
+            return cur
+        cur = cur.parent
+    return None
+
+
 def closure_frame(frame: Frame) -> Frame:
     """Create a closure frame that captures the current emit target."""
     emit_target = find_emit_target(frame)
     closure = Frame(parent=frame, dot=None, emit_target=emit_target)
     closure.capture_let_scopes(frame.all_let_scopes())
+    closure.frozen_scope_names = snapshot_visible_names(frame)
     return closure
 
 

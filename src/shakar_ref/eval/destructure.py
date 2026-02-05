@@ -24,6 +24,7 @@ from ..utils import (
     replicate_empty_sequence,
 )
 from ..tree import Node, Tree, tree_label, tree_children
+from .helpers import collect_scope_names, find_frozen_scope_frame
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 
@@ -165,9 +166,17 @@ def infer_implicit_binders(
     """Collect implicit binder names used inside comprehensions, skipping clashes."""
     names: list[str] = []
     seen: set[str] = set()
+    # Stop at the nearest frozen lexical boundary to avoid outer scope drift.
+    boundary = find_frozen_scope_frame(frame)
+    local_names = collect_scope_names(frame, boundary)
+    frozen_names = boundary.frozen_scope_names if boundary is not None else None
 
     def consider(name: str) -> None:
-        if name in seen or _name_exists(frame, name):
+        if name in seen:
+            return
+        if name in local_names:
+            return
+        if frozen_names is not None and name in frozen_names:
             return
 
         seen.add(name)
@@ -208,14 +217,6 @@ def apply_comp_binders(
         # hoisted binders write into the outer scope so closures can reuse them.
         target_frame = outer_frame if binder.get("hoist") else iter_frame
         assign_fn(binder["pattern"], val, target_frame)
-
-
-def _name_exists(frame: Frame, name: str) -> bool:
-    try:
-        frame.get(name)
-        return True
-    except ShakarRuntimeError:
-        return False
 
 
 def eval_destructure(

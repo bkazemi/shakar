@@ -2977,6 +2977,39 @@ pairs[1][1]""",
 )
 runtime_scenario(
     _rt(
+        "listcomp-implicit-binder-freeze",
+        """fn make():
+  [x over [1, 2]]
+x := 99
+make()[0]""",
+        ("number", 1),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "listcomp-forward-fn",
+        """fn board_lines(board):
+  [row_str(row) over board]
+fn row_str(row): row[0]
+board_lines([[1]])[0]""",
+        ("number", 1),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "listcomp-local-capture",
+        """fn make():
+  a := 10
+  [a over [1, 2]][0]
+make()""",
+        ("number", 10),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
         "setliteral-sum",
         """vals := set{1, 2, 1}
 total := 0
@@ -3010,6 +3043,28 @@ obj["b"]""",
 )
 runtime_scenario(
     _rt("fn-definition", "fn add(x, y): x + y; add(2, 3)", ("number", 5), None)
+)
+runtime_scenario(
+    _rt(
+        "fn-forward-ref",
+        """fn b():
+  a()
+fn a(): 42
+b()""",
+        ("number", 42),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "fn-forward-call-error",
+        """fn a():
+  b()
+a()
+fn b(): 1""",
+        None,
+        ShakarRuntimeError,
+    )
 )
 runtime_scenario(
     _rt("fn-closure", "y := 5; fn addY(x): x + y; addY(2)", ("number", 7), None)
