@@ -2834,6 +2834,8 @@ runtime_scenario(_rt("float-exponent-underscore-exp", "1e1_0", ("number", 1e10),
 runtime_scenario(_rt("float-exponent-leading-underscore", "1e_5", None, LexError))
 runtime_scenario(_rt("float-dot-no-frac", "1.e5", None, LexError))
 runtime_scenario(_rt("float-trailing-dot", "1e5.", None, LexError))
+runtime_scenario(_rt("number-invalid-suffix", "1scec", None, LexError))
+runtime_scenario(_rt("number-invalid-suffix-underscore", "1_foo", None, LexError))
 runtime_scenario(
     _rt(
         "duration-total-nsec",

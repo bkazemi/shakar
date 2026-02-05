@@ -677,6 +677,11 @@ class Lexer:
             literal_type = TT.SIZE
 
         if unit is None:
+            # Reject number followed by letters (invalid suffix or typo like 1scec)
+            if self.peek().isalpha() or self.peek() == "_":
+                raise LexError(
+                    f"Invalid number suffix at line {start_line}, col {start_col}"
+                )
             self.emit(TT.NUMBER, value, start_line=start_line, start_col=start_col)
             return
 
