@@ -19,9 +19,10 @@ body {
     font-family: system-ui, -apple-system, sans-serif;
     background: var(--bg);
     color: var(--text);
-    min-height: 100vh;
+    height: 100vh;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 .splash {
@@ -164,6 +165,8 @@ main {
     grid-template-columns: 1fr 1fr;
     gap: 1px;
     background: var(--border);
+    min-height: 0;
+    overflow: hidden;
 }
 
 main.repl-mode {
@@ -185,6 +188,8 @@ main.repl-mode {
     display: flex;
     flex-direction: column;
     background: var(--bg);
+    min-height: 0;
+    overflow: hidden;
 }
 
 .repl-pane {
@@ -362,10 +367,13 @@ button:disabled {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    overflow: hidden;
 }
 
 #output {
     flex: 1;
+    height: 0;
+    min-height: 0;
     padding: 1rem;
     font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
     font-size: 0.875rem;
