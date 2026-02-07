@@ -104,6 +104,29 @@ def std_print(
     return ShkNil()
 
 
+@register_stdlib("tap", named=True)
+def std_tap(
+    frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkValue:
+    args = _with_subject(subject, args)
+    if len(args) < 2:
+        raise ShakarTypeError("tap(value, fn[, ...args]) expects at least 2 arguments")
+
+    value = args[0]
+    callback = args[1]
+    callback_args = [value, *args[2:]]
+
+    # Deferred imports avoid runtime import cycles with evaluator modules.
+    from .eval.chains import call_value
+    from .evaluator import eval_node
+
+    call_value(callback, callback_args, frame, eval_func=eval_node, named=named)
+    return value
+
+
 @register_stdlib("sleep")
 def std_sleep(
     _frame,

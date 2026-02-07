@@ -4101,6 +4101,39 @@ choose()""",
 runtime_scenario(_rt("stdlib-print", 'print(1, "a")', ("null", None), None))
 runtime_scenario(
     _rt(
+        "stdlib-tap-direct",
+        'tap("abc", print).upper()',
+        ("string", "ABC"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "stdlib-tap-ufcs",
+        '"abc".tap(print).upper()',
+        ("string", "ABC"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "stdlib-tap-forward-named",
+        """fn needs_sep(v, sep): v + sep + v
+"abc".tap(needs_sep, sep: "-")""",
+        ("string", "abc"),
+        None,
+    )
+)
+runtime_scenario(
+    _rt(
+        "stdlib-tap-arity-error",
+        '"abc".tap()',
+        None,
+        ShakarTypeError,
+    )
+)
+runtime_scenario(
+    _rt(
         "defer-runs",
         """flag := 0
 fn setFlag(): { flag = 2 }

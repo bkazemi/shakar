@@ -787,7 +787,7 @@ u := makeUser() and .isValid()
 - **Inline vs block handlers:** `expr catch err: handler_expr` is expression-valued (usable in walrus/assign chains without parentheses). A block-bodied catch (`expr catch err: { … }` or newline/indent) is statement-valued and yields `nil`. Use inline form when you need the handler’s value; use a block when you need multiple statements or don’t care about the value.
 - **assert expr, "msg"`** raises if falsey; build can strip.
 - **throw [expr]** re-raises current payload when expression omitted; otherwise raises new `ShakarRuntimeError` from value (strings → message; objects set `.type/.message`). Bare `throw` (no expression) is valid in inline positions: clause delimiters (`else`, `elif`, `|`), postfix guards (`if`, `unless`), and standard terminators (newline, `;`, `}`, `)`, `,`) all end the bare form. Examples: `if cond: throw else: 0`, `throw if err`.
-- **Helpers**: `error(type, message, data?)` builds tagged payload; `dbg expr` logs and returns expr (strip-able).
+- **Helpers**: `error(type, message, data?)` builds tagged payload; `dbg expr` logs and returns expr (strip-able); `tap(value, fn, ...args)` calls `fn(value, ...args)` and returns `value` for side-effect-friendly chaining.
 - **Events**: `hook "name": .emit()` ⇒ `Event.on(name, &( .emit()))`.
 
 ---
@@ -802,7 +802,7 @@ u := makeUser() and .isValid()
   send("bob@x.com", subject: "Hi", "…")            # interleaved is fine
   ```
   Errors: unknown named arg name, same parameter filled by both positional and named, arity mismatch, duplicate named arg. Stdlib functions with `accepts_named` receive the raw named dict for open-ended named args (e.g., `print(sep: "\n")`); for these, positional args must not appear on both sides of named args (`print("a", sep: "\n", "b")` is an error). Decorated functions do not currently support named args.
-  - **Style**: when mixing positional and named args, place named args **after** positional args and keep them in parameter-declaration order. `f(1, b: 2)` is clear; `f(b: 2, 1)` is legal but misleading — the reader may assume `1` relates to the parameter adjacent to `b`, not the first unfilled slot.
+  - **Style**: when mixing positional and named args, place named args **after** positional args and keep them in parameter-declaration order. `f(1, b: 2)` is clear; `f(b: 2, 1)` is legal but misleading — the reader may assume `1` relates to the parameter adjacent to `b`, not the first unfilled slot. In fluent chains, keep `.tap(...)` on the same line as the method/expression it is observing: prefer `.parse().tap(print)` over placing `.tap(print)` on a separate continuation line.
 
 ### Function forms
 
