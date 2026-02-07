@@ -289,14 +289,14 @@ result := wait task
 *   **Grammar**: `tree-sitter-shakar/` contains the Tree-sitter grammar (currently unmaintained; may lag behind the spec).
 *   **Hooks / decorators**: implemented.
 *   **Concurrency**: channels, spawn, wait — experimental.
-*   **Tests**: run `python sanity_check_basic.py` after semantic changes; it exercises the grammar/runtime end-to-end.
+*   **Tests**: run `pytest tests/ --tb=short` after semantic changes; it exercises parser, AST, and runtime behavior end-to-end.
 
 ### Running Tests
 
 To verify the grammar and runtime against regression tests:
 
 ```bash
-python sanity_check_basic.py
+pytest tests/ --tb=short
 ```
 
 ---

@@ -7,7 +7,7 @@ This document describes the canonical AST as consumed by the evaluator. The cano
 - **Parser:** `src/shakar_ref/parser_rd.py`
 - **Normalization:** `src/shakar_ref/ast_transforms.py` (notably `Prune`)
 - **Runtime expectations:** `src/shakar_ref/evaluator.py`
-- **Snapshot:** `sanity_report.txt` from `python sanity_check_basic.py`
+- **Executable checks:** `tests/test_ast.py` and related parser/runtime pytest coverage under `tests/`
 
 If these disagree, the runtime behavior wins.
 
@@ -54,4 +54,4 @@ This is enforced during lvalue parsing; runtime field fan logic assumes it.
 ## Notes
 
 - `grammar.ebnf` documents **syntax**, not the canonical AST.
-- `grammar.lark` is legacy and only used by `sanity_treecheck.py`.
+- `grammar.lark` is legacy and retained for historical reference.
