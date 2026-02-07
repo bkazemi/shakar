@@ -971,29 +971,42 @@ class Parser:
         """
         for_tok = self.expect(TT.FOR)
 
-        # Check for indexed syntax: for[...] (pattern bindings)
-        # Only consume [ if next token is IDENT or CARET (hoist marker)
+        # Check for indexed syntax: for[...] (pattern bindings).
+        # Disambiguation is syntax-based, not whitespace-based:
+        # treat bracket content as binders only when an iterable expression
+        # follows the closing bracket (i.e., `for[pat] expr: ...`).
         if self.check(TT.LSQB) and self.peek(1).type in {TT.IDENT, TT.CARET}:
-            self.advance()  # consume [
-            # Parse first binderpattern (handles ^ident hoist)
-            binder1 = self.parse_binderpattern()
+            binder_start = self.pos
+            saved_previous = self.previous
+            saved_paren_depth = self.paren_depth
 
-            # Check for comma - indicates formap2 (two patterns)
-            if self.match(TT.COMMA):
-                binder2 = self.parse_binderpattern()
+            try:
+                self.advance()  # consume [
+                binder1 = self.parse_binderpattern()
+                binder2 = None
+                if self.match(TT.COMMA):
+                    binder2 = self.parse_binderpattern()
                 self.expect(TT.RSQB)
-                # for[pattern, pattern] expr: body
-                iterable = self.parse_expr()
-                self.expect(TT.COLON)
-                body = self.parse_body()
-                return Tree("formap2", [for_tok, binder1, binder2, iterable, body])
+            except ParseError:
+                self._rewind(binder_start)
+                self.previous = saved_previous
+                self.paren_depth = saved_paren_depth
             else:
-                self.expect(TT.RSQB)
-                # for[pattern] expr: body
-                iterable = self.parse_expr()
-                self.expect(TT.COLON)
-                body = self.parse_body()
-                return Tree("forindexed", [for_tok, binder1, iterable, body])
+                # `for[binders]: ...` has no iterable, so parse it as
+                # subjectful `for [ ... ]: ...` instead.
+                if self.check(TT.COLON):
+                    self._rewind(binder_start)
+                    self.previous = saved_previous
+                    self.paren_depth = saved_paren_depth
+                else:
+                    iterable = self.parse_expr()
+                    self.expect(TT.COLON)
+                    body = self.parse_body()
+                    if binder2 is not None:
+                        return Tree(
+                            "formap2", [for_tok, binder1, binder2, iterable, body]
+                        )
+                    return Tree("forindexed", [for_tok, binder1, iterable, body])
 
         # Check if it's "for x in expr" or "for x, y in expr" (with destructuring)
         if self.check(TT.IDENT):

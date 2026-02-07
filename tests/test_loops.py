@@ -154,6 +154,17 @@ SCENARIOS = [
     pytest.param(
         dedent(
             """\
+            o := {a: 1, b: 2}
+            for [o, o]: .{a,b}
+        """
+        ),
+        None,
+        None,
+        id="for-subject-list-ident-valuefan",
+    ),
+    pytest.param(
+        dedent(
+            """\
             acc := ""
             items := ["x", "y"]
             for items: acc += .
