@@ -7,7 +7,7 @@ from ..tree import Node, Tree, is_tree, tree_children, tree_label
 from .bind import assign_ident, eval_assign_stmt
 from .common import expect_ident_token
 from .destructure import assign_pattern as destructure_assign_pattern
-from .destructure import evaluate_destructure_rhs
+from .destructure import evaluate_destructure_rhs, _extract_pattern_idents
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
 ApplyOpFunc = Callable[[ShkValue, Tree, Frame, EvalFunc], ShkValue]
@@ -74,8 +74,14 @@ def eval_let_destructure(
     if not patterns:
         raise ShakarRuntimeError("Empty let destructure pattern")
 
+    ident_names = _extract_pattern_idents(patterns) if len(patterns) > 1 else None
     values, result = evaluate_destructure_rhs(
-        eval_func, rhs_node, frame, len(patterns), allow_broadcast
+        eval_func,
+        rhs_node,
+        frame,
+        len(patterns),
+        allow_broadcast,
+        ident_names=ident_names,
     )
 
     for pat, val in zip(patterns, values):

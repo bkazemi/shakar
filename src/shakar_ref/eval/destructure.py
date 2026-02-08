@@ -13,7 +13,9 @@ from ..runtime import (
     ShkBool,
     ShkChannel,
     ShkNil,
+    ShkObject,
     ShkValue,
+    ShakarKeyError,
     ShakarRuntimeError,
     ShakarAssertionError,
 )
@@ -36,12 +38,32 @@ def _ident_token_value(node: Node) -> Optional[str]:
     return None
 
 
+def _extract_pattern_idents(patterns: list[Tree]) -> Optional[list[str]]:
+    """Extract identifier names from patterns.
+
+    Returns None if any pattern is not a simple IDENT (e.g. nested tuple
+    patterns), signalling the caller to fall through to positional logic.
+    """
+    names: list[str] = []
+
+    for pat in patterns:
+        if tree_label(pat) != "pattern" or not tree_children(pat):
+            return None
+        ident = _ident_token_value(tree_children(pat)[0])
+        if ident is None:
+            return None
+        names.append(ident)
+
+    return names
+
+
 def evaluate_destructure_rhs(
     eval_fn: EvalFunc,
     rhs_node: Node,
     frame: Frame,
     target_count: int,
     allow_broadcast: bool,
+    ident_names: Optional[list[str]] = None,
 ) -> tuple[list[ShkValue], ShkValue]:
     """Evaluate RHS once and expand/broadcast values to match the target count."""
     if tree_label(rhs_node) == "recv" and target_count == 2:
@@ -71,7 +93,17 @@ def evaluate_destructure_rhs(
     if len(vals) == 1 and target_count > 1:
         single = vals[0]
 
-        if is_sequence_value(single):
+        # Object keyed extraction: if RHS is an object and all LHS
+        # patterns are simple identifiers, extract fields by name.
+        if isinstance(single, ShkObject) and ident_names is not None:
+            extracted: list[ShkValue] = []
+            for name in ident_names:
+                if name not in single.slots:
+                    raise ShakarKeyError(name)
+                extracted.append(single.slots[name])
+            vals = extracted
+            result = ShkArray(vals)
+        elif is_sequence_value(single):
             items = sequence_items(single)
 
             if len(items) == target_count:
@@ -232,8 +264,14 @@ def eval_destructure(
     if not patterns:
         raise ShakarRuntimeError("Empty destructure pattern")
 
+    ident_names = _extract_pattern_idents(patterns) if len(patterns) > 1 else None
     values, result = evaluate_destructure_rhs(
-        eval_func, rhs_node, frame, len(patterns), allow_broadcast
+        eval_func,
+        rhs_node,
+        frame,
+        len(patterns),
+        allow_broadcast,
+        ident_names=ident_names,
     )
 
     # local import avoids circular reference with bind module.

@@ -435,6 +435,9 @@ deep_merge_assign = lvalue , "+>=" , expression ;
 assignor = lvalue , "or=" , expression ;
 
 (* Destructuring *)
+(* NOTE: Object keyed extraction is contextual at runtime, not a grammar-level
+   distinction. When RHS evaluates to an object and all LHS patterns are simple
+   identifiers, fields are extracted by name rather than position. *)
 destructure_statement = ( pattern_list | pattern ) , ( "=" | WALRUS ) , ( destr_rhs | expression ) , [ terminator ] ;
 destr_rhs = expression , ( "," , expression )+ ;
 

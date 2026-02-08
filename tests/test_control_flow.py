@@ -439,6 +439,61 @@ SCENARIOS = [
         None,
         id="lookahead-slice-literal",
     ),
+    # --- Object destructuring (contextual keyed extraction) ---
+    pytest.param(
+        "a, b := {a: 10, b: 20}; a + b",
+        ("number", 30),
+        None,
+        id="obj-destruct-walrus",
+    ),
+    pytest.param(
+        "a := 0; b := 0; a, b = {a: 10, b: 20}; a + b",
+        ("number", 30),
+        None,
+        id="obj-destruct-update",
+    ),
+    pytest.param(
+        "a, b := {a: 1, b: 2, c: 3}; a + b",
+        ("number", 3),
+        None,
+        id="obj-destruct-extra-keys",
+    ),
+    pytest.param(
+        "a, b := {a: 1, c: 2}",
+        None,
+        ShakarRuntimeError,
+        id="obj-destruct-missing-key",
+    ),
+    pytest.param(
+        "a, b := [10, 20]; a + b",
+        ("number", 30),
+        None,
+        id="obj-destruct-not-object",
+    ),
+    pytest.param(
+        'a ~ Int, b := {a: 42, b: "hi"}; a',
+        ("number", 42),
+        None,
+        id="obj-destruct-contract",
+    ),
+    pytest.param(
+        "let a, b := {a: 5, b: 6}; a + b",
+        ("number", 11),
+        None,
+        id="let-obj-destruct",
+    ),
+    pytest.param(
+        "a := {a: 1, b: 2}; a.b",
+        ("number", 2),
+        None,
+        id="obj-destruct-single-pattern",
+    ),
+    pytest.param(
+        "a, b := 0; a + b",
+        ("number", 0),
+        None,
+        id="obj-destruct-scalar-broadcast",
+    ),
 ]
 
 

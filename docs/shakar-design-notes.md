@@ -660,6 +660,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
   ```
   Works on objects only (static error otherwise). If key exists, return value; if missing, return `default:` expression (lazy). Arrays/strings reject `default:` (OOB still throws).
 - **Destructuring & broadcast**: `a, b := 1` broadcasts a single RHS value (evaluated once) to each LHS target when arity requires. LHS requires a pattern list for multiple targets (`a = 1, 2` is an error; use `a, b = 1, 2`). Nested patterns supported via parentheses: `a, (b, c) := [1, [2, 3]]` destructures nested arrays.
+  - **Object keyed extraction**: When the RHS is an object and all LHS patterns are simple identifiers, fields are extracted by matching identifier names as keys: `a, b := {a: 10, b: 20}` binds `a=10, b=20`. Extra keys are ignored; missing keys raise `KeyError`. This is contextual at runtime — no grammar-level distinction. Priority: object extraction > sequence positional > scalar broadcast. Arrays remain positional; scalars still broadcast.
   - **Destructure contracts**: Per-identifier contracts supported via `ident ~ Schema` syntax. Example: `a ~ Int, b ~ Str := get_pair()` validates each value before binding. Contracts are optional and can be mixed: `id ~ Int, name, age := data`. Contracts can be combined with nested patterns: `a ~ Int, (b, c) := [10, [20, 30]]`.
 
 ### Spread Operator `...`
