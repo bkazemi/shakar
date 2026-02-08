@@ -206,37 +206,42 @@ def main() -> None:
     arg = arg or "-"
     source, source_path = _load_source(arg)
 
-    if show_tree:
-        # Parse and show AST without executing
-        init_stdlib()
-        ast2 = _parse_and_lower(source)
-        print(ast2.pretty())
-    else:
-        if enable_py_trace:
-            os.environ["SHAKAR_DEBUG_PY_TRACE"] = "1"
-        try:
+    if enable_py_trace:
+        os.environ["SHAKAR_DEBUG_PY_TRACE"] = "1"
+
+    try:
+        if show_tree:
+            # Parse and show AST without executing
+            init_stdlib()
+            ast2 = _parse_and_lower(source)
+            print(ast2.pretty())
+        else:
             init_stdlib()
             ast2 = _parse_and_lower(source)
             stmt = _last_is_stmt(ast2)
             result = eval_expr(
                 ast2, Frame(source=source, source_path=source_path), source=source
             )
-        except ShakarRuntimeError as exc:
-            print(str(exc), file=sys.stderr)
-            if debug_py_trace_enabled():
-                import traceback
-
-                tb = getattr(exc, "shk_py_trace", None)
-                if tb is not None:
-                    print("\nPython traceback:", file=sys.stderr)
-                    print("".join(traceback.format_tb(tb)), file=sys.stderr, end="")
-            raise SystemExit(1) from None
-        else:
             if not stmt and not isinstance(result, ShkNil):
                 print(result)
-        finally:
-            if enable_py_trace:
-                os.environ.pop("SHAKAR_DEBUG_PY_TRACE", None)
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None
+    except (ParseError, LexError) as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1) from None
+    except ShakarRuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        if debug_py_trace_enabled():
+            import traceback
+
+            tb = getattr(exc, "shk_py_trace", None)
+            if tb is not None:
+                print("\nPython traceback:", file=sys.stderr)
+                print("".join(traceback.format_tb(tb)), file=sys.stderr, end="")
+        raise SystemExit(1) from None
+    finally:
+        if enable_py_trace:
+            os.environ.pop("SHAKAR_DEBUG_PY_TRACE", None)
 
 
 if __name__ == "__main__":
