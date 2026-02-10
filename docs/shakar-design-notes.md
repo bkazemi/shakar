@@ -3,8 +3,8 @@
 Status: concept/spec notes for early compiler & toolchain.
 Audience: language implementers and contributors.
 Mantra: *Sweet syntax, obvious desugar, zero ceremony.*
-Philosophy: keep the core tiny and predictable; push ergonomics into first-class, deterministic sugars.
-This is a living technical spec. Every surface sugar has a deterministic desugar to a small, boring core.
+Philosophy: keep the core tiny and predictable; push ergonomics into deterministic sugar over core primitives.
+This is a living technical spec. The language grows in two ways: new runtime primitives with explicit semantics, and sugar that lowers deterministically to existing primitives. If it needs compiler special-casing, it's a primitive, not sugar.
 
 - ✅ **Committed**: part of v0.1 surface.
 - 🧪 **Experimental**: likely to ship; behind a flag.
@@ -15,6 +15,8 @@ This is a living technical spec. Every surface sugar has a deterministic desugar
 ## Philosophy & Invariants
 
 - **Ergonomics over ceremony**; sugars are explicit and desugar cleanly.
+- **Deterministic sugar lowering**: sugar lowers deterministically to existing runtime primitives. The lowering is inspectable (`--desugar`, `:desugar` in REPL) and predictable — the same surface form always produces the same lowered form. "Obvious desugar" is semantic, not textual; lowering may introduce hygienic internal symbols, so lowered IR/AST is not guaranteed to be source-roundtrippable Shakar code.
+- **Primitives vs sugar**: not every capability is sugar. Channels, `spawn`, structural match, core control flow — these are primitives with their own semantics. New primitives are allowed when the feature cannot be expressed as a deterministic lowering to existing ones. The rule: either it's sugar (deterministic lowering) or a primitive (explicit semantics). Nothing pretends to lower while secretly requiring compiler special-casing.
 - **Expression-local magic only**: implicit subject `.` never crosses statement boundaries; it follows the anchor stack rules.
 - **Truthiness**: falsey = `nil`, `false`, zero numbers/durations/sizes, empty strings/arrays/fans/objects/paths/commands; truthy = non-empty of those. Regexes, selectors, functions/methods, and type descriptors are invalid in boolean contexts (type error).
 - **Evaluation**: eager; `and`/`or` short-circuit.

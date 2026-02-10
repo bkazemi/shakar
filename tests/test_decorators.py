@@ -4,7 +4,7 @@ from textwrap import dedent
 
 import pytest
 
-from tests.support.harness import run_runtime_case
+from tests.support.harness import ShakarRuntimeError, run_runtime_case
 
 SCENARIOS = [
     pytest.param(
@@ -85,6 +85,32 @@ SCENARIOS = [
         ("number", 8),
         None,
         id="decorator-params",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            decorator bad(f): args
+            @bad(1)
+            fn id(x): x
+            id(7)
+        """
+        ),
+        None,
+        ShakarRuntimeError,
+        id="decorator-reserved-param-f",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            decorator bad(args): args
+            @bad(1)
+            fn id(x): x
+            id(7)
+        """
+        ),
+        None,
+        ShakarRuntimeError,
+        id="decorator-reserved-param-args",
     ),
 ]
 

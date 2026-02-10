@@ -17,7 +17,7 @@ if str(BASE_DIR) not in sys.path:
 if str(SRC_DIR) not in sys.path:
     sys.path.append(str(SRC_DIR))
 
-from shakar_ref.ast_transforms import Prune
+from shakar_ref.ast_transforms import _HOLE_PARAM_PREFIX, Prune
 from shakar_ref.lexer_rd import LexError, Lexer
 from shakar_ref.lower import lower
 from shakar_ref.parser_rd import ParseError, parse_source as parse_rd
@@ -349,7 +349,7 @@ def check_holes(ast: object) -> Optional[str]:
         return "hole lambda missing paramlist"
 
     params = [tok.value for tok in lam.children[0].children]
-    if params != ["_hole0", "_hole1"]:
+    if params != [f"{_HOLE_PARAM_PREFIX}0", f"{_HOLE_PARAM_PREFIX}1"]:
         return f"unexpected params {params}"
     return None
 

@@ -33,6 +33,7 @@ from .common import (
 from .helpers import closure_frame
 
 EvalFunc = Callable[[Node, Frame], ShkValue]
+_DECORATOR_RESERVED_BINDINGS = frozenset({"f", "args"})
 
 
 def eval_hook_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
@@ -219,6 +220,12 @@ def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
     params, varargs, defaults, _contracts, _spread_contracts = (
         extract_function_signature(params_node, context="decorator definition")
     )
+    for param_name in params:
+        if param_name in _DECORATOR_RESERVED_BINDINGS:
+            raise ShakarRuntimeError(
+                f"Decorator parameter '{param_name}' is reserved for decorator context"
+            )
+
     decorator = ShkDecorator(
         params=params,
         body=body_node,

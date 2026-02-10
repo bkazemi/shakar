@@ -23,6 +23,7 @@ from .parser_rd import parse_expr_fragment
 from .eval.common import param_default_expr
 
 InterpolationSegment: TypeAlias = tuple[str, str | Node]
+_HOLE_PARAM_PREFIX = "0__hole"
 
 
 def looks_like_offside(code: str) -> bool:
@@ -1179,7 +1180,9 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
             return node
 
         if label == "holeexpr":
-            name = f"_hole{len(holes)}"
+            # Hole params must be impossible to spell in source so user code
+            # can never collide with lowered internals.
+            name = f"{_HOLE_PARAM_PREFIX}{len(holes)}"
             holes.append(name)
             return Tok(TT.IDENT, name)
         cloned_children = [clone(child) for child in tree_children(node)]

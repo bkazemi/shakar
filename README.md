@@ -15,6 +15,7 @@ The **source of truth** for the language is the [design notes](docs/shakar-desig
 *   **Subject-Oriented**: Most scripting involves reading a value, transforming it, and writing it back. Shakar makes that the default path instead of a pattern you hand-wire every time.
 *   **Zero Ceremony**: Implicit main, eager evaluation, and dynamic typing suitable for scripting.
 *   **Tooling First**: The grammar is developed with a recursive-descent parser (Tree-sitter grammar exists but is currently unmaintained).
+*   **Deterministic Lowering**: Desugaring guarantees deterministic behavioral lowering to core forms; it does not guarantee that lowered IR/AST prints as valid roundtrippable Shakar source.
 
 ## Setup & Usage
 

@@ -238,6 +238,19 @@ SCENARIOS = [
         id="lambda-hole-runtime",
     ),
     pytest.param(
+        dedent(
+            """\
+            _hole0 := 100
+            fn add(a, b): a + b
+            partial := add(?, _hole0)
+            partial(1)
+        """
+        ),
+        ("number", 101),
+        None,
+        id="lambda-hole-collision-free",
+    ),
+    pytest.param(
         "blend(?, ?, 0.25)()",
         None,
         SyntaxError,

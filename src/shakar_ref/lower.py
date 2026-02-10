@@ -6,7 +6,11 @@ from .token_types import TT
 
 from .tree import Node, is_tree, tree_children, tree_label
 from .tree import is_token as is_token
-from .ast_transforms import _infer_amp_lambda_params, normalize_param_contracts
+from .ast_transforms import (
+    _HOLE_PARAM_PREFIX,
+    _infer_amp_lambda_params,
+    normalize_param_contracts,
+)
 
 
 def lower(ast: Node) -> Node:
@@ -94,7 +98,9 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
         if label is None:
             return node
         if label == "holeexpr":
-            name = f"_hole{len(holes)}"
+            # Hole params must be impossible to spell in source so user code
+            # can never collide with lowered internals.
+            name = f"{_HOLE_PARAM_PREFIX}{len(holes)}"
             holes.append(name)
             return Tok(TT.IDENT, name, 0, 0)
 
