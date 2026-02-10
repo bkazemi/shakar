@@ -426,6 +426,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
 - Methods: `obj.m(args)` sets `self=obj`.
 - Contextual `get/set` in object literals desugar to descriptor slots. Getter arity 0; setter arity 1.
 - Literal keys: identifier (`a: expr`), string (`"a-b": expr`), computed (`(expr): expr`).
+- **Punning**: bare identifier `{x}` desugars to `{x: x}` — the key is the identifier name, the value is the variable's current binding. Only IDENT tokens are punnable; `over` requires explicit `: value`.
 - Access: `obj.key` for identifier keys (method fusion), `obj[expr]`/`obj["k"]` for all keys.
 - Shape tagging: `closed` when all keys are identifiers and no computed keys or spreads (duplicate identifier keys are errors); `open` otherwise (dict path; last write wins).
 - Validator: enforce getter/setter arities; forbid duplicate identifier keys in closed shapes; require bracket access for non-ident keys. Printer preserves order; block bodies allowed after `:`.

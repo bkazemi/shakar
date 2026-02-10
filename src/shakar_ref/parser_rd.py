@@ -1272,6 +1272,9 @@ class Parser:
                 return True
             if nxt.type == TT.LPAR and self._scan_colon_after_parens(self.pos + 1):
                 return True
+            # Pun: bare IDENT followed by separator or closing brace
+            if nxt.type in {TT.COMMA, TT.RBRACE}:
+                return True
         # Expression key: (expr): value - need to scan beyond the closing paren
         if self.check(TT.LPAR):
             # Scan for matching closing paren and check if colon follows
@@ -3989,6 +3992,10 @@ class Parser:
                     expr = self.parse_expr()
                     body = Tree("body", [expr], attrs={"inline": True})
                 return Tree("obj_method", [name, params, body])
+
+            # Pun: bare IDENT (not followed by : or ?) → {x} desugars to {x: x}
+            if name.type == TT.IDENT and not self.check(TT.COLON, TT.QMARK):
+                return Tree("obj_field", [Tree("key_ident", [name]), name])
 
             # Field: name: value or name?: value (optional)
             is_optional = self.match(TT.QMARK)

@@ -459,6 +459,52 @@ SCENARIOS = [
         None,
         id="object-update-basic",
     ),
+    # Object punning
+    pytest.param(
+        "x := 42; {x}.x",
+        ("number", 42),
+        None,
+        id="obj-pun-single",
+    ),
+    pytest.param(
+        "x := 1; y := 2; o := {x, y}; o.x + o.y",
+        ("number", 3),
+        None,
+        id="obj-pun-multi",
+    ),
+    pytest.param(
+        "x := 1; {x, y: 2}.y",
+        ("number", 2),
+        None,
+        id="obj-pun-mixed",
+    ),
+    pytest.param(
+        "x := 1; base := {y: 2}; {x, ...base}.y",
+        ("number", 2),
+        None,
+        id="obj-pun-with-spread",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            x := 1
+            y := 2
+            {
+              x
+              y
+            }.x
+        """
+        ),
+        ("number", 1),
+        None,
+        id="obj-pun-newline-sep",
+    ),
+    pytest.param(
+        "x := 1; {x,}.x",
+        ("number", 1),
+        None,
+        id="obj-pun-trailing-comma",
+    ),
 ]
 
 

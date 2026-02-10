@@ -364,7 +364,8 @@ object_literal = "{" , [ object_items ] , "}" ;
 object_items = [ obj_sep ]* , object_item , { [ obj_sep ]* , object_item } , [ obj_sep ]* ;
 obj_sep = COMMA | SEMI | NEWLINE | INDENT | DEDENT ;
 
-object_item = ( ( IDENT | "over" ) , [ QMARK ] , ":" , ( obj_body | ( [ NEWLINE ] , expression ) ) )
+object_item = IDENT                                                                                    (* pun: {x} desugars to {x: x} *)
+            | ( ( IDENT | "over" ) , [ QMARK ] , ":" , ( obj_body | ( [ NEWLINE ] , expression ) ) )
             | ( SPREAD , expression )
             | ( ( STRING | RAW_STRING | RAW_HASH_STRING ) , ":" , ( obj_body | ( [ NEWLINE ] , expression ) ) )
             | ( key_expr , ":" , ( obj_body | ( [ NEWLINE ] , expression ) ) )
