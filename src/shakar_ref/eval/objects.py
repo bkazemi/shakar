@@ -15,6 +15,7 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
+from ..types import Builtins
 from ..tree import Tree, is_token, is_tree, tree_children, tree_label
 from .common import (
     expect_ident_token as _expect_ident_token,
@@ -147,6 +148,16 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
                 key = eval_key(key_node, frame, eval_func)
                 val = eval_anchor_scoped(val_node, frame, eval_func)
                 slots[str(key)] = val
+            case "obj_field_optional":
+                # Hygienic sugar: resolve Optional directly from builtins,
+                # bypassing scope so user-defined Optional cannot shadow it.
+                key_node, val_node = item.children
+                key = eval_key(key_node, frame, eval_func)
+                val = eval_anchor_scoped(val_node, frame, eval_func)
+                optional_fn = Builtins.stdlib_functions.get("Optional")
+                if optional_fn is None:
+                    raise ShakarRuntimeError("Builtin 'Optional' not found")
+                slots[str(key)] = optional_fn.fn(frame, None, [val], None)
             case "obj_get":
                 name_tok, body = item.children
 

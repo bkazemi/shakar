@@ -553,6 +553,18 @@ SCENARIOS = [
         ShakarAssertionError,
         id="destructure-contract-fail",
     ),
+    # Hygienic builtin_ref: user-defined Optional must not shadow key?: sugar
+    pytest.param(
+        dedent(
+            """\
+            Optional = fn(x): "nope"
+            {} ~ {a?: Int}
+        """
+        ),
+        ("bool", True),
+        None,
+        id="optional-syntax-hygienic-shadow",
+    ),
 ]
 
 

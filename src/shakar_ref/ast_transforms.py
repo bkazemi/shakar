@@ -210,16 +210,12 @@ class Prune(Transformer):
         return Tree("obj_field", [Tree("key_expr", [c[0]]), c[1]])
 
     def obj_field_optional(self, c):
-        """Transform optional field: key?: value into key: Optional(value)"""
-        key = c[0]
-        value = c[1]
-        # Wrap value in Optional() call
-        # The correct AST structure is: explicit_chain(IDENT, call(args(...)))
-        optional_call = Tree(
-            "explicit_chain",
-            [Tok(TT.IDENT, "Optional"), Tree("call", [Tree("args", [value])])],
-        )
-        return Tree("obj_field", [key, optional_call])
+        """Preserve optional field sugar: key?: value.
+
+        Kept as a distinct node so the object evaluator can resolve Optional
+        directly from builtins, bypassing scope (hygienic sugar).
+        """
+        return Tree("obj_field_optional", [c[0], c[1]])
 
     def obj_sep(self, _c):
         return Discard
