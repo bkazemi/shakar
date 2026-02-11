@@ -506,11 +506,7 @@ fn zip_with(xs, ys, f):
 
 print("--- Zip With ---")
 print(zip_with([1, 2], [3, 4], &[a, b](a + b)))
-print(zip_with&[l, r](l + r)([1, 2], [3, 4])) catch err:
-    print("callee amp-lambda unavailable:", err)
-
-print(zip_with&(left + right)([1, 2], [3, 4])) catch err:
-    print("implicit param inference unavailable:", err)
+print(zip_with([1, 2], [3, 4], &(left + right)))
 
 # --- Regex ---
 pat := r"(\d+)"
