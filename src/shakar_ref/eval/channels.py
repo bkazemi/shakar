@@ -382,6 +382,15 @@ def _maybe_call_value(
     return value
 
 
+def _swap_remove_by_idx(pending: list[tuple[int, ShkChannel]], idx: int) -> None:
+    """Remove the entry whose original index is *idx* via swap-remove (O(1) removal)."""
+    for pos in range(len(pending)):
+        if pending[pos][0] == idx:
+            pending[pos] = pending[-1]
+            pending.pop()
+            return
+
+
 def _wait_for_any_channel(
     pending: list[tuple[int, ShkChannel]],
     *,
@@ -483,7 +492,7 @@ def eval_wait_all_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             )
             name, _ = arms[idx]
             results[name] = value
-            pending = [(i, ch) for i, ch in pending if i != idx]
+            _swap_remove_by_idx(pending, idx)
     except Exception as exc:
         _cancel_pending([ch for _, ch in pending])
         raise exc
@@ -522,7 +531,7 @@ def eval_wait_group_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValu
             idx, _ = _wait_for_any_channel(
                 pending, frame=frame, allow_closed_skip=False
             )
-            pending = [(i, ch) for i, ch in pending if i != idx]
+            _swap_remove_by_idx(pending, idx)
     except Exception as exc:
         _cancel_pending([ch for _, ch in pending])
         raise exc
@@ -550,7 +559,7 @@ def eval_wait_all_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
                 pending, frame=frame, allow_closed_skip=False
             )
             results[idx] = val
-            pending = [(i, ch) for i, ch in pending if i != idx]
+            _swap_remove_by_idx(pending, idx)
     except Exception as exc:
         _cancel_pending([ch for _, ch in pending])
         raise exc
@@ -576,7 +585,7 @@ def eval_wait_group_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue
             idx, _ = _wait_for_any_channel(
                 pending, frame=frame, allow_closed_skip=False
             )
-            pending = [(i, ch) for i, ch in pending if i != idx]
+            _swap_remove_by_idx(pending, idx)
     except Exception as exc:
         _cancel_pending([ch for _, ch in pending])
         raise exc

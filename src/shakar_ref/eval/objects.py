@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from typing import Callable, List, Optional, Tuple
 
 from ..tree import Tok
@@ -93,10 +94,10 @@ def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
         params: List[str] = []
 
         if is_tree(args_node):
-            queue = list(args_node.children)
+            queue = deque(args_node.children)
 
             while queue:
-                raw = queue.pop(0)
+                raw = queue.popleft()
 
                 raw_label = tree_label(raw)
                 if raw_label in {"namedarg", "kwarg"}:

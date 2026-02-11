@@ -47,10 +47,9 @@ def match_structure(lhs: ShkValue, rhs: ShkValue) -> bool:
     if isinstance(rhs, ShkSelector):
         if not isinstance(lhs, ShkNumber):
             return False
-        from .selector import selector_iter_values
+        from .selector import selector_contains
 
-        values = selector_iter_values(rhs)
-        return lhs in values
+        return selector_contains(rhs, lhs)
 
     if isinstance(rhs, ShkObject):
         if not isinstance(lhs, ShkObject):

@@ -984,9 +984,14 @@ class Frame:
         self._let_scopes[-1][name] = val
 
     def _find_let_scope(self, name: str) -> Optional[Dict[str, ShkValue]]:
-        for scope in reversed(self.all_let_scopes()):
+        # Search live scopes (innermost first), then captured scopes.
+        for scope in reversed(self._let_scopes):
             if name in scope:
                 return scope
+        for scope in reversed(self._captured_let_scopes):
+            if name in scope:
+                return scope
+
         return None
 
     def get(self, name: str) -> ShkValue:

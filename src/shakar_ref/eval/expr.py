@@ -54,14 +54,15 @@ def _unwrap_op_label(op: Node) -> str:
 def maybe_valuefan_broadcast(
     val: ShkValue,
     op: Node,
-    remaining_ops: List[Node],
+    ops: List[Node],
+    next_index: int,
     frame: Frame,
     eval_func: EvalFunc,
 ) -> Optional[ShkFan]:
     """If valuefan with trailing ops and val is array, return fan chain result; else None."""
-    if _unwrap_op_label(op) == "valuefan" and remaining_ops:
+    if _unwrap_op_label(op) == "valuefan" and next_index < len(ops):
         if isinstance(val, ShkArray):
-            return eval_fan_chain(ShkFan(val.items), remaining_ops, frame, eval_func)
+            return eval_fan_chain(ShkFan(val.items), ops[next_index:], frame, eval_func)
     return None
 
 
@@ -123,7 +124,7 @@ def eval_explicit_chain(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkVal
         val = chain_apply_op(val, op, frame, eval_func)
 
         # Valuefan with trailing ops: switch to fan broadcasting
-        fan_result = maybe_valuefan_broadcast(val, op, ops[i + 1 :], frame, eval_func)
+        fan_result = maybe_valuefan_broadcast(val, op, ops, i + 1, frame, eval_func)
         if fan_result is not None:
             return fan_result
 

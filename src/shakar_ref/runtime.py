@@ -798,6 +798,18 @@ def _envvar_unset(_frame: Frame, recv: ShkEnvVar, args: List[ShkValue]) -> ShkNi
     return ShkNil()
 
 
+_BUILTIN_METHOD_REGISTRY: Dict[type, MethodRegistry] = {
+    ShkArray: Builtins.array_methods,
+    ShkString: Builtins.string_methods,
+    ShkRegex: Builtins.regex_methods,
+    ShkObject: Builtins.object_methods,
+    ShkCommand: Builtins.command_methods,
+    ShkPath: Builtins.path_methods,
+    ShkEnvVar: Builtins.envvar_methods,
+    ShkChannel: Builtins.channel_methods,
+}
+
+
 def call_builtin_method(
     recv: ShkValue, name: str, args: List[ShkValue], frame: "Frame"
 ) -> ShkValue:
@@ -813,18 +825,7 @@ def call_builtin_method(
                 raise ShakarTypeError(f"Env var '{recv.name}' has no value")
             return str_handler(frame, ShkString(env_val), args)
 
-    registry_by_type: Dict[type, MethodRegistry] = {
-        ShkArray: Builtins.array_methods,
-        ShkString: Builtins.string_methods,
-        ShkRegex: Builtins.regex_methods,
-        ShkObject: Builtins.object_methods,
-        ShkCommand: Builtins.command_methods,
-        ShkPath: Builtins.path_methods,
-        ShkEnvVar: Builtins.envvar_methods,
-        ShkChannel: Builtins.channel_methods,
-    }
-
-    registry = registry_by_type.get(type(recv))
+    registry = _BUILTIN_METHOD_REGISTRY.get(type(recv))
     if registry:
         handler = registry.get(name)
         if handler is not None:
@@ -1021,9 +1022,9 @@ def _merge_named_args(
     raise arity errors. Each parameter is bound via on_bind before
     evaluating subsequent defaults, so defaults can reference earlier params.
     """
-    param_set = set(params)
+    param_to_index = {name: i for i, name in enumerate(params)}
     for key in named:
-        if key not in param_set:
+        if key not in param_to_index:
             raise ShakarTypeError(f"Unknown named argument: {key}")
 
     spread_index: Optional[int] = None
@@ -1038,7 +1039,7 @@ def _merge_named_args(
     named_indices: set[int] = set()
 
     for key, val in named.items():
-        idx = params.index(key)
+        idx = param_to_index[key]
         merged[idx] = val
         named_indices.add(idx)
 

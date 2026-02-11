@@ -256,7 +256,7 @@ def _eval_implicit_chain(ops: List[Tree], frame: Frame) -> ShkValue:
         val = apply_op(val, op, frame, eval_node)
 
         # Valuefan with trailing ops: switch to fan broadcasting
-        fan_result = maybe_valuefan_broadcast(val, op, ops[i + 1 :], frame, eval_node)
+        fan_result = maybe_valuefan_broadcast(val, op, ops, i + 1, frame, eval_node)
         if fan_result is not None:
             return fan_result
 
