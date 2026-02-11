@@ -450,7 +450,7 @@ def _array_map(frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArray:
 
     results = []
     for item in recv.items:
-        results.append(call_value(callback, [item], frame, eval_func=eval_node))
+        results.append(call_value(callback, [item], frame, eval_fn=eval_node))
 
     return ShkArray(results)
 
@@ -467,7 +467,7 @@ def _array_filter(frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArra
 
     results = []
     for item in recv.items:
-        res = call_value(predicate, [item], frame, eval_func=eval_node)
+        res = call_value(predicate, [item], frame, eval_fn=eval_node)
         if is_truthy(res):
             results.append(item)
 
@@ -484,9 +484,7 @@ def _array_update(frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArra
     from .evaluator import eval_node
 
     for i in range(len(recv.items)):
-        recv.items[i] = call_value(
-            callback, [recv.items[i]], frame, eval_func=eval_node
-        )
+        recv.items[i] = call_value(callback, [recv.items[i]], frame, eval_fn=eval_node)
 
     return recv
 
@@ -505,7 +503,7 @@ def _array_keep(frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArray:
     recv.items[:] = [
         item
         for item in recv.items
-        if is_truthy(call_value(predicate, [item], frame, eval_func=eval_node))
+        if is_truthy(call_value(predicate, [item], frame, eval_fn=eval_node))
     ]
 
     return recv
@@ -622,7 +620,7 @@ def _object_update(frame: Frame, recv: ShkObject, args: List[ShkValue]) -> ShkOb
 
     for key, value in recv.slots.items():
         # Update values in-place. We don't touch keys to avoid iteration issues.
-        recv.slots[key] = call_value(callback, [value], frame, eval_func=eval_node)
+        recv.slots[key] = call_value(callback, [value], frame, eval_fn=eval_node)
 
     return recv
 

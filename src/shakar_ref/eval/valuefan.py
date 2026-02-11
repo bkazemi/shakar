@@ -11,7 +11,7 @@ from .mutation import get_field_value, set_field_value
 
 
 def eval_valuefan(
-    base: ShkValue, fan_node: Tree, frame: Frame, eval_func, apply_op
+    base: ShkValue, fan_node: Tree, frame: Frame, eval_fn, apply_op
 ) -> ShkValue:
     """Evaluate value fanout `base.{...}` to an array; base is evaluated already."""
     items: List[ShkValue] = []
@@ -24,13 +24,13 @@ def eval_valuefan(
                 raise ShakarRuntimeError("Value fan cannot contain duplicate fields")
             seen.add(key)
 
-        items.append(_eval_item(base, item, frame, eval_func, apply_op))
+        items.append(_eval_item(base, item, frame, eval_fn, apply_op))
 
     return ShkArray(items)
 
 
 def build_valuefan_context(
-    base: ShkValue, fan_node: Tree, frame: Frame, eval_func, apply_op
+    base: ShkValue, fan_node: Tree, frame: Frame, eval_fn, apply_op
 ) -> FanContext:
     """Build a FanContext for valuefan in rebind chains, enabling writeback."""
     contexts: List[RebindContext] = []
@@ -69,7 +69,7 @@ def build_valuefan_context(
             val = get_field_value(base, head.value, frame)
 
             for op in ops:
-                val = apply_op(val, op, frame, eval_func)
+                val = apply_op(val, op, frame, eval_fn)
                 if isinstance(val, RebindContext):
                     val = val.value
 
@@ -79,15 +79,13 @@ def build_valuefan_context(
         else:
             # Fallback: evaluate with no writeback
             val_frame = Frame(parent=frame, dot=base)
-            val = eval_func(item, val_frame)
+            val = eval_fn(item, val_frame)
             contexts.append(RebindContext(val, lambda v: None))
 
     return FanContext(contexts)
 
 
-def _eval_item(
-    base: ShkValue, item: Tree, frame: Frame, eval_func, apply_op
-) -> ShkValue:
+def _eval_item(base: ShkValue, item: Tree, frame: Frame, eval_fn, apply_op) -> ShkValue:
     """Evaluate a single valuefan item, applying postfix ops starting from base.field."""
     label = tree_label(item)
     if label == "field":
@@ -103,14 +101,14 @@ def _eval_item(
         val = get_field_value(base, head.value, frame)
 
         for op in ops:
-            val = apply_op(val, op, frame, eval_func)
+            val = apply_op(val, op, frame, eval_fn)
             if isinstance(val, RebindContext):
                 val = val.value
         return val
 
     # Fallback: evaluate normally with anchor = base
     val_frame = Frame(parent=frame, dot=base)
-    return eval_func(item, val_frame)
+    return eval_fn(item, val_frame)
 
 
 def _iter_items(fan_node: Tree):

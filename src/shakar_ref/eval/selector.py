@@ -35,10 +35,10 @@ from ..tree import (
 from ..token_types import TT
 from .helpers import eval_anchor_scoped
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
 
 
-def eval_selectorliteral(node: Tree, frame: Frame, eval_fn: EvalFunc) -> ShkSelector:
+def eval_selectorliteral(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkSelector:
     """Build a Selector value from a literal `` `...` `` expression."""
     sellist = child_by_label(node, "sellist")
     if sellist is None:
@@ -61,7 +61,7 @@ def eval_selectorliteral(node: Tree, frame: Frame, eval_fn: EvalFunc) -> ShkSele
 
 
 def evaluate_selectorlist(
-    node: Tree, frame: Frame, eval_fn: EvalFunc, clamp: bool = True
+    node: Tree, frame: Frame, eval_fn: EvalFn, clamp: bool = True
 ) -> List[SelectorPart]:
     """Evaluate runtime selector expressions like `xs[sel1, sel2]` into parts."""
     selectors: List[SelectorPart] = []
@@ -181,7 +181,7 @@ def selector_contains(selector: ShkSelector, value: ShkValue) -> bool:
 
 
 def _selector_parts_from_selitem(
-    node: Tree, frame: Frame, eval_fn: EvalFunc
+    node: Tree, frame: Frame, eval_fn: EvalFn
 ) -> List[SelectorPart]:
     """Turn a literal selitem node into concrete slice/index parts."""
     inner = child_by_labels(node, {"sliceitem", "indexitem"})
@@ -202,7 +202,7 @@ def _selector_parts_from_selitem(
 
 
 def _selector_slice_from_sliceitem(
-    node: Tree, frame: Frame, eval_fn: EvalFunc
+    node: Tree, frame: Frame, eval_fn: EvalFn
 ) -> SelectorSlice:
     children = list(tree_children(node))
     index = 0
@@ -243,7 +243,7 @@ def _selector_slice_from_sliceitem(
 
 
 def _selector_slice_from_slicesel(
-    node: Tree, frame: Frame, eval_fn: EvalFunc, clamp: bool
+    node: Tree, frame: Frame, eval_fn: EvalFn, clamp: bool
 ) -> SelectorSlice:
     children = list(tree_children(node))
 
@@ -270,7 +270,7 @@ def _selector_slice_from_slicesel(
 
 
 def _eval_optional_expr(
-    node: Optional[Tree], frame: Frame, eval_fn: EvalFunc
+    node: Optional[Tree], frame: Frame, eval_fn: EvalFn
 ) -> Optional[ShkValue]:
     if node is None:
         return None
@@ -288,7 +288,7 @@ def _eval_optional_expr(
 
 
 def _eval_selector_atom(
-    node: Optional[Tree], frame: Frame, eval_fn: EvalFunc
+    node: Optional[Tree], frame: Frame, eval_fn: EvalFn
 ) -> Optional[ShkValue]:
     if node is None:
         return None
@@ -323,7 +323,7 @@ def _eval_selector_atom(
 
 
 def _eval_seloptstop(
-    node: Optional[Tree], frame: Frame, eval_fn: EvalFunc
+    node: Optional[Tree], frame: Frame, eval_fn: EvalFn
 ) -> tuple[ShkValue, bool]:
     if node is None:
         return ShkNil(), False

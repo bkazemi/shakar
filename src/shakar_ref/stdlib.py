@@ -125,7 +125,7 @@ def std_tap(
     from .eval.chains import call_value
     from .evaluator import eval_node
 
-    call_value(callback, callback_args, frame, eval_func=eval_node, named=named)
+    call_value(callback, callback_args, frame, eval_fn=eval_node, named=named)
     return value
 
 

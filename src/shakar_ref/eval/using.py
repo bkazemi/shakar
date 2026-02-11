@@ -22,7 +22,7 @@ from .control import _build_error_payload
 from .helpers import is_truthy
 from .mutation import get_field_value
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
 
 
 def _lookup_method(
@@ -37,12 +37,12 @@ def _lookup_method(
 
 
 def _call_method(
-    method: ShkValue, args: List[ShkValue], frame: Frame, eval_func: EvalFunc
+    method: ShkValue, args: List[ShkValue], frame: Frame, eval_fn: EvalFn
 ) -> ShkValue:
-    return call_value(method, args, frame, eval_func)
+    return call_value(method, args, frame, eval_fn)
 
 
-def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_using_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     handle_tok: Optional[Tok] = None
     binder_tok: Optional[Tok] = None
     expr_node: Optional[Node] = None
@@ -88,13 +88,13 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     elif implicit_bind_name is not None:
         bind_name = implicit_bind_name
 
-    resource = eval_func(expr_node, frame)
+    resource = eval_fn(expr_node, frame)
 
     enter_method = _lookup_method(resource, ["using_enter", "enter"], frame)
     value = resource
 
     if enter_method is not None:
-        value = _call_method(enter_method, [], frame, eval_func)
+        value = _call_method(enter_method, [], frame, eval_fn)
 
     exc: Optional[BaseException] = None
     err_value: Optional[ShkValue] = None
@@ -108,7 +108,7 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
     with ctx:
         try:
-            result = eval_body_node(body_node, frame, eval_func)
+            result = eval_body_node(body_node, frame, eval_fn)
         except BaseException as e:  # noqa: BLE001
             exc = e
 
@@ -145,7 +145,7 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
                 args = _exit_args(exit_method)
 
                 try:
-                    exit_result = _call_method(exit_method, args, frame, eval_func)
+                    exit_result = _call_method(exit_method, args, frame, eval_fn)
                 except BaseException as exit_exc:  # noqa: BLE001
                     if exc is not None:
                         exit_exc.__context__ = exc

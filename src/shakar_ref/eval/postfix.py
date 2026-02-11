@@ -6,7 +6,7 @@ from ..runtime import Frame, ShkNil, ShkValue, ShakarRuntimeError
 from ..tree import Node, find_tree_by_label, is_token, tree_children
 from .common import token_kind
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
 TruthyFunc = Callable[[ShkValue], bool]
 
 
@@ -63,12 +63,12 @@ def eval_postfix_if(
     children: Sequence[Node],
     frame: Frame,
     *,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     truthy_fn: TruthyFunc,
 ) -> ShkValue:
     stmt_node, cond_node = _split_postfix_children(children, {"IF"})
     return _eval_postfix_guard(
-        stmt_node, cond_node, frame, eval_func, truthy_fn, run_on_truthy=True
+        stmt_node, cond_node, frame, eval_fn, truthy_fn, run_on_truthy=True
     )
 
 
@@ -76,13 +76,13 @@ def eval_postfix_unless(
     children: Sequence[Node],
     frame: Frame,
     *,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     truthy_fn: TruthyFunc,
 ) -> ShkValue:
     stmt_node, cond_node = _split_postfix_children(children, {"UNLESS"})
 
     return _eval_postfix_guard(
-        stmt_node, cond_node, frame, eval_func, truthy_fn, run_on_truthy=False
+        stmt_node, cond_node, frame, eval_fn, truthy_fn, run_on_truthy=False
     )
 
 
@@ -90,7 +90,7 @@ def _eval_postfix_guard(
     stmt_node: Node,
     cond_node: Node,
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     truthy_fn: TruthyFunc,
     *,
     run_on_truthy: bool,
@@ -100,11 +100,11 @@ def _eval_postfix_guard(
     if walrus_node is not None:
         walrus_name = _walrus_target_name(walrus_node)
 
-    cond_val = eval_func(cond_node, frame)
+    cond_val = eval_fn(cond_node, frame)
     cond_truthy = truthy_fn(cond_val)
     should_run = cond_truthy if run_on_truthy else not cond_truthy
     if should_run:
-        return eval_func(stmt_node, frame)
+        return eval_fn(stmt_node, frame)
 
     if walrus_name is not None:
         define_new_ident(walrus_name, ShkNil(), frame)

@@ -32,11 +32,11 @@ from .common import (
 )
 from .helpers import closure_frame
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
 _DECORATOR_RESERVED_BINDINGS = frozenset({"f", "args"})
 
 
-def eval_hook_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_hook_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     children = tree_children(n)
     if len(children) != 2:
         raise ShakarRuntimeError("Malformed hook statement")
@@ -52,12 +52,12 @@ def eval_hook_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     # We evaluate the handler (amp_lambda) to ensure it's valid,
     # but we don't execute it or register it yet.
     handler_node = children[1]
-    _ = eval_func(handler_node, frame)
+    _ = eval_fn(handler_node, frame)
 
     return ShkNil()
 
 
-def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_fn_def(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed function definition")
 
@@ -109,7 +109,7 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
     )
 
     if decorators_node is not None:
-        instances = evaluate_decorator_list(decorators_node, frame, eval_func)
+        instances = evaluate_decorator_list(decorators_node, frame, eval_fn)
         if instances:
             fn_value.decorators = tuple(reversed(instances))
 
@@ -311,7 +311,7 @@ def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
 
 
 def evaluate_decorator_list(
-    node: Tree, frame: Frame, eval_func: EvalFunc
+    node: Tree, frame: Frame, eval_fn: EvalFn
 ) -> List[DecoratorConfigured]:
     configured: List[DecoratorConfigured] = []
 
@@ -322,7 +322,7 @@ def evaluate_decorator_list(
         if expr_node is None:
             continue
 
-        value = eval_func(expr_node, frame)
+        value = eval_fn(expr_node, frame)
         configured.append(_coerce_decorator_instance(value))
 
     return configured

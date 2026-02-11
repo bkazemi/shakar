@@ -36,7 +36,7 @@ from .destructure import apply_comp_binders, infer_implicit_binders
 from .helpers import is_truthy as _is_truthy
 from .selector import selector_iter_values
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
 
 
 class BinderSpec(TypedDict):
@@ -286,7 +286,7 @@ def _apply_comp_binders_wrapper(
     element: ShkValue,
     iter_frame: Frame,
     outer_frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
 ) -> None:
     apply_comp_binders(
         lambda pattern, val, target_frame: assign_pattern_value(
@@ -295,7 +295,7 @@ def _apply_comp_binders_wrapper(
             target_frame,
             create=True,
             allow_broadcast=False,
-            eval_func=eval_func,
+            eval_fn=eval_fn,
         ),
         binders,
         element,
@@ -305,7 +305,7 @@ def _apply_comp_binders_wrapper(
 
 
 def _prepare_comprehension(
-    n: Tree, frame: Frame, head_nodes: list[Tree], eval_func: EvalFunc
+    n: Tree, frame: Frame, head_nodes: list[Tree], eval_fn: EvalFn
 ) -> tuple[Tree, list[dict[str, ShkValue]], Optional[Tree]]:
     comphead = child_by_label(n, "comphead")
     if comphead is None:
@@ -326,30 +326,28 @@ def _prepare_comprehension(
             pattern = Tree("pattern", [Tok(TT.IDENT, name, 0, 0)])
             binders.append({"pattern": pattern, "hoist": False})
 
-    iter_val = eval_func(iter_expr_node, frame)
+    iter_val = eval_fn(iter_expr_node, frame)
 
     return iter_val, binders, ifclause
 
 
 def _iterate_comprehension(
-    n: Tree, frame: Frame, head_nodes: list[Tree], eval_func: EvalFunc
+    n: Tree, frame: Frame, head_nodes: list[Tree], eval_fn: EvalFn
 ) -> Iterable[tuple[ShkValue, Frame]]:
-    iter_val, binders, ifclause = _prepare_comprehension(
-        n, frame, head_nodes, eval_func
-    )
+    iter_val, binders, ifclause = _prepare_comprehension(n, frame, head_nodes, eval_fn)
     outer_dot = frame.dot
 
     try:
         for element in _iterable_values(iter_val):
             iter_frame = Frame(parent=frame, dot=element)
-            _apply_comp_binders_wrapper(binders, element, iter_frame, frame, eval_func)
+            _apply_comp_binders_wrapper(binders, element, iter_frame, frame, eval_fn)
 
             if ifclause is not None:
                 cond_node = ifclause.children[-1] if ifclause.children else None
                 if cond_node is None:
                     raise ShakarRuntimeError("Malformed comprehension guard")
 
-                cond_val = eval_func(cond_node, iter_frame)
+                cond_val = eval_fn(cond_node, iter_frame)
 
                 if not _is_truthy(cond_val):
                     continue
@@ -359,7 +357,7 @@ def _iterate_comprehension(
         frame.dot = outer_dot
 
 
-def eval_while_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_while_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     cond_node = None
     body_node = None
 
@@ -379,9 +377,9 @@ def eval_while_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     outer_dot = frame.dot
 
     try:
-        while _is_truthy(eval_func(cond_node, frame)):
+        while _is_truthy(eval_fn(cond_node, frame)):
             try:
-                eval_body_node(body_node, frame, eval_func, allow_loop_control=True)
+                eval_body_node(body_node, frame, eval_fn, allow_loop_control=True)
             except ShakarContinueSignal:
                 continue
             except ShakarBreakSignal:
@@ -392,7 +390,7 @@ def eval_while_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     return ShkNil()
 
 
-def eval_for_in(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_for_in(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     pattern_node = None
     iter_expr = None
     body_node = None
@@ -433,7 +431,7 @@ def eval_for_in(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if pattern_node is None:
         raise ShakarRuntimeError("For-in loop missing pattern")
 
-    iter_source = eval_func(iter_expr, frame)
+    iter_source = eval_fn(iter_expr, frame)
     if isinstance(iter_source, ShkChannel):
         iterable = _iter_channel_values(iter_source, frame)
     else:
@@ -462,13 +460,11 @@ def eval_for_in(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
                 loop_frame,
                 create=True,
                 allow_broadcast=False,
-                eval_func=eval_func,
+                eval_fn=eval_fn,
             )
 
             try:
-                eval_body_node(
-                    body_node, loop_frame, eval_func, allow_loop_control=True
-                )
+                eval_body_node(body_node, loop_frame, eval_fn, allow_loop_control=True)
             except ShakarContinueSignal:
                 continue
             except ShakarBreakSignal:
@@ -478,7 +474,7 @@ def eval_for_in(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     return ShkNil()
 
 
-def eval_for_subject(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_for_subject(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     iter_expr = None
     body_node = None
 
@@ -495,7 +491,7 @@ def eval_for_subject(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if iter_expr is None or body_node is None:
         raise ShakarRuntimeError("Malformed subjectful for loop")
 
-    iter_source = eval_func(iter_expr, frame)
+    iter_source = eval_fn(iter_expr, frame)
     if isinstance(iter_source, ShkChannel):
         iterable = _iter_channel_values(iter_source, frame)
     else:
@@ -507,9 +503,7 @@ def eval_for_subject(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             loop_frame = Frame(parent=frame, dot=value)
 
             try:
-                eval_body_node(
-                    body_node, loop_frame, eval_func, allow_loop_control=True
-                )
+                eval_body_node(body_node, loop_frame, eval_fn, allow_loop_control=True)
             except ShakarContinueSignal:
                 continue
             except ShakarBreakSignal:
@@ -519,7 +513,7 @@ def eval_for_subject(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     return ShkNil()
 
 
-def eval_for_indexed(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_for_indexed(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if n is None:
         raise ShakarRuntimeError("Malformed indexed loop")
 
@@ -543,7 +537,7 @@ def eval_for_indexed(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         raise ShakarRuntimeError("Malformed indexed loop")
 
     binders = [_coerce_loop_binder(node) for node in binder_nodes]
-    iterable = eval_func(iter_expr, frame)
+    iterable = eval_fn(iter_expr, frame)
     entries = _iter_indexed_entries(iterable, len(binders))
     outer_dot = frame.dot
 
@@ -559,13 +553,11 @@ def eval_for_indexed(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
                     target_frame,
                     create=True,
                     allow_broadcast=False,
-                    eval_func=eval_func,
+                    eval_fn=eval_fn,
                 )
 
             try:
-                eval_body_node(
-                    body_node, loop_frame, eval_func, allow_loop_control=True
-                )
+                eval_body_node(body_node, loop_frame, eval_fn, allow_loop_control=True)
             except ShakarContinueSignal:
                 continue
             except ShakarBreakSignal:
@@ -575,31 +567,31 @@ def eval_for_indexed(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     return ShkNil()
 
 
-def eval_for_map2(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
-    return eval_for_indexed(n, frame, eval_func)
+def eval_for_map2(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
+    return eval_for_indexed(n, frame, eval_fn)
 
 
-def eval_listcomp(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
+def eval_listcomp(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkArray:
     body = n.children[0] if n.children else None
     if body is None:
         raise ShakarRuntimeError("Malformed list comprehension")
 
     items = [
-        eval_func(body, iter_frame)
-        for _, iter_frame in _iterate_comprehension(n, frame, [body], eval_func)
+        eval_fn(body, iter_frame)
+        for _, iter_frame in _iterate_comprehension(n, frame, [body], eval_fn)
     ]
 
     return ShkArray(items)
 
 
-def eval_setcomp(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
+def eval_setcomp(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkArray:
     body = n.children[0] if n.children else None
     if body is None:
         raise ShakarRuntimeError("Malformed set comprehension")
 
     items: list[ShkValue] = []
-    for _, iter_frame in _iterate_comprehension(n, frame, [body], eval_func):
-        result = eval_func(body, iter_frame)
+    for _, iter_frame in _iterate_comprehension(n, frame, [body], eval_fn):
+        result = eval_fn(body, iter_frame)
 
         if not value_in_list(items, result):
             items.append(result)
@@ -607,10 +599,10 @@ def eval_setcomp(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
     return ShkArray(items)
 
 
-def eval_setliteral(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
+def eval_setliteral(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkArray:
     items: list[ShkValue] = []
     for child in tree_children(n):
-        val = eval_func(child, frame)
+        val = eval_fn(child, frame)
 
         if not value_in_list(items, val):
             items.append(val)
@@ -618,7 +610,7 @@ def eval_setliteral(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
     return ShkArray(items)
 
 
-def eval_dictcomp(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
+def eval_dictcomp(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkObject:
     if len(n.children) < 3:
         raise ShakarRuntimeError("Malformed dict comprehension")
 
@@ -627,10 +619,10 @@ def eval_dictcomp(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
     slots: dict[str, ShkValue] = {}
 
     for _, iter_frame in _iterate_comprehension(
-        n, frame, [key_node, value_node], eval_func
+        n, frame, [key_node, value_node], eval_fn
     ):
-        key_val = eval_func(key_node, iter_frame)
-        value_val = eval_func(value_node, iter_frame)
+        key_val = eval_fn(key_node, iter_frame)
+        value_val = eval_fn(value_node, iter_frame)
         key_str = normalize_object_key(key_val)
         slots[key_str] = value_val
 

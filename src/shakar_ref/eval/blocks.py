@@ -35,13 +35,13 @@ from .common import expect_ident_token as _expect_ident_token, token_kind as _to
 from .helpers import is_truthy as _is_truthy
 from .chains import call_value, eval_args_node_with_named
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
 
 
 def eval_program(
     children: List[Node],
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     allow_loop_control: bool = False,
 ) -> ShkValue:
     """Run a stmt list under a fresh defer scope, returning last value."""
@@ -61,7 +61,7 @@ def eval_program(
             for child in children:
                 if _token_kind(child) in skip_tokens:
                     continue
-                result = eval_func(child, frame)
+                result = eval_fn(child, frame)
                 frame.pending_anchor_override = None  # clear stale override
         except ShakarBreakSignal:
             if allow_loop_control:
@@ -187,7 +187,7 @@ def schedule_defer(
 
 
 def _eval_inline_body(
-    node: Tree, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool = False
+    node: Tree, frame: Frame, eval_fn: EvalFn, allow_loop_control: bool = False
 ) -> ShkValue:
     """Evaluate an inline body node (single statement or brace-enclosed block)."""
     for child in tree_children(node):
@@ -195,7 +195,7 @@ def _eval_inline_body(
             return eval_program(
                 child.children,
                 frame,
-                eval_func,
+                eval_fn,
                 allow_loop_control=allow_loop_control,
             )
 
@@ -204,21 +204,21 @@ def _eval_inline_body(
 
     push_let_scope(frame)
     try:
-        return eval_func(node.children[0], frame)
+        return eval_fn(node.children[0], frame)
     finally:
         pop_let_scope(frame)
 
 
 def _eval_indent_block(
-    node: Tree, frame: Frame, eval_func: EvalFunc, allow_loop_control: bool = False
+    node: Tree, frame: Frame, eval_fn: EvalFn, allow_loop_control: bool = False
 ) -> ShkValue:
     """Evaluate an indented block body node."""
     return eval_program(
-        node.children, frame, eval_func, allow_loop_control=allow_loop_control
+        node.children, frame, eval_fn, allow_loop_control=allow_loop_control
     )
 
 
-def eval_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_guard(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     """Execute guard chains (`cond1, cond2: body`) in inline or indented form."""
     branches: List[Tree] = []
     else_body: Optional[Tree] = None
@@ -239,15 +239,15 @@ def eval_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkVa
         cond_node, body_node = branch.children
 
         with temporary_subject(frame, outer_dot):
-            cond_val = eval_func(cond_node, frame)
+            cond_val = eval_fn(cond_node, frame)
 
         if _is_truthy(cond_val):
             with temporary_subject(frame, outer_dot):
-                return eval_body_node(body_node, frame, eval_func)
+                return eval_body_node(body_node, frame, eval_fn)
 
     if else_body is not None:
         with temporary_subject(frame, outer_dot):
-            return eval_body_node(else_body, frame, eval_func)
+            return eval_body_node(else_body, frame, eval_fn)
 
     frame.dot = outer_dot
 
@@ -257,7 +257,7 @@ def eval_guard(children: List[Node], frame: Frame, eval_func: EvalFunc) -> ShkVa
 def eval_body_node(
     body_node: Node,
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     allow_loop_control: bool = False,
 ) -> ShkValue:
     label = tree_label(body_node) if is_tree(body_node) else None
@@ -265,20 +265,20 @@ def eval_body_node(
     if label == "body":
         if is_inline_body(body_node):
             return _eval_inline_body(
-                body_node, frame, eval_func, allow_loop_control=allow_loop_control
+                body_node, frame, eval_fn, allow_loop_control=allow_loop_control
             )
         return _eval_indent_block(
-            body_node, frame, eval_func, allow_loop_control=allow_loop_control
+            body_node, frame, eval_fn, allow_loop_control=allow_loop_control
         )
 
-    return eval_func(body_node, frame)
+    return eval_fn(body_node, frame)
 
 
 def run_body_with_subject(
     body_node: Node,
     frame: Frame,
     subject_value: DotValue,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     extra_bindings: Optional[dict[str, ShkValue]] = None,
 ) -> ShkValue:
     if extra_bindings:
@@ -286,10 +286,10 @@ def run_body_with_subject(
             temporary_subject(frame, subject_value),
             temporary_bindings(frame, extra_bindings),
         ):
-            return eval_body_node(body_node, frame, eval_func)
+            return eval_body_node(body_node, frame, eval_fn)
 
     with temporary_subject(frame, subject_value):
-        return eval_body_node(body_node, frame, eval_func)
+        return eval_body_node(body_node, frame, eval_fn)
 
 
 @contextmanager
@@ -357,7 +357,7 @@ def _is_callable_emit_target(value: ShkValue) -> bool:
     )
 
 
-def eval_call_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_call_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     bind_tok: Optional[Node] = None
     target_node: Optional[Node] = None
     body_node: Optional[Tree] = None
@@ -377,7 +377,7 @@ def eval_call_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if target_node is None or body_node is None:
         raise ShakarRuntimeError("Malformed call statement")
 
-    emit_target = eval_func(target_node, frame)
+    emit_target = eval_fn(target_node, frame)
 
     if not _is_callable_emit_target(emit_target):
         raise ShakarRuntimeError("call expects a callable emit target")
@@ -393,29 +393,27 @@ def eval_call_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
     with ctx:
         with temporary_emit_target(frame, emit_target):
-            return eval_body_node(body_node, frame, eval_func)
+            return eval_body_node(body_node, frame, eval_fn)
 
 
-def eval_emit_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_emit_expr(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     emit_target = frame.get_emit_target()
     args_node = n.children[0] if n.children else None
     positional, named, interleaved = eval_args_node_with_named(
-        args_node, frame, eval_func
+        args_node, frame, eval_fn
     )
     return call_value(
         emit_target,
         positional,
         frame,
-        eval_func,
+        eval_fn,
         named=named,
         interleaved=interleaved,
         call_node=n,
     )
 
 
-def eval_defer_stmt(
-    children: List[Node], frame: Frame, eval_func: EvalFunc
-) -> ShkValue:
+def eval_defer_stmt(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed defer statement")
 
@@ -470,9 +468,9 @@ def eval_defer_stmt(
 
         try:
             if body_kind == "block":
-                eval_body_node(payload, child_frame, eval_func)
+                eval_body_node(payload, child_frame, eval_fn)
             else:
-                eval_func(payload, child_frame)
+                eval_fn(payload, child_frame)
         finally:
             pop_defer_scope(child_frame)
 

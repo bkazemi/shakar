@@ -77,9 +77,9 @@ class FanContext:
         return list(self.values)
 
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
-ApplyOpFunc = Callable[[EvalResult, Tree, Frame, EvalFunc], EvalResult]
-IndexEvalFunc = Callable[[Tree, Frame, EvalFunc], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
+ApplyOpFunc = Callable[[EvalResult, Tree, Frame, EvalFn], EvalResult]
+IndexEvalFn = Callable[[Tree, Frame, EvalFn], ShkValue]
 
 
 def assign_ident(name: str, value: ShkValue, frame: Frame, *, create: bool) -> ShkValue:
@@ -94,13 +94,13 @@ def assign_ident(name: str, value: ShkValue, frame: Frame, *, create: bool) -> S
     return value
 
 
-def eval_walrus(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_walrus(children: list[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if len(children) != 2:
         raise ShakarRuntimeError("Malformed walrus expression")
 
     name_node, value_node = children
     name = expect_ident_token(name_node, "Walrus target")
-    value = eval_func(value_node, frame)
+    value = eval_fn(value_node, frame)
 
     return define_new_ident(name, value, frame)
 
@@ -108,21 +108,21 @@ def eval_walrus(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
 def eval_assign_stmt(
     children: list[Node],
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
-    evaluate_index_operand: IndexEvalFunc,
+    evaluate_index_operand: IndexEvalFn,
 ) -> None:
     if len(children) < 2:
         raise ShakarRuntimeError("Malformed assignment statement")
 
     lvalue_node = children[0]
     value_node = children[-1]
-    value = eval_func(value_node, frame)
+    value = eval_fn(value_node, frame)
     assign_lvalue(
         lvalue_node,
         value,
         frame,
-        eval_func=eval_func,
+        eval_fn=eval_fn,
         apply_op=apply_op,
         evaluate_index_operand=evaluate_index_operand,
         create=False,
@@ -145,9 +145,9 @@ _COMPOUND_ASSIGN_OPERATORS: dict[str, str] = {
 def eval_compound_assign(
     children: list[Node],
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
-    evaluate_index_operand: IndexEvalFunc,
+    evaluate_index_operand: IndexEvalFn,
 ) -> None:
     if len(children) < 3:
         raise ShakarRuntimeError("Malformed compound assignment")
@@ -168,11 +168,11 @@ def eval_compound_assign(
     current_value = read_lvalue(
         lvalue_node,
         frame,
-        eval_func=eval_func,
+        eval_fn=eval_fn,
         apply_op=apply_op,
         evaluate_index_operand=evaluate_index_operand,
     )
-    rhs_value = eval_func(rhs_node, frame)
+    rhs_value = eval_fn(rhs_node, frame)
     from .expr import apply_binary_operator
 
     new_value = apply_binary_operator(op_symbol, current_value, rhs_value)
@@ -180,7 +180,7 @@ def eval_compound_assign(
         lvalue_node,
         new_value,
         frame,
-        eval_func=eval_func,
+        eval_fn=eval_fn,
         apply_op=apply_op,
         evaluate_index_operand=evaluate_index_operand,
         create=False,
@@ -192,9 +192,9 @@ def eval_compound_assign(
 def eval_apply_assign(
     children: list[Node],
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
-    evaluate_index_operand: IndexEvalFunc,
+    evaluate_index_operand: IndexEvalFn,
 ) -> ShkValue:
     lvalue_node = None
     rhs_node = None
@@ -212,7 +212,7 @@ def eval_apply_assign(
         lvalue_node,
         rhs_node,
         frame,
-        eval_func=eval_func,
+        eval_fn=eval_fn,
         apply_op=apply_op,
         evaluate_index_operand=evaluate_index_operand,
     )
@@ -221,9 +221,9 @@ def eval_apply_assign(
 def eval_rebind_primary(
     node: Tree,
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
-    evaluate_index_operand: IndexEvalFunc,
+    evaluate_index_operand: IndexEvalFn,
 ) -> RebindContext:
     if not node.children:
         raise ShakarRuntimeError("Missing target for prefix rebind")
@@ -232,7 +232,7 @@ def eval_rebind_primary(
     ctx = resolve_rebind_lvalue(
         target,
         frame,
-        eval_func=eval_func,
+        eval_fn=eval_fn,
         apply_op=apply_op,
         evaluate_index_operand=evaluate_index_operand,
     )
@@ -258,9 +258,9 @@ def resolve_assignable_node(
     node: Node,
     frame: Frame,
     *,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
-    evaluate_index_operand: IndexEvalFunc,
+    evaluate_index_operand: IndexEvalFn,
 ) -> RebindContext | FanContext:
     """Resolve an expression into a rebindable context, unwrapping wrappers as needed."""
     current = node
@@ -279,7 +279,7 @@ def resolve_assignable_node(
         label = tree_label(current)
 
         if label == "rebind_primary":
-            ctx = eval_func(current, frame)
+            ctx = eval_fn(current, frame)
             if isinstance(ctx, RebindContext):
                 return ctx
 
@@ -296,7 +296,7 @@ def resolve_assignable_node(
                 head,
                 ops,
                 frame,
-                eval_func=eval_func,
+                eval_fn=eval_fn,
                 apply_op=apply_op,
                 evaluate_index_operand=evaluate_index_operand,
             )
@@ -305,7 +305,7 @@ def resolve_assignable_node(
             return resolve_assignable_node(
                 current.children[0],
                 frame,
-                eval_func=eval_func,
+                eval_fn=eval_fn,
                 apply_op=apply_op,
                 evaluate_index_operand=evaluate_index_operand,
             )
@@ -328,8 +328,8 @@ def _read_segment(
     op: Tree,
     label: str,
     frame: Frame,
-    evaluate_index_operand: IndexEvalFunc,
-    eval_func: EvalFunc,
+    evaluate_index_operand: IndexEvalFn,
+    eval_fn: EvalFn,
 ) -> ShkValue:
     """Read the current value at a resolved final segment (field or index)."""
     match label:
@@ -337,7 +337,7 @@ def _read_segment(
             name = expect_ident_token(op.children[0], "Field access")
             return get_field_value(target, name, frame)
         case "index" | "lv_index":
-            idx_val = evaluate_index_operand(op, frame, eval_func)
+            idx_val = evaluate_index_operand(op, frame, eval_fn)
             return index_value(target, idx_val, frame)
 
     raise ShakarRuntimeError("Unsupported read target")
@@ -349,8 +349,8 @@ def _write_segment(
     label: str,
     value: ShkValue,
     frame: Frame,
-    evaluate_index_operand: IndexEvalFunc,
-    eval_func: EvalFunc,
+    evaluate_index_operand: IndexEvalFn,
+    eval_fn: EvalFn,
     *,
     create: bool = False,
 ) -> ShkValue:
@@ -360,7 +360,7 @@ def _write_segment(
             name = expect_ident_token(op.children[0], "Field assignment")
             return set_field_value(target, name, value, frame, create=create)
         case "index" | "lv_index":
-            idx_val = evaluate_index_operand(op, frame, eval_func)
+            idx_val = evaluate_index_operand(op, frame, eval_fn)
             return set_index_value(target, idx_val, value, frame)
 
     raise ShakarRuntimeError("Unsupported assignment target")
@@ -371,8 +371,8 @@ def _rebind_segment(
     op: Tree,
     label: str,
     frame: Frame,
-    evaluate_index_operand: IndexEvalFunc,
-    eval_func: EvalFunc,
+    evaluate_index_operand: IndexEvalFn,
+    eval_fn: EvalFn,
 ) -> RebindContext:
     """Build a RebindContext for a field or index final segment."""
     match label:
@@ -391,7 +391,7 @@ def _rebind_segment(
             return RebindContext(value, field_setter)
 
         case "index" | "lv_index":
-            idx_val = evaluate_index_operand(op, frame, eval_func)
+            idx_val = evaluate_index_operand(op, frame, eval_fn)
             value = index_value(owner, idx_val, frame)
 
             def index_setter(
@@ -413,8 +413,8 @@ def _apply_assign_segment(
     label: str,
     rhs_node: Tree,
     frame: Frame,
-    evaluate_index_operand: IndexEvalFunc,
-    eval_func: EvalFunc,
+    evaluate_index_operand: IndexEvalFn,
+    eval_fn: EvalFn,
 ) -> ShkValue:
     """Apply-assign at a field or index: read old, eval RHS with dot=old, write new."""
     match label:
@@ -422,15 +422,15 @@ def _apply_assign_segment(
             name = expect_ident_token(op.children[0], "Field assignment")
             old_val = get_field_value(target, name, frame)
             rhs_frame = Frame(parent=frame, dot=old_val)
-            new_val = eval_func(rhs_node, rhs_frame)
+            new_val = eval_fn(rhs_node, rhs_frame)
             set_field_value(target, name, new_val, frame, create=False)
             return new_val
 
         case "lv_index":
-            idx_val = evaluate_index_operand(op, frame, eval_func)
+            idx_val = evaluate_index_operand(op, frame, eval_fn)
             old_val = index_value(target, idx_val, frame)
             rhs_frame = Frame(parent=frame, dot=old_val)
-            new_val = eval_func(rhs_node, rhs_frame)
+            new_val = eval_fn(rhs_node, rhs_frame)
             set_index_value(target, idx_val, new_val, frame)
             return new_val
 
@@ -442,21 +442,21 @@ def resolve_chain_assignment(
     ops: List[Tree],
     frame: Frame,
     *,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
-    evaluate_index_operand: IndexEvalFunc,
+    evaluate_index_operand: IndexEvalFn,
 ) -> RebindContext | FanContext:
     """Walk `a.b[0]` and return the final assignable context (object slot, index, etc.)."""
     if not ops:
         return resolve_assignable_node(
             head_node,
             frame,
-            eval_func=eval_func,
+            eval_fn=eval_fn,
             apply_op=apply_op,
             evaluate_index_operand=evaluate_index_operand,
         )
 
-    current = eval_func(head_node, frame)
+    current = eval_fn(head_node, frame)
 
     if isinstance(current, RebindContext):
         current = current.value
@@ -476,13 +476,13 @@ def resolve_chain_assignment(
                 label,
                 frame,
                 evaluate_index_operand,
-                eval_func,
+                eval_fn,
             )
 
         if is_last and label == "fieldfan":
             return build_fieldfan_context(current, op, frame)
 
-        current = apply_op(current, raw_op, frame, eval_func)
+        current = apply_op(current, raw_op, frame, eval_fn)
 
         if isinstance(current, RebindContext):
             current = current.value
@@ -562,7 +562,7 @@ def apply_fan_op(
     frame: Frame,
     *,
     apply_op: ApplyOpFunc,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
 ) -> FanContext:
     """Apply chain ops across a fan context; initial fieldfan builds contexts."""
     if not isinstance(fan, FanContext):
@@ -580,7 +580,7 @@ def apply_fan_op(
     has_values = False
 
     for ctx in fan.contexts:
-        res = apply_op(ctx, op, frame, eval_func)
+        res = apply_op(ctx, op, frame, eval_fn)
 
         if isinstance(res, FanContext):
             if res.contexts:
@@ -617,9 +617,9 @@ def apply_assign(
     rhs_node: Tree,
     frame: Frame,
     *,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
-    evaluate_index_operand: IndexEvalFunc,
+    evaluate_index_operand: IndexEvalFn,
 ) -> ShkValue:
     """Evaluate the `.= expr` apply-assign form (subject-aware updates)."""
     head, *ops = lvalue_node.children
@@ -627,11 +627,11 @@ def apply_assign(
     if not ops and (name := ident_value(head)):
         target = frame.get(name)
         rhs_frame = Frame(parent=frame, dot=target)
-        new_val = eval_func(rhs_node, rhs_frame)
+        new_val = eval_fn(rhs_node, rhs_frame)
         assign_ident(name, new_val, frame, create=False)
         return new_val
 
-    target = eval_func(head, frame)
+    target = eval_fn(head, frame)
 
     if isinstance(target, RebindContext):
         target = target.value
@@ -640,13 +640,13 @@ def apply_assign(
         raise ShakarRuntimeError("Malformed apply-assign target")
 
     for op in ops[:-1]:
-        target = apply_op(target, op, frame, eval_func)
+        target = apply_op(target, op, frame, eval_fn)
 
     # FanContext: apply the final op across all contexts
     if isinstance(target, FanContext):
         final_op = ops[-1]
         _apply_over_fancontext(
-            target, final_op, rhs_node, frame, evaluate_index_operand, eval_func
+            target, final_op, rhs_node, frame, evaluate_index_operand, eval_fn
         )
         # Apply-assign produces potentially different values per target, return array
         # (contrast with assign_lvalue which assigns same value to all, returns that value)
@@ -662,7 +662,7 @@ def apply_assign(
             rhs_node,
             frame,
             evaluate_index_operand,
-            eval_func,
+            eval_fn,
         )
 
     if label == "fieldfan":
@@ -677,7 +677,7 @@ def apply_assign(
         for name in names:
             old_val = get_field_value(target, name, frame)
             rhs_frame = Frame(parent=frame, dot=old_val)
-            new_val = eval_func(rhs_node, rhs_frame)
+            new_val = eval_fn(rhs_node, rhs_frame)
             set_field_value(target, name, new_val, frame, create=False)
             results.append(new_val)
 
@@ -691,8 +691,8 @@ def _apply_over_fancontext(
     final_op: Tree,
     rhs_node: Tree,
     frame: Frame,
-    evaluate_index_operand: IndexEvalFunc,
-    eval_func: EvalFunc,
+    evaluate_index_operand: IndexEvalFn,
+    eval_fn: EvalFn,
 ) -> None:
     """Apply-assign (`.=`) across all contexts in a FanContext."""
     op, label = unwrap_noanchor(final_op)
@@ -705,7 +705,7 @@ def _apply_over_fancontext(
             rhs_node,
             frame,
             evaluate_index_operand,
-            eval_func,
+            eval_fn,
         )
 
 
@@ -714,8 +714,8 @@ def _assign_over_fancontext(
     final_op: Tree,
     value: ShkValue,
     frame: Frame,
-    evaluate_index_operand: IndexEvalFunc,
-    eval_func: EvalFunc,
+    evaluate_index_operand: IndexEvalFn,
+    eval_fn: EvalFn,
     create: bool,
 ) -> None:
     """Assign `value` to each target held in FanContext using final_op."""
@@ -729,7 +729,7 @@ def _assign_over_fancontext(
             value,
             frame,
             evaluate_index_operand,
-            eval_func,
+            eval_fn,
             create=create,
         )
 
@@ -739,8 +739,8 @@ def _complete_chain_assignment(
     raw_final_op: Tree,
     value: ShkValue,
     frame: Frame,
-    evaluate_index_operand: IndexEvalFunc,
-    eval_func: EvalFunc,
+    evaluate_index_operand: IndexEvalFn,
+    eval_fn: EvalFn,
     *,
     create: bool,
 ) -> ShkValue:
@@ -754,7 +754,7 @@ def _complete_chain_assignment(
             value,
             frame,
             evaluate_index_operand,
-            eval_func,
+            eval_fn,
             create,
         )
         return value
@@ -769,7 +769,7 @@ def _complete_chain_assignment(
             value,
             frame,
             evaluate_index_operand,
-            eval_func,
+            eval_fn,
             create=create,
         )
 
@@ -795,9 +795,9 @@ def _assign_over_fan(
     value: ShkValue,
     frame: Frame,
     *,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
-    evaluate_index_operand: IndexEvalFunc,
+    evaluate_index_operand: IndexEvalFn,
     create: bool,
 ) -> ShkValue:
     if not ops:
@@ -813,7 +813,7 @@ def _assign_over_fan(
             for op in ops[:-1]:
                 frame.dot = item
                 frame.pending_anchor_override = None
-                current = apply_op(current, op, frame, eval_func)
+                current = apply_op(current, op, frame, eval_fn)
                 if isinstance(current, RebindContext):
                     current = current.value
 
@@ -824,7 +824,7 @@ def _assign_over_fan(
                 value,
                 frame,
                 evaluate_index_operand,
-                eval_func,
+                eval_fn,
                 create=create,
             )
     finally:
@@ -839,9 +839,9 @@ def assign_lvalue(
     value: ShkValue,
     frame: Frame,
     *,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
-    evaluate_index_operand: IndexEvalFunc,
+    evaluate_index_operand: IndexEvalFn,
     create: bool,
 ) -> ShkValue:
     """Assign to an lvalue, supporting fields, indices, and field fans."""
@@ -856,7 +856,7 @@ def assign_lvalue(
     if not ops and (name := ident_value(head)):
         return assign_ident(name, value, frame, create=create)
 
-    target = eval_func(head, frame)
+    target = eval_fn(head, frame)
 
     if not ops:
         raise ShakarRuntimeError("Malformed lvalue")
@@ -867,14 +867,14 @@ def assign_lvalue(
             ops,
             value,
             frame,
-            eval_func=eval_func,
+            eval_fn=eval_fn,
             apply_op=apply_op,
             evaluate_index_operand=evaluate_index_operand,
             create=create,
         )
 
     for op in ops[:-1]:
-        target = apply_op(target, op, frame, eval_func)
+        target = apply_op(target, op, frame, eval_fn)
 
     return _complete_chain_assignment(
         target,
@@ -882,7 +882,7 @@ def assign_lvalue(
         value,
         frame,
         evaluate_index_operand,
-        eval_func,
+        eval_fn,
         create=create,
     )
 
@@ -894,7 +894,7 @@ def assign_pattern_value(
     *,
     create: bool,
     allow_broadcast: bool,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
 ) -> None:
     """Bind a destructuring pattern to a value, including walrus broadcasts."""
 
@@ -907,7 +907,7 @@ def assign_pattern_value(
         assign_ident(name, val, target_frame, create=create_flag)
 
     destructure_assign_pattern(
-        eval_func, _assign_ident_wrapper, pattern, value, frame, create, allow_broadcast
+        eval_fn, _assign_ident_wrapper, pattern, value, frame, create, allow_broadcast
     )
 
 
@@ -915,9 +915,9 @@ def read_lvalue(
     node: Node,
     frame: Frame,
     *,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
-    evaluate_index_operand: IndexEvalFunc,
+    evaluate_index_operand: IndexEvalFn,
 ) -> ShkValue:
     """Fetch the value behind an assignment target (e.g. for compound ops)."""
     if not is_tree(node) or tree_label(node) != "lvalue":
@@ -931,13 +931,13 @@ def read_lvalue(
     if not ops and (name := ident_value(head)):
         return frame.get(name)
 
-    target = eval_func(head, frame)
+    target = eval_fn(head, frame)
 
     if not ops:
         raise ShakarRuntimeError("Malformed lvalue")
 
     for op in ops[:-1]:
-        target = apply_op(target, op, frame, eval_func)
+        target = apply_op(target, op, frame, eval_fn)
 
     raw_final_op = ops[-1]
     final_op, label = unwrap_noanchor(raw_final_op)
@@ -951,7 +951,7 @@ def read_lvalue(
             field_name = expect_ident_token(final_op.children[0], "Field value access")
             return get_field_value(target, field_name, frame)
         case "lv_index":
-            idx_val = evaluate_index_operand(final_op, frame, eval_func)
+            idx_val = evaluate_index_operand(final_op, frame, eval_fn)
             return index_value(target, idx_val, frame)
     raise ShakarRuntimeError("Compound assignment not supported for this target")
 
@@ -960,9 +960,9 @@ def resolve_rebind_lvalue(
     node: Node,
     frame: Frame,
     *,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
-    evaluate_index_operand: IndexEvalFunc,
+    evaluate_index_operand: IndexEvalFn,
 ) -> RebindContext | FanContext:
     """Turn a `rebind_lvalue` node into a concrete context for prefix rebinds."""
     if name := ident_value(node):
@@ -989,7 +989,7 @@ def resolve_rebind_lvalue(
         head,
         ops,
         frame,
-        eval_func=eval_func,
+        eval_fn=eval_fn,
         apply_op=apply_op,
         evaluate_index_operand=evaluate_index_operand,
     )

@@ -42,7 +42,7 @@ from .helpers import (
 )
 from .selector import selector_iter_values
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
 
 
 def _unwrap_op_label(op: Node) -> str:
@@ -57,12 +57,12 @@ def maybe_valuefan_broadcast(
     ops: List[Node],
     next_index: int,
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
 ) -> Optional[ShkFan]:
     """If valuefan with trailing ops and val is array, return fan chain result; else None."""
     if _unwrap_op_label(op) == "valuefan" and next_index < len(ops):
         if isinstance(val, ShkArray):
-            return eval_fan_chain(ShkFan(val.items), ops[next_index:], frame, eval_func)
+            return eval_fan_chain(ShkFan(val.items), ops[next_index:], frame, eval_fn)
     return None
 
 
@@ -77,7 +77,7 @@ def _is_noanchor_wrapper(node: Node) -> bool:
     return is_tree(node) and tree_label(node) == "noanchor"
 
 
-def eval_explicit_chain(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_explicit_chain(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     children = tree_children(node)
     if not children:
         raise ShakarRuntimeError("Malformed explicit chain")
@@ -93,7 +93,7 @@ def eval_explicit_chain(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkVal
             head,
             ops[:-1],
             frame,
-            eval_func=eval_func,
+            eval_fn=eval_fn,
             apply_op=chain_apply_op,
             evaluate_index_operand=evaluate_index_operand,
         )
@@ -103,11 +103,11 @@ def eval_explicit_chain(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkVal
         old_val, _ = apply_numeric_delta(context, delta)
         return old_val
 
-    val = eval_func(head, frame)
+    val = eval_fn(head, frame)
     if isinstance(val, ShkFan):
         if ops and tree_label(ops[-1]) in {"incr", "decr"}:
             raise ShakarRuntimeError("++/-- not supported on fan broadcasts")
-        return eval_fan_chain(val, ops, frame, eval_func)
+        return eval_fan_chain(val, ops, frame, eval_fn)
     head_label = tree_label(head) if is_tree(head) else None
     head_is_rebind = head_label == "rebind_primary"
     head_is_grouped_rebind = is_grouped_rebind(head) if is_tree(head) else False
@@ -117,10 +117,10 @@ def eval_explicit_chain(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkVal
         inner_label = _unwrap_op_label(op)
         if inner_label not in {"field", "fieldsel", "index"}:
             tail_has_effect = True
-        val = chain_apply_op(val, op, frame, eval_func)
+        val = chain_apply_op(val, op, frame, eval_fn)
 
         # Valuefan with trailing ops: switch to fan broadcasting
-        fan_result = maybe_valuefan_broadcast(val, op, ops, i + 1, frame, eval_func)
+        fan_result = maybe_valuefan_broadcast(val, op, ops, i + 1, frame, eval_fn)
         if fan_result is not None:
             return fan_result
 
@@ -141,7 +141,7 @@ def eval_explicit_chain(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkVal
 
 
 def eval_fan_chain(
-    fan: ShkFan, ops: List[Node], frame: Frame, eval_func: EvalFunc
+    fan: ShkFan, ops: List[Node], frame: Frame, eval_fn: EvalFn
 ) -> ShkFan:
     results: List[ShkValue] = []
     saved_dot = frame.dot
@@ -154,7 +154,7 @@ def eval_fan_chain(
             for op in ops:
                 frame.dot = item
                 frame.pending_anchor_override = None
-                current = chain_apply_op(current, op, frame, eval_func)
+                current = chain_apply_op(current, op, frame, eval_fn)
 
                 if isinstance(current, RebindContext):
                     current = current.value
@@ -202,7 +202,7 @@ def eval_unary(
     op_node: Node,
     rhs_node: Tree,
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     apply_op_func=chain_apply_op,
 ) -> ShkValue:
     op_norm = normalize_unary_op(op_node, frame)
@@ -214,7 +214,7 @@ def eval_unary(
         context = resolve_assignable_node(
             rhs_node,
             frame,
-            eval_func=eval_func,
+            eval_fn=eval_fn,
             apply_op=apply_op_func,
             evaluate_index_operand=evaluate_index_operand,
         )
@@ -223,7 +223,7 @@ def eval_unary(
         _, new_val = apply_numeric_delta(context, 1 if op_value == "++" else -1)
         return new_val
 
-    rhs = eval_func(rhs_node, frame)
+    rhs = eval_fn(rhs_node, frame)
 
     match op_norm:
         case Tok(type=TT.PLUS) | "+":
@@ -249,7 +249,7 @@ def eval_unary(
 def eval_infix(
     children: List[Tree],
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     right_assoc_ops: Optional[Set[str]] = None,
 ) -> ShkValue:
     if not children:
@@ -259,7 +259,7 @@ def eval_infix(
         return retargets_anchor(node)
 
     def _eval_and_update(node: Node) -> ShkValue:
-        val = eval_func(node, frame)
+        val = eval_fn(node, frame)
         if _should_retarget(node):
             override = _consume_anchor_override(frame)
             frame.dot = override if override is not None else val
@@ -292,15 +292,15 @@ def eval_infix(
     return acc
 
 
-def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_compare(children: List[Tree], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if not children:
         return ShkNil()
 
     if len(children) == 1:
-        return eval_func(children[0], frame)
+        return eval_fn(children[0], frame)
 
     def _eval_and_update(node: Node) -> ShkValue:
-        val = eval_func(node, frame)
+        val = eval_fn(node, frame)
         _update_anchor(node, val, frame)
         return val
 
@@ -361,7 +361,7 @@ def eval_compare(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
 
 
 def eval_logical(
-    kind: str, children: List[Tree], frame: Frame, eval_func: EvalFunc
+    kind: str, children: List[Tree], frame: Frame, eval_fn: EvalFn
 ) -> ShkValue:
     if not children:
         return ShkNil()
@@ -376,7 +376,7 @@ def eval_logical(
             if token_kind(child) in {"AND", "OR"}:
                 continue
 
-            val = eval_func(child, frame)
+            val = eval_fn(child, frame)
             _update_anchor(child, val, frame)
             last_val = val
 
@@ -390,7 +390,7 @@ def eval_logical(
         frame.dot = prev_dot
 
 
-def eval_nullish(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_nullish(children: List[Tree], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     exprs = [
         child
         for child in children
@@ -400,17 +400,17 @@ def eval_nullish(children: List[Tree], frame: Frame, eval_func: EvalFunc) -> Shk
     if not exprs:
         return ShkNil()
 
-    current = eval_anchor_scoped(exprs[0], frame, eval_func)
+    current = eval_anchor_scoped(exprs[0], frame, eval_fn)
 
     for expr in exprs[1:]:
         if not is_nil_like(current):
             return current
-        current = eval_anchor_scoped(expr, frame, eval_func)
+        current = eval_anchor_scoped(expr, frame, eval_fn)
 
     return current
 
 
-def eval_nullsafe(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_nullsafe(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     with isolate_anchor_override(frame):
         target = node
         if is_tree(node) and tree_label(node) == "nullsafe" and node.children:
@@ -418,7 +418,7 @@ def eval_nullsafe(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
         if not is_tree(target) or tree_label(target) != "explicit_chain":
             try:
-                return eval_func(target, frame)
+                return eval_fn(target, frame)
             except (ShakarKeyError, ShakarIndexError):
                 return ShkNil()
 
@@ -427,14 +427,14 @@ def eval_nullsafe(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             return ShkNil()
 
         head = children[0]
-        current = eval_func(head, frame)
+        current = eval_fn(head, frame)
 
         if is_nil_like(current):
             return ShkNil()
 
         for op in children[1:]:
             try:
-                current = chain_apply_op(current, op, frame, eval_func)
+                current = chain_apply_op(current, op, frame, eval_fn)
             except (ShakarRuntimeError, ShakarTypeError) as err:
                 if _nullsafe_recovers(err, current):
                     return ShkNil()
@@ -448,20 +448,20 @@ def eval_nullsafe(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         return current
 
 
-def eval_ternary(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_ternary(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if len(n.children) != 3:
         raise ShakarRuntimeError("Malformed ternary expression")
 
     cond_node, true_node, false_node = n.children
     with isolate_anchor_override(frame):
-        cond_val = eval_func(cond_node, frame)
+        cond_val = eval_fn(cond_node, frame)
 
     if is_truthy(cond_val):
         with isolate_anchor_override(frame):
-            return eval_func(true_node, frame)
+            return eval_fn(true_node, frame)
 
     with isolate_anchor_override(frame):
-        return eval_func(false_node, frame)
+        return eval_fn(false_node, frame)
 
 
 def as_op(x: Node) -> str:

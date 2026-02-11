@@ -28,7 +28,7 @@ from ..utils import (
 from ..tree import Node, Tree, tree_label, tree_children
 from .helpers import collect_scope_names, find_frozen_scope_frame
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
 
 
 def _ident_token_value(node: Node) -> Optional[str]:
@@ -58,7 +58,7 @@ def _extract_pattern_idents(patterns: list[Tree]) -> Optional[list[str]]:
 
 
 def evaluate_destructure_rhs(
-    eval_fn: EvalFunc,
+    eval_fn: EvalFn,
     rhs_node: Node,
     frame: Frame,
     target_count: int,
@@ -129,7 +129,7 @@ def evaluate_destructure_rhs(
 
 
 def assign_pattern(
-    eval_fn: EvalFunc,
+    eval_fn: EvalFn,
     assign_ident: Callable[[str, ShkValue, Frame, bool], ShkValue],
     pattern: Tree,
     value: ShkValue,
@@ -252,7 +252,7 @@ def apply_comp_binders(
 
 
 def eval_destructure(
-    node: Tree, frame: Frame, eval_func: EvalFunc, create: bool, allow_broadcast: bool
+    node: Tree, frame: Frame, eval_fn: EvalFn, create: bool, allow_broadcast: bool
 ) -> ShkValue:
     """Evaluate destructuring assignment/expression."""
     if len(node.children) != 2:
@@ -266,7 +266,7 @@ def eval_destructure(
 
     ident_names = _extract_pattern_idents(patterns) if len(patterns) > 1 else None
     values, result = evaluate_destructure_rhs(
-        eval_func,
+        eval_fn,
         rhs_node,
         frame,
         len(patterns),
@@ -284,7 +284,7 @@ def eval_destructure(
             frame,
             create=create,
             allow_broadcast=allow_broadcast,
-            eval_func=eval_func,
+            eval_fn=eval_fn,
         )
 
     return result if allow_broadcast else ShkNil()

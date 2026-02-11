@@ -26,7 +26,7 @@ from .common import (
 from .fn import _inject_contract_assertions
 from .helpers import closure_frame, eval_anchor_scoped
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
 
 
 def _normalize_literal_key(key: ShkValue | str) -> str:
@@ -145,7 +145,7 @@ def _handle_obj_field(
     item: Tree,
     slots: dict[str, ShkValue],
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
 ) -> None:
     key_node, val_node = item.children
     if not is_tree(key_node):
@@ -162,8 +162,8 @@ def _handle_obj_field(
         )
         return
 
-    key = eval_key(key_node, frame, eval_func)
-    val = eval_anchor_scoped(val_node, frame, eval_func)
+    key = eval_key(key_node, frame, eval_fn)
+    val = eval_anchor_scoped(val_node, frame, eval_fn)
     slots[_normalize_literal_key(key)] = val
 
 
@@ -171,15 +171,15 @@ def _handle_obj_field_optional(
     item: Tree,
     slots: dict[str, ShkValue],
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
 ) -> None:
     # Hygienic sugar: resolve Optional directly from builtins, bypassing scope
     # so user-defined Optional cannot shadow it.
     key_node, val_node = item.children
     if not is_tree(key_node):
         raise ShakarRuntimeError("Object optional field missing key")
-    key = eval_key(key_node, frame, eval_func)
-    val = eval_anchor_scoped(val_node, frame, eval_func)
+    key = eval_key(key_node, frame, eval_fn)
+    val = eval_anchor_scoped(val_node, frame, eval_fn)
     optional_fn = Builtins.stdlib_functions.get("Optional")
     if optional_fn is None:
         raise ShakarRuntimeError("Builtin 'Optional' not found")
@@ -245,13 +245,13 @@ def _handle_obj_spread(
     item: Tree,
     slots: dict[str, ShkValue],
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
 ) -> None:
     spread_expr = item.children[0] if item.children else None
     if spread_expr is None:
         raise ShakarRuntimeError("Object spread missing value")
 
-    spread_val = eval_anchor_scoped(spread_expr, frame, eval_func)
+    spread_val = eval_anchor_scoped(spread_expr, frame, eval_fn)
     if not isinstance(spread_val, ShkObject):
         raise ShakarTypeError("Object spread expects an object value")
 
@@ -263,13 +263,13 @@ def _handle_object_item(
     item: Tree,
     slots: dict[str, ShkValue],
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
 ) -> None:
     match item.data:
         case "obj_field":
-            _handle_obj_field(item, slots, frame, eval_func)
+            _handle_obj_field(item, slots, frame, eval_fn)
         case "obj_field_optional":
-            _handle_obj_field_optional(item, slots, frame, eval_func)
+            _handle_obj_field_optional(item, slots, frame, eval_fn)
         case "obj_get":
             _handle_obj_get(item, slots, frame)
         case "obj_set":
@@ -277,7 +277,7 @@ def _handle_object_item(
         case "obj_method":
             _handle_obj_method(item, slots, frame)
         case "obj_spread":
-            _handle_obj_spread(item, slots, frame, eval_func)
+            _handle_obj_spread(item, slots, frame, eval_fn)
         case _:
             raise ShakarRuntimeError(f"Unknown object item {item.data}")
 
@@ -301,15 +301,15 @@ def _iter_object_items(n: Tree) -> Iterator[Tree]:
             yield child
 
 
-def eval_object(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkObject:
+def eval_object(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkObject:
     """Build an object literal, installing descriptors/getters as needed."""
     slots: dict[str, ShkValue] = {}
     for item in _iter_object_items(n):
-        _handle_object_item(item, slots, frame, eval_func)
+        _handle_object_item(item, slots, frame, eval_fn)
     return ShkObject(slots)
 
 
-def eval_key(k: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue | str:
+def eval_key(k: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue | str:
     label = tree_label(k)
 
     if label is not None:
@@ -318,11 +318,11 @@ def eval_key(k: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue | str:
                 t = k.children[0]
                 if isinstance(t, Tok) and t.type == TT.IDENT:
                     return str(t.value)
-                return eval_anchor_scoped(k, frame, eval_func)
+                return eval_anchor_scoped(k, frame, eval_fn)
             case "key_string":
                 t = k.children[0]
                 if not isinstance(t, Tok) or t.type != TT.STRING:
-                    return eval_anchor_scoped(k, frame, eval_func)
+                    return eval_anchor_scoped(k, frame, eval_fn)
                 s = str(t.value)
 
                 if len(s) >= 2 and (
@@ -331,7 +331,7 @@ def eval_key(k: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue | str:
                     s = s[1:-1]
                 return s
             case "key_expr":
-                v = eval_anchor_scoped(k.children[0], frame, eval_func)
+                v = eval_anchor_scoped(k.children[0], frame, eval_fn)
                 return v.value if isinstance(v, ShkString) else v
 
     if is_token(k):
@@ -346,4 +346,4 @@ def eval_key(k: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue | str:
                 return s[1:-1]
             return s
 
-    return eval_anchor_scoped(k, frame, eval_func)
+    return eval_anchor_scoped(k, frame, eval_fn)

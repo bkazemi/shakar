@@ -43,39 +43,35 @@ from .expr import _compare_values
 from .selector import selector_contains
 from ..utils import debug_py_trace_enabled, shk_equals
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
 
 
-def eval_return_stmt(
-    children: list[Node], frame: Frame, eval_func: EvalFunc
-) -> ShkValue:
+def eval_return_stmt(children: list[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if _current_function_frame(frame) is None:
         raise ShakarRuntimeError("return outside of a function")
 
-    value = eval_func(children[0], frame) if children else ShkNil()
+    value = eval_fn(children[0], frame) if children else ShkNil()
 
     raise ShakarReturnSignal(value)
 
 
-def eval_return_if(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_return_if(children: list[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if _current_function_frame(frame) is None:
         raise ShakarRuntimeError("?ret outside of a function")
 
     if not children:
         raise ShakarRuntimeError("?ret requires an expression")
 
-    value = eval_func(children[0], frame)
+    value = eval_fn(children[0], frame)
     if _is_truthy(value):
         raise ShakarReturnSignal(value)
 
     return ShkNil()
 
 
-def eval_throw_stmt(
-    children: list[Node], frame: Frame, eval_func: EvalFunc
-) -> ShkValue:
+def eval_throw_stmt(children: list[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if children:
-        value = eval_func(children[0], frame)
+        value = eval_fn(children[0], frame)
         raise coerce_throw_value(value)
     current = getattr(frame, "_active_error", None)
     if current is None:
@@ -124,11 +120,11 @@ def coerce_throw_value(value: ShkValue) -> ShakarRuntimeError:
     return err
 
 
-def eval_assert(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_assert(children: list[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed assert statement")
 
-    cond_val = eval_func(children[0], frame)
+    cond_val = eval_fn(children[0], frame)
 
     if _is_truthy(cond_val):
         return ShkNil()
@@ -136,7 +132,7 @@ def eval_assert(children: list[Node], frame: Frame, eval_func: EvalFunc) -> ShkV
     message = f"Assertion failed: {_assert_source_snippet(children[0], frame)}"
 
     if len(children) > 1:
-        msg_val = eval_func(children[1], frame)
+        msg_val = eval_fn(children[1], frame)
         message = _stringify(msg_val)
 
     raise ShakarAssertionError(message)
@@ -220,7 +216,7 @@ def _run_catch_handler(
     payload: ShkObject,
     original_exc: ShakarRuntimeError,
     allowed_types: list[str],
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
 ) -> ShkValue:
     # type matching happens before we evaluate the handler body so unmatched errors bubble up
     payload_type = None
@@ -240,7 +236,7 @@ def _run_catch_handler(
         binder_name = expect_ident_token(binder, "Catch binder")
 
     def _exec_handler() -> ShkValue:
-        return eval_body_node(handler, frame, eval_func)
+        return eval_body_node(handler, frame, eval_fn)
 
     # track the currently handled exception so a bare `throw` can rethrow it later
     prev_error = getattr(frame, "_active_error", None)
@@ -256,31 +252,27 @@ def _run_catch_handler(
         frame._active_error = prev_error
 
 
-def eval_catch_expr(
-    children: list[Node], frame: Frame, eval_func: EvalFunc
-) -> ShkValue:
+def eval_catch_expr(children: list[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     try_node, binder, type_names, handler = _parse_catch_components(children)
 
     try:
-        return eval_func(try_node, frame)
+        return eval_fn(try_node, frame)
     except ShakarRuntimeError as exc:
         payload = _build_error_payload(exc)
         return _run_catch_handler(
-            handler, frame, binder, payload, exc, type_names, eval_func
+            handler, frame, binder, payload, exc, type_names, eval_fn
         )
 
 
-def eval_catch_stmt(
-    children: list[Node], frame: Frame, eval_func: EvalFunc
-) -> ShkValue:
+def eval_catch_stmt(children: list[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     try_node, binder, type_names, body = _parse_catch_components(children)
 
     try:
-        eval_func(try_node, frame)
+        eval_fn(try_node, frame)
         return ShkNil()
     except ShakarRuntimeError as exc:
         payload = _build_error_payload(exc)
-        _run_catch_handler(body, frame, binder, payload, exc, type_names, eval_func)
+        _run_catch_handler(body, frame, binder, payload, exc, type_names, eval_fn)
         return ShkNil()
 
 
@@ -325,7 +317,7 @@ def _extract_clause(node: Tree, label: str) -> tuple[Optional[Node], Node]:
     return cond_node, body_node
 
 
-def eval_if_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_if_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     children = tree_children(n)
     cond_node = None
     body_node = None
@@ -355,22 +347,20 @@ def eval_if_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if cond_node is None or body_node is None:
         raise ShakarRuntimeError("Malformed if statement")
 
-    if _is_truthy(eval_func(cond_node, frame)):
-        return eval_body_node(body_node, frame, eval_func, allow_loop_control=True)
+    if _is_truthy(eval_fn(cond_node, frame)):
+        return eval_body_node(body_node, frame, eval_fn, allow_loop_control=True)
 
     for clause_cond, clause_body in elif_clauses:
-        if _is_truthy(eval_func(clause_cond, frame)):
-            return eval_body_node(
-                clause_body, frame, eval_func, allow_loop_control=True
-            )
+        if _is_truthy(eval_fn(clause_cond, frame)):
+            return eval_body_node(clause_body, frame, eval_fn, allow_loop_control=True)
 
     if else_body is not None:
-        return eval_body_node(else_body, frame, eval_func, allow_loop_control=True)
+        return eval_body_node(else_body, frame, eval_fn, allow_loop_control=True)
 
     return ShkNil()
 
 
-def eval_match_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_match_expr(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     children = tree_children(n)
     if not children:
         raise ShakarRuntimeError("Malformed match expression")
@@ -386,7 +376,7 @@ def eval_match_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         raise ShakarRuntimeError("Malformed match expression")
 
     subject_node = children[idx]
-    subject = eval_func(subject_node, frame)
+    subject = eval_fn(subject_node, frame)
     else_body: Optional[Node] = None
 
     for child in children[idx + 1 :]:
@@ -402,12 +392,12 @@ def eval_match_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
                 else [patterns_node]
             )
             for pattern in patterns:
-                if _match_pattern(pattern, subject, cmp_op, frame, eval_func):
+                if _match_pattern(pattern, subject, cmp_op, frame, eval_fn):
                     with temporary_subject(frame, subject):
                         return eval_body_node(
                             body_node,
                             frame,
-                            eval_func,
+                            eval_fn,
                             allow_loop_control=True,
                         )
             continue
@@ -421,7 +411,7 @@ def eval_match_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
     if else_body is not None:
         with temporary_subject(frame, subject):
-            return eval_body_node(else_body, frame, eval_func, allow_loop_control=True)
+            return eval_body_node(else_body, frame, eval_fn, allow_loop_control=True)
 
     raise ShakarMatchError("No match found")
 
@@ -431,9 +421,9 @@ def _match_pattern(
     subject: ShkValue,
     cmp_op: str,
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
 ) -> bool:
-    value = eval_anchor_scoped(pattern, frame, eval_func)
+    value = eval_anchor_scoped(pattern, frame, eval_fn)
 
     match cmp_op:
         case "==":

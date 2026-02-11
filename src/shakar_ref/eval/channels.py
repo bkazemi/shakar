@@ -41,7 +41,7 @@ from .helpers import check_cancel
 from .postfix import define_new_ident
 from .selector import selector_iter_values
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
 
 
 @dataclass
@@ -109,28 +109,28 @@ def _is_callable_value(value: ShkValue) -> bool:
 def _spawn_callable(
     frame: Frame,
     value: ShkValue,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     spawn_site: Optional["CallSite"] = None,
 ) -> ShkChannel:
     def thunk(spawn_frame: Frame) -> ShkValue:
-        return call_value(value, [], spawn_frame, eval_func)
+        return call_value(value, [], spawn_frame, eval_fn)
 
     return _spawn_task(frame, thunk, spawn_site=spawn_site)
 
 
-def eval_recv_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_recv_expr(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if not n.children:
         raise ShakarRuntimeError("Malformed receive expression")
-    chan_val = eval_func(n.children[0], frame)
+    chan_val = eval_fn(n.children[0], frame)
     chan = _coerce_channel(chan_val)
     return chan.recv_value(cancel_token=frame.cancel_token)
 
 
-def eval_send_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_send_expr(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if len(n.children) != 2:
         raise ShakarRuntimeError("Malformed send expression")
-    value = eval_func(n.children[0], frame)
-    chan_val = eval_func(n.children[1], frame)
+    value = eval_fn(n.children[0], frame)
+    chan_val = eval_fn(n.children[1], frame)
     chan = _coerce_channel(chan_val)
     sent = chan.send_with_cancel(value, frame.cancel_token)
     return ShkBool(sent)
@@ -185,7 +185,7 @@ def _spawn_task(
     return result_ch
 
 
-def eval_spawn_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_spawn_expr(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if not n.children:
         raise ShakarRuntimeError("Malformed spawn expression")
     expr = n.children[0]
@@ -193,8 +193,8 @@ def eval_spawn_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
     def thunk(spawn_frame: Frame) -> ShkValue:
         if is_tree(expr) and tree_label(expr) == "body":
-            return eval_body_node(expr, spawn_frame, eval_func)
-        return eval_func(expr, spawn_frame)
+            return eval_body_node(expr, spawn_frame, eval_fn)
+        return eval_fn(expr, spawn_frame)
 
     expr_node = _unwrap_expr_node(expr)
     if is_tree(expr_node) and tree_label(expr_node) == "body":
@@ -205,7 +205,7 @@ def eval_spawn_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     # Non-call expressions are evaluated in the caller so we can detect iterable
     # spawn (arrays/fans/selectors). Non-iterables keep the old behavior: a task
     # that just returns the computed value.
-    value = eval_func(expr, frame)
+    value = eval_fn(expr, frame)
     iterable = _spawn_iterable_values(value)
     if iterable is None:
         return _spawn_task(
@@ -218,14 +218,14 @@ def eval_spawn_expr(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             raise ShakarTypeError("spawn iterable cannot contain channels")
         if not _is_callable_value(item):
             raise ShakarTypeError("spawn iterable expects callable elements")
-        channels.append(_spawn_callable(frame, item, eval_func, spawn_site=spawn_site))
+        channels.append(_spawn_callable(frame, item, eval_fn, spawn_site=spawn_site))
 
     if isinstance(value, ShkFan):
         return ShkFan(channels)
     return ShkArray(channels)
 
 
-def eval_wait_any_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_wait_any_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     recv_cases: list[_RecvCase] = []
     send_cases: list[_SendCase] = []
     timeout_case: Optional[_TimeoutCase] = None
@@ -247,7 +247,7 @@ def eval_wait_any_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
             if len(children) != 2:
                 raise ShakarRuntimeError("wait[any] timeout missing body")
             timeout_expr, body = children
-            duration = eval_func(timeout_expr, frame)
+            duration = eval_fn(timeout_expr, frame)
             deadline = time.monotonic() + _duration_to_seconds(duration)
             timeout_case = _TimeoutCase(deadline=deadline, body=body)
             continue
@@ -259,8 +259,8 @@ def eval_wait_any_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         head = _unwrap_expr_node(head)
         if is_tree(head) and tree_label(head) == "send":
             value_expr, chan_expr = tree_children(head)
-            value = eval_func(value_expr, frame)
-            chan = _coerce_channel(eval_func(chan_expr, frame))
+            value = eval_fn(value_expr, frame)
+            chan = _coerce_channel(eval_fn(chan_expr, frame))
             send_cases.append(_SendCase(channel=chan, value=value, body=body))
             continue
 
@@ -278,7 +278,7 @@ def eval_wait_any_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
         recv_children = tree_children(recv_expr)
         if not recv_children:
             raise ShakarRuntimeError("wait[any] receive missing channel")
-        chan = _coerce_channel(eval_func(recv_children[0], frame))
+        chan = _coerce_channel(eval_fn(recv_children[0], frame))
         recv_cases.append(_RecvCase(channel=chan, binder=binder, body=body))
 
     if not (recv_cases or send_cases or timeout_case or default_body):
@@ -297,7 +297,7 @@ def eval_wait_any_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
                 if status == "ready":
                     if case.binder is not None:
                         define_new_ident(case.binder, value, frame)
-                    return eval_body_node(case.body, frame, eval_func)
+                    return eval_body_node(case.body, frame, eval_fn)
                 if status == "cancelled":
                     raise ShakarCancelledError("Spawn task cancelled")
                 if status == "closed":
@@ -306,17 +306,17 @@ def eval_wait_any_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
             sent, closed_flag = case.channel.try_send(case.value)
             if sent:
-                return eval_body_node(case.body, frame, eval_func)
+                return eval_body_node(case.body, frame, eval_fn)
             if closed_flag:
                 closed += 1
 
         if default_body is not None:
-            return eval_body_node(default_body, frame, eval_func)
+            return eval_body_node(default_body, frame, eval_fn)
 
         if timeout_case is not None:
             now = time.monotonic()
             if now >= timeout_case.deadline:
-                return eval_body_node(timeout_case.body, frame, eval_func)
+                return eval_body_node(timeout_case.body, frame, eval_fn)
 
         # Closed channels cannot reopen, so if all cases are closed and there's no
         # timeout to wait for, we can fail immediately.
@@ -361,7 +361,7 @@ def _unwrap_expr_node(node: Node) -> Node:
 
 
 def _maybe_call_value(
-    node: Node, value: ShkValue, frame: Frame, eval_func: EvalFunc
+    node: Node, value: ShkValue, frame: Frame, eval_fn: EvalFn
 ) -> ShkValue:
     if _explicit_call_in_node(node):
         return value
@@ -378,7 +378,7 @@ def _maybe_call_value(
             DecoratorContinuation,
         ),
     ):
-        return call_value(value, [], frame, eval_func)
+        return call_value(value, [], frame, eval_fn)
     return value
 
 
@@ -459,7 +459,7 @@ def _cancel_pending(pending: list[ShkChannel]) -> None:
                 continue
 
 
-def eval_wait_all_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_wait_all_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     arms = []
     for arm in tree_children(n):
         if tree_label(arm) != "waitallarm":
@@ -474,7 +474,7 @@ def eval_wait_all_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     def _spawn_arm(node: Node) -> ShkChannel:
         def thunk(spawn_frame: Frame) -> ShkValue:
             return _maybe_call_value(
-                node, eval_func(node, spawn_frame), spawn_frame, eval_func
+                node, eval_fn(node, spawn_frame), spawn_frame, eval_fn
             )
 
         return _spawn_task(frame, thunk)
@@ -500,7 +500,7 @@ def eval_wait_all_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     return ShkObject(results)
 
 
-def eval_wait_group_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_wait_group_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     arms = []
     for arm in tree_children(n):
         if tree_label(arm) != "waitgrouparm":
@@ -516,7 +516,7 @@ def eval_wait_group_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValu
     def _spawn_arm(node: Node) -> ShkChannel:
         def thunk(spawn_frame: Frame) -> ShkValue:
             return _maybe_call_value(
-                node, eval_func(node, spawn_frame), spawn_frame, eval_func
+                node, eval_fn(node, spawn_frame), spawn_frame, eval_fn
             )
 
         return _spawn_task(frame, thunk)
@@ -539,10 +539,10 @@ def eval_wait_group_block(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValu
     return ShkNil()
 
 
-def eval_wait_all_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_wait_all_call(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if not n.children:
         raise ShakarRuntimeError("wait[all](tasks) missing argument")
-    value = eval_func(n.children[0], frame)
+    value = eval_fn(n.children[0], frame)
     if not isinstance(value, ShkArray):
         raise ShakarTypeError("wait[all](tasks) expects an array of channels")
     channels: list[ShkChannel] = []
@@ -567,10 +567,10 @@ def eval_wait_all_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     return ShkArray(results)
 
 
-def eval_wait_group_call(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_wait_group_call(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if not n.children:
         raise ShakarRuntimeError("wait[group](tasks) missing argument")
-    value = eval_func(n.children[0], frame)
+    value = eval_fn(n.children[0], frame)
     if not isinstance(value, ShkArray):
         raise ShakarTypeError("wait[group](tasks) expects an array of channels")
     channels: list[ShkChannel] = []

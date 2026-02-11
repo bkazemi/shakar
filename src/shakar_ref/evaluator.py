@@ -141,7 +141,7 @@ from .eval.bind import (
 )
 from .eval.let import eval_let_stmt
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
 
 
 def _maybe_attach_location(exc: ShakarRuntimeError, node: Node, frame: Frame) -> None:
@@ -476,15 +476,15 @@ def _eval_pack(n: Tree, frame: Frame) -> ShkValue:
 
 
 def _eval_returnstmt(n: Tree, frame: Frame) -> ShkValue:
-    return eval_return_stmt(n.children, frame, eval_func=eval_node)
+    return eval_return_stmt(n.children, frame, eval_fn=eval_node)
 
 
 def _eval_returnif(n: Tree, frame: Frame) -> ShkValue:
-    return eval_return_if(n.children, frame, eval_func=eval_node)
+    return eval_return_if(n.children, frame, eval_fn=eval_node)
 
 
 def _eval_throwstmt(n: Tree, frame: Frame) -> ShkValue:
-    return eval_throw_stmt(n.children, frame, eval_func=eval_node)
+    return eval_throw_stmt(n.children, frame, eval_fn=eval_node)
 
 
 def _eval_assignstmt(n: Tree, frame: Frame) -> ShkValue:
@@ -498,12 +498,12 @@ def _eval_let(n: Tree, frame: Frame) -> ShkValue:
 
 
 def _eval_postfixif(n: Tree, frame: Frame) -> ShkValue:
-    return _postfix_eval_if(n.children, frame, eval_func=eval_node, truthy_fn=is_truthy)
+    return _postfix_eval_if(n.children, frame, eval_fn=eval_node, truthy_fn=is_truthy)
 
 
 def _eval_postfixunless(n: Tree, frame: Frame) -> ShkValue:
     return _postfix_eval_unless(
-        n.children, frame, eval_func=eval_node, truthy_fn=is_truthy
+        n.children, frame, eval_fn=eval_node, truthy_fn=is_truthy
     )
 
 
@@ -530,7 +530,7 @@ def _eval_deferstmt(n: Tree, frame: Frame) -> ShkValue:
 
 
 def _eval_assert(n: Tree, frame: Frame) -> ShkValue:
-    return eval_assert(n.children, frame, eval_func=eval_node)
+    return eval_assert(n.children, frame, eval_fn=eval_node)
 
 
 def _eval_bind(n: Tree, frame: Frame) -> ShkValue:

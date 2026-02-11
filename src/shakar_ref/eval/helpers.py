@@ -122,11 +122,11 @@ def isolate_anchor_override(frame: Frame) -> Iterator[None]:
 
 
 def eval_anchor_scoped(
-    node: Node, frame: Frame, eval_func: Callable[[Node, Frame], ShkValue]
+    node: Node, frame: Frame, eval_fn: Callable[[Node, Frame], ShkValue]
 ) -> ShkValue:
     """Evaluate a node without leaking anchor overrides into surrounding context."""
     with isolate_anchor_override(frame):
-        return eval_func(node, frame)
+        return eval_fn(node, frame)
 
 
 def current_function_frame(frame: Frame) -> Optional[Frame]:

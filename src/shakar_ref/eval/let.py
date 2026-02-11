@@ -9,9 +9,9 @@ from .common import expect_ident_token
 from .destructure import assign_pattern as destructure_assign_pattern
 from .destructure import evaluate_destructure_rhs, _extract_pattern_idents
 
-EvalFunc = Callable[[Node, Frame], ShkValue]
-ApplyOpFunc = Callable[[ShkValue, Tree, Frame, EvalFunc], ShkValue]
-IndexEvalFunc = Callable[[Tree, Frame, EvalFunc], ShkValue]
+EvalFn = Callable[[Node, Frame], ShkValue]
+ApplyOpFunc = Callable[[ShkValue, Tree, Frame, EvalFn], ShkValue]
+IndexEvalFn = Callable[[Tree, Frame, EvalFn], ShkValue]
 
 
 def define_let_ident(name: str, value: ShkValue, frame: Frame) -> ShkValue:
@@ -23,20 +23,18 @@ def define_let_ident(name: str, value: ShkValue, frame: Frame) -> ShkValue:
     return value
 
 
-def eval_let_walrus(
-    children: List[Node], frame: Frame, eval_func: EvalFunc
-) -> ShkValue:
+def eval_let_walrus(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if len(children) != 2:
         raise ShakarRuntimeError("Malformed let walrus")
 
     name_node, value_node = children
     name = expect_ident_token(name_node, "Let walrus target")
-    value = eval_func(value_node, frame)
+    value = eval_fn(value_node, frame)
     return define_let_ident(name, value, frame)
 
 
 def _assign_pattern_let(
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     pattern: Tree,
     value: ShkValue,
     frame: Frame,
@@ -53,14 +51,14 @@ def _assign_pattern_let(
         assign_ident(name, val, target_frame, create=False)
 
     destructure_assign_pattern(
-        eval_func, _assign_ident_wrapper, pattern, value, frame, create, allow_broadcast
+        eval_fn, _assign_ident_wrapper, pattern, value, frame, create, allow_broadcast
     )
 
 
 def eval_let_destructure(
     node: Tree,
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     *,
     create: bool,
     allow_broadcast: bool,
@@ -76,7 +74,7 @@ def eval_let_destructure(
 
     ident_names = _extract_pattern_idents(patterns) if len(patterns) > 1 else None
     values, result = evaluate_destructure_rhs(
-        eval_func,
+        eval_fn,
         rhs_node,
         frame,
         len(patterns),
@@ -86,7 +84,7 @@ def eval_let_destructure(
 
     for pat, val in zip(patterns, values):
         _assign_pattern_let(
-            eval_func,
+            eval_fn,
             pat,
             val,
             frame,
@@ -100,9 +98,9 @@ def eval_let_destructure(
 def eval_let_stmt(
     node: Tree,
     frame: Frame,
-    eval_func: EvalFunc,
+    eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
-    evaluate_index_operand: IndexEvalFunc,
+    evaluate_index_operand: IndexEvalFn,
 ) -> ShkValue:
     if not node.children:
         raise ShakarRuntimeError("Malformed let statement")
@@ -115,18 +113,18 @@ def eval_let_stmt(
 
     match label:
         case "walrus":
-            return eval_let_walrus(inner.children, frame, eval_func)
+            return eval_let_walrus(inner.children, frame, eval_fn)
         case "destructure_walrus":
             return eval_let_destructure(
-                inner, frame, eval_func, create=True, allow_broadcast=True
+                inner, frame, eval_fn, create=True, allow_broadcast=True
             )
         case "destructure":
             return eval_let_destructure(
-                inner, frame, eval_func, create=False, allow_broadcast=False
+                inner, frame, eval_fn, create=False, allow_broadcast=False
             )
         case "assignstmt":
             return eval_assign_stmt(
-                inner.children, frame, eval_func, apply_op, evaluate_index_operand
+                inner.children, frame, eval_fn, apply_op, evaluate_index_operand
             )
         case _:
             raise ShakarRuntimeError("let must prefix an assignment statement")

@@ -26,7 +26,7 @@ from .helpers import eval_anchor_scoped
 from .loops import _iterable_values
 from .common import stringify, unescape_string_literal
 
-EvalFunc = Callable[[Tree, Frame], ShkValue]
+EvalFn = Callable[[Tree, Frame], ShkValue]
 
 
 def eval_keyword_literal(node: Tree) -> ShkValue:
@@ -51,7 +51,7 @@ def eval_keyword_literal(node: Tree) -> ShkValue:
     raise ShakarRuntimeError("Unknown literal")
 
 
-def eval_array_literal(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArray:
+def eval_array_literal(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkArray:
     items: List[ShkValue] = []
 
     for child in tree_children(node):
@@ -59,18 +59,18 @@ def eval_array_literal(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkArra
             spread_expr = child.children[0] if child.children else None
             if spread_expr is None:
                 raise ShakarRuntimeError("Malformed spread element")
-            spread_val = eval_anchor_scoped(spread_expr, frame, eval_func)
+            spread_val = eval_anchor_scoped(spread_expr, frame, eval_fn)
             if isinstance(spread_val, ShkObject):
                 raise ShakarTypeError("Cannot spread object into array literal")
             items.extend(_iterable_values(spread_val))
             continue
 
-        items.append(eval_anchor_scoped(child, frame, eval_func))
+        items.append(eval_anchor_scoped(child, frame, eval_fn))
 
     return ShkArray(items)
 
 
-def eval_string_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkString:
+def eval_string_interp(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkString:
     parts: List[str] = []
 
     for part in tree_children(node):
@@ -84,7 +84,7 @@ def eval_string_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkStri
             if expr_node is None:
                 raise ShakarRuntimeError("Empty interpolation expression")
 
-            value = eval_anchor_scoped(expr_node, frame, eval_func)
+            value = eval_anchor_scoped(expr_node, frame, eval_fn)
             parts.append(stringify(value))
             continue
 
@@ -93,7 +93,7 @@ def eval_string_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkStri
     return ShkString("".join(parts))
 
 
-def eval_shell_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkCommand:
+def eval_shell_string(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkCommand:
     parts: List[str] = []
 
     for part in tree_children(node):
@@ -107,7 +107,7 @@ def eval_shell_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkComma
         if expr_node is None:
             raise ShakarRuntimeError("Empty interpolation expression")
 
-        value = eval_anchor_scoped(expr_node, frame, eval_func)
+        value = eval_anchor_scoped(expr_node, frame, eval_fn)
 
         if label == "shell_interp_expr":
             rendered = _render_shell_safe(value)
@@ -120,17 +120,17 @@ def eval_shell_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkComma
     return ShkCommand(parts)
 
 
-def eval_shell_bang(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
+def eval_shell_bang(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     """Evaluate eager shell string and return stdout."""
     children = tree_children(node)
     if not children or not is_tree(children[0]):
         raise ShakarRuntimeError("Malformed shell_bang node")
 
-    cmd = eval_shell_string(children[0], frame, eval_func)
+    cmd = eval_shell_string(children[0], frame, eval_fn)
     return call_builtin_method(cmd, "run", [], frame)
 
 
-def eval_path_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkPath:
+def eval_path_interp(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkPath:
     parts: List[str] = []
 
     for part in tree_children(node):
@@ -143,7 +143,7 @@ def eval_path_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkPath:
             if expr_node is None:
                 raise ShakarRuntimeError("Empty interpolation expression")
 
-            value = eval_anchor_scoped(expr_node, frame, eval_func)
+            value = eval_anchor_scoped(expr_node, frame, eval_fn)
             parts.append(stringify(value))
             continue
 
@@ -152,7 +152,7 @@ def eval_path_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkPath:
     return ShkPath("".join(parts))
 
 
-def eval_env_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkEnvVar:
+def eval_env_string(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkEnvVar:
     """Evaluate simple env string (no interpolation)."""
     children = tree_children(node)
     if not children or not is_token(children[0]):
@@ -162,7 +162,7 @@ def eval_env_string(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkEnvVar:
     return ShkEnvVar(var_name)
 
 
-def eval_env_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkEnvVar:
+def eval_env_interp(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkEnvVar:
     """Evaluate interpolated env string."""
     parts: List[str] = []
 
@@ -175,7 +175,7 @@ def eval_env_interp(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkEnvVar:
             expr_node = part.children[0] if tree_children(part) else None
             if expr_node is None:
                 raise ShakarRuntimeError("Empty interpolation expression")
-            value = eval_anchor_scoped(expr_node, frame, eval_func)
+            value = eval_anchor_scoped(expr_node, frame, eval_fn)
             parts.append(stringify(value))
             continue
 

@@ -34,7 +34,7 @@ _COMPOUND_MAP = {
 def eval_fanout_block(
     node: Tree,
     frame: Frame,
-    eval_func,
+    eval_fn,
     apply_op,
     evaluate_index_operand,
 ) -> ShkValue:
@@ -43,7 +43,7 @@ def eval_fanout_block(
         raise ShakarRuntimeError("Malformed fanout block")
 
     base_node, block = node.children
-    base_val = eval_func(base_node, frame)
+    base_val = eval_fn(base_node, frame)
 
     saved_dot = frame.dot
     frame.dot = base_val
@@ -62,7 +62,7 @@ def eval_fanout_block(
                     )
                 seen_keys.add(key)
             _eval_clause(
-                base_val, clause, frame, eval_func, apply_op, evaluate_index_operand
+                base_val, clause, frame, eval_fn, apply_op, evaluate_index_operand
             )
     finally:
         frame.dot = saved_dot
@@ -92,7 +92,7 @@ def _eval_clause(
     base_val: ShkValue,
     clause: Tree,
     frame: Frame,
-    eval_func,
+    eval_fn,
     apply_op,
     evaluate_index_operand,
 ) -> None:
@@ -122,27 +122,27 @@ def _eval_clause(
         raise ShakarRuntimeError("Empty fanout path")
 
     target_obj, final_seg = _walk_to_parent(
-        base_val, segments, frame, eval_func, apply_op
+        base_val, segments, frame, eval_fn, apply_op
     )
     op_label = tree_label(op_node)
     targets = _iter_targets(target_obj)
 
     if op_label == "fanop_assign":
-        new_val = eval_func(rhs_node, frame)
+        new_val = eval_fn(rhs_node, frame)
         for tgt in targets:
             _store_target(
-                tgt, final_seg, new_val, frame, evaluate_index_operand, eval_func
+                tgt, final_seg, new_val, frame, evaluate_index_operand, eval_fn
             )
         return
 
     if op_label == "fanop_apply":
         for tgt in targets:
             base = tgt.value if isinstance(tgt, RebindContext) else tgt
-            old_val = _read(base, final_seg, frame, evaluate_index_operand, eval_func)
+            old_val = _read(base, final_seg, frame, evaluate_index_operand, eval_fn)
             rhs_frame = Frame(parent=frame, dot=old_val)
-            new_val = eval_func(rhs_node, rhs_frame)
+            new_val = eval_fn(rhs_node, rhs_frame)
             _store_target(
-                tgt, final_seg, new_val, frame, evaluate_index_operand, eval_func
+                tgt, final_seg, new_val, frame, evaluate_index_operand, eval_fn
             )
         return
 
@@ -150,12 +150,12 @@ def _eval_clause(
     if op_symbol is None:
         raise ShakarRuntimeError(f"Unsupported fanout operator {op_label}")
 
-    rhs_val = eval_func(rhs_node, frame)
+    rhs_val = eval_fn(rhs_node, frame)
     for tgt in targets:
         base = tgt.value if isinstance(tgt, RebindContext) else tgt
-        old_val = _read(base, final_seg, frame, evaluate_index_operand, eval_func)
+        old_val = _read(base, final_seg, frame, evaluate_index_operand, eval_fn)
         new_val = apply_binary_operator(op_symbol, old_val, rhs_val)
-        _store_target(tgt, final_seg, new_val, frame, evaluate_index_operand, eval_func)
+        _store_target(tgt, final_seg, new_val, frame, evaluate_index_operand, eval_fn)
 
 
 def _iter_targets(target_obj: EvalResult) -> List[ShkValue | RebindContext]:
@@ -169,13 +169,13 @@ def _fan_segments(path_node: Node) -> List[Tree]:
 
 
 def _walk_to_parent(
-    base_val: ShkValue, segments: List[Tree], frame: Frame, eval_func, apply_op
+    base_val: ShkValue, segments: List[Tree], frame: Frame, eval_fn, apply_op
 ) -> tuple[ShkValue, Tree]:
     current = base_val
 
     for idx, seg in enumerate(segments[:-1]):
         prev = current
-        current = apply_op(current, seg, frame, eval_func)
+        current = apply_op(current, seg, frame, eval_fn)
 
         # When an intermediate *multi* selector returns an array, broadcast subsequent ops across its elements.
         if (
@@ -184,7 +184,7 @@ def _walk_to_parent(
             and _segment_is_multi_selector(seg)
             and isinstance(prev, ShkArray)
         ):
-            current = _fan_context_from_selector(prev, seg, frame, eval_func)
+            current = _fan_context_from_selector(prev, seg, frame, eval_fn)
 
         if isinstance(current, RebindContext):
             current = current.value
@@ -211,14 +211,14 @@ def _segment_is_multi_selector(seg: Tree) -> bool:
 
 
 def _fan_context_from_selector(
-    arr: ShkArray, seg: Tree, frame: Frame, eval_func
+    arr: ShkArray, seg: Tree, frame: Frame, eval_fn
 ) -> FanContext:
     """Build FanContext targeting the original array elements selected by seg."""
     selectorlist = child_by_label(seg, "selectorlist")
     if selectorlist is None:
         raise ShakarRuntimeError("Malformed selector in fanout path")
 
-    parts = evaluate_selectorlist(selectorlist, frame, eval_func, clamp=True)
+    parts = evaluate_selectorlist(selectorlist, frame, eval_fn, clamp=True)
     indices: list[int] = []
     length = len(arr.items)
 
@@ -261,14 +261,14 @@ def _store_target(
     value: ShkValue,
     frame: Frame,
     evaluate_index_operand,
-    eval_func,
+    eval_fn,
 ) -> None:
     if isinstance(target, RebindContext):
         # Apply store to the underlying value, then write back via setter to keep container in sync.
-        _store(target.value, final_seg, value, frame, evaluate_index_operand, eval_func)
+        _store(target.value, final_seg, value, frame, evaluate_index_operand, eval_fn)
         target.setter(target.value)
         return
-    _store(target, final_seg, value, frame, evaluate_index_operand, eval_func)
+    _store(target, final_seg, value, frame, evaluate_index_operand, eval_fn)
 
 
 def _read(
@@ -276,11 +276,11 @@ def _read(
     raw_final_seg: Tree,
     frame: Frame,
     evaluate_index_operand,
-    eval_func,
+    eval_fn,
 ) -> ShkValue:
     seg, label = unwrap_noanchor(raw_final_seg)
 
-    return _read_segment(target, seg, label, frame, evaluate_index_operand, eval_func)
+    return _read_segment(target, seg, label, frame, evaluate_index_operand, eval_fn)
 
 
 def _store(
@@ -289,10 +289,10 @@ def _store(
     value: ShkValue,
     frame: Frame,
     evaluate_index_operand,
-    eval_func,
+    eval_fn,
 ) -> None:
     seg, label = unwrap_noanchor(raw_final_seg)
-    _write_segment(target, seg, label, value, frame, evaluate_index_operand, eval_func)
+    _write_segment(target, seg, label, value, frame, evaluate_index_operand, eval_fn)
 
 
 def _name(label: Optional[Union[str, Tok]]) -> str:
