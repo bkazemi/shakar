@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Callable, List, Optional
 import pathlib
 from types import SimpleNamespace
-import traceback
 
 from .token_types import TT
 from .lexer_rd import Lexer

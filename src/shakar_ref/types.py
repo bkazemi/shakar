@@ -1206,6 +1206,7 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     ShkFan,
     ShkObject,
     ShkModule,
+    ShkChannel,
     ShkFn,
     ShkDecorator,
     DecoratorConfigured,

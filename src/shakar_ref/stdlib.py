@@ -20,6 +20,8 @@ from .runtime import (
     StdlibFunction,
     ShakarImportError,
     ShakarTypeError,
+    ShkArray,
+    ShkFan,
     ShkObject,
     ShkOptional,
     ShkUnion,
@@ -271,10 +273,7 @@ def _iter_coerce(value: ShkValue):
     elif isinstance(value, ShkObject):
         for key in value.slots:
             yield ShkString(key)
-    elif isinstance(value, (list, tuple, set)):
-        for v in value:
-            yield v
-    elif hasattr(value, "items") and isinstance(value.items, list):
+    elif isinstance(value, (ShkArray, ShkFan)):
         for v in value.items:
             yield v
     else:

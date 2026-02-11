@@ -160,8 +160,6 @@ class ChainNormalize(Transformer):
 
 
 class Prune(Transformer):
-    _fragment_parser: Optional[object] = None
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._compare_depth = 0
@@ -642,7 +640,7 @@ class Prune(Transformer):
         return Tree("group", c)
 
     def setliteral(self, c):
-        items = [x for x in c if not (is_token(x) and x.type == "COMMA")]
+        items = [x for x in c if not (is_token(x) and x.type == TT.COMMA)]
         return Tree("setliteral", items)
 
     def setliteral_empty(self, _):
