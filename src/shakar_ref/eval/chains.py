@@ -510,6 +510,160 @@ def _call_stdlib(
     return _with_call_site(frame, call_site, lambda: cal.fn(frame, subject, args, None))
 
 
+def _dispatch_bound_callable(
+    target: BoundCallable,
+    call_args: List[ShkValue],
+    frame: Frame,
+    call_site: Optional[CallSite],
+    named: Optional[Dict[str, ShkValue]],
+    interleaved: bool,
+) -> ShkValue:
+    """Dispatch UFCS-bound callables (prepend / subject styles)."""
+    if target.style == "prepend":
+        return _dispatch_call(
+            target.target,
+            [target.subject, *call_args],
+            frame,
+            call_site,
+            named,
+            interleaved,
+        )
+
+    if target.style == "subject":
+        if not isinstance(target.target, StdlibFunction):
+            raise ShakarTypeError("UFCS subject-style target is not a stdlib function")
+        return _call_stdlib(
+            target.target,
+            subject=target.subject,
+            args=call_args,
+            frame=frame,
+            call_site=call_site,
+            named=named,
+            interleaved=interleaved,
+        )
+
+    raise ShakarTypeError(f"Unknown UFCS binding style '{target.style}'")
+
+
+def _dispatch_builtin_method(
+    target: BuiltinMethod,
+    call_args: List[ShkValue],
+    frame: Frame,
+    call_site: Optional[CallSite],
+    named: Optional[Dict[str, ShkValue]],
+) -> ShkValue:
+    """Dispatch builtin-method calls."""
+    if named:
+        raise ShakarTypeError("Builtin methods do not accept named arguments")
+
+    return _with_call_site(
+        frame,
+        call_site,
+        lambda: call_builtin_method(target.subject, target.name, call_args, frame),
+    )
+
+
+def _dispatch_decorator_cont(
+    target: DecoratorContinuation,
+    call_args: List[ShkValue],
+    frame: Frame,
+    call_site: Optional[CallSite],
+    named: Optional[Dict[str, ShkValue]],
+) -> ShkValue:
+    """Dispatch decorator continuation invocations."""
+    if named:
+        raise ShakarTypeError("Decorator continuations do not accept named arguments")
+    if len(call_args) != 1:
+        raise ShakarArityError(
+            "Decorator continuation expects exactly 1 argument (the args array)"
+        )
+
+    return _with_call_site(frame, call_site, lambda: target.invoke(call_args[0]))
+
+
+def _dispatch_decorator(
+    target: ShkDecorator,
+    call_args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]],
+) -> DecoratorConfigured:
+    """Dispatch decorator configuration calls."""
+    if named:
+        raise ShakarTypeError("Decorators do not accept named arguments")
+
+    bound = _bind_decorator_params(target, call_args)
+
+    return DecoratorConfigured(decorator=target, args=list(bound))
+
+
+def _dispatch_call(
+    target: ShkValue,
+    call_args: List[ShkValue],
+    frame: Frame,
+    call_site: Optional[CallSite],
+    named: Optional[Dict[str, ShkValue]],
+    interleaved: bool,
+) -> ShkValue:
+    """Route a call to the appropriate handler based on callable type."""
+    match target:
+        case BoundCallable():
+            return _dispatch_bound_callable(
+                target,
+                call_args,
+                frame,
+                call_site,
+                named,
+                interleaved,
+            )
+        case BoundMethod(fn=fn, subject=subject):
+            return call_shkfn(
+                fn,
+                call_args,
+                subject=subject,
+                caller_frame=frame,
+                named=named,
+                call_site=call_site,
+            )
+        case BuiltinMethod():
+            return _dispatch_builtin_method(
+                target,
+                call_args,
+                frame,
+                call_site,
+                named,
+            )
+        case StdlibFunction():
+            return _call_stdlib(
+                target,
+                subject=None,
+                args=call_args,
+                frame=frame,
+                call_site=call_site,
+                named=named,
+                interleaved=interleaved,
+            )
+        case DecoratorContinuation():
+            return _dispatch_decorator_cont(
+                target,
+                call_args,
+                frame,
+                call_site,
+                named,
+            )
+        case ShkDecorator():
+            return _dispatch_decorator(target, call_args, named)
+        case ShkFn():
+            return call_shkfn(
+                target,
+                call_args,
+                subject=None,
+                caller_frame=frame,
+                named=named,
+                call_site=call_site,
+            )
+        case _:
+            raise ShakarTypeError(f"Cannot call value of type {type(target).__name__}")
+
+
 def call_value(
     cal: ShkValue,
     args: List[ShkValue],
@@ -525,87 +679,7 @@ def call_value(
         else None
     )
 
-    def _call_with_site(target: ShkValue, call_args: List[ShkValue]) -> ShkValue:
-        match target:
-            case BoundCallable(target=inner, subject=subject, style=style):
-                if style == "prepend":
-                    return _call_with_site(inner, [subject, *call_args])
-                if style == "subject":
-                    if not isinstance(inner, StdlibFunction):
-                        raise ShakarTypeError(
-                            "UFCS subject-style target is not a stdlib function"
-                        )
-                    return _call_stdlib(
-                        inner,
-                        subject=subject,
-                        args=call_args,
-                        frame=frame,
-                        call_site=call_site,
-                        named=named,
-                        interleaved=interleaved,
-                    )
-                raise ShakarTypeError(f"Unknown UFCS binding style '{style}'")
-            case BoundMethod(fn=fn, subject=subject):
-                return call_shkfn(
-                    fn,
-                    call_args,
-                    subject=subject,
-                    caller_frame=frame,
-                    named=named,
-                    call_site=call_site,
-                )
-            case BuiltinMethod(name=name, subject=subject):
-                if named:
-                    raise ShakarTypeError(
-                        "Builtin methods do not accept named arguments"
-                    )
-                return _with_call_site(
-                    frame,
-                    call_site,
-                    lambda: call_builtin_method(subject, name, call_args, frame),
-                )
-            case StdlibFunction():
-                return _call_stdlib(
-                    target,
-                    subject=None,
-                    args=call_args,
-                    frame=frame,
-                    call_site=call_site,
-                    named=named,
-                    interleaved=interleaved,
-                )
-            case DecoratorContinuation():
-                if named:
-                    raise ShakarTypeError(
-                        "Decorator continuations do not accept named arguments"
-                    )
-                if len(call_args) != 1:
-                    raise ShakarArityError(
-                        "Decorator continuation expects exactly 1 argument (the args array)"
-                    )
-                return _with_call_site(
-                    frame, call_site, lambda: target.invoke(call_args[0])
-                )
-            case ShkDecorator():
-                if named:
-                    raise ShakarTypeError("Decorators do not accept named arguments")
-                bound = _bind_decorator_params(target, call_args)
-                return DecoratorConfigured(decorator=target, args=list(bound))
-            case ShkFn():
-                return call_shkfn(
-                    target,
-                    call_args,
-                    subject=None,
-                    caller_frame=frame,
-                    named=named,
-                    call_site=call_site,
-                )
-            case _:
-                raise ShakarTypeError(
-                    f"Cannot call value of type {type(target).__name__}"
-                )
-
-    return _call_with_site(cal, args)
+    return _dispatch_call(cal, args, frame, call_site, named, interleaved)
 
 
 def _index_expr_from_children(children: List[Node]) -> Tree:

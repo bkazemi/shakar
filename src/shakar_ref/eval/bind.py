@@ -313,6 +313,130 @@ def resolve_assignable_node(
     raise ShakarRuntimeError("Increment target must be assignable")
 
 
+# ---------------------------------------------------------------------------
+# Final-segment resolution helpers
+#
+# These centralise the `unwrap_noanchor → match label → field/index` dispatch
+# that previously lived inline in resolve_chain_assignment, apply_assign,
+# _complete_chain_assignment, _apply_over_fancontext, _assign_over_fancontext,
+# and fanout.py's _read/_store.
+# ---------------------------------------------------------------------------
+
+
+def _read_segment(
+    target: ShkValue,
+    op: Tree,
+    label: str,
+    frame: Frame,
+    evaluate_index_operand: IndexEvalFunc,
+    eval_func: EvalFunc,
+) -> ShkValue:
+    """Read the current value at a resolved final segment (field or index)."""
+    match label:
+        case "field" | "fieldsel":
+            name = expect_ident_token(op.children[0], "Field access")
+            return get_field_value(target, name, frame)
+        case "index" | "lv_index":
+            idx_val = evaluate_index_operand(op, frame, eval_func)
+            return index_value(target, idx_val, frame)
+
+    raise ShakarRuntimeError("Unsupported read target")
+
+
+def _write_segment(
+    target: ShkValue,
+    op: Tree,
+    label: str,
+    value: ShkValue,
+    frame: Frame,
+    evaluate_index_operand: IndexEvalFunc,
+    eval_func: EvalFunc,
+    *,
+    create: bool = False,
+) -> ShkValue:
+    """Write a value at a resolved final segment (field or index)."""
+    match label:
+        case "field" | "fieldsel":
+            name = expect_ident_token(op.children[0], "Field assignment")
+            return set_field_value(target, name, value, frame, create=create)
+        case "index" | "lv_index":
+            idx_val = evaluate_index_operand(op, frame, eval_func)
+            return set_index_value(target, idx_val, value, frame)
+
+    raise ShakarRuntimeError("Unsupported assignment target")
+
+
+def _rebind_segment(
+    owner: ShkValue,
+    op: Tree,
+    label: str,
+    frame: Frame,
+    evaluate_index_operand: IndexEvalFunc,
+    eval_func: EvalFunc,
+) -> RebindContext:
+    """Build a RebindContext for a field or index final segment."""
+    match label:
+        case "field" | "fieldsel":
+            name = expect_ident_token(op.children[0], "Field access")
+            value = get_field_value(owner, name, frame)
+
+            def field_setter(
+                new_value: ShkValue,
+                owner: ShkValue = owner,
+                field_name: str = name,
+            ) -> None:
+                set_field_value(owner, field_name, new_value, frame, create=False)
+                frame.dot = new_value
+
+            return RebindContext(value, field_setter)
+
+        case "index" | "lv_index":
+            idx_val = evaluate_index_operand(op, frame, eval_func)
+            value = index_value(owner, idx_val, frame)
+
+            def index_setter(
+                new_value: ShkValue,
+                owner: ShkValue = owner,
+                idx_value: ShkValue = idx_val,
+            ) -> None:
+                set_index_value(owner, idx_value, new_value, frame)
+                frame.dot = new_value
+
+            return RebindContext(value, index_setter)
+
+    raise ShakarRuntimeError("Target must be a field or index")
+
+
+def _apply_assign_segment(
+    target: ShkValue,
+    op: Tree,
+    label: str,
+    rhs_node: Tree,
+    frame: Frame,
+    evaluate_index_operand: IndexEvalFunc,
+    eval_func: EvalFunc,
+) -> ShkValue:
+    """Apply-assign at a field or index: read old, eval RHS with dot=old, write new."""
+    match label:
+        case "field" | "fieldsel":
+            name = expect_ident_token(op.children[0], "Field assignment")
+            old_val = get_field_value(target, name, frame)
+            rhs_frame = Frame(parent=frame, dot=old_val)
+            new_val = eval_func(rhs_node, rhs_frame)
+            set_field_value(target, name, new_val, frame, create=False)
+            return new_val
+
+        case "lv_index":
+            idx_val = evaluate_index_operand(op, frame, eval_func)
+            old_val = index_value(target, idx_val, frame)
+            rhs_frame = Frame(parent=frame, dot=old_val)
+            new_val = eval_func(rhs_node, rhs_frame)
+            set_index_value(target, idx_val, new_val, frame)
+            return new_val
+
+    raise ShakarRuntimeError("Unsupported apply-assign target")
+
+
 def resolve_chain_assignment(
     head_node: Node,
     ops: List[Tree],
@@ -345,35 +469,15 @@ def resolve_chain_assignment(
         if is_last and raw_op is not op:
             frame.pending_anchor_override = current
 
-        if is_last and label in {"field", "fieldsel"}:
-            field_name = expect_ident_token(op.children[0], "Field access")
-            owner = current
-            value = get_field_value(owner, field_name, frame)
-
-            def field_setter(
-                new_value: ShkValue,
-                owner: ShkValue = owner,
-                field_name: str = field_name,
-            ) -> None:
-                set_field_value(owner, field_name, new_value, frame, create=False)
-                frame.dot = new_value
-
-            return RebindContext(value, field_setter)
-
-        if is_last and label == "index":
-            owner = current
-            idx_value = evaluate_index_operand(op, frame, eval_func)
-            value = index_value(owner, idx_value, frame)
-
-            def index_setter(
-                new_value: ShkValue,
-                owner: ShkValue = owner,
-                idx_value: ShkValue = idx_value,
-            ) -> None:
-                set_index_value(owner, idx_value, new_value, frame)
-                frame.dot = new_value
-
-            return RebindContext(value, index_setter)
+        if is_last and label in {"field", "fieldsel", "index"}:
+            return _rebind_segment(
+                current,
+                op,
+                label,
+                frame,
+                evaluate_index_operand,
+                eval_func,
+            )
 
         if is_last and label == "fieldfan":
             return build_fieldfan_context(current, op, frame)
@@ -548,41 +652,36 @@ def apply_assign(
         # (contrast with assign_lvalue which assigns same value to all, returns that value)
         return ShkArray([ctx.value for ctx in target.contexts])
 
-    raw_final_op = ops[-1]
-    final_op, label = unwrap_noanchor(raw_final_op)
-    match label:
-        case "field" | "fieldsel":
-            field_name = expect_ident_token(final_op.children[0], "Field assignment")
-            old_val = get_field_value(target, field_name, frame)
+    final_op, label = unwrap_noanchor(ops[-1])
+
+    if label in {"field", "fieldsel", "lv_index"}:
+        return _apply_assign_segment(
+            target,
+            final_op,
+            label,
+            rhs_node,
+            frame,
+            evaluate_index_operand,
+            eval_func,
+        )
+
+    if label == "fieldfan":
+        names = _extract_fieldfan_names(
+            final_op,
+            missing_msg="Malformed field fan-out list",
+            empty_msg="Empty field fan-out list",
+        )
+
+        results: List[ShkValue] = []
+
+        for name in names:
+            old_val = get_field_value(target, name, frame)
             rhs_frame = Frame(parent=frame, dot=old_val)
-
             new_val = eval_func(rhs_node, rhs_frame)
-            set_field_value(target, field_name, new_val, frame, create=False)
-            return new_val
-        case "lv_index":
-            idx_val = evaluate_index_operand(final_op, frame, eval_func)
-            old_val = index_value(target, idx_val, frame)
-            rhs_frame = Frame(parent=frame, dot=old_val)
+            set_field_value(target, name, new_val, frame, create=False)
+            results.append(new_val)
 
-            new_val = eval_func(rhs_node, rhs_frame)
-            set_index_value(target, idx_val, new_val, frame)
-            return new_val
-        case "fieldfan":
-            names = _extract_fieldfan_names(
-                final_op,
-                missing_msg="Malformed field fan-out list",
-                empty_msg="Empty field fan-out list",
-            )
-
-            results: List[ShkValue] = []
-
-            for name in names:
-                old_val = get_field_value(target, name, frame)
-                rhs_frame = Frame(parent=frame, dot=old_val)
-                new_val = eval_func(rhs_node, rhs_frame)
-                set_field_value(target, name, new_val, frame, create=False)
-                results.append(new_val)
-            return ShkArray(results)
+        return ShkArray(results)
 
     raise ShakarRuntimeError("Unsupported apply-assign target")
 
@@ -599,24 +698,15 @@ def _apply_over_fancontext(
     op, label = unwrap_noanchor(final_op)
 
     for ctx in fan.contexts:
-        base = ctx.value
-        match label:
-            case "field" | "fieldsel":
-                field_name = expect_ident_token(op.children[0], "Field assignment")
-                old_val = get_field_value(base, field_name, frame)
-                rhs_frame = Frame(parent=frame, dot=old_val)
-                new_val = eval_func(rhs_node, rhs_frame)
-                set_field_value(base, field_name, new_val, frame, create=False)
-                ctx.value = new_val
-            case "lv_index":
-                idx_val = evaluate_index_operand(op, frame, eval_func)
-                old_val = index_value(base, idx_val, frame)
-                rhs_frame = Frame(parent=frame, dot=old_val)
-                new_val = eval_func(rhs_node, rhs_frame)
-                set_index_value(base, idx_val, new_val, frame)
-                ctx.value = new_val
-            case _:
-                raise ShakarRuntimeError("Unsupported fan-out apply-assign target")
+        ctx.value = _apply_assign_segment(
+            ctx.value,
+            op,
+            label,
+            rhs_node,
+            frame,
+            evaluate_index_operand,
+            eval_func,
+        )
 
 
 def _assign_over_fancontext(
@@ -632,18 +722,16 @@ def _assign_over_fancontext(
     op, label = unwrap_noanchor(final_op)
 
     for ctx in fan.contexts:
-        base = ctx.value
-        match label:
-            case "field" | "fieldsel":
-                field_name = expect_ident_token(op.children[0], "Field assignment")
-                set_field_value(base, field_name, value, frame, create=create)
-            case "lv_index":
-                idx_val = evaluate_index_operand(op, frame, eval_func)
-                set_index_value(base, idx_val, value, frame)
-            case _:
-                raise ShakarRuntimeError("Unsupported fan-out assignment target")
-
-        ctx.value = base
+        _write_segment(
+            ctx.value,
+            op,
+            label,
+            value,
+            frame,
+            evaluate_index_operand,
+            eval_func,
+            create=create,
+        )
 
 
 def _complete_chain_assignment(
@@ -672,25 +760,31 @@ def _complete_chain_assignment(
         return value
 
     final_op, label = unwrap_noanchor(raw_final_op)
-    match label:
-        case "field" | "fieldsel":
-            field_name = expect_ident_token(final_op.children[0], "Field assignment")
-            return set_field_value(target, field_name, value, frame, create=create)
-        case "lv_index":
-            idx_val = evaluate_index_operand(final_op, frame, eval_func)
-            return set_index_value(target, idx_val, value, frame)
-        case "fieldfan":
-            names = _extract_fieldfan_names(
-                final_op,
-                missing_msg="Malformed field fan-out list",
-                empty_msg="Empty field fan-out list",
-            )
 
-            vals = fanout_values(value, len(names))
+    if label in {"field", "fieldsel", "lv_index"}:
+        return _write_segment(
+            target,
+            final_op,
+            label,
+            value,
+            frame,
+            evaluate_index_operand,
+            eval_func,
+            create=create,
+        )
 
-            for name, val in zip(names, vals):
-                set_field_value(target, name, val, frame, create=create)
-            return value
+    if label == "fieldfan":
+        names = _extract_fieldfan_names(
+            final_op,
+            missing_msg="Malformed field fan-out list",
+            empty_msg="Empty field fan-out list",
+        )
+        vals = fanout_values(value, len(names))
+
+        for name, val in zip(names, vals):
+            set_field_value(target, name, val, frame, create=create)
+
+        return value
 
     raise ShakarRuntimeError("Unsupported assignment target")
 

@@ -5,7 +5,7 @@ from ..tree import Tok
 
 from ..runtime import Frame, ShkValue, EvalResult, ShakarRuntimeError
 from ..tree import Node, Tree, child_by_label, is_tree, tree_children, tree_label
-from .bind import FanContext, RebindContext
+from .bind import FanContext, RebindContext, _read_segment, _write_segment
 from .common import unwrap_noanchor
 from .selector import (
     evaluate_selectorlist,
@@ -15,7 +15,7 @@ from .selector import (
     _normalize_index_position,
 )
 from ..runtime import ShkArray
-from .mutation import get_field_value, set_field_value, index_value, set_index_value
+
 from .expr import apply_binary_operator
 
 
@@ -278,16 +278,9 @@ def _read(
     evaluate_index_operand,
     eval_func,
 ) -> ShkValue:
-    final_seg, label = unwrap_noanchor(raw_final_seg)
-    match label:
-        case "field" | "fieldsel":
-            name = final_seg.children[0].value
-            return get_field_value(target, name, frame)
-        case "lv_index":
-            idx_val = evaluate_index_operand(final_seg, frame, eval_func)
-            return index_value(target, idx_val, frame)
-        case _:
-            raise ShakarRuntimeError("Fanout block target must be a field or index")
+    seg, label = unwrap_noanchor(raw_final_seg)
+
+    return _read_segment(target, seg, label, frame, evaluate_index_operand, eval_func)
 
 
 def _store(
@@ -298,16 +291,8 @@ def _store(
     evaluate_index_operand,
     eval_func,
 ) -> None:
-    final_seg, label = unwrap_noanchor(raw_final_seg)
-    match label:
-        case "field" | "fieldsel":
-            name = final_seg.children[0].value
-            set_field_value(target, name, value, frame, create=False)
-        case "lv_index":
-            idx_val = evaluate_index_operand(final_seg, frame, eval_func)
-            set_index_value(target, idx_val, value, frame)
-        case _:
-            raise ShakarRuntimeError("Fanout block target must be a field or index")
+    seg, label = unwrap_noanchor(raw_final_seg)
+    _write_segment(target, seg, label, value, frame, evaluate_index_operand, eval_func)
 
 
 def _name(label: Optional[Union[str, Tok]]) -> str:
