@@ -219,35 +219,45 @@ class Prune(Transformer):
         return Discard
 
     # ---- string interpolation ----
+
+    def _build_interp_tree(
+        self, body: str, token: Tok, expr_label: str, result_label: str
+    ) -> Optional[Tree]:
+        """Shared helper for string/path/env interpolation transforms.
+        Returns None when body has no interpolation segments.
+        """
+        if "{" not in body:
+            return None
+
+        segments = self._split_interpolation_segments(body, token)
+        if not segments:
+            return None
+
+        nodes: List[Node] = []
+        for kind, payload in segments:
+            if kind == "text":
+                if payload:
+                    nodes.append(Tok(TT.STRING, payload))
+                continue
+            nodes.append(Tree(expr_label, [payload]))
+
+        result = Tree(result_label, nodes)
+        meta = getattr(token, "meta", None)
+        if meta is not None:
+            result.meta = meta
+
+        return result
+
     def _transform_string_token(self, token: Tok) -> Node:
         raw = token.value
         if len(raw) < 2:
             return token
 
         body = raw[1:-1]
-        if "{" not in body:
-            return token
-
-        segments = self._split_interpolation_segments(body, token)
-        if not segments:
-            return token
-
-        nodes: List[Node] = []
-
-        for kind, payload in segments:
-            if kind == "text":
-                if payload:
-                    nodes.append(Tok(TT.STRING, payload))
-                continue
-
-            nodes.append(Tree("string_interp_expr", [payload]))
-
-        result = Tree("string_interp", nodes)
-
-        meta = getattr(token, "meta", None)
-        if meta is not None:
-            result.meta = meta
-        return result
+        return (
+            self._build_interp_tree(body, token, "string_interp_expr", "string_interp")
+            or token
+        )
 
     def _transform_shell_string_token(self, token: Tok) -> Tree:
         body = token.value
@@ -296,28 +306,10 @@ class Prune(Transformer):
         else:
             body = raw
 
-        if "{" not in body:
-            return token
-
-        segments = self._split_interpolation_segments(body, token)
-        if not segments:
-            return token
-
-        nodes: List[Node] = []
-
-        for kind, payload in segments:
-            if kind == "text":
-                if payload:
-                    nodes.append(Tok(TT.STRING, payload))
-                continue
-
-            nodes.append(Tree("path_interp_expr", [payload]))
-
-        result = Tree("path_interp", nodes)
-        meta = getattr(token, "meta", None)
-        if meta is not None:
-            result.meta = meta
-        return result
+        return (
+            self._build_interp_tree(body, token, "path_interp_expr", "path_interp")
+            or token
+        )
 
     def _transform_env_string_token(self, token: Tok) -> Node:
         """Transform env string token, handling interpolation."""
@@ -331,34 +323,16 @@ class Prune(Transformer):
         else:
             body = raw
 
-        if "{" not in body:
-            # No interpolation - simple env_string
-            result = Tree("env_string", [Tok(TT.STRING, body)])
-            meta = getattr(token, "meta", None)
-            if meta is not None:
-                result.meta = meta
-            return result
+        # env always wraps in a tree — fall back to env_string for plain bodies.
+        interp = self._build_interp_tree(body, token, "env_interp_expr", "env_interp")
+        if interp is not None:
+            return interp
 
-        segments = self._split_interpolation_segments(body, token)
-        if not segments:
-            result = Tree("env_string", [Tok(TT.STRING, body)])
-            meta = getattr(token, "meta", None)
-            if meta is not None:
-                result.meta = meta
-            return result
-
-        nodes: List[Node] = []
-        for kind, payload in segments:
-            if kind == "text":
-                if payload:
-                    nodes.append(Tok(TT.STRING, payload))
-                continue
-            nodes.append(Tree("env_interp_expr", [payload]))
-
-        result = Tree("env_interp", nodes)
+        result = Tree("env_string", [Tok(TT.STRING, body)])
         meta = getattr(token, "meta", None)
         if meta is not None:
             result.meta = meta
+
         return result
 
     def SHELL_STRING(self, token: Tok) -> Tree:

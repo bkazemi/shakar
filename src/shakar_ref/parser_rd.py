@@ -1484,6 +1484,19 @@ class Parser:
 
         return Tree("decorator_def", [name, params, body])
 
+    # Fanout assignment operator token → tree label mapping.
+    _FANOP_MAP = {
+        TT.ASSIGN: "fanop_assign",
+        TT.APPLYASSIGN: "fanop_apply",
+        TT.PLUSEQ: "fanop_pluseq",
+        TT.MINUSEQ: "fanop_minuseq",
+        TT.STAREQ: "fanop_stareq",
+        TT.SLASHEQ: "fanop_slasheq",
+        TT.FLOORDIVEQ: "fanop_floordiveq",
+        TT.MODEQ: "fanop_modeq",
+        TT.POWEQ: "fanop_poweq",
+    }
+
     def parse_fanblock(self) -> Tree:
         """
         Parse fanout block: { .field = value; .field2 += value2; ... }
@@ -1501,113 +1514,37 @@ class Parser:
             if self.match(TT.SEMI, TT.COMMA):
                 continue
 
-            # Parse fanclause: .field = expr
-            dot_tok = self.expect(TT.DOT)  # Capture DOT token for fanclause
+            dot_tok = self.expect(TT.DOT)
 
             # Parse fanpath: IDENT or [selectorlist] segments, dot-separated
             segs: List[Tree] = []
+            segs.append(self._parse_fanpath_segment())
 
-            # First segment (required)
-            if self.check(TT.IDENT):
-                tok = self.advance()
-                segs.append(
-                    Tree("field", [self._tok("IDENT", tok.value, tok.line, tok.column)])
-                )
-            elif self.check(TT.LSQB):
-                lsqb_tok = self.advance()  # Capture LSQB token
-                selectors = self.parse_selector_list()
-                rsqb_tok = self.expect(TT.RSQB)
-                segs.append(
-                    Tree(
-                        "lv_index",
-                        [lsqb_tok, Tree("selectorlist", selectors), rsqb_tok],
-                    )
-                )
-            else:
-                raise ParseError(
-                    "Expected identifier or [selector] in fanout path", self.current
-                )
-
-            # Subsequent segments: allow either a dot+segment or a bare [selector] segment
             while True:
                 if self.match(TT.DOT):
-                    if self.check(TT.IDENT):
-                        tok = self.advance()
-                        segs.append(
-                            Tree(
-                                "field",
-                                [self._tok("IDENT", tok.value, tok.line, tok.column)],
-                            )
-                        )
-                    elif self.check(TT.LSQB):
-                        lsqb_tok = self.advance()  # Capture LSQB token
-                        selectors = self.parse_selector_list()
-                        rsqb_tok = self.expect(TT.RSQB)
-                        segs.append(
-                            Tree(
-                                "lv_index",
-                                [lsqb_tok, Tree("selectorlist", selectors), rsqb_tok],
-                            )
-                        )
-                    else:
-                        raise ParseError(
-                            "Expected identifier or [selector] after '.' in fanout path",
-                            self.current,
-                        )
+                    segs.append(self._parse_fanpath_segment())
                 elif self.check(TT.LSQB):
-                    # Adjacent selector segment without a dot (e.g., .rows[1].v)
-                    lsqb_tok = self.advance()  # Capture LSQB token
-                    selectors = self.parse_selector_list()
-                    rsqb_tok = self.expect(TT.RSQB)
-                    segs.append(
-                        Tree(
-                            "lv_index",
-                            [lsqb_tok, Tree("selectorlist", selectors), rsqb_tok],
-                        )
-                    )
+                    # Adjacent selector without dot (e.g., .rows[1].v)
+                    segs.append(self._parse_lv_index_segment())
                 else:
                     break
 
             fanpath = Tree("fanpath", segs)
 
             # Parse assignment operator
-            if self.check(TT.ASSIGN):
-                self.advance()
-                fanop = Tree("fanop_assign", [])
-            elif self.check(TT.APPLYASSIGN):
-                self.advance()
-                fanop = Tree("fanop_apply", [])
-            elif self.check(TT.PLUSEQ):
-                self.advance()
-                fanop = Tree("fanop_pluseq", [])
-            elif self.check(TT.MINUSEQ):
-                self.advance()
-                fanop = Tree("fanop_minuseq", [])
-            elif self.check(TT.STAREQ):
-                self.advance()
-                fanop = Tree("fanop_stareq", [])
-            elif self.check(TT.SLASHEQ):
-                self.advance()
-                fanop = Tree("fanop_slasheq", [])
-            elif self.check(TT.FLOORDIVEQ):
-                self.advance()
-                fanop = Tree("fanop_floordiveq", [])
-            elif self.check(TT.MODEQ):
-                self.advance()
-                fanop = Tree("fanop_modeq", [])
-            elif self.check(TT.POWEQ):
-                self.advance()
-                fanop = Tree("fanop_poweq", [])
-            else:
+            fanop_label = self._FANOP_MAP.get(self.current.type)
+            if fanop_label is None:
                 raise ParseError("Expected fanout assignment operator", self.current)
+            self.advance()
+            fanop = Tree(fanop_label, [])
 
-            # Parse value expression
             value = self.parse_expr()
 
             clauses.append(Tree("fanclause", [dot_tok, fanpath, fanop, value]))
             clause_count += 1
 
         self.expect(TT.RBRACE)
+
         # Single-clause fanout: allow if it either fans to multiple targets *or*
         # the RHS uses the implicit subject (e.g., state{ .cur = .next }).
         if clause_count == 1:
@@ -1621,7 +1558,29 @@ class Parser:
                     "Single-clause fanout requires a multi-selector or implicit-subject RHS",
                     self.current,
                 )
+
         return Tree("fanblock", clauses)
+
+    def _parse_fanpath_segment(self) -> Tree:
+        """Parse a single fanpath segment: IDENT field or [selector] index."""
+        if self.check(TT.IDENT):
+            tok = self.advance()
+            return Tree("field", [self._tok("IDENT", tok.value, tok.line, tok.column)])
+
+        if self.check(TT.LSQB):
+            return self._parse_lv_index_segment()
+
+        raise ParseError(
+            "Expected identifier or [selector] in fanout path", self.current
+        )
+
+    def _parse_lv_index_segment(self) -> Tree:
+        """Parse a bracketed selector segment: '[' selectorlist ']'."""
+        lsqb_tok = self.advance()
+        selectors = self.parse_selector_list()
+        rsqb_tok = self.expect(TT.RSQB)
+
+        return Tree("lv_index", [lsqb_tok, Tree("selectorlist", selectors), rsqb_tok])
 
     def _fanpath_has_multiselector(self, fanpath: Tree) -> bool:
         """Detect slice or multi-index selector in fanpath segments."""
