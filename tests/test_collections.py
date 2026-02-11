@@ -414,6 +414,26 @@ SCENARIOS = [
         id="object-getter-setter",
     ),
     pytest.param(
+        "o := {(sum(a, b)): a + b}; o.sum(2, 3)",
+        ("number", 5),
+        None,
+        id="object-key-expr-method-sugar-simple-ident-args",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn g(x): "k" + x
+            fn f(v): v
+            x := "1"
+            o := {(f(g(x))): 7}
+            o["k1"]
+        """
+        ),
+        ("number", 7),
+        None,
+        id="object-key-expr-nested-call-not-method-sugar",
+    ),
+    pytest.param(
         dedent(
             """\
             arr := [1, 2]

@@ -8,6 +8,7 @@ from tests.support.harness import (
     CommandError,
     LexError,
     ShakarRuntimeError,
+    ShakarTypeError,
     run_runtime_case,
 )
 
@@ -316,6 +317,12 @@ SCENARIOS = [
         ("number", 42),
         None,
         id="env-as-object-key",
+    ),
+    pytest.param(
+        'o := {(env"SHAKAR_TEST_NONEXISTENT_VAR_12345"): 1}; o[""]',
+        None,
+        ShakarTypeError,
+        id="env-missing-object-literal-key-error",
     ),
     pytest.param(
         'env"SHAKAR_TEST_VAR".assign("world"); r := "world" in env"SHAKAR_TEST_VAR"; env"SHAKAR_TEST_VAR".unset(); r',

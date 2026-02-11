@@ -261,6 +261,24 @@ SCENARIOS = [
         id="contract-inline-multiple",
     ),
     pytest.param(
+        "o := { add(a ~ Int): a + 1 }; o.add(2)",
+        ("number", 3),
+        None,
+        id="contract-object-method-valid",
+    ),
+    pytest.param(
+        'o := { add(a ~ Int): a + 1 }; o.add("bad")',
+        None,
+        ShakarAssertionError,
+        id="contract-object-method-invalid",
+    ),
+    pytest.param(
+        'o := { sum(...xs ~ Int): xs.len }; o.sum(1, "x")',
+        None,
+        ShakarAssertionError,
+        id="contract-object-method-spread-invalid",
+    ),
+    pytest.param(
         "{} ~ {a: Optional(Int)}",
         ("bool", True),
         None,
