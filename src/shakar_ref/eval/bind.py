@@ -165,7 +165,7 @@ def eval_compound_assign(
     if op_symbol is None:
         raise ShakarRuntimeError(f"Unsupported compound operator {op_value}")
 
-    current_value = read_lvalue(
+    contexts = _resolve_lvalue_contexts(
         lvalue_node,
         frame,
         eval_fn=eval_fn,
@@ -173,18 +173,13 @@ def eval_compound_assign(
         evaluate_index_operand=evaluate_index_operand,
     )
     rhs_value = eval_fn(rhs_node, frame)
+    rhs_values = fanout_values(rhs_value, len(contexts))
     from .expr import apply_binary_operator
 
-    new_value = apply_binary_operator(op_symbol, current_value, rhs_value)
-    assign_lvalue(
-        lvalue_node,
-        new_value,
-        frame,
-        eval_fn=eval_fn,
-        apply_op=apply_op,
-        evaluate_index_operand=evaluate_index_operand,
-        create=False,
-    )
+    for ctx, rhs_item in zip(contexts, rhs_values):
+        new_value = apply_binary_operator(op_symbol, ctx.value, rhs_item)
+        ctx.setter(new_value)
+        ctx.value = new_value
 
     return None
 
@@ -317,9 +312,8 @@ def resolve_assignable_node(
 # Final-segment resolution helpers
 #
 # These centralise the `unwrap_noanchor → match label → field/index` dispatch
-# that previously lived inline in resolve_chain_assignment, apply_assign,
-# _complete_chain_assignment, _apply_over_fancontext, _assign_over_fancontext,
-# and fanout.py's _read/_store.
+# that previously lived inline in resolve_chain_assignment,
+# _complete_chain_assignment, and fanout.py's _read/_store.
 # ---------------------------------------------------------------------------
 
 
@@ -407,34 +401,240 @@ def _rebind_segment(
     raise ShakarRuntimeError("Target must be a field or index")
 
 
-def _apply_assign_segment(
-    target: ShkValue,
-    op: Tree,
-    label: str,
-    rhs_node: Tree,
+def _is_fan_literal_node(node: Node) -> bool:
+    return is_tree(node) and tree_label(node) == "fan_literal"
+
+
+def _unwrap_lvalue_head(node: Node) -> Node:
+    current = node
+
+    while (
+        is_tree(current)
+        and tree_label(current) in {"group", "group_expr", "expr", "primary"}
+        and len(current.children) == 1
+    ):
+        current = current.children[0]
+
+    return current
+
+
+def _fan_literal_item_nodes(node: Node) -> List[Node]:
+    if not _is_fan_literal_node(node):
+        return []
+
+    items_node = child_by_label(node, "fan_items")
+    if items_node is None:
+        return []
+
+    return list(tree_children(items_node))
+
+
+def _resolve_fan_literal_contexts(
+    fan_node: Node,
+    frame: Frame,
+    *,
+    eval_fn: EvalFn,
+    apply_op: ApplyOpFunc,
+    evaluate_index_operand: IndexEvalFn,
+) -> List[RebindContext]:
+    contexts: List[RebindContext] = []
+
+    for index, item in enumerate(_fan_literal_item_nodes(fan_node)):
+        try:
+            ctx = resolve_assignable_node(
+                item,
+                frame,
+                eval_fn=eval_fn,
+                apply_op=apply_op,
+                evaluate_index_operand=evaluate_index_operand,
+            )
+        except ShakarRuntimeError:
+            raise ShakarRuntimeError(
+                f"Fan assignment item {index + 1} must be assignable"
+            ) from None
+
+        if isinstance(ctx, FanContext):
+            contexts.extend(ctx.contexts)
+        else:
+            contexts.append(ctx)
+
+    return contexts
+
+
+def _resolve_final_segment_contexts(
+    target: ShkValue | FanContext | RebindContext,
+    raw_final_op: Tree,
     frame: Frame,
     evaluate_index_operand: IndexEvalFn,
     eval_fn: EvalFn,
-) -> ShkValue:
-    """Apply-assign at a field or index: read old, eval RHS with dot=old, write new."""
-    match label:
-        case "field" | "fieldsel":
-            name = expect_ident_token(op.children[0], "Field assignment")
-            old_val = get_field_value(target, name, frame)
-            rhs_frame = Frame(parent=frame, dot=old_val)
-            new_val = eval_fn(rhs_node, rhs_frame)
-            set_field_value(target, name, new_val, frame, create=False)
-            return new_val
+) -> List[RebindContext]:
+    if isinstance(target, RebindContext):
+        target = target.value
 
-        case "lv_index":
-            idx_val = evaluate_index_operand(op, frame, eval_fn)
-            old_val = index_value(target, idx_val, frame)
-            rhs_frame = Frame(parent=frame, dot=old_val)
-            new_val = eval_fn(rhs_node, rhs_frame)
-            set_index_value(target, idx_val, new_val, frame)
-            return new_val
+    if isinstance(target, FanContext):
+        contexts: List[RebindContext] = []
 
-    raise ShakarRuntimeError("Unsupported apply-assign target")
+        for ctx in target.contexts:
+            contexts.extend(
+                _resolve_final_segment_contexts(
+                    ctx.value,
+                    raw_final_op,
+                    frame,
+                    evaluate_index_operand,
+                    eval_fn,
+                )
+            )
+
+        return contexts
+
+    final_op, label = unwrap_noanchor(raw_final_op)
+
+    if raw_final_op is not final_op:
+        frame.pending_anchor_override = target
+
+    if label in {"field", "fieldsel", "index", "lv_index"}:
+        return [
+            _rebind_segment(
+                target,
+                final_op,
+                label,
+                frame,
+                evaluate_index_operand,
+                eval_fn,
+            )
+        ]
+
+    if label == "fieldfan":
+        return build_fieldfan_context(target, final_op, frame).contexts
+
+    raise ShakarRuntimeError("Compound assignment not supported for this target")
+
+
+def _resolve_fan_chain_contexts(
+    fan: ShkFan,
+    ops: List[Tree],
+    frame: Frame,
+    *,
+    eval_fn: EvalFn,
+    apply_op: ApplyOpFunc,
+    evaluate_index_operand: IndexEvalFn,
+) -> List[RebindContext]:
+    if not ops:
+        return []
+
+    contexts: List[RebindContext] = []
+    saved_dot = frame.dot
+    saved_pending = frame.pending_anchor_override
+
+    try:
+        for item in fan.items:
+            current: ShkValue | FanContext | RebindContext = item
+            frame.dot = item
+
+            for op in ops[:-1]:
+                frame.dot = item
+                frame.pending_anchor_override = None
+                current = apply_op(current, op, frame, eval_fn)
+
+                if isinstance(current, RebindContext):
+                    current = current.value
+
+            frame.pending_anchor_override = None
+            contexts.extend(
+                _resolve_final_segment_contexts(
+                    current,
+                    ops[-1],
+                    frame,
+                    evaluate_index_operand,
+                    eval_fn,
+                )
+            )
+    finally:
+        frame.dot = saved_dot
+        frame.pending_anchor_override = saved_pending
+
+    return contexts
+
+
+def _resolve_lvalue_contexts(
+    node: Node,
+    frame: Frame,
+    *,
+    eval_fn: EvalFn,
+    apply_op: ApplyOpFunc,
+    evaluate_index_operand: IndexEvalFn,
+) -> List[RebindContext]:
+    if not is_tree(node) or tree_label(node) != "lvalue":
+        raise ShakarRuntimeError("Invalid lvalue")
+
+    if not node.children:
+        raise ShakarRuntimeError("Empty lvalue")
+
+    head, *ops = node.children
+
+    core_head = _unwrap_lvalue_head(head)
+
+    if not ops and (name := ident_value(core_head)):
+        return [make_ident_context(name, frame)]
+
+    if not ops and _is_fan_literal_node(core_head):
+        return _resolve_fan_literal_contexts(
+            core_head,
+            frame,
+            eval_fn=eval_fn,
+            apply_op=apply_op,
+            evaluate_index_operand=evaluate_index_operand,
+        )
+
+    target = eval_fn(head, frame)
+
+    if isinstance(target, ShkFan):
+        if not ops:
+            raise ShakarRuntimeError("Malformed lvalue")
+        return _resolve_fan_chain_contexts(
+            target,
+            ops,
+            frame,
+            eval_fn=eval_fn,
+            apply_op=apply_op,
+            evaluate_index_operand=evaluate_index_operand,
+        )
+
+    if not ops:
+        raise ShakarRuntimeError("Malformed lvalue")
+
+    for op in ops[:-1]:
+        target = apply_op(target, op, frame, eval_fn)
+
+    return _resolve_final_segment_contexts(
+        target,
+        ops[-1],
+        frame,
+        evaluate_index_operand,
+        eval_fn,
+    )
+
+
+def _lvalue_uses_fan_shape(node: Node) -> bool:
+    if not is_tree(node) or tree_label(node) != "lvalue":
+        return False
+
+    if not node.children:
+        return False
+
+    head, *ops = node.children
+    if _is_fan_literal_node(_unwrap_lvalue_head(head)):
+        return True
+
+    for raw_op in ops:
+        op = raw_op
+        if is_tree(op) and tree_label(op) == "noanchor" and op.children:
+            op = op.children[0]
+
+        if is_tree(op) and tree_label(op) in {"fieldfan", "valuefan"}:
+            return True
+
+    return False
 
 
 def resolve_chain_assignment(
@@ -622,91 +822,28 @@ def apply_assign(
     evaluate_index_operand: IndexEvalFn,
 ) -> ShkValue:
     """Evaluate the `.= expr` apply-assign form (subject-aware updates)."""
-    head, *ops = lvalue_node.children
+    contexts = _resolve_lvalue_contexts(
+        lvalue_node,
+        frame,
+        eval_fn=eval_fn,
+        apply_op=apply_op,
+        evaluate_index_operand=evaluate_index_operand,
+    )
+    fan_shaped = _lvalue_uses_fan_shape(lvalue_node)
 
-    if not ops and (name := ident_value(head)):
-        target = frame.get(name)
-        rhs_frame = Frame(parent=frame, dot=target)
+    results: List[ShkValue] = []
+
+    for ctx in contexts:
+        rhs_frame = Frame(parent=frame, dot=ctx.value)
         new_val = eval_fn(rhs_node, rhs_frame)
-        assign_ident(name, new_val, frame, create=False)
-        return new_val
+        ctx.setter(new_val)
+        ctx.value = new_val
+        results.append(new_val)
 
-    target = eval_fn(head, frame)
-
-    if isinstance(target, RebindContext):
-        target = target.value
-
-    if not ops:
-        raise ShakarRuntimeError("Malformed apply-assign target")
-
-    for op in ops[:-1]:
-        target = apply_op(target, op, frame, eval_fn)
-
-    # FanContext: apply the final op across all contexts
-    if isinstance(target, FanContext):
-        final_op = ops[-1]
-        _apply_over_fancontext(
-            target, final_op, rhs_node, frame, evaluate_index_operand, eval_fn
-        )
-        # Apply-assign produces potentially different values per target, return array
-        # (contrast with assign_lvalue which assigns same value to all, returns that value)
-        return ShkArray([ctx.value for ctx in target.contexts])
-
-    final_op, label = unwrap_noanchor(ops[-1])
-
-    if label in {"field", "fieldsel", "lv_index"}:
-        return _apply_assign_segment(
-            target,
-            final_op,
-            label,
-            rhs_node,
-            frame,
-            evaluate_index_operand,
-            eval_fn,
-        )
-
-    if label == "fieldfan":
-        names = _extract_fieldfan_names(
-            final_op,
-            missing_msg="Malformed field fan-out list",
-            empty_msg="Empty field fan-out list",
-        )
-
-        results: List[ShkValue] = []
-
-        for name in names:
-            old_val = get_field_value(target, name, frame)
-            rhs_frame = Frame(parent=frame, dot=old_val)
-            new_val = eval_fn(rhs_node, rhs_frame)
-            set_field_value(target, name, new_val, frame, create=False)
-            results.append(new_val)
-
+    if fan_shaped or len(results) != 1:
         return ShkArray(results)
 
-    raise ShakarRuntimeError("Unsupported apply-assign target")
-
-
-def _apply_over_fancontext(
-    fan: FanContext,
-    final_op: Tree,
-    rhs_node: Tree,
-    frame: Frame,
-    evaluate_index_operand: IndexEvalFn,
-    eval_fn: EvalFn,
-) -> None:
-    """Apply-assign (`.=`) across all contexts in a FanContext."""
-    op, label = unwrap_noanchor(final_op)
-
-    for ctx in fan.contexts:
-        ctx.value = _apply_assign_segment(
-            ctx.value,
-            op,
-            label,
-            rhs_node,
-            frame,
-            evaluate_index_operand,
-            eval_fn,
-        )
+    return results[0]
 
 
 def _assign_over_fancontext(
@@ -852,9 +989,26 @@ def assign_lvalue(
         raise ShakarRuntimeError("Empty lvalue")
 
     head, *ops = node.children
+    core_head = _unwrap_lvalue_head(head)
 
-    if not ops and (name := ident_value(head)):
+    if not ops and (name := ident_value(core_head)):
         return assign_ident(name, value, frame, create=create)
+
+    if not ops and _is_fan_literal_node(core_head):
+        contexts = _resolve_fan_literal_contexts(
+            core_head,
+            frame,
+            eval_fn=eval_fn,
+            apply_op=apply_op,
+            evaluate_index_operand=evaluate_index_operand,
+        )
+        values = fanout_values(value, len(contexts))
+
+        for ctx, item_value in zip(contexts, values):
+            ctx.setter(item_value)
+            ctx.value = item_value
+
+        return value
 
     target = eval_fn(head, frame)
 
@@ -920,40 +1074,16 @@ def read_lvalue(
     evaluate_index_operand: IndexEvalFn,
 ) -> ShkValue:
     """Fetch the value behind an assignment target (e.g. for compound ops)."""
-    if not is_tree(node) or tree_label(node) != "lvalue":
-        raise ShakarRuntimeError("Invalid lvalue")
-
-    if not node.children:
-        raise ShakarRuntimeError("Empty lvalue")
-
-    head, *ops = node.children
-
-    if not ops and (name := ident_value(head)):
-        return frame.get(name)
-
-    target = eval_fn(head, frame)
-
-    if not ops:
-        raise ShakarRuntimeError("Malformed lvalue")
-
-    for op in ops[:-1]:
-        target = apply_op(target, op, frame, eval_fn)
-
-    raw_final_op = ops[-1]
-    final_op, label = unwrap_noanchor(raw_final_op)
-
-    # Capture anchor for final noanchor-wrapped segment
-    if raw_final_op is not final_op:
-        frame.pending_anchor_override = target
-
-    match label:
-        case "field" | "fieldsel":
-            field_name = expect_ident_token(final_op.children[0], "Field value access")
-            return get_field_value(target, field_name, frame)
-        case "lv_index":
-            idx_val = evaluate_index_operand(final_op, frame, eval_fn)
-            return index_value(target, idx_val, frame)
-    raise ShakarRuntimeError("Compound assignment not supported for this target")
+    contexts = _resolve_lvalue_contexts(
+        node,
+        frame,
+        eval_fn=eval_fn,
+        apply_op=apply_op,
+        evaluate_index_operand=evaluate_index_operand,
+    )
+    if len(contexts) == 1 and not _lvalue_uses_fan_shape(node):
+        return contexts[0].value
+    return ShkFan([ctx.value for ctx in contexts])
 
 
 def resolve_rebind_lvalue(

@@ -283,7 +283,7 @@ if user.is_admin:
 - **Floats**: IEEE-754 double; leading zero required (`0.5`, not `.5`). Underscores allowed between digits. Base prefixes are NOT supported for floats.
 - **Strings**: `"…"`, `'…'` with escapes `\n \t \r \b \f \0 \\ \" \' \xNN \u{…}`. Multiline is allowed for regular and shell strings. If the first character after the opening quote is a newline, it is dropped; then the common leading indentation of all non-blank lines is stripped (blank lines preserved, trailing newline preserved). `env"..."` and `p"..."` remain single-line. Environment strings: `env"VAR"`/`env'VAR'` (interpolation allowed) evaluate to a string or `nil`.
 - **Arrays**: `[1, 2, 3]`.
-- **Fans**: `fan { expr, ... }` (reserved keyword; not a valid identifier or property name). Evaluates elements left→right into a `Fan`; property/method access broadcasts across elements and returns a `Fan`. Fans are iterable (e.g., `for x in fan { ... }`). For concurrency, use `spawn` to create channels and `wait[all]` to join them. Modifiers like `fan[par] { ... }` are reserved but not implemented in v0.1.
+- **Fans**: `fan { expr, ... }` (reserved keyword; not a valid identifier or property name). Evaluates elements left→right into a `Fan`; property/method access broadcasts across elements and returns a `Fan`. Fans are iterable (e.g., `for x in fan { ... }`). Fan literals can also be used as assignment lvalue heads when each item resolves to an assignable target (`=`, `.=`, and compound assignment). For concurrency, use `spawn` to create channels and `wait[all]` to join them. Modifiers like `fan[par] { ... }` are reserved but not implemented in v0.1.
 - **Objects**: `{ key: value }` (getters/setters contextual, below).
 - **Selector literals (values)**: backtick selectors like `` `1:10` `` produce Selector values (views/iterables). Default stop is inclusive; use `<stop` for exclusive (e.g., `` `[1:<10]` ``).
 
@@ -591,7 +591,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
   # tmp0 = makeUser(); u = tmp0; tmp0 and u.isValid()
   ```
   Use `bind` when an operator is not desired: `makeUser() bind u and .isValid()`.
-- **Subjects and LValues**: lvalues are identifiers with member/selector chains; calls are not allowed on the LHS. Grouped statement-subject `=(LHS)` must be an lvalue.
+- **Subjects and LValues**: lvalues are identifiers with member/selector chains, plus fan literal heads whose items resolve to assignable targets; calls are not allowed on the LHS. Grouped statement-subject `=(LHS)` must be an lvalue.
   - Statement-subject rules: `=name<tail>` desugars to `name = name<tail>`; `name` must exist and `<tail>` must do work (e.g., call/selector/fan-out/`.=`). `=name.field` with no effect is rejected. Grouped heads pick that exact lvalue as the destination (e.g., `=(user.profile.email).trim()`). The statement-subject must start the statement.
 - **Apply-assign `.=`**: inside `RHS`, `.` = old `LHS`; result writes back and the expression yields the updated value. Notes: bare `.` cannot stand alone; to keep old value on failure, use explicit fallback (`a .= ??(.transform()) ?? a`). If only defaulting, prefer `a = a ?? default`. Idioms:
   ```shakar
@@ -622,6 +622,31 @@ Typed literals representing byte quantities. Distinct from integers and duration
     state.a.c .= . + 1; state.b.c .= . + 1
     ```
   - Rules: only after a path; left-to-right order; duplicates are errors; missing fields error; `.=` RHS uses per-field old value; chain rebinds can fan out and yield list of updated values. Fieldfan may appear mid-chain with further field/index access after the fanout; each fanned target is independently traversed for subsequent segments.
+- **Fan literal lvalue fan-out**:
+  - Surface:
+    ```shakar
+    fan { a, b } = 5
+    fan { a, b } += 5
+    fan { a, b } += [10, 20]        # zip by arity when RHS length matches
+    fan { left, right } .= .trim()
+    fan { o1, o2 }.x += 1
+    result := (fan { cfg }).port .= . + 1
+    ```
+  - Desugar intuition:
+    ```shakar
+    a = 5; b = 5
+    a += 5; b += 5
+    a += 10; b += 20
+    left .= .trim(); right .= .trim()
+    o1.x += 1; o2.x += 1
+    result = [cfg.port .= . + 1]
+    ```
+  - Rules:
+    - each fan item must resolve to an assignable target (identifier or assignable chain); non-assignable items error
+    - evaluation is left-to-right and updates happen per-target in that order
+    - RHS zip/broadcast matches fieldfan behavior: arrays/fans of matching arity zip, otherwise RHS broadcasts to every target
+    - grouped heads keep fan semantics (`(fan { a, b }) += 5` works; grouped fan `.=` returns an array result shape)
+    - forms like `fan { left, right } .= .trim()` and `result := (fan { cfg }).port .= . + 1` are supported with the same fan-lvalue semantics
 - **Fanout block statement**:
   - Surface:
     ```shakar

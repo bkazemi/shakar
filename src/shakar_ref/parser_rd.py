@@ -835,12 +835,12 @@ class Parser:
             if self.check(TT.ASSIGN):
                 lvalue = self._expr_to_lvalue(expr)
                 assign_tok = self.advance()  # =
-                rhs = self.parse_nullish_expr()
+                rhs = self._parse_assignment_rhs(lvalue)
                 base_stmt = Tree("assignstmt", [lvalue, assign_tok, rhs])
             else:
                 lvalue = self._expr_to_lvalue(expr)
                 op = self.advance()
-                rhs = self.parse_nullish_expr()
+                rhs = self._parse_assignment_rhs(lvalue)
                 base_stmt = Tree("compound_assign", [lvalue, op, rhs])
 
         # Postfix if/unless wraps the base statement
@@ -2301,6 +2301,54 @@ class Parser:
             return Tree("lvalue", [head] + norm_ops)
 
         return Tree("lvalue", [expr])
+
+    def _lvalue_allows_rhs_pack(self, lvalue: Tree) -> bool:
+        """Whether assignment RHS may parse comma-separated pack values."""
+        if not lvalue.children:
+            return False
+
+        head, *ops = lvalue.children
+        core_head: Tree | Tok = head
+
+        while (
+            isinstance(core_head, Tree)
+            and core_head.data in {"group", "group_expr", "expr", "primary"}
+            and len(core_head.children) == 1
+        ):
+            core_head = core_head.children[0]
+
+        if isinstance(core_head, Tree) and core_head.data == "fan_literal":
+            return True
+
+        for raw_op in ops:
+            op = raw_op
+            if isinstance(op, Tree) and op.data == "noanchor" and op.children:
+                op = op.children[0]
+            if isinstance(op, Tree) and op.data in {"fieldfan", "valuefan"}:
+                return True
+
+        return False
+
+    def _parse_assignment_rhs(self, lvalue: Tree) -> Node:
+        """Parse assignment RHS; allow `expr, expr` packs for fan-shaped lvalues."""
+        allow_pack = self._lvalue_allows_rhs_pack(lvalue)
+        if not allow_pack:
+            return self.parse_nullish_expr()
+
+        saved_context = self.parse_context
+        self.parse_context = ParseContext.DESTRUCTURE_PACK
+        try:
+            rhs = self.parse_nullish_expr()
+            if not self.check(TT.COMMA):
+                return rhs
+
+            exprs: List[Node] = [rhs]
+            while self.match(TT.COMMA):
+                exprs.append(self.parse_nullish_expr())
+
+            return Tree("pack", exprs)
+        finally:
+            self.parse_context = saved_context
 
     def parse_walrus_expr(self) -> Node:
         """Parse walrus: x := expr"""

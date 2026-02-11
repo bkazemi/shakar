@@ -160,6 +160,190 @@ SCENARIOS = [
         id="fan-assign-field",
     ),
     pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
+            fan { a, b } = 5
+            [a, b]
+        """
+        ),
+        ("array", [5.0, 5.0]),
+        None,
+        id="fan-assign-identifiers",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
+            fan { a, b } += 5
+            [a, b]
+        """
+        ),
+        ("array", [6.0, 7.0]),
+        None,
+        id="fan-compound-assign-identifiers",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
+            (fan { a, b }) += 5
+            [a, b]
+        """
+        ),
+        ("array", [6.0, 7.0]),
+        None,
+        id="fan-compound-assign-identifiers-grouped-head",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
+            fan { a, b } += [10, 20]
+            [a, b]
+        """
+        ),
+        ("array", [11.0, 22.0]),
+        None,
+        id="fan-compound-assign-identifiers-zipped-rhs",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
+            fan { a, b } += 1, 2
+            [a, b]
+        """
+        ),
+        ("array", [2.0, 4.0]),
+        None,
+        id="fan-compound-assign-identifiers-pack-rhs",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
+            fan { a, b } = 10, 20
+            [a, b]
+        """
+        ),
+        ("array", [10.0, 20.0]),
+        None,
+        id="fan-assign-identifiers-pack-rhs",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := false
+            b := false
+            fan { a, b } = 1 < 2, 3 < 4
+            [a, b]
+        """
+        ),
+        ("array", [True, True]),
+        None,
+        id="fan-assign-identifiers-pack-rhs-comparisons",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
+            (fan { a, b }) = 5
+            [a, b]
+        """
+        ),
+        ("array", [5.0, 5.0]),
+        None,
+        id="fan-assign-identifiers-grouped-head",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
+            fan { a, b } .= . + 5
+            [a, b]
+        """
+        ),
+        ("array", [6.0, 7.0]),
+        None,
+        id="fan-apply-assign-identifiers",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := {x: 1}
+            b := {x: 2}
+            fan { a, b }.x += 5
+            [a.x, b.x]
+        """
+        ),
+        ("array", [6.0, 7.0]),
+        None,
+        id="fan-chain-compound-assign-field",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := {x: 1}
+            b := {x: 2}
+            fan { a, b }.x .= . + 5
+            [a.x, b.x]
+        """
+        ),
+        ("array", [6.0, 7.0]),
+        None,
+        id="fan-chain-apply-assign-field",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := {x: 1}
+            result := (fan { a }).x .= . + 1
+            result[0] + a.x
+        """
+        ),
+        ("number", 4),
+        None,
+        id="fan-chain-apply-assign-grouped-head-return-array",
+    ),
+    pytest.param(
+        "state := {a: 1, b: 2}; state.{a, b} += 5; [state.a, state.b]",
+        ("array", [6.0, 7.0]),
+        None,
+        id="fieldfan-compound-assign",
+    ),
+    pytest.param(
+        "state := {a: 1, b: 2}; state.{a, b} += 1, 2; [state.a, state.b]",
+        ("array", [2.0, 4.0]),
+        None,
+        id="fieldfan-compound-assign-pack-rhs",
+    ),
+    pytest.param(
+        "obj := {a: {x: 1, y: 2}, b: {x: 3, y: 4}}; obj.{a, b}.{x, y} += 10; [obj.a.x, obj.a.y, obj.b.x, obj.b.y]",
+        ("array", [11.0, 12.0, 13.0, 14.0]),
+        None,
+        id="nested-fieldfan-compound-assign",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            fan { a + 1 } += 5
+        """
+        ),
+        None,
+        ShakarRuntimeError,
+        id="fan-compound-assign-nonassignable-item-error",
+    ),
+    pytest.param(
         "fan { 1, 2 } == fan { 1, 2 }",
         ("bool", True),
         None,

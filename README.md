@@ -159,8 +159,10 @@ state.{a, b}.nested .= .update()
 # Fan-out block: anchors `.` to state, runs clauses top→down
 state{ .cur = .next; .x += 1; .name .= .trim() }
 
-# Fan literal: broadcast a method call
-fan{db, cache, worker}.restart()
+# Fan literal: broadcast calls and updates
+fan { db, cache, worker }.restart()
+fan { left, right } .= .trim()
+fan { a, b } += 1, 2
 
 # Selector literals in comparisons
 level == `warn, error`, or >= `critical:`:
