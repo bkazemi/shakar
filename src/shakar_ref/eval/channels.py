@@ -383,7 +383,7 @@ def _maybe_call_value(
 
 
 def _swap_remove_by_idx(pending: list[tuple[int, ShkChannel]], idx: int) -> None:
-    """Remove the entry whose original index is *idx* via swap-remove (O(1) removal)."""
+    """Remove the entry whose original index is *idx* (linear scan + swap-remove)."""
     for pos in range(len(pending)):
         if pending[pos][0] == idx:
             pending[pos] = pending[-1]

@@ -444,12 +444,16 @@ def eval_for_in(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     if isinstance(iter_source, ShkObject):
         object_pairs = list(iter_source.slots.items())
 
+    needs_pair = object_pairs is not None and _pattern_requires_object_pair(
+        pattern_node
+    )
+
     try:
         for idx, value in enumerate(iterable):
             loop_frame = Frame(parent=frame, dot=outer_dot)
             assigned = value
 
-            if object_pairs and _pattern_requires_object_pair(pattern_node):
+            if needs_pair:
                 key, val = object_pairs[idx]
                 assigned = ShkArray([ShkString(key), val])
             assign_pattern_value(
