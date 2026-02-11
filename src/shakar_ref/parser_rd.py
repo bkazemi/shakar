@@ -187,6 +187,177 @@ class Parser:
         children = [field_tok] + ([args_node] if args_node else [])
         return self._maybe_noanchor(Tree("method", children), noanchor)
 
+    def _parse_field_or_method(self, noanchor: bool) -> Tree:
+        """Parse .field or .method(args) after _check_field_name() passed."""
+        tok = self.advance()
+        field_tok = self._tok(tok.type.name, tok.value, tok.line, tok.column)
+
+        # Check for immediate call -> method node
+        if self.check(TT.LPAR):
+            self.advance()
+            args = self.parse_arg_list()
+            self.expect(TT.RPAR)
+            args_node = Tree("arglistnamedmixed", args) if args else None
+            children = [field_tok] + ([args_node] if args_node else [])
+            return self._maybe_noanchor(Tree("method", children), noanchor)
+
+        return self._maybe_noanchor(Tree("field", [field_tok]), noanchor)
+
+    def _parse_index_node(self, noanchor: bool) -> Tree:
+        """Parse [selectors, default: expr] — assumes current token is LSQB."""
+        lsqb_tok = self.advance()
+        selectors = self.parse_selector_list()
+
+        default = None
+        if self.match(TT.COMMA):
+            default_tok = self.expect(TT.IDENT)
+            if default_tok.value != "default":
+                raise ParseError(
+                    f"Expected 'default' keyword, got '{default_tok.value}'",
+                    default_tok,
+                )
+            self.expect(TT.COLON)
+            default = self.parse_expr()
+
+        rsqb_tok = self.expect(TT.RSQB)
+        children = [lsqb_tok, Tree("selectorlist", selectors), rsqb_tok]
+        if default:
+            children.append(default)
+
+        return self._maybe_noanchor(Tree("index", children), noanchor)
+
+    def _parse_valuefan(self) -> Tree:
+        """Parse fan items after '{' consumed — expects '}', builds valuefan node."""
+        items = self.parse_fan_items()
+        self.expect(TT.RBRACE)
+        valuefan_items = [Tree("valuefan_item", [item]) for item in items]
+
+        return Tree("valuefan", [Tree("valuefan_list", valuefan_items)])
+
+    def _parse_call_op(self) -> Tree:
+        """Parse call (args) — assumes current is LPAR."""
+        lpar_tok = self.advance()
+        args = self.parse_arg_list()
+        self.expect(TT.RPAR)
+        if args:
+            args = [Tree("arglistnamedmixed", args)]
+        else:
+            args = []
+
+        return self._call_tree(args, lpar_tok)
+
+    def _parse_implicit_chain_head(self, seen_noanchor: list[bool]) -> Optional[Tree]:
+        """Parse first operation after DOT in implicit chain."""
+        noanchor = self._take_noanchor_once(seen_noanchor)
+
+        if self._check_field_name():
+            return self._parse_field_or_method(noanchor)
+
+        if self._check_ufcs_builtin_call():
+            return self._parse_ufcs_builtin_call(noanchor)
+
+        if self.check(TT.LPAR):
+            if noanchor:
+                raise ParseError(
+                    "No-anchor '$' is not valid on call segments", self.current
+                )
+            return self._parse_call_op()
+
+        if self.check(TT.LSQB):
+            return self._parse_index_node(noanchor)
+
+        if self.check(TT.LBRACE):
+            if noanchor:
+                raise ParseError(
+                    "No-anchor '$' is not valid on fan segments", self.current
+                )
+            self.advance()  # consume {
+            return self._parse_valuefan()
+
+        if noanchor:
+            raise ParseError("Expected field or index after '$' in chain", self.current)
+
+        return None
+
+    def _collect_postfix_ops(
+        self,
+        ops: List[Node],
+        seen_noanchor: list[bool],
+        allow_amp: bool = False,
+    ) -> None:
+        """Shared postfix loop — collects DOT-members, index, call, incr/decr,
+        amp-lambda (when allow_amp), and chain continuation into ops."""
+        continuation_active = False
+
+        while True:
+            # Field access or method call
+            if self.match(TT.DOT):
+                noanchor = self._take_noanchor_once(seen_noanchor)
+                if self._check_field_name():
+                    ops.append(self._parse_field_or_method(noanchor))
+                elif self._check_ufcs_builtin_call():
+                    ops.append(self._parse_ufcs_builtin_call(noanchor))
+                elif self.match(TT.LBRACE):
+                    if noanchor:
+                        raise ParseError(
+                            "No-anchor '$' is not valid on fan segments",
+                            self.current,
+                        )
+                    ops.append(self._parse_valuefan())
+                else:
+                    raise ParseError("Expected field name after '.'", self.current)
+
+            # Indexing
+            elif self.check(TT.DOLLAR) or self.check(TT.LSQB):
+                noanchor = self._take_noanchor_once(seen_noanchor)
+                if not self.check(TT.LSQB):
+                    raise ParseError(
+                        "Expected field or index after '$' in chain", self.current
+                    )
+                ops.append(self._parse_index_node(noanchor))
+
+            # Call
+            elif self.check(TT.LPAR):
+                ops.append(self._parse_call_op())
+
+            # Postfix increment/decrement
+            elif self.check(TT.INCR, TT.DECR):
+                op = self.advance()
+                ops.append(Tree(op.type.name.lower(), []))
+
+            # Postfix amp-lambda: expr&(body) or expr&[params](body)
+            elif allow_amp and self.match(TT.AMP):
+                lam = self.parse_anonymous_fn()
+                if len(lam.children) == 2:  # Has paramlist
+                    ops.append(Tree("lambdacalln", lam.children))
+                else:  # Subject-based lambda
+                    ops.append(Tree("lambdacall1", lam.children))
+
+            # Chain continuation handling
+            elif continuation_active and self.check(TT.DEDENT):
+                self.advance()
+                break
+            elif self.check(TT.NEWLINE):
+                if not continuation_active:
+                    if self._start_chain_continuation():
+                        continuation_active = True
+                        continue
+                    break
+                cont = self._continue_chain_continuation()
+                if cont is True:
+                    continue
+                if cont is False:
+                    break
+                k = 0
+                while self.peek(k).type == TT.NEWLINE:
+                    k += 1
+                raise ParseError(
+                    "Expected '.' to continue indented chain or end indentation",
+                    self.peek(k),
+                )
+            else:
+                break
+
     def _start_chain_continuation(self) -> bool:
         """
         Detect and consume NEWLINE+INDENT that starts a dot-chain continuation.
@@ -2478,7 +2649,7 @@ class Parser:
         # $ (no anchor)
         if self.match(TT.DOLLAR):
             expr = self.parse_unary_expr()
-            return Tree("no_anchor", [expr])
+            return Tree("noanchor_expr", [expr])
 
         # Spread prefix
         if self.match(TT.SPREAD):
@@ -2519,7 +2690,6 @@ class Parser:
         """
         # Check for implicit chain or standalone subject
         if self.check(TT.DOT):
-            # Lookahead to determine if it's subject or implicit chain
             next_tok = self.peek(1)
 
             # Standalone subject: just .
@@ -2539,352 +2709,186 @@ class Parser:
 
             # Implicit chain: .field, .(args), .[index], .over
             self.advance()  # consume .
-
             seen_noanchor = [False]
-
-            # Parse the first implicit operation
-            imphead = None
-            noanchor = self._take_noanchor_once(seen_noanchor)
-            if self._check_field_name():
-                tok = self.advance()
-                field_tok = self._tok(tok.type.name, tok.value, tok.line, tok.column)
-                # Check for immediate call -> method node
-                if self.check(TT.LPAR):
-                    lpar_tok = self.advance()
-                    args = self.parse_arg_list()
-                    self.expect(TT.RPAR)
-                    if args:
-                        args_node = Tree("arglistnamedmixed", args)
-                    else:
-                        args_node = None
-                    children = [field_tok]
-                    if args_node:
-                        children.append(args_node)
-                    imphead = self._maybe_noanchor(Tree("method", children), noanchor)
-                else:
-                    imphead = self._maybe_noanchor(Tree("field", [field_tok]), noanchor)
-            elif self._check_ufcs_builtin_call():
-                imphead = self._parse_ufcs_builtin_call(noanchor)
-            elif self.check(TT.LPAR):
-                lpar_tok = self.advance()
-                if noanchor:
-                    raise ParseError(
-                        "No-anchor '$' is not valid on call segments", self.current
-                    )
-                args = self.parse_arg_list()
-                self.expect(TT.RPAR)
-                imphead = self._call_tree(args if args else [], lpar_tok)
-            elif self.check(TT.LSQB):
-                lsqb_tok = self.advance()  # Capture LSQB token
-                selectors = self.parse_selector_list()
-                default = None
-                if self.match(TT.COMMA):
-                    # Expect 'default' keyword
-                    default_tok = self.expect(TT.IDENT)
-                    if default_tok.value != "default":
-                        raise ParseError(
-                            f"Expected 'default' keyword, got '{default_tok.value}'",
-                            default_tok,
-                        )
-                    self.expect(TT.COLON)
-                    default = self.parse_expr()
-                rsqb_tok = self.expect(TT.RSQB)
-                children = [
-                    lsqb_tok,
-                    Tree("selectorlist", selectors),
-                    rsqb_tok,
-                ]
-                if default:
-                    children.append(default)
-                imphead = self._maybe_noanchor(Tree("index", children), noanchor)
-            elif self.check(TT.LBRACE):
-                if noanchor:
-                    raise ParseError(
-                        "No-anchor '$' is not valid on fan segments", self.current
-                    )
-                self.advance()  # consume {
-                items = self.parse_fan_items()
-                self.expect(TT.RBRACE)
-                valuefan_items = []
-                for item in items:
-                    valuefan_items.append(Tree("valuefan_item", [item]))
-                imphead = Tree("valuefan", [Tree("valuefan_list", valuefan_items)])
-            elif noanchor:
-                raise ParseError(
-                    "Expected field or index after '$' in chain", self.current
-                )
-
-            # Now collect any additional postfix operations
+            imphead = self._parse_implicit_chain_head(seen_noanchor)
             postfix_ops = [imphead]
-            continuation_active = False
-            while True:
-                if self.match(TT.DOT):
-                    noanchor = self._take_noanchor_once(seen_noanchor)
-                    if self._check_field_name():
-                        field = self.advance()
-                        field_tok = self._tok(
-                            field.type.name,
-                            field.value,
-                            field.line,
-                            field.column,
-                        )
-                        # Check for immediate call -> method node
-                        if self.check(TT.LPAR):
-                            lpar_tok = self.advance()
-                            args = self.parse_arg_list()
-                            self.expect(TT.RPAR)
-                            if args:
-                                args_node = Tree("arglistnamedmixed", args)
-                            else:
-                                args_node = None
-                            children = [field_tok]
-                            if args_node:
-                                children.append(args_node)
-                            postfix_ops.append(
-                                self._maybe_noanchor(Tree("method", children), noanchor)
-                            )
-                        else:
-                            postfix_ops.append(
-                                self._maybe_noanchor(
-                                    Tree("field", [field_tok]), noanchor
-                                )
-                            )
-                    elif self._check_ufcs_builtin_call():
-                        postfix_ops.append(self._parse_ufcs_builtin_call(noanchor))
-                    elif self.match(TT.LBRACE):
-                        if noanchor:
-                            raise ParseError(
-                                "No-anchor '$' is not valid on fan segments",
-                                self.current,
-                            )
-                        items = self.parse_fan_items()
-                        self.expect(TT.RBRACE)
-                        # Build valuefan_item nodes from parsed items (IDENT or identchain)
-                        valuefan_items = []
-                        for item in items:
-                            valuefan_items.append(Tree("valuefan_item", [item]))
-                        postfix_ops.append(
-                            Tree("valuefan", [Tree("valuefan_list", valuefan_items)])
-                        )
-                    else:
-                        raise ParseError("Expected field name after '.'", self.current)
-                elif self.check(TT.DOLLAR) or self.check(TT.LSQB):
-                    noanchor = self._take_noanchor_once(seen_noanchor)
-                    if not self.check(TT.LSQB):
-                        raise ParseError(
-                            "Expected field or index after '$' in chain", self.current
-                        )
-                    lsqb_tok = self.advance()  # Capture LSQB token
-                    selectors = self.parse_selector_list()
-                    default = None
-                    if self.match(TT.COMMA):
-                        self.expect(TT.IDENT)
-                        self.expect(TT.COLON)
-                        default = self.parse_expr()
-                    rsqb_tok = self.expect(TT.RSQB)
-                    children = [
-                        lsqb_tok,
-                        Tree("selectorlist", selectors),
-                        rsqb_tok,
-                    ]
-                    if default:
-                        children.append(default)
-                    postfix_ops.append(
-                        self._maybe_noanchor(Tree("index", children), noanchor)
-                    )
-                elif self.check(TT.LPAR):
-                    lpar_tok = self.advance()
-                    args = self.parse_arg_list()
-                    self.expect(TT.RPAR)
-                    if args:
-                        args = [Tree("arglistnamedmixed", args)]
-                    else:
-                        args = []
-                    postfix_ops.append(self._call_tree(args, lpar_tok))
-                elif self.check(TT.INCR, TT.DECR):
-                    op = self.advance()
-                    postfix_ops.append(Tree(op.type.name.lower(), []))
-                elif continuation_active and self.check(TT.DEDENT):
-                    self.advance()
-                    continuation_active = False
-                    break
-                elif self.check(TT.NEWLINE):
-                    if not continuation_active:
-                        if self._start_chain_continuation():
-                            continuation_active = True
-                            continue
-                        break
-                    cont = self._continue_chain_continuation()
-                    if cont is True:
-                        continue
-                    if cont is False:
-                        continuation_active = False
-                        break
-                    k = 0
-                    while self.peek(k).type == TT.NEWLINE:
-                        k += 1
-                    raise ParseError(
-                        "Expected '.' to continue indented chain or end indentation",
-                        self.peek(k),
-                    )
-                else:
-                    break
+            self._collect_postfix_ops(postfix_ops, seen_noanchor)
 
             return Tree("implicit_chain", postfix_ops)
 
-        # Otherwise parse normal primary + postfix
+        # Explicit chain: primary + postfix ops
         primary = self.parse_primary_expr()
-
-        # Collect postfix operations
-        postfix_ops = []
+        postfix_ops: List[Node] = []
         seen_noanchor = [False]
-        continuation_active = False
+        self._collect_postfix_ops(postfix_ops, seen_noanchor, allow_amp=True)
 
-        while True:
-            # Field access or method call
-            if self.match(TT.DOT):
-                noanchor = self._take_noanchor_once(seen_noanchor)
-                if self._check_field_name():
-                    field = self.advance()
-                    field_tok = self._tok(
-                        field.type.name,
-                        field.value,
-                        field.line,
-                        field.column,
-                    )
-                    # Check for immediate call -> method node
-                    if self.check(TT.LPAR):
-                        lpar_tok = self.advance()
-                        args = self.parse_arg_list()
-                        self.expect(TT.RPAR)
-                        if args:
-                            args_node = Tree("arglistnamedmixed", args)
-                        else:
-                            args_node = None
-                        children = [field_tok]
-                        if args_node:
-                            children.append(args_node)
-                        postfix_ops.append(
-                            self._maybe_noanchor(Tree("method", children), noanchor)
-                        )
-                    else:
-                        postfix_ops.append(
-                            self._maybe_noanchor(Tree("field", [field_tok]), noanchor)
-                        )
-                elif self._check_ufcs_builtin_call():
-                    postfix_ops.append(self._parse_ufcs_builtin_call(noanchor))
-                elif self.match(TT.LBRACE):
-                    if noanchor:
-                        raise ParseError(
-                            "No-anchor '$' is not valid on fan segments",
-                            self.current,
-                        )
-                    # Fan syntax: .{field1, field2} or .{chain1, chain2}
-                    items = self.parse_fan_items()
-                    self.expect(TT.RBRACE)
-                    # Build valuefan_item nodes from parsed items (IDENT or identchain)
-                    valuefan_items = []
-                    for item in items:
-                        valuefan_items.append(Tree("valuefan_item", [item]))
-                    postfix_ops.append(
-                        Tree("valuefan", [Tree("valuefan_list", valuefan_items)])
-                    )
-                else:
-                    raise ParseError("Expected field name after '.'", self.current)
-
-            # Indexing
-            elif self.check(TT.DOLLAR) or self.check(TT.LSQB):
-                noanchor = self._take_noanchor_once(seen_noanchor)
-                if not self.check(TT.LSQB):
-                    raise ParseError(
-                        "Expected field or index after '$' in chain", self.current
-                    )
-                lsqb_tok = self.advance()  # Capture LSQB token
-                selectors = self.parse_selector_list()
-
-                # Check for default value
-                default = None
-                if self.match(TT.COMMA):
-                    # Expect 'default' keyword
-                    default_tok = self.expect(TT.IDENT)
-                    if default_tok.value != "default":
-                        raise ParseError(
-                            f"Expected 'default' keyword, got '{default_tok.value}'",
-                            default_tok,
-                        )
-                    self.expect(TT.COLON)
-                    default = self.parse_expr()
-
-                rsqb_tok = self.expect(TT.RSQB)
-
-                # Build index tree: [ selectorlist ]
-                children = [
-                    lsqb_tok,
-                    Tree("selectorlist", selectors),
-                    rsqb_tok,
-                ]
-                if default:
-                    children.append(default)
-                postfix_ops.append(
-                    self._maybe_noanchor(Tree("index", children), noanchor)
-                )
-
-            # Call
-            elif self.check(TT.LPAR):
-                lpar_tok = self.advance()
-                args = self.parse_arg_list()
-                self.expect(TT.RPAR)
-                if args:
-                    args = [Tree("arglistnamedmixed", args)]
-                else:
-                    args = []
-                postfix_ops.append(self._call_tree(args, lpar_tok))
-
-            # Postfix increment/decrement
-            elif self.check(TT.INCR, TT.DECR):
-                op = self.advance()
-                postfix_ops.append(Tree(op.type.name.lower(), []))
-
-            # Postfix amp-lambda: expr&(body) or expr&[params](body)
-            elif self.match(TT.AMP):
-                lam = self.parse_anonymous_fn()
-                # Wrap as lambdacall1 or lambdacalln depending on whether it has params
-                if len(lam.children) == 2:  # Has paramlist
-                    postfix_ops.append(Tree("lambdacalln", lam.children))
-                else:  # Subject-based lambda
-                    postfix_ops.append(Tree("lambdacall1", lam.children))
-            elif continuation_active and self.check(TT.DEDENT):
-                self.advance()
-                continuation_active = False
-                break
-            elif self.check(TT.NEWLINE):
-                if not continuation_active:
-                    if self._start_chain_continuation():
-                        continuation_active = True
-                        continue
-                    break
-                cont = self._continue_chain_continuation()
-                if cont is True:
-                    continue
-                if cont is False:
-                    continuation_active = False
-                    break
-                k = 0
-                while self.peek(k).type == TT.NEWLINE:
-                    k += 1
-                raise ParseError(
-                    "Expected '.' to continue indented chain or end indentation",
-                    self.peek(k),
-                )
-
-            else:
-                break
-
-        # Only wrap in explicit_chain if there are postfix operations
         if not postfix_ops:
             return primary
 
         return Tree("explicit_chain", [primary] + postfix_ops)
+
+    # ------------------------------------------------------------------
+    # Primary expression helpers
+    # ------------------------------------------------------------------
+
+    def _parse_numeric_literal(self) -> Node:
+        """Parse NUMBER/DURATION/SIZE token with overflow checks."""
+        tok = self.advance()
+
+        if tok.type == TT.NUMBER:
+            value = self._parse_number_literal(tok.value)
+            if isinstance(value, int) and value > 2**63 - 1:
+                raise LexError(
+                    f"Integer literal overflows int64 at line {tok.line}, col {tok.column}"
+                )
+            return self._tok("NUMBER", value, line=tok.line, column=tok.column)
+
+        # DURATION or SIZE — check pre-computed overflow
+        raw, total = tok.value
+        if total < -(2**63) or total > 2**63 - 1:
+            kind = "Duration" if tok.type == TT.DURATION else "Size"
+            raise LexError(
+                f"{kind} literal overflows int64 at line {tok.line}, col {tok.column}"
+            )
+
+        return self._tok(tok.type.name, tok.value, line=tok.line, column=tok.column)
+
+    def _parse_set_primary(self) -> Tree:
+        """Parse set literal or set comprehension — SET already consumed."""
+        self.expect(TT.LBRACE)
+
+        if self.check(TT.RBRACE):
+            self.advance()
+            return Tree("setliteral", [])
+
+        first_expr = self.parse_expr()
+
+        if self.check(TT.FOR, TT.OVER):
+            comphead = self.parse_comphead()
+            ifclause = self.parse_ifclause_opt()
+            self.expect(TT.RBRACE)
+            children = [first_expr, comphead]
+            if ifclause:
+                children.append(ifclause)
+            return Tree("setcomp", children)
+
+        items = [first_expr]
+        while self.match(TT.COMMA):
+            if self.check(TT.RBRACE):
+                break
+            items.append(self.parse_expr())
+        self.expect(TT.RBRACE)
+
+        return Tree("setliteral", items)
+
+    def _parse_paren_primary(self) -> Tree:
+        """Parse parenthesized expression — LPAR already consumed."""
+        saved_context = self.parse_context
+        self.parse_context = ParseContext.NORMAL
+        try:
+            expr = self.parse_expr()
+            self.expect(TT.RPAR)
+            return Tree("group_expr", [expr])
+        finally:
+            self.parse_context = saved_context
+
+    def _parse_array_primary(self) -> Tree:
+        """Parse array literal or list comprehension — LSQB already consumed."""
+        self.skip_layout_tokens()
+
+        if self.check(TT.RSQB):
+            self.advance()
+            return Tree("array", [])
+
+        saved_context = self.parse_context
+        self.parse_context = ParseContext.ARRAY_ELEMENTS
+        try:
+            first_elem = self.parse_expr()
+
+            if self.check(TT.FOR, TT.OVER):
+                comphead = self.parse_comphead()
+                ifclause = self.parse_ifclause_opt()
+                self.expect(TT.RSQB)
+                children = [first_elem, comphead]
+                if ifclause:
+                    children.append(ifclause)
+                return Tree("listcomp", children)
+
+            elements = [first_elem]
+            self.skip_layout_tokens()
+            while True:
+                if not self.match(TT.COMMA):
+                    break
+                self.skip_layout_tokens()
+                if self.check(TT.RSQB, TT.EOF):
+                    break
+                elements.append(self.parse_expr())
+                self.skip_layout_tokens()
+
+            self.expect(TT.RSQB)
+            return Tree("array", elements)
+        finally:
+            self.parse_context = saved_context
+
+    def _parse_object_primary(self) -> Tree:
+        """Parse object literal or dict comprehension — LBRACE already consumed."""
+        # Try dict comprehension detection
+        saved_pos = self.pos
+        saved_current = self.current
+        saved_paren_depth = self.paren_depth
+
+        try:
+            first_key = self.parse_expr()
+            if self.check(TT.COLON):
+                self.advance()
+                first_val = self.parse_expr()
+                if self.check(TT.FOR, TT.OVER):
+                    comphead = self.parse_comphead()
+                    ifclause = self.parse_ifclause_opt()
+                    self.expect(TT.RBRACE)
+                    children = [first_key, first_val, comphead]
+                    if ifclause:
+                        children.append(ifclause)
+                    return Tree("dictcomp", children)
+        except ParseError:
+            pass
+
+        # Reset cursor if not dictcomp
+        self.pos = saved_pos
+        self.paren_depth = saved_paren_depth
+        self.current = saved_current
+
+        items: List[Node] = []
+        while not self.check(TT.RBRACE, TT.EOF):
+            while (
+                self.match(TT.NEWLINE) or self.match(TT.INDENT) or self.match(TT.DEDENT)
+            ):
+                pass
+            if self.check(TT.RBRACE):
+                break
+
+            items.append(self.parse_object_item())
+
+            while (
+                self.match(TT.NEWLINE) or self.match(TT.INDENT) or self.match(TT.DEDENT)
+            ):
+                pass
+            if not self.match(TT.COMMA):
+                while (
+                    self.match(TT.NEWLINE)
+                    or self.match(TT.INDENT)
+                    or self.match(TT.DEDENT)
+                ):
+                    pass
+                if self.check(TT.RBRACE):
+                    break
+                continue
+
+        self.expect(TT.RBRACE)
+
+        return Tree("object", items)
+
+    # ------------------------------------------------------------------
 
     def parse_primary_expr(self) -> Node:
         """
@@ -2897,21 +2901,17 @@ class Parser:
         - Rebind primary (=ident or =(lvalue))
         - etc.
         """
-
         if self.check(TT.MATCH):
             return self.parse_match_expr()
 
         # Rebind primary: =ident or =(lvalue)
         if self.match(TT.ASSIGN):
             if self.match(TT.LPAR):
-                # =(lvalue) - grouped rebind
                 lvalue = self.parse_rebind_lvalue()
                 self.expect(TT.RPAR)
                 return Tree("rebind_primary", [lvalue], attrs={"grouped": True})
-            else:
-                # =ident - simple rebind
-                ident = self.expect(TT.IDENT)
-                return Tree("rebind_primary", [ident], attrs={"grouped": False})
+            ident = self.expect(TT.IDENT)
+            return Tree("rebind_primary", [ident], attrs={"grouped": False})
 
         # Null-safe chain: ??(expr)
         if self.match(TT.NULLISH):
@@ -2934,38 +2934,19 @@ class Parser:
                 args = []
             return Tree("emitexpr", args)
 
-        # Import expression: import "module"
+        # Import expression
         if self.match(TT.IMPORT):
-            module_node = self._parse_import_string_literal()
-            return Tree("import_expr", [module_node])
+            return Tree("import_expr", [self._parse_import_string_literal()])
 
-        # Literals - parse, validate overflow, store computed value
+        # Numeric / duration / size literals
         if self.check(TT.NUMBER, TT.DURATION, TT.SIZE):
-            tok = self.advance()
-            if tok.type == TT.NUMBER:
-                value = self._parse_number_literal(tok.value)
-                # Check overflow for integers (floats can't overflow to error)
-                if isinstance(value, int) and value > 2**63 - 1:
-                    raise LexError(
-                        f"Integer literal overflows int64 at line {tok.line}, col {tok.column}"
-                    )
-                return self._tok("NUMBER", value, line=tok.line, column=tok.column)
-            else:
-                # DURATION or SIZE - check pre-computed overflow
-                raw, total = tok.value
-                if total < -(2**63) or total > 2**63 - 1:
-                    kind = "Duration" if tok.type == TT.DURATION else "Size"
-                    raise LexError(
-                        f"{kind} literal overflows int64 at line {tok.line}, col {tok.column}"
-                    )
-                return self._tok(
-                    tok.type.name, tok.value, line=tok.line, column=tok.column
-                )
+            return self._parse_numeric_literal()
 
-        # Hole placeholder for partial application
+        # Hole placeholder
         if self.match(TT.QMARK):
             return Tree("holeexpr", [])
 
+        # String-like literals
         if self.check(
             TT.STRING,
             TT.RAW_STRING,
@@ -2976,10 +2957,9 @@ class Parser:
             TT.ENV_STRING,
             TT.REGEX,
         ):
-            tok = self.advance()
-            # Wrap in 'literal' tree so Prune transformer can process string interpolation
-            return Tree("literal", [tok])
+            return Tree("literal", [self.advance()])
 
+        # Boolean / nil
         if self.match(TT.TRUE):
             return self._tok("TRUE", "true")
         if self.match(TT.FALSE):
@@ -2989,30 +2969,9 @@ class Parser:
 
         # Set literal / comprehension
         if self.match(TT.SET):
-            self.expect(TT.LBRACE)
-            if self.check(TT.RBRACE):
-                self.advance()
-                return Tree("setliteral", [])
+            return self._parse_set_primary()
 
-            first_expr = self.parse_expr()
-            if self.check(TT.FOR, TT.OVER):
-                comphead = self.parse_comphead()
-                ifclause = self.parse_ifclause_opt()
-                self.expect(TT.RBRACE)
-                children = [first_expr, comphead]
-                if ifclause:
-                    children.append(ifclause)
-                return Tree("setcomp", children)
-
-            items = [first_expr]
-            while self.match(TT.COMMA):
-                if self.check(TT.RBRACE):
-                    break
-                items.append(self.parse_expr())
-            self.expect(TT.RBRACE)
-            return Tree("setliteral", items)
-
-        # Group literal
+        # Fan literal
         if self.match(TT.FAN):
             return self.parse_fan_literal()
 
@@ -3032,124 +2991,15 @@ class Parser:
 
         # Parenthesized expression
         if self.match(TT.LPAR):
-            # Reset context: parens allow CCC (grouping indicates single value)
-            saved_context = self.parse_context
-            self.parse_context = ParseContext.NORMAL
-            try:
-                expr = self.parse_expr()
-                self.expect(TT.RPAR)
-                return Tree("group_expr", [expr])
-            finally:
-                self.parse_context = saved_context
+            return self._parse_paren_primary()
 
-        # Array literal
+        # Array literal / list comprehension
         if self.match(TT.LSQB):
-            # Skip layout tokens in array
-            self.skip_layout_tokens()
+            return self._parse_array_primary()
 
-            if self.check(TT.RSQB):
-                self.advance()
-                return Tree("array", [])
-
-            # Set context: commas in arrays are element separators, not CCC
-            saved_context = self.parse_context
-            self.parse_context = ParseContext.ARRAY_ELEMENTS
-            try:
-                first_elem = self.parse_expr()
-
-                if self.check(TT.FOR, TT.OVER):
-                    comphead = self.parse_comphead()
-                    ifclause = self.parse_ifclause_opt()
-                    self.expect(TT.RSQB)
-                    children = [first_elem, comphead]
-                    if ifclause:
-                        children.append(ifclause)
-                    return Tree("listcomp", children)
-
-                elements = [first_elem]
-
-                # Skip layout tokens
-                self.skip_layout_tokens()
-                while True:
-                    if not self.match(TT.COMMA):
-                        break
-                    self.skip_layout_tokens()
-                    if self.check(TT.RSQB, TT.EOF):
-                        break
-                    elements.append(self.parse_expr())
-                    self.skip_layout_tokens()
-
-                self.expect(TT.RSQB)
-                return Tree("array", elements)
-            finally:
-                self.parse_context = saved_context
-
-        # Object literal
+        # Object literal / dict comprehension
         if self.match(TT.LBRACE):
-            # Try dict comprehension detection
-            saved_pos = self.pos
-            saved_current = self.current
-            saved_paren_depth = self.paren_depth
-
-            try:
-                first_key = self.parse_expr()
-                if self.check(TT.COLON):
-                    self.advance()
-                    first_val = self.parse_expr()
-                    if self.check(TT.FOR, TT.OVER):
-                        comphead = self.parse_comphead()
-                        ifclause = self.parse_ifclause_opt()
-                        self.expect(TT.RBRACE)
-                        children = [first_key, first_val, comphead]
-                        if ifclause:
-                            children.append(ifclause)
-                        return Tree("dictcomp", children)
-            except ParseError:
-                pass
-
-            # reset cursor if not dictcomp
-            self.pos = saved_pos
-            self.paren_depth = saved_paren_depth
-            self.current = saved_current
-
-            items = []
-
-            while not self.check(TT.RBRACE, TT.EOF):
-                # Skip newlines
-                while (
-                    self.match(TT.NEWLINE)
-                    or self.match(TT.INDENT)
-                    or self.match(TT.DEDENT)
-                ):
-                    pass
-
-                if self.check(TT.RBRACE):
-                    break
-
-                items.append(self.parse_object_item())
-
-                # Skip newlines/indent markers
-                while (
-                    self.match(TT.NEWLINE)
-                    or self.match(TT.INDENT)
-                    or self.match(TT.DEDENT)
-                ):
-                    pass
-
-                if not self.match(TT.COMMA):
-                    # Allow optional trailing comma but permit newline-separated entries
-                    while (
-                        self.match(TT.NEWLINE)
-                        or self.match(TT.INDENT)
-                        or self.match(TT.DEDENT)
-                    ):
-                        pass
-                    if self.check(TT.RBRACE):
-                        break
-                    continue
-
-            self.expect(TT.RBRACE)
-            return Tree("object", items)
+            return self._parse_object_primary()
 
         # Anonymous fn literal (expression form)
         if self.match(TT.FN):
@@ -3163,9 +3013,7 @@ class Parser:
         if self.match(TT.BACKQUOTE):
             selectors = self.parse_selector_literal_content()
             self.expect(TT.BACKQUOTE)
-            # Wrap in sellist node as expected by evaluator
-            sellist = Tree("sellist", selectors)
-            return Tree("selectorliteral", [sellist])
+            return Tree("selectorliteral", [Tree("sellist", selectors)])
 
         raise ParseError(
             f"Unexpected token in expression: {self.current.type.name}", self.current

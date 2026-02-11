@@ -900,7 +900,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "env_interp": _eval_env_interp,
     # Blocks/bodies
     "group": _eval_group,
-    "no_anchor": _eval_group,
+    "noanchor_expr": _eval_group,
     "body": _eval_body,
     "onelineguard": _eval_onelineguard,
     "emitexpr": _eval_emitexpr,

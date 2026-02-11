@@ -102,7 +102,8 @@ def retargets_anchor(node: Node) -> bool:
             "implicit_chain",
             "subject",
             "group",
-            "no_anchor",
+            "group_expr",
+            "noanchor_expr",
             "literal",
             "bind",
         }

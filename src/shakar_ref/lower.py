@@ -23,18 +23,18 @@ def lower(ast: Node) -> Node:
 
 
 def _validate_noanchor_segments(node: Node) -> None:
-    def visit(child: Node, in_no_anchor_expr: bool) -> None:
+    def visit(child: Node, in_noanchor_expr: bool) -> None:
         if not is_tree(child):
             return
 
         label = tree_label(child)
-        if in_no_anchor_expr and label == "noanchor":
+        if in_noanchor_expr and label == "noanchor":
             raise SyntaxError("No-anchor segments are not allowed inside $expr")
 
-        next_in_no_anchor = in_no_anchor_expr or label == "no_anchor"
+        next_in_noanchor = in_noanchor_expr or label == "noanchor_expr"
 
         for grandchild in tree_children(child):
-            visit(grandchild, next_in_no_anchor)
+            visit(grandchild, next_in_noanchor)
 
     visit(node, False)
 
