@@ -23,6 +23,7 @@ from ..runtime import (
     SelectorPart,
     ShkValue,
     ShakarArityError,
+    ShakarFieldNotFoundError,
     ShakarKeyError,
     ShakarMethodNotFound,
     ShakarRuntimeError,
@@ -100,41 +101,40 @@ def _with_call_site(
         frame.call_stack.pop()
 
 
+def _flatten_args(node: Node) -> List[Node]:
+    """Recursively flatten arg-list wrapper nodes into a flat list of arg nodes."""
+    if is_tree(node):
+        tag = tree_label(node)
+
+        if tag in {"args", "arglist", "arglistnamedmixed"}:
+            out: List[Node] = []
+
+            for ch in node.children:
+                out.extend(_flatten_args(ch))
+            return out
+
+        if tag in {"argitem", "arg"} and node.children:
+            return _flatten_args(node.children[0])
+
+        # Keep namedarg intact; handle spreading logic separately.
+        if tag == "namedarg" and node.children:
+            return [node]
+
+    return [node]
+
+
 def eval_args_node(
     args_node: Optional[Union[Tree, List[Tree]]],
     frame: Frame,
     eval_func: EvalFunc,
 ) -> List[ShkValue]:
-    def label(node: Node) -> Optional[str]:
-        return tree_label(node)
-
-    def flatten(node: Node) -> List[Node]:
-        if is_tree(node):
-            tag = label(node)
-
-            if tag in {"args", "arglist", "arglistnamedmixed"}:
-                out: List[Node] = []
-
-                for ch in node.children:
-                    out.extend(flatten(ch))
-                return out
-
-            if tag in {"argitem", "arg"} and node.children:
-                return flatten(node.children[0])
-
-            if tag == "namedarg" and node.children:
-                # Keep namedarg intact; handle spreading logic separately.
-                return [node]
-
-        return [node]
-
     if is_tree(args_node):
-        return _eval_args(flatten(args_node), frame, eval_func)
+        return _eval_args(_flatten_args(args_node), frame, eval_func)
 
     if isinstance(args_node, list):
-        res: List[Tree] = []
+        res: List[Node] = []
         for n in args_node:
-            res.extend(flatten(n))
+            res.extend(_flatten_args(n))
         return _eval_args(res, frame, eval_func)
 
     return []
@@ -145,35 +145,13 @@ def eval_args_node_with_named(
     frame: Frame,
     eval_func: EvalFunc,
 ) -> Tuple[List[ShkValue], Dict[str, ShkValue], bool]:
-    def label(node: Node) -> Optional[str]:
-        return tree_label(node)
-
-    def flatten(node: Node) -> List[Node]:
-        if is_tree(node):
-            tag = label(node)
-
-            if tag in {"args", "arglist", "arglistnamedmixed"}:
-                out: List[Node] = []
-
-                for ch in node.children:
-                    out.extend(flatten(ch))
-                return out
-
-            if tag in {"argitem", "arg"} and node.children:
-                return flatten(node.children[0])
-
-            if tag == "namedarg" and node.children:
-                return [node]
-
-        return [node]
-
     if is_tree(args_node):
-        return _eval_args_with_named(flatten(args_node), frame, eval_func)
+        return _eval_args_with_named(_flatten_args(args_node), frame, eval_func)
 
     if isinstance(args_node, list):
-        res: List[Tree] = []
+        res: List[Node] = []
         for n in args_node:
-            res.extend(flatten(n))
+            res.extend(_flatten_args(n))
         return _eval_args_with_named(res, frame, eval_func)
 
     return [], {}, False
@@ -404,14 +382,7 @@ def _get_field(recv: ShkValue, op: Tree, frame: Frame) -> ShkValue:
 
 
 def _is_missing_field_error(err: ShakarTypeError) -> bool:
-    """Heuristic to detect missing-field errors without masking real failures."""
-    # TODO: Replace message matching with a dedicated field-not-found error type.
-    msg = err.args[0] if err.args else ""
-    return (
-        "has no field" in msg
-        or "has no fields" in msg
-        or "Unsupported field access" in msg
-    )
+    return isinstance(err, ShakarFieldNotFoundError)
 
 
 def _method_name_token(node: Node) -> str:

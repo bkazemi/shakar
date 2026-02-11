@@ -77,10 +77,6 @@ def _is_noanchor_wrapper(node: Node) -> bool:
     return is_tree(node) and tree_label(node) == "noanchor"
 
 
-def _has_noanchor_segment(ops: list[Node]) -> bool:
-    return any(_is_noanchor_wrapper(op) for op in ops)
-
-
 def eval_explicit_chain(node: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
     children = tree_children(node)
     if not children:

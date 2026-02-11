@@ -187,11 +187,6 @@ class Parser:
         children = [field_tok] + ([args_node] if args_node else [])
         return self._maybe_noanchor(Tree("method", children), noanchor)
 
-    def _expect_field_name(self, message: str = "Expected field name") -> Tok:
-        if not self._check_field_name():
-            raise ParseError(message, self.current)
-        return self.advance()
-
     def _start_chain_continuation(self) -> bool:
         """
         Detect and consume NEWLINE+INDENT that starts a dot-chain continuation.
@@ -1216,23 +1211,6 @@ class Parser:
             if expr.data in {"call", "method"}:
                 return True
             return any(self._expr_has_call(ch) for ch in expr.children)
-        return False
-
-    def _scan_for_colon(self) -> bool:
-        """Look ahead on the current line for a colon before newline/semicolon/dedent."""
-        depth = 0
-        idx = self.pos + 1
-        while idx < len(self.tokens):
-            tok = self.tokens[idx]
-            if tok.type in {TT.NEWLINE, TT.SEMI, TT.DEDENT, TT.EOF} and depth == 0:
-                return False
-            if tok.type in {TT.LPAR, TT.LSQB, TT.LBRACE}:
-                depth += 1
-            elif tok.type in {TT.RPAR, TT.RSQB, TT.RBRACE} and depth > 0:
-                depth -= 1
-            if depth == 0 and tok.type == TT.COLON:
-                return True
-            idx += 1
         return False
 
     def _scan_colon_after_parens(self, start_pos: int) -> bool:

@@ -134,11 +134,6 @@ def _iter_items(fan_node: Tree):
             yield Tree("field", [ch])
 
 
-def _wrap_chain(chain: Tree) -> Tree:
-    # valuefan_chain already a Tree; just return
-    return chain
-
-
 def _fingerprint(item: Node) -> Optional[str]:
     if not is_tree(item):
         return None

@@ -32,6 +32,7 @@ from ..runtime import (
     ShakarKeyError,
     ShakarRuntimeError,
     ShakarTypeError,
+    ShakarFieldNotFoundError,
     call_shkfn,
 )
 from ..utils import envvar_value_by_name
@@ -273,7 +274,7 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
                 return ShkNumber(size - 1) if size > 0 else ShkNumber(-1)
             if name in Builtins.array_methods:
                 return BuiltinMethod(name=name, subject=recv)
-            raise ShakarTypeError(f"Array has no field '{name}'")
+            raise ShakarFieldNotFoundError(f"Array has no field '{name}'")
         case ShkString(value=value):
             if name == "len":
                 return ShkNumber(float(len(value)))
@@ -283,29 +284,29 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
 
             if name in Builtins.string_methods:
                 return BuiltinMethod(name=name, subject=recv)
-            raise ShakarTypeError(f"String has no field '{name}'")
+            raise ShakarFieldNotFoundError(f"String has no field '{name}'")
         case ShkDuration(nanos=nanos):
             if name == "total_nsec":
                 return ShkNumber(float(nanos))
             if name in DURATION_UNITS:
                 return ShkNumber(float(nanos) / DURATION_UNITS[name])
-            raise ShakarTypeError(f"Duration has no field '{name}'")
+            raise ShakarFieldNotFoundError(f"Duration has no field '{name}'")
         case ShkSize(byte_count=bytes_val):
             if name == "total_bytes":
                 return ShkNumber(float(bytes_val))
             if name in SIZE_UNITS:
                 return ShkNumber(float(bytes_val) / SIZE_UNITS[name])
-            raise ShakarTypeError(f"Size has no field '{name}'")
+            raise ShakarFieldNotFoundError(f"Size has no field '{name}'")
         case ShkRegex():
             if name in Builtins.regex_methods:
                 return BuiltinMethod(name=name, subject=recv)
-            raise ShakarTypeError(f"Regex has no field '{name}'")
+            raise ShakarFieldNotFoundError(f"Regex has no field '{name}'")
         case ShkNumber():
-            raise ShakarTypeError(f"Number has no field '{name}'")
+            raise ShakarFieldNotFoundError(f"Number has no field '{name}'")
         case ShkCommand():
             if name in Builtins.command_methods:
                 return BuiltinMethod(name=name, subject=recv)
-            raise ShakarTypeError(f"Command has no field '{name}'")
+            raise ShakarFieldNotFoundError(f"Command has no field '{name}'")
         case ShkPath():
             path = recv.as_path()
             if name == "exists":
@@ -319,7 +320,7 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
                     raise ShakarRuntimeError(f"Path stat failed: {exc}") from exc
             if name in Builtins.path_methods:
                 return BuiltinMethod(name=name, subject=recv)
-            raise ShakarTypeError(f"Path has no field '{name}'")
+            raise ShakarFieldNotFoundError(f"Path has no field '{name}'")
         case ShkEnvVar():
             if name == "name":
                 return ShkString(recv.name)
@@ -343,15 +344,17 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
                 return BuiltinMethod(name=name, subject=recv)
             if name in Builtins.string_methods:
                 return BuiltinMethod(name=name, subject=recv)
-            raise ShakarTypeError(f"EnvVar has no field '{name}'")
+            raise ShakarFieldNotFoundError(f"EnvVar has no field '{name}'")
         case ShkChannel():
             if name in Builtins.channel_methods:
                 return BuiltinMethod(name=name, subject=recv)
-            raise ShakarTypeError(f"Channel has no field '{name}'")
+            raise ShakarFieldNotFoundError(f"Channel has no field '{name}'")
         case ShkFn():
-            raise ShakarTypeError("Function has no fields")
+            raise ShakarFieldNotFoundError("Function has no fields")
         case _:
-            raise ShakarTypeError(f"Unsupported field access on {type(recv).__name__}")
+            raise ShakarFieldNotFoundError(
+                f"Unsupported field access on {type(recv).__name__}"
+            )
 
 
 def _normalize_index_key(idx: ShkValue) -> str:

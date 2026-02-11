@@ -47,10 +47,7 @@ def eval_hook_stmt(n: Tree, frame: Frame, eval_func: EvalFunc) -> ShkValue:
 
     # Parse the string token to get the actual name (handles raw strings, etc.)
     # token_string expects (token, frame) but frame is unused for string literals
-    name_val = token_string(name_tok, None)
-    if not isinstance(name_val, ShkValue):  # Should be ShkString
-        # token_string returns ShkString, accessing .value gives the str
-        pass
+    token_string(name_tok, None)
 
     # We evaluate the handler (amp_lambda) to ensure it's valid,
     # but we don't execute it or register it yet.

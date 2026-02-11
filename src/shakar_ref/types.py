@@ -1113,6 +1113,12 @@ class ShakarTypeError(ShakarRuntimeError):
     pass
 
 
+class ShakarFieldNotFoundError(ShakarTypeError):
+    """Raised when a field/property is not found on a value."""
+
+    pass
+
+
 class ShakarArityError(ShakarRuntimeError):
     pass
 

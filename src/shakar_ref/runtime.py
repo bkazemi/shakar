@@ -49,6 +49,7 @@ from .types import (
     ShakarImportError,
     ShakarRuntimeError,
     ShakarTypeError,
+    ShakarFieldNotFoundError,
     ShakarArityError,
     ShakarKeyError,
     ShakarIndexError,
