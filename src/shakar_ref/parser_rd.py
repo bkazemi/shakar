@@ -70,6 +70,23 @@ class Parser:
     15. primary (literals, identifiers, parens)
     """
 
+    # Tokens that terminate a bare return/throw (no value follows).
+    _BARE_STMT_TERMINATORS = frozenset(
+        {
+            TT.NEWLINE,
+            TT.EOF,
+            TT.SEMI,
+            TT.RBRACE,
+            TT.RPAR,
+            TT.COMMA,
+            TT.ELSE,
+            TT.ELIF,
+            TT.IF,
+            TT.UNLESS,
+            TT.PIPE,
+        }
+    )
+
     def __init__(self, tokens: List[Tok], use_indenter: bool = True):
         self.tokens = tokens
         self.pos = 0
@@ -233,6 +250,86 @@ class Parser:
         valuefan_items = [Tree("valuefan_item", [item]) for item in items]
 
         return Tree("valuefan", [Tree("valuefan_list", valuefan_items)])
+
+    def _check_catch_start(self) -> bool:
+        """Check if current token starts a catch clause (catch or @@)."""
+        return self.check(TT.CATCH) or (
+            self.check(TT.AT) and self.peek(1).type == TT.AT
+        )
+
+    def _check_catch_at(self, offset: int) -> bool:
+        """Check if token at lookahead offset starts a catch clause."""
+        tok = self.peek(offset)
+        return tok.type == TT.CATCH or (
+            tok.type == TT.AT and self.peek(offset + 1).type == TT.AT
+        )
+
+    def _consume_catch_keyword(self) -> None:
+        """Consume catch or @@ token(s)."""
+        if self.check(TT.CATCH):
+            self.advance()
+        else:
+            self.advance(2)  # consume '@@'
+
+    def _parse_catch_filter(self) -> tuple[List[Tok], Optional[Tok]]:
+        """Parse optional (Type1, Type2) filter and binder after catch keyword."""
+        types: List[Tok] = []
+        if self.match(TT.LPAR):
+            types.append(self.expect(TT.IDENT))
+            while self.match(TT.COMMA):
+                types.append(self.expect(TT.IDENT))
+            self.expect(TT.RPAR)
+
+        binder: Optional[Tok] = None
+        if self.match(TT.BIND):
+            binder = self.expect(TT.IDENT)
+        elif self.check(TT.IDENT) and not types:
+            binder = self.advance()
+
+        return types, binder
+
+    def _build_catch_children(
+        self, expr: Node, types: List[Tok], binder: Optional[Tok], handler: Node
+    ) -> list[Node]:
+        """Assemble catch node children from parsed components."""
+        children: list[Node] = [expr]
+        if binder:
+            children.append(binder)
+        if types:
+            children.append(Tree("catchtypes", types))
+        children.append(handler)
+        return children
+
+    def _parse_flat_binop(self, label: str, op_type: TT, next_parser: Any) -> Node:
+        """Parse flat left-associative binary op with interleaved op tokens.
+        Returns unwrapped next-level node when no operator is present."""
+        left = next_parser()
+        if not self.check(op_type):
+            return left
+        children: list[Node] = [left]
+        while self.check(op_type):
+            op = self.advance()
+            children.append(self._tok(op.type.name, op.value))
+            children.append(next_parser())
+        return Tree(label, children)
+
+    def _parse_left_assoc(
+        self, label: str, op_label: str, op_types: tuple[TT, ...], next_parser: Any
+    ) -> Node:
+        """Parse left-associative binary ops that wrap each operator in an op node."""
+        left = next_parser()
+        while self.check(*op_types):
+            op = self.advance()
+            right = next_parser()
+            left = Tree(label, [left, Tree(op_label, [op]), right])
+        return left
+
+    def _parse_obj_item_body(self) -> Tree:
+        """Parse object item body: indented block or inline expression."""
+        if self.check(TT.NEWLINE):
+            return self.parse_object_body()
+        expr = self.parse_expr()
+        return Tree("body", [expr], attrs={"inline": True})
 
     def _parse_call_op(self) -> Tree:
         """Parse call (args) — assumes current is LPAR."""
@@ -889,16 +986,9 @@ class Parser:
             k = 0
             while self.peek(k).type == TT.NEWLINE:
                 k += 1
-            next_tok = self.peek(k)
-            next_next = self.peek(k + 1)
-            if not (
-                next_tok.type == TT.CATCH
-                or (next_tok.type == TT.AT and next_next.type == TT.AT)
-            ):
+            if not self._check_catch_at(k):
                 return None
-        elif not (
-            self.check(TT.CATCH) or (self.check(TT.AT) and self.peek(1).type == TT.AT)
-        ):
+        elif not self._check_catch_start():
             return None
         self._rewind(expr_start)
         return self.parse_catch_stmt()
@@ -1877,20 +1967,7 @@ class Parser:
         """Parse throw statement: throw [expr]"""
         self.expect(TT.THROW)
         # Optional expression — treat clause delimiters as bare-throw boundaries
-        # so that inline forms like `if x: throw else: ...` work.
-        if self.check(
-            TT.NEWLINE,
-            TT.EOF,
-            TT.SEMI,
-            TT.RBRACE,
-            TT.RPAR,
-            TT.COMMA,
-            TT.ELSE,
-            TT.ELIF,
-            TT.IF,
-            TT.UNLESS,
-            TT.PIPE,
-        ):
+        if self.current.type in self._BARE_STMT_TERMINATORS:
             return Tree("throwstmt", [])
         value = self.parse_expr()
         return Tree("throwstmt", [value])
@@ -2049,52 +2126,24 @@ class Parser:
         """Parse catch expression: expr catch [types] [bind x]: handler"""
         expr = self.parse_ternary_expr()
 
-        if self.check(TT.CATCH) or (self.check(TT.AT) and self.peek(1).type == TT.AT):
-            # catch or @@ syntax
-            if self.check(TT.CATCH):
-                self.advance()
-            else:
-                self.advance(2)  # consume '@@'
+        if not self._check_catch_start():
+            return expr
 
-            # Optional type filter: (Type1, Type2)
-            types: List[Tok] = []
-            if self.match(TT.LPAR):
-                types.append(self.expect(TT.IDENT))
-                while self.match(TT.COMMA):
-                    types.append(self.expect(TT.IDENT))
-                self.expect(TT.RPAR)
+        self._consume_catch_keyword()
+        types, binder = self._parse_catch_filter()
+        self.expect(TT.COLON)
 
-            # Optional binder: either bare IDENT or 'bind' IDENT
-            binder: Optional[Tok] = None
-            if self.match(TT.BIND):
-                binder = self.expect(TT.IDENT)
-            elif self.check(TT.IDENT) and not types:
-                # binder_simple form when no typed list
-                binder = self.advance()
+        # Peek past newlines to decide catchstmt vs catchexpr
+        is_stmt = self.check(TT.LBRACE, TT.INDENT)
+        if not is_stmt and self.check(TT.NEWLINE):
+            k = 1
+            while self.peek(k).type == TT.NEWLINE:
+                k += 1
+            is_stmt = self.peek(k).type == TT.INDENT
+        handler = self.parse_body()
 
-            self.expect(TT.COLON)
-            # Use parse_body to allow both inline statements (like 'throw') and indented blocks
-            # But we need to know if it was a block or not to choose node type
-            # Peek past any newlines to find the real body start
-            is_stmt = self.check(TT.LBRACE, TT.INDENT)
-            if not is_stmt and self.check(TT.NEWLINE):
-                k = 1
-                while self.peek(k).type == TT.NEWLINE:
-                    k += 1
-                is_stmt = self.peek(k).type == TT.INDENT
-            handler = self.parse_body()
-
-            # Build catch node
-            children: list[Node] = [expr]
-            if binder:
-                children.append(binder)
-            if types:
-                children.append(Tree("catchtypes", types))
-            children.append(handler)
-
-            return Tree("catchstmt" if is_stmt else "catchexpr", children)
-
-        return expr
+        children = self._build_catch_children(expr, types, binder, handler)
+        return Tree("catchstmt" if is_stmt else "catchexpr", children)
 
     def parse_catch_stmt(self) -> Tree:
         """Parse catch statement starting at current position."""
@@ -2105,49 +2154,22 @@ class Parser:
             k = 0
             while self.peek(k).type == TT.NEWLINE:
                 k += 1
-            next_tok = self.peek(k)
-            next_next = self.peek(k + 1)
-            if not (
-                next_tok.type == TT.CATCH
-                or (next_tok.type == TT.AT and next_next.type == TT.AT)
-            ):
+            if not self._check_catch_at(k):
                 return try_expr
             while self.match(TT.NEWLINE):
                 pass
 
-        if not (
-            self.check(TT.CATCH) or (self.check(TT.AT) and self.peek(1).type == TT.AT)
-        ):
+        if not self._check_catch_start():
             return try_expr
 
-        if self.check(TT.CATCH):
-            self.advance()
-        else:
-            self.advance(2)  # consume '@@'
-
-        types: List[Tok] = []
-        if self.match(TT.LPAR):
-            types.append(self.expect(TT.IDENT))
-            while self.match(TT.COMMA):
-                types.append(self.expect(TT.IDENT))
-            self.expect(TT.RPAR)
-
-        binder_tok = None
-        if self.match(TT.BIND):
-            binder_tok = self.expect(TT.IDENT)
-        elif self.check(TT.IDENT) and not types:
-            binder_tok = self.advance()
-
+        self._consume_catch_keyword()
+        types, binder = self._parse_catch_filter()
         self.expect(TT.COLON)
         body = self.parse_body()
 
-        children: List[Any] = [try_expr]
-        if binder_tok is not None:
-            children.append(binder_tok)
-        if types:
-            children.append(Tree("catchtypes", types))
-        children.append(body)
-        return Tree("catchstmt", children)
+        return Tree(
+            "catchstmt", self._build_catch_children(try_expr, types, binder, body)
+        )
 
     def parse_ternary_expr(self) -> Node:
         """Parse ternary: expr ? then : else"""
@@ -2164,39 +2186,11 @@ class Parser:
 
     def parse_or_expr(self) -> Node:
         """Parse logical OR: expr || expr"""
-        left = self.parse_and_expr()
-
-        if not self.check(TT.OR):
-            # No OR, just return and level
-            return left
-
-        # Collect operands and operators (interleaved)
-        children: list[Node] = [left]
-        while self.check(TT.OR):
-            op = self.advance()
-            children.append(self._tok(op.type.name, op.value))
-            right = self.parse_and_expr()
-            children.append(right)
-
-        return Tree("or", children)
+        return self._parse_flat_binop("or", TT.OR, self.parse_and_expr)
 
     def parse_and_expr(self) -> Node:
         """Parse logical AND: expr && expr"""
-        left = self.parse_bind_expr()
-
-        if not self.check(TT.AND):
-            # No AND, just return bind level
-            return left
-
-        # Collect operands and operators (interleaved)
-        children: list[Node] = [left]
-        while self.check(TT.AND):
-            op = self.advance()
-            children.append(self._tok(op.type.name, op.value))
-            right = self.parse_bind_expr()
-            children.append(right)
-
-        return Tree("and", children)
+        return self._parse_flat_binop("and", TT.AND, self.parse_bind_expr)
 
     def parse_bind_expr(self) -> Node:
         """Parse apply bind: lvalue .= expr"""
@@ -2566,45 +2560,21 @@ class Parser:
 
     def parse_add_expr(self) -> Node:
         """Parse addition/subtraction: expr + expr"""
-        left = self.parse_mul_expr()
-
-        ops_and_operands = []
-        while self.check(TT.PLUS, TT.MINUS, TT.DEEPMERGE, TT.CARET):
-            op = self.advance()
-            right = self.parse_mul_expr()
-            ops_and_operands.append((op, right))
-
-        # If no operators, just return wrapped mulexpr
-        if not ops_and_operands:
-            return left
-
-        # Build add with left-associative structure
-        for op, right in ops_and_operands:
-            # Wrap operator in addop tree
-            op_tree = Tree("addop", [op])
-            left = Tree("add", [left, op_tree, right])
-
-        return left
+        return self._parse_left_assoc(
+            "add",
+            "addop",
+            (TT.PLUS, TT.MINUS, TT.DEEPMERGE, TT.CARET),
+            self.parse_mul_expr,
+        )
 
     def parse_mul_expr(self) -> Node:
         """Parse multiplication/division: expr * expr"""
-        left = self.parse_pow_expr()
-
-        ops_and_operands = []
-        while self.check(TT.STAR, TT.SLASH, TT.FLOORDIV, TT.MOD):
-            op = self.advance()
-            right = self.parse_pow_expr()
-            ops_and_operands.append((op, right))
-
-        if not ops_and_operands:
-            return left
-
-        for op, right in ops_and_operands:
-            # Wrap operator in mulop tree
-            op_tree = Tree("mulop", [op])
-            left = Tree("mul", [left, op_tree, right])
-
-        return left
+        return self._parse_left_assoc(
+            "mul",
+            "mulop",
+            (TT.STAR, TT.SLASH, TT.FLOORDIV, TT.MOD),
+            self.parse_pow_expr,
+        )
 
     def parse_pow_expr(self) -> Node:
         """Parse exponentiation: expr ** expr (right associative)"""
@@ -2623,19 +2593,7 @@ class Parser:
         # Throw as expression-form
         if self.check(TT.THROW):
             self.advance()
-            if self.check(
-                TT.NEWLINE,
-                TT.EOF,
-                TT.SEMI,
-                TT.RBRACE,
-                TT.RPAR,
-                TT.COMMA,
-                TT.ELSE,
-                TT.ELIF,
-                TT.IF,
-                TT.UNLESS,
-                TT.PIPE,
-            ):
+            if self.current.type in self._BARE_STMT_TERMINATORS:
                 return Tree("throwstmt", [])
             value = self.parse_unary_expr()
             return Tree("throwstmt", [value])
@@ -2867,26 +2825,15 @@ class Parser:
 
         items: List[Node] = []
         while not self.check(TT.RBRACE, TT.EOF):
-            while (
-                self.match(TT.NEWLINE) or self.match(TT.INDENT) or self.match(TT.DEDENT)
-            ):
-                pass
+            self.skip_layout_tokens()
             if self.check(TT.RBRACE):
                 break
 
             items.append(self.parse_object_item())
 
-            while (
-                self.match(TT.NEWLINE) or self.match(TT.INDENT) or self.match(TT.DEDENT)
-            ):
-                pass
+            self.skip_layout_tokens()
             if not self.match(TT.COMMA):
-                while (
-                    self.match(TT.NEWLINE)
-                    or self.match(TT.INDENT)
-                    or self.match(TT.DEDENT)
-                ):
-                    pass
+                self.skip_layout_tokens()
                 if self.check(TT.RBRACE):
                     break
                 continue
@@ -3817,14 +3764,7 @@ class Parser:
                 params = self.parse_param_list()
                 self.expect(TT.RPAR)
                 self.expect(TT.COLON)
-                # Check if inline expression or block body
-                if self.check(TT.NEWLINE):
-                    body = self.parse_object_body()
-                else:
-                    # Inline expression
-                    expr = self.parse_expr()
-                    body = Tree("body", [expr], attrs={"inline": True})
-                return Tree("obj_method", [name, params, body])
+                return Tree("obj_method", [name, params, self._parse_obj_item_body()])
 
             # Pun: bare IDENT (not followed by : or ?) → {x} desugars to {x: x}
             if name.type == TT.IDENT and not self.check(TT.COLON, TT.QMARK):
@@ -3866,31 +3806,16 @@ class Parser:
         # Getter/setter
         if self.match(TT.GET):
             name = self.expect(TT.IDENT)
-            # Optional empty parens
             if self.match(TT.LPAR):
                 self.expect(TT.RPAR)
             self.expect(TT.COLON)
-            # Check if inline expression or block body
-            if self.check(TT.NEWLINE):
-                body = self.parse_object_body()
-            else:
-                # Inline expression
-                expr = self.parse_expr()
-                body = Tree("body", [expr], attrs={"inline": True})
-            return Tree("obj_get", [name, body])
+            return Tree("obj_get", [name, self._parse_obj_item_body()])
 
         if self.match(TT.SET):
             name = self.expect(TT.IDENT)
             _, param, _ = self.expect_seq(TT.LPAR, TT.IDENT, TT.RPAR)
             self.expect(TT.COLON)
-            # Check if inline expression or block body
-            if self.check(TT.NEWLINE):
-                body = self.parse_object_body()
-            else:
-                # Inline expression
-                expr = self.parse_expr()
-                body = Tree("body", [expr], attrs={"inline": True})
-            return Tree("obj_set", [name, param, body])
+            return Tree("obj_set", [name, param, self._parse_obj_item_body()])
 
         raise ParseError("Expected object item", self.current)
 
