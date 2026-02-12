@@ -84,6 +84,8 @@ fn double(x): x * 2
 5.double()          # UFCS → double(5)
 
 "hi".print()        # UFCS → print("hi")
+"42".int()          # UFCS → int("42")
+123.str()           # UFCS → str(123)
 
 fn clamp(x, lo, hi):
   x < lo: return lo
@@ -817,7 +819,7 @@ u := makeUser() and .isValid()
 - **Inline vs block handlers:** `expr catch err: handler_expr` is expression-valued (usable in walrus/assign chains without parentheses). A block-bodied catch (`expr catch err: { … }` or newline/indent) is statement-valued and yields `nil`. Use inline form when you need the handler’s value; use a block when you need multiple statements or don’t care about the value.
 - **assert expr, "msg"`** raises if falsey; build can strip.
 - **throw [expr]** re-raises current payload when expression omitted; otherwise raises new `ShakarRuntimeError` from value (strings → message; objects set `.type/.message`). Bare `throw` (no expression) is valid in inline positions: clause delimiters (`else`, `elif`, `|`), postfix guards (`if`, `unless`), and standard terminators (newline, `;`, `}`, `)`, `,`) all end the bare form. Examples: `if cond: throw else: 0`, `throw if err`.
-- **Helpers**: `error(type, message, data?)` builds tagged payload; `dbg expr` logs and returns expr (strip-able); `tap(value, fn, ...args)` calls `fn(value, ...args)` and returns `value` for side-effect-friendly chaining.
+- **Helpers**: `error(type, message, data?)` builds tagged payload; `dbg expr` logs and returns expr (strip-able); `tap(value, fn, ...args)` calls `fn(value, ...args)` and returns `value` for side-effect-friendly chaining. Conversion helpers: `int(x)`, `float(x)`, `bool(x)`, `str(x)` (and UFCS forms like `x.int()`).
 - **Events**: `hook "name": .emit()` ⇒ `Event.on(name, &( .emit()))`.
 
 ---
@@ -1138,7 +1140,7 @@ wait[any]:
 ### Formatter / lint rules (normative)
 
 - `IndentBlock` = off-side indented form; `InlineBody` = single `SimpleStmt` or braced inline `{…}`. Punctuation guards remain block-only via `IndentBlock`.
-- **Unary `+` invalid**; use explicit conversions.
+- **Unary `+` invalid**; use explicit conversions (`int(x)`, `float(x)`, `bool(x)`, `str(x)`).
 - Selector literal style: prefer bare names/numbers for bounds; require `{…}` for non-trivial expressions; no top-level `(…)` inside backticks.
 - Discourage inline backticks inside `[]` (allowed but warn); prefer flattened form unless reused selector values.
 - Selector values in `[]` are flattened; selector values in collection literals are not. Selector literal values use backticks around the body (no brackets inside).

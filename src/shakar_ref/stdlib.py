@@ -28,7 +28,7 @@ from .runtime import (
 )
 from .runtime import ShakarRuntimeError
 from .eval.helpers import is_truthy, current_function_frame, name_in_current_frame
-from .utils import envvar_value_by_name
+from .utils import stringify
 
 
 @register_stdlib("int")
@@ -59,20 +59,60 @@ def std_int(
     raise ShakarTypeError("int() expects number or numeric string")
 
 
-def _render(value):
-    if isinstance(value, ShkString):
-        return value.value
+@register_stdlib("float")
+def std_float(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkNumber:
+    args = _with_subject(subject, args)
+    if len(args) != 1:
+        raise ShakarTypeError("float() expects exactly one argument")
 
-    if isinstance(value, ShkEnvVar):
-        env_val = envvar_value_by_name(value.name)
-        return env_val if env_val is not None else "nil"
+    val = args[0]
 
-    if isinstance(value, (ShkNumber, ShkBool)):
-        return str(value.value)
+    if isinstance(val, ShkNumber):
+        return ShkNumber(val.value)
 
-    if isinstance(value, ShkNil):
-        return "nil"
-    return str(value)
+    if isinstance(val, ShkBool):
+        return ShkNumber(1.0 if val.value else 0.0)
+
+    if isinstance(val, ShkString):
+        try:
+            return ShkNumber(float(val.value))
+        except ValueError:
+            raise ShakarTypeError("float() expects numeric string or number")
+
+    raise ShakarTypeError("float() expects number or numeric string")
+
+
+@register_stdlib("bool")
+def std_bool(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkBool:
+    args = _with_subject(subject, args)
+    if len(args) != 1:
+        raise ShakarTypeError("bool() expects exactly one argument")
+
+    return ShkBool(is_truthy(args[0]))
+
+
+@register_stdlib("str")
+def std_str(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkString:
+    args = _with_subject(subject, args)
+    if len(args) != 1:
+        raise ShakarTypeError("str() expects exactly one argument")
+
+    return ShkString(stringify(args[0]))
 
 
 def _with_subject(subject: Optional[ShkValue], args: List[ShkValue]) -> List[ShkValue]:
@@ -89,7 +129,7 @@ def std_print(
     named: Optional[Dict[str, ShkValue]] = None,
 ) -> ShkNil:
     args = _with_subject(subject, args)
-    rendered = [_render(arg) for arg in args]
+    rendered = [stringify(arg) for arg in args]
     sep = " "
 
     if named:
@@ -100,7 +140,7 @@ def std_print(
             )
         sep_val = named.get("sep")
         if sep_val is not None:
-            sep = _render(sep_val)
+            sep = stringify(sep_val)
 
     print(*rendered, sep=sep)
     return ShkNil()

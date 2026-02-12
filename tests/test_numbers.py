@@ -29,6 +29,48 @@ SCENARIOS = [
         id="int-builtin",
     ),
     pytest.param(
+        'float(3) + float("4.5")',
+        ("number", 7.5),
+        None,
+        id="float-builtin",
+    ),
+    pytest.param(
+        "bool(0)",
+        ("bool", False),
+        None,
+        id="bool-builtin-false",
+    ),
+    pytest.param(
+        "bool([1])",
+        ("bool", True),
+        None,
+        id="bool-builtin-true",
+    ),
+    pytest.param(
+        'bool(r"abc")',
+        None,
+        ShakarTypeError,
+        id="bool-builtin-regex-typeerror",
+    ),
+    pytest.param(
+        "str(nil)",
+        ("string", "nil"),
+        None,
+        id="str-builtin-nil",
+    ),
+    pytest.param(
+        "str(true)",
+        ("string", "true"),
+        None,
+        id="str-builtin-bool",
+    ),
+    pytest.param(
+        'float("x")',
+        None,
+        ShakarTypeError,
+        id="float-builtin-typeerror",
+    ),
+    pytest.param(
         "0b1010_0011",
         ("number", 163),
         None,

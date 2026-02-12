@@ -320,6 +320,24 @@ SCENARIOS = [
         id="ufcs-stdlib-int",
     ),
     pytest.param(
+        '"3.5".float()',
+        ("number", 3.5),
+        None,
+        id="ufcs-stdlib-float",
+    ),
+    pytest.param(
+        '"".bool()',
+        ("bool", False),
+        None,
+        id="ufcs-stdlib-bool",
+    ),
+    pytest.param(
+        "123.str()",
+        ("string", "123"),
+        None,
+        id="ufcs-stdlib-str",
+    ),
+    pytest.param(
         dedent(
             """\
             fn double(x): x * 2
