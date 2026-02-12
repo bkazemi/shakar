@@ -230,48 +230,40 @@ class Lexer:
             return
 
         # Newlines
-        if self.peek() in ("\n", "\r"):
+        if self.peek() in {"\n", "\r"}:
             self.scan_newline()
             return
 
         # String literals
-        if self.peek() in ('"', "'"):
+        if self.peek() in {'"', "'"}:
             self.scan_string()
             return
 
         # Raw strings (raw"..." or raw#"..."#)
-        if self.peek() == "r" and self.peek(1) == "a" and self.peek(2) == "w":
-            if self.peek(3) in ('"', "'", "#"):
+        if self.peek_at("raw"):
+            if self.peek(3) in {'"', "'", "#"}:
                 self.advance(3)
                 self.scan_raw_string()
                 return
 
         # Shell raw bang strings (sh_raw!"..." or sh_raw!'...')
-        if self.source.startswith("sh_raw!", self.pos) and self.peek(7) in ('"', "'"):
-            self.advance(7)
-            self.scan_shell_bang_string(prefix_len=7, dedent=False)
+        if self.match_string_prefix("sh_raw!"):
+            self.scan_shell_bang_string(prefix="sh_raw!", dedent=False)
             return
 
         # Shell raw strings (sh_raw"..." or sh_raw'...')
-        if self.source.startswith("sh_raw", self.pos) and self.peek(6) in ('"', "'"):
-            self.advance(6)
-            self.scan_shell_string(prefix_len=6, dedent=False)
+        if self.match_string_prefix("sh_raw"):
+            self.scan_shell_string(prefix="sh_raw", dedent=False)
             return
 
         # Shell bang strings (sh!"..." or sh!'...')
-        if (
-            self.peek() == "s"
-            and self.peek(1) == "h"
-            and self.peek(2) == "!"
-            and self.peek(3) in ('"', "'")
-        ):
-            self.advance(3)
-            self.scan_shell_bang_string(prefix_len=3, dedent=True)
+        if self.match_string_prefix("sh!"):
+            self.scan_shell_bang_string(prefix="sh!", dedent=True)
             return
 
         # Shell strings
         if self.match_string_prefix("sh"):
-            self.scan_shell_string(prefix_len=2, dedent=True)
+            self.scan_shell_string(prefix="sh", dedent=True)
             return
 
         # Environment strings
@@ -280,12 +272,12 @@ class Lexer:
             return
 
         # Path strings
-        if self.peek() == "p" and self.peek(1) in ('"', "'"):
-            self.advance()  # consume 'p'
+        if self.match_string_prefix("p"):
             self.scan_path_string()
             return
+
         # Regex literals (r"..."/flags)
-        if self.peek() == "r" and self.peek(1) in ('"', "'"):
+        if self.match_string_prefix("r"):
             self.scan_regex_literal()
             return
 
@@ -314,7 +306,7 @@ class Lexer:
         # Count leading spaces/tabs and capture the actual string
         indent = 0
         indent_str = ""
-        while self.peek() in (" ", "\t"):
+        while self.peek() in {" ", "\t"}:
             ch = self.peek()
             indent_str += ch
             if ch == " ":
@@ -337,7 +329,7 @@ class Lexer:
             self.indent_strings.append(self.prev_line_indent_str or "")
 
         # Skip blank lines
-        if self.peek() in ("\n", "\r", "#"):
+        if self.peek() in {"\n", "\r", "#"}:
             return
 
         self.prev_line_indent = indent
@@ -424,7 +416,7 @@ class Lexer:
         while self.pos < len(self.source) and self.peek() != quote:
             ch = self.peek()
 
-            if ch in ("\n", "\r"):
+            if ch in {"\n", "\r"}:
                 if not allow_newlines:
                     raise LexError(f"Newline in {kind} at line {self.line}")
                 self._advance_in_literal()
@@ -437,7 +429,7 @@ class Lexer:
                     self.advance()
 
                 if self.pos < len(self.source):
-                    if self.peek() in ("\n", "\r") and not allow_newlines:
+                    if self.peek() in {"\n", "\r"} and not allow_newlines:
                         raise LexError(f"Newline in {kind} at line {self.line}")
                     if allow_newlines:
                         self._advance_in_literal()
@@ -497,11 +489,16 @@ class Lexer:
             )
 
     def scan_shell_string(
-        self, *, prefix_len: int = 2, dedent: bool = True, allow_escapes: bool = True
+        self,
+        *,
+        prefix: str = "sh",
+        dedent: bool = True,
+        allow_escapes: bool = True,
+        token_type: TT = TT.SHELL_STRING,
     ):
-        """Scan shell string: sh"..." or sh'...'"""
-        # prefix already consumed - start_col is prefix_len chars back
-        start_line, start_col = self.line, self.column - prefix_len
+        """Scan shell string: sh, sh!, sh_raw, or sh_raw! literals."""
+        # prefix already consumed - start_col is len(prefix) chars back
+        start_line, start_col = self.line, self.column - len(prefix)
         quote = self.advance()
         start_pos = self.pos
         self.scan_quoted_content(
@@ -518,32 +515,17 @@ class Lexer:
         if dedent:
             content = self._dedent_multiline(content)
         self.advance()  # Closing quote
-        self.emit(TT.SHELL_STRING, content, start_line=start_line, start_col=start_col)
+        self.emit(token_type, content, start_line=start_line, start_col=start_col)
 
     def scan_shell_bang_string(
-        self, *, prefix_len: int = 3, dedent: bool = True, allow_escapes: bool = True
+        self, *, prefix: str = "sh!", dedent: bool = True, allow_escapes: bool = True
     ):
         """Scan shell bang string: sh!"..." or sh!'...'"""
-        # prefix already consumed - start_col is prefix_len chars back
-        start_line, start_col = self.line, self.column - prefix_len
-        quote = self.advance()
-        start_pos = self.pos
-        self.scan_quoted_content(
-            quote,
-            allow_newlines=True,
+        self.scan_shell_string(
+            prefix=prefix,
+            dedent=dedent,
             allow_escapes=allow_escapes,
-            kind="shell string literal",
-        )
-
-        if self.pos >= len(self.source):
-            raise LexError(f"Unterminated shell string at line {self.line}")
-
-        content = self.source[start_pos : self.pos]
-        if dedent:
-            content = self._dedent_multiline(content)
-        self.advance()  # Closing quote
-        self.emit(
-            TT.SHELL_BANG_STRING, content, start_line=start_line, start_col=start_col
+            token_type=TT.SHELL_BANG_STRING,
         )
 
     def scan_path_string(self):
@@ -583,8 +565,8 @@ class Lexer:
 
     def scan_regex_literal(self):
         """Scan regex literal: r"..." or r'...' with optional /flags."""
-        start_line, start_col = self.line, self.column
-        self.advance()  # consume 'r'
+        # 'r' already consumed by match_string_prefix
+        start_line, start_col = self.line, self.column - 1
         quote = self.advance()
         start_pos = self.pos
 
@@ -601,9 +583,9 @@ class Lexer:
         flags = ""
         if self.peek() == "/":
             self.advance()  # consume /
-            if self.peek() not in ("i", "m", "s", "x", "f"):
+            if self.peek() not in {"i", "m", "s", "x", "f"}:
                 raise LexError(f"Unknown regex flag at line {self.line}")
-            while self.peek() in ("i", "m", "s", "x", "f"):
+            while self.peek() in {"i", "m", "s", "x", "f"}:
                 flags += self.advance()
             if self.peek().isalnum() or self.peek() == "_":
                 raise LexError(f"Unknown regex flag at line {self.line}")
@@ -634,7 +616,7 @@ class Lexer:
         # Allow 1.foo (member access) by only entering if next is digit/underscore.
         if self.peek() == ".":
             next_ch = self.peek(1)
-            if next_ch in ("e", "E"):
+            if next_ch in {"e", "E"}:
                 raise LexError(
                     f"Fractional digits required after decimal point at line {start_line}, col {start_col}"
                 )
@@ -647,9 +629,9 @@ class Lexer:
                 self._scan_digits_with_underscores(start_line, start_col)
 
         # Optional exponent (e+/-digits)
-        if self.peek() in ("e", "E"):
+        if self.peek() in {"e", "E"}:
             self.advance()
-            if self.peek() in ("+", "-"):
+            if self.peek() in {"+", "-"}:
                 self.advance()
             # Check for leading underscore in exponent
             if self.peek() == "_":
@@ -736,7 +718,7 @@ class Lexer:
             return False
 
         prefix = self.peek(1)
-        if prefix in ("B", "O", "X"):
+        if prefix in {"B", "O", "X"}:
             raise LexError(
                 f"Uppercase base prefixes are not allowed at line {start_line}, col {start_col}"
             )
@@ -930,7 +912,7 @@ class Lexer:
             if line.strip(" \t") == "":
                 continue
             indent = 0
-            while indent < len(line) and line[indent] in (" ", "\t"):
+            while indent < len(line) and line[indent] in {" ", "\t"}:
                 indent += 1
             indents.append(indent)
 
@@ -972,11 +954,14 @@ class Lexer:
         return ch
 
     def peek(self, offset: int = 0) -> str:
-        """Look ahead at character"""
+        """Look ahead at character at pos+offset."""
         idx = self.pos + offset
-        if idx < len(self.source):
-            return self.source[idx]
-        return "\0"
+        return self.source[idx] if idx < len(self.source) else "\0"
+
+    def peek_at(self, s: str, offset: int = 0) -> bool:
+        """Check if characters at pos+offset match s."""
+        idx = self.pos + offset
+        return self.source[idx : idx + len(s)] == s
 
     def advance(self, n: int = 1) -> str:
         """Consume n characters and return them as a string"""
@@ -990,46 +975,25 @@ class Lexer:
             self.column += 1
         return result
 
-    def match_keyword(self, keyword: str) -> bool:
-        """Check if next characters match keyword"""
-        for i, ch in enumerate(keyword):
-            if self.peek(i) != ch:
-                return False
-
-        # Ensure it's not part of identifier
-        if self.peek(len(keyword)).isalnum() or self.peek(len(keyword)) == "_":
-            return False
-
-        # Consume keyword
-        for _ in keyword:
-            self.advance()
-
-        return True
-
     def match_string_prefix(self, prefix: str) -> bool:
         """Match a prefix string keyword only if followed by a quote."""
-        n = len(prefix)
-        for i, ch in enumerate(prefix):
-            if self.peek(i) != ch:
-                return False
-
-        if self.peek(n) not in ('"', "'"):
+        if not self.peek_at(prefix) or self.peek(len(prefix)) not in {'"', "'"}:
             return False
 
-        self.advance(n)
+        self.advance(len(prefix))
         return True
 
     def skip_whitespace(self) -> bool:
         """Skip whitespace (not newlines), return True if any skipped"""
         skipped = False
-        while self.peek() in (" ", "\t"):
+        while self.peek() in {" ", "\t"}:
             self.advance()
             skipped = True
         return skipped
 
     def skip_comment(self):
         """Skip comment until end of line"""
-        while self.peek() not in ("\n", "\r", "\0"):
+        while self.peek() not in {"\n", "\r", "\0"}:
             self.advance()
 
     def _match_unit(self, units: List[str]) -> Optional[str]:
@@ -1057,9 +1021,9 @@ class Lexer:
                 while pos < len(raw) and (raw[pos].isdigit() or raw[pos] == "_"):
                     pos += 1
 
-            if pos < len(raw) and raw[pos] in ("e", "E"):
+            if pos < len(raw) and raw[pos] in {"e", "E"}:
                 pos += 1
-                if pos < len(raw) and raw[pos] in ("+", "-"):
+                if pos < len(raw) and raw[pos] in {"+", "-"}:
                     pos += 1
                 while pos < len(raw) and (raw[pos].isdigit() or raw[pos] == "_"):
                     pos += 1
