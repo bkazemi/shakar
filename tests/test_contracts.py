@@ -575,7 +575,7 @@ SCENARIOS = [
     pytest.param(
         dedent(
             """\
-            Optional = fn(x): "nope"
+            Optional := fn(x): "nope"
             {} ~ {a?: Int}
         """
         ),

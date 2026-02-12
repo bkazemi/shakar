@@ -894,6 +894,7 @@ class Frame:
     ):
         self.parent = parent
         self.vars: Dict[str, ShkValue] = {}
+        self.builtins: Dict[str, ShkValue] = {}
         self._let_scopes: List[Dict[str, ShkValue]] = []
         self._captured_let_scopes: List[Dict[str, ShkValue]] = []
         self.dot: DotValue = dot
@@ -916,9 +917,9 @@ class Frame:
 
         if parent is None:
             for name, std in Builtins.stdlib_functions.items():
-                self.vars[name] = std
+                self.builtins[name] = std
             for name, typ in Builtins.type_constants.items():
-                self.vars[name] = typ
+                self.builtins[name] = typ
 
         if source is not None:
             self.source = source
@@ -1002,6 +1003,9 @@ class Frame:
         if name in self.vars:
             return self.vars[name]
 
+        if name in self.builtins:
+            return self.builtins[name]
+
         if self.parent is not None:
             return self.parent.get(name)
 
@@ -1016,6 +1020,11 @@ class Frame:
         if name in self.vars:
             self.vars[name] = val
             return
+
+        if name in self.builtins:
+            raise ShakarRuntimeError(
+                f"Cannot assign to builtin '{name}'; use := to shadow it"
+            )
 
         if self.parent is not None:
             self.parent.set(name, val)

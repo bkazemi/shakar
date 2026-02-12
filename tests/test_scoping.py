@@ -191,6 +191,38 @@ SCENARIOS = [
     pytest.param(
         dedent(
             """\
+            fn f(): { let print := 42; print }
+            f()
+        """
+        ),
+        ("number", 42),
+        None,
+        id="let-shadow-builtin-ok",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            print := 99
+            print
+        """
+        ),
+        ("number", 99),
+        None,
+        id="walrus-shadow-builtin-ok",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            print = 42
+        """
+        ),
+        None,
+        ShakarRuntimeError,
+        id="builtin-mutation-blocked",
+    ),
+    pytest.param(
+        dedent(
+            """\
             if true:
               let a, b := 1, 2
               a + b
