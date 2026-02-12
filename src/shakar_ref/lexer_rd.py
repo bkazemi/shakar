@@ -159,6 +159,32 @@ class Lexer:
         "tib": 1_099_511_627_776,
     }
 
+    # Prefixed string dispatch table (longest prefix first)
+    _PREFIXED_STRINGS = [
+        (
+            "sh_raw!",
+            TT.SHELL_BANG_STRING,
+            {"dedent": False, "kind": "shell string literal"},
+        ),
+        ("sh_raw", TT.SHELL_STRING, {"dedent": False, "kind": "shell string literal"}),
+        ("sh!", TT.SHELL_BANG_STRING, {"dedent": True, "kind": "shell string literal"}),
+        ("sh", TT.SHELL_STRING, {"dedent": True, "kind": "shell string literal"}),
+        (
+            "env",
+            TT.ENV_STRING,
+            {"allow_newlines": False, "full_value": True, "kind": "env string literal"},
+        ),
+        (
+            "p",
+            TT.PATH_STRING,
+            {
+                "allow_newlines": False,
+                "full_value": True,
+                "kind": "path string literal",
+            },
+        ),
+    ]
+
     def __init__(
         self,
         source: str,
@@ -246,35 +272,11 @@ class Lexer:
                 self.scan_raw_string()
                 return
 
-        # Shell raw bang strings (sh_raw!"..." or sh_raw!'...')
-        if self.match_string_prefix("sh_raw!"):
-            self.scan_shell_bang_string(prefix="sh_raw!", dedent=False)
-            return
-
-        # Shell raw strings (sh_raw"..." or sh_raw'...')
-        if self.match_string_prefix("sh_raw"):
-            self.scan_shell_string(prefix="sh_raw", dedent=False)
-            return
-
-        # Shell bang strings (sh!"..." or sh!'...')
-        if self.match_string_prefix("sh!"):
-            self.scan_shell_bang_string(prefix="sh!", dedent=True)
-            return
-
-        # Shell strings
-        if self.match_string_prefix("sh"):
-            self.scan_shell_string(prefix="sh", dedent=True)
-            return
-
-        # Environment strings
-        if self.match_string_prefix("env"):
-            self.scan_env_string()
-            return
-
-        # Path strings
-        if self.match_string_prefix("p"):
-            self.scan_path_string()
-            return
+        # Prefixed strings (sh, sh!, sh_raw, sh_raw!, env, p)
+        for prefix, tt, kw in self._PREFIXED_STRINGS:
+            if self.match_string_prefix(prefix):
+                self._scan_prefixed_string(len(prefix), tt, **kw)
+                return
 
         # Regex literals (r"..."/flags)
         if self.match_string_prefix("r"):
@@ -415,32 +417,16 @@ class Lexer:
 
         while self.pos < len(self.source) and self.peek() != quote:
             ch = self.peek()
-
-            if ch in {"\n", "\r"}:
-                if not allow_newlines:
-                    raise LexError(f"Newline in {kind} at line {self.line}")
-                self._advance_in_literal()
-                continue
-
+            if ch in {"\n", "\r"} and not allow_newlines:
+                raise LexError(f"Newline in {kind} at line {self.line}")
             if allow_escapes and ch == "\\":
-                if allow_newlines:
-                    self._advance_in_literal()
-                else:
-                    self.advance()
-
+                self._advance_in_literal()
                 if self.pos < len(self.source):
                     if self.peek() in {"\n", "\r"} and not allow_newlines:
                         raise LexError(f"Newline in {kind} at line {self.line}")
-                    if allow_newlines:
-                        self._advance_in_literal()
-                    else:
-                        self.advance()
+                    self._advance_in_literal()
                 continue
-
-            if allow_newlines:
-                self._advance_in_literal()
-            else:
-                self.advance()
+            self._advance_in_literal()
 
         return self.source[start_pos : self.pos]
 
@@ -488,80 +474,33 @@ class Lexer:
                 TT.RAW_STRING, full_value, start_line=start_line, start_col=start_col
             )
 
-    def scan_shell_string(
+    def _scan_prefixed_string(
         self,
+        prefix_len: int,
+        token_type: TT,
         *,
-        prefix: str = "sh",
-        dedent: bool = True,
         allow_escapes: bool = True,
-        token_type: TT = TT.SHELL_STRING,
+        allow_newlines: bool = True,
+        dedent: bool = False,
+        full_value: bool = False,
+        kind: str = "string literal",
     ):
-        """Scan shell string: sh, sh!, sh_raw, or sh_raw! literals."""
-        # prefix already consumed - start_col is len(prefix) chars back
-        start_line, start_col = self.line, self.column - len(prefix)
+        """Scan a prefix-delimited string (sh, sh!, sh_raw, sh_raw!, env, p)."""
+        start_line, start_col = self.line, self.column - prefix_len
+        start_pos = self.pos - prefix_len
         quote = self.advance()
-        start_pos = self.pos
+        content_start = self.pos
         self.scan_quoted_content(
-            quote,
-            allow_newlines=True,
-            allow_escapes=allow_escapes,
-            kind="shell string literal",
+            quote, allow_escapes=allow_escapes, allow_newlines=allow_newlines, kind=kind
         )
-
         if self.pos >= len(self.source):
-            raise LexError(f"Unterminated shell string at line {self.line}")
-
-        content = self.source[start_pos : self.pos]
+            raise LexError(f"Unterminated {kind} at line {start_line}")
+        content = self.source[content_start : self.pos]
         if dedent:
             content = self._dedent_multiline(content)
-        self.advance()  # Closing quote
-        self.emit(token_type, content, start_line=start_line, start_col=start_col)
-
-    def scan_shell_bang_string(
-        self, *, prefix: str = "sh!", dedent: bool = True, allow_escapes: bool = True
-    ):
-        """Scan shell bang string: sh!"..." or sh!'...'"""
-        self.scan_shell_string(
-            prefix=prefix,
-            dedent=dedent,
-            allow_escapes=allow_escapes,
-            token_type=TT.SHELL_BANG_STRING,
-        )
-
-    def scan_path_string(self):
-        """Scan path string: p"..." or p'...'"""
-        # 'p' already consumed - start_col is 1 char back
-        start_line, start_col = self.line, self.column - 1
-        start_pos = self.pos - 1
-        quote = self.advance()
-        self.scan_quoted_content(
-            quote, allow_escapes=True, allow_newlines=False, kind="path string literal"
-        )
-        if self.pos >= len(self.source):
-            raise LexError(f"Unterminated path string at line {start_line}")
-
-        self.advance()  # Closing quote
-        full_value = self.source[start_pos : self.pos]
-        self.emit(
-            TT.PATH_STRING, full_value, start_line=start_line, start_col=start_col
-        )
-
-    def scan_env_string(self):
-        """Scan environment string: env"..." or env'...'"""
-        # 'env' keyword already consumed - start is 3 chars back
-        start_line, start_col = self.line, self.column - 3
-        start_pos = self.pos - 3
-        quote = self.advance()
-        self.scan_quoted_content(
-            quote, allow_escapes=True, allow_newlines=False, kind="env string literal"
-        )
-
-        if self.pos >= len(self.source):
-            raise LexError(f"Unterminated env string at line {start_line}")
-
-        self.advance()  # Closing quote
-        full_value = self.source[start_pos : self.pos]
-        self.emit(TT.ENV_STRING, full_value, start_line=start_line, start_col=start_col)
+        self.advance()  # closing quote
+        value = self.source[start_pos : self.pos] if full_value else content
+        self.emit(token_type, value, start_line=start_line, start_col=start_col)
 
     def scan_regex_literal(self):
         """Scan regex literal: r"..." or r'...' with optional /flags."""
@@ -729,38 +668,10 @@ class Lexer:
 
         self.advance(2)  # consume '0' and prefix letter
 
-        # Scan digits with underscore validation:
-        # - Must have at least one digit after prefix
-        # - Underscores only between digits (no leading/trailing/consecutive)
-        saw_digit = False
-        prev_underscore = False
-
-        while True:
-            ch = self.peek()
-            if ch == "_":
-                if not saw_digit or prev_underscore:
-                    raise LexError(
-                        f"Invalid underscore in base-prefixed integer at line {start_line}, col {start_col}"
-                    )
-                prev_underscore = True
-                self.advance()
-                continue
-
-            if self._is_valid_prefixed_digit(ch, base):
-                saw_digit = True
-                prev_underscore = False
-                self.advance()
-                continue
-
-            break
-
-        if not saw_digit:  # e.g., bare "0b" or "0x"
+        valid = lambda ch: self._is_valid_prefixed_digit(ch, base)
+        if not self._scan_digits_with_underscores(start_line, start_col, valid=valid):
             raise LexError(
                 f"Incomplete base-prefixed integer at line {start_line}, col {start_col}"
-            )
-        if prev_underscore:
-            raise LexError(
-                f"Trailing underscore in base-prefixed integer at line {start_line}, col {start_col}"
             )
 
         # Base-prefixed integers cannot have decimal points (0x1.5 invalid)
@@ -782,15 +693,14 @@ class Lexer:
 
     def _is_valid_prefixed_digit(self, ch: str, base: int) -> bool:
         """Check if character is valid digit for given base (2, 8, or 16)."""
-        if ch.isdigit():
-            return int(ch) < base
-        if base == 16 and ch.lower() in "abcdef":
-            return True
+        return (ch.isdigit() and int(ch) < base) or (
+            base == 16 and ch.lower() in "abcdef"
+        )
 
-        return False
-
-    def _scan_digits_with_underscores(self, line: int, col: int) -> bool:
-        """Scan decimal digits with optional underscore separators.
+    def _scan_digits_with_underscores(
+        self, line: int, col: int, valid=str.isdigit
+    ) -> bool:
+        """Scan digits with optional underscore separators.
 
         Underscores must appear between digits only (no leading/trailing/consecutive).
         Returns True if at least one digit was scanned, False otherwise.
@@ -809,7 +719,7 @@ class Lexer:
                 self.advance()
                 continue
 
-            if ch.isdigit():
+            if valid(ch):
                 saw_digit = True
                 prev_underscore = False
                 self.advance()
@@ -933,22 +843,12 @@ class Lexer:
 
     def _advance_in_literal(self) -> str:
         ch = self.peek()
-        if ch == "\r":
-            if self.peek(1) == "\n":
-                self.pos += 2
-                self.line += 1
-                self.column = 1
-                return "\r\n"
-            self.pos += 1
+        if ch in {"\n", "\r"}:
+            crlf = ch == "\r" and self.peek(1) == "\n"
+            self.pos += 2 if crlf else 1
             self.line += 1
             self.column = 1
-            return "\r"
-        if ch == "\n":
-            self.pos += 1
-            self.line += 1
-            self.column = 1
-            return "\n"
-
+            return "\r\n" if crlf else ch
         self.pos += 1
         self.column += 1
         return ch
