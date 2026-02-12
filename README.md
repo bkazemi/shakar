@@ -6,7 +6,7 @@ Shakar is a work-in-progress general-purpose scripting language. It targets boil
 
 The **source of truth** for the language is the [design notes](docs/shakar-design-notes.md). It describes the grammar, implicit subject rules for `.`, and the rest of the semantics in detail.
 
-[**Playground**](https://b.shirkadeh.org/shakar) | [**Design Notes**](docs/shakar-design-notes.md) | [**Grammar**](grammar.ebnf)
+[**Playground**](https://shakar.shirkadeh.org) | [**Design Notes**](docs/shakar-design-notes.md) | [**Grammar**](grammar.ebnf)
 
 ---
 
