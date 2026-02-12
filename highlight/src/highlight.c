@@ -231,7 +231,7 @@ static int line_start_for_pos(const char *src, int pos) {
     return i;
 }
 
-static int line_indent_width(const char *src, int line_start, int src_len) {
+static int line_indent_width(const char *src, int line_start, int src_len, int *first_non_ws_out) {
     int i = line_start;
     int indent = 0;
     while (i < src_len) {
@@ -244,37 +244,71 @@ static int line_indent_width(const char *src, int line_start, int src_len) {
             break;
         i++;
     }
+    if (first_non_ws_out)
+        *first_non_ws_out = i;
     return indent;
 }
 
-static int line_is_ws_before_pos(const char *src, int line_start, int pos) {
-    for (int i = line_start; i < pos; i++) {
-        char ch = src[i];
-        if (ch != ' ' && ch != '\t')
-            return 0;
-    }
-    return 1;
+/* Cache line-local prefix state so callers can avoid rescanning long lines
+ * for every token. */
+static void line_prefix_info_for_pos(const char *src, int src_len, int pos, int *line_start_out,
+                                     int *indent_out, int *first_non_ws_out) {
+    int line_start = line_start_for_pos(src, pos);
+    int p = line_start;
+    int indent = line_indent_width(src, line_start, src_len, &p);
+
+    if (line_start_out)
+        *line_start_out = line_start;
+    if (indent_out)
+        *indent_out = indent;
+    if (first_non_ws_out)
+        *first_non_ws_out = p;
 }
 
-static int prev_nonblank_indent(const char *src, int src_len, int line_start) {
+/* Find previous non-blank, non-comment line ending before line_start. */
+static int find_prev_nonblank_line(const char *src, int line_start, int *start_out, int *end_out) {
     int i = line_start;
     while (i > 0) {
-        int j = i - 1;
-        if (src[j] == '\n') {
-            if (j > 0 && src[j - 1] == '\r')
-                j--;
-        } else if (src[j] == '\r') {
-            j--;
+        int line_end = i;
+        if (line_end > 0 && src[line_end - 1] == '\n') {
+            line_end--;
+            if (line_end > 0 && src[line_end - 1] == '\r')
+                line_end--;
+        } else if (line_end > 0 && src[line_end - 1] == '\r') {
+            line_end--;
         }
-        int line_end = j + 1;
-        int k = j;
-        while (k > 0 && src[k - 1] != '\n' && src[k - 1] != '\r')
-            k--;
-        if (!is_line_blank_or_comment(src, k, line_end))
-            return line_indent_width(src, k, src_len);
-        i = k;
+
+        int line_begin = line_end;
+        while (line_begin > 0 && src[line_begin - 1] != '\n' && src[line_begin - 1] != '\r')
+            line_begin--;
+        if (!is_line_blank_or_comment(src, line_begin, line_end)) {
+            if (start_out)
+                *start_out = line_begin;
+            if (end_out)
+                *end_out = line_end;
+            return 1;
+        }
+        i = line_begin;
     }
-    return -1;
+    return 0;
+}
+
+static int prev_nonblank_indent(const char *src, int line_start) {
+    int line_begin = 0;
+    int line_end = 0;
+    if (!find_prev_nonblank_line(src, line_start, &line_begin, &line_end))
+        return -1;
+    return line_indent_width(src, line_begin, line_end, 0);
+}
+
+static int prev_nonblank_line_info(const char *src, int line_start, int *indent_out) {
+    int line_begin = 0;
+    int line_end = 0;
+    if (!find_prev_nonblank_line(src, line_start, &line_begin, &line_end))
+        return 0;
+    if (indent_out)
+        *indent_out = line_indent_width(src, line_begin, line_end, 0);
+    return 1;
 }
 
 static int is_expr_end(TT t) {
@@ -305,8 +339,22 @@ static int is_expr_end(TT t) {
     }
 }
 
+static int token_text_equals(const char *src, int src_len, const Tok *tok, const char *text,
+                             int text_len) {
+    if (tok->len != text_len)
+        return 0;
+    if (tok->start < 0 || tok->len < 0)
+        return 0;
+    if (tok->start > src_len - text_len)
+        return 0;
+    return memcmp(src + tok->start, text, (size_t)text_len) == 0;
+}
+
 /* Classify identifier based on prev/next significant token. */
-static HlGroup classify_ident(const char *src, Tok *tok, Tok *next_sig, TT prev_sig) {
+static HlGroup classify_ident(const char *src, int src_len, Tok *tok, Tok *next_sig, TT prev_sig) {
+    if (prev_sig == TT_QMARK && token_text_equals(src, src_len, tok, "ret", 3))
+        return HL_KEYWORD;
+
     if (prev_sig == TT_FN)
         return HL_FUNCTION;
     if (prev_sig == TT_DECORATOR || prev_sig == TT_AT)
@@ -319,9 +367,9 @@ static HlGroup classify_ident(const char *src, Tok *tok, Tok *next_sig, TT prev_
         return HL_TYPE;
 
     /* Contextual keywords: timeout, default */
-    if (tok->len == 7 && strncmp(src + tok->start, "timeout", 7) == 0)
+    if (token_text_equals(src, src_len, tok, "timeout", 7))
         return HL_KEYWORD;
-    if (tok->len == 7 && strncmp(src + tok->start, "default", 7) == 0)
+    if (token_text_equals(src, src_len, tok, "default", 7))
         return HL_KEYWORD;
 
     /* Call-site: ident followed by ( */
@@ -346,9 +394,9 @@ static HlGroup classify_string(TT prev_sig) {
  * Returns 1 if spans were emitted, 0 if not. */
 static int emit_dur_size_spans(const char *src, Tok *tok, HlBuf *out) {
     const char *text = src + tok->start;
-    int         tlen = tok->len;
-    int         line = tok->line - 1;
-    int         base_col = tok->col - 1;
+    int tlen = tok->len;
+    int line = tok->line - 1;
+    int base_col = tok->col - 1;
 
     int pos = 0;
     int emitted = 0;
@@ -397,9 +445,9 @@ static int emit_dur_size_spans(const char *src, Tok *tok, HlBuf *out) {
 /* Emit highlight spans for a token, handling multiline tokens. */
 static void emit_token_spans(const char *src, Tok *tok, HlGroup group, HlBuf *out) {
     const char *text = src + tok->start;
-    int         tlen = tok->len;
-    int         start_line = tok->line - 1;
-    int         start_col = tok->col - 1;
+    int tlen = tok->len;
+    int start_line = tok->line - 1;
+    int start_col = tok->col - 1;
 
     /* Fast path: single-line token */
     int has_newline = 0;
@@ -527,10 +575,7 @@ static int is_block_header(TT t) {
 }
 
 void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *hl, DiagBuf *diags) {
-    (void)src;
-    (void)src_len;
-
-    int  tc = tokens->count;
+    int tc = tokens->count;
     Tok *toks = tokens->toks;
 
     /* Sort spans for cursor-based override lookup. */
@@ -541,17 +586,22 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
     int at_stmt_start = 1;
     int in_chain = 0; /* inside a .IDENT chain from stmt-start dot */
     int bracket_depth = 0;
-    int cursor = 0; /* span search cursor */
+    int continuation_indent = -1; /* explicit dot-continuation block indent, -1 when inactive */
+    int cursor = 0;               /* span search cursor */
+    int cached_line = -1;
+    int cached_line_start = 0;
+    int cached_indent = -1;
+    int cached_first_non_ws = 0;
 
     /* Bracket matching stack */
     typedef struct {
-        TT  type;
+        TT type;
         int line;
         int col;
     } BracketEntry;
 
     BracketEntry bstack[256];
-    int          bcount = 0;
+    int bcount = 0;
 
     /* Block header colon tracking */
     int need_colon = 0;
@@ -562,9 +612,21 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
 
     for (int i = 0; i < tc; i++) {
         Tok *tok = &toks[i];
-        TT   t = tok->type;
-        int  line = tok->line - 1;
-        int  col = tok->col - 1;
+        TT t = tok->type;
+        int line = tok->line - 1;
+        int col = tok->col - 1;
+        int line_start;
+        int at_line_start;
+        int cur_indent;
+
+        if (line != cached_line) {
+            cached_line = line;
+            line_prefix_info_for_pos(src, src_len, tok->start, &cached_line_start, &cached_indent,
+                                     &cached_first_non_ws);
+        }
+        line_start = cached_line_start;
+        at_line_start = tok->start <= cached_first_non_ws;
+        cur_indent = at_line_start ? cached_indent : -1;
 
         /* ---- Layout tokens: update statement boundary ---- */
         if (t == TT_NEWLINE || t == TT_INDENT || t == TT_DEDENT) {
@@ -593,6 +655,7 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
         if (t == TT_SEMI) {
             at_stmt_start = 1;
             in_chain = 0;
+            continuation_indent = -1;
             need_colon = 0;
             prev_sig = t;
             continue;
@@ -603,6 +666,7 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
             need_colon = 0;
             at_stmt_start = 0;
             in_chain = 0;
+            continuation_indent = -1;
             prev_sig = t;
             continue;
         }
@@ -618,6 +682,7 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
             }
             at_stmt_start = 0;
             in_chain = 0;
+            continuation_indent = -1;
             prev_sig = t;
             continue;
         }
@@ -637,14 +702,47 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
             }
             at_stmt_start = 0;
             in_chain = 0;
+            continuation_indent = -1;
             prev_sig = t;
             continue;
         }
 
         /* ---- Implicit-subject chain detection (depth 0 only) ---- */
         if (bracket_depth == 0) {
+            /* continuation_indent tracks explicit line-start dot continuation blocks.
+             * It activates when a line-start dot follows an expression-ending previous line
+             * at greater indent, and deactivates when statement-start indent no longer matches. */
+            int explicit_continuation_dot = 0;
+
+            if (at_stmt_start && at_line_start && continuation_indent >= 0 &&
+                cur_indent != continuation_indent)
+                continuation_indent = -1;
+
             /* Starting dot at statement start → begin chain */
             if (at_stmt_start && t == TT_DOT) {
+                if (at_line_start) {
+                    if (continuation_indent >= 0 && cur_indent == continuation_indent) {
+                        explicit_continuation_dot = 1;
+                    } else if (is_expr_end(prev_sig)) {
+                        int prev_indent = -1;
+                        if (prev_nonblank_line_info(src, line_start, &prev_indent) &&
+                            cur_indent > prev_indent) {
+                            explicit_continuation_dot = 1;
+                            continuation_indent = cur_indent;
+                        }
+                    }
+                }
+
+                if (explicit_continuation_dot) {
+                    /* Dot-chain continuation keeps explicit receiver semantics. */
+                    override_span(hl, line, col, HL_PUNCTUATION, &cursor);
+                    at_stmt_start = 0;
+                    in_chain = 0;
+                    prev_sig = t;
+                    continue;
+                }
+
+                continuation_indent = -1;
                 in_chain = 1;
                 /* Lexical pass likely already set this to HL_IMPLICIT_SUBJECT,
                  * but ensure it via override. */
@@ -696,6 +794,8 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
 
         /* Any other token breaks the chain */
         in_chain = 0;
+        if (at_stmt_start)
+            continuation_indent = -1;
         at_stmt_start = 0;
         prev_sig = t;
     }
@@ -713,18 +813,20 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
 /* ======================================================================== */
 
 void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
-    (void)src_len;
-
     /* Build significant-token index for prev/next lookups */
-    int  tc = tokens->count;
+    int tc = tokens->count;
     Tok *toks = tokens->toks;
 
     /* We iterate only over significant (non-layout) tokens. */
     TT prev_sig = TT_EOF;
+    int cached_line = -1;
+    int cached_line_start = 0;
+    int cached_indent = -1;
+    int cached_first_non_ws = 0;
 
     /* Pre-scan: build array of sig token indices for next-lookahead. */
     int *sig_idx = malloc(tc * sizeof(int));
-    int  sig_count = 0;
+    int sig_count = 0;
     /* Emit comment spans first (comments are transparent to structural logic). */
     for (int i = 0; i < tc; i++) {
         if (toks[i].type == TT_COMMENT)
@@ -740,9 +842,9 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
     }
 
     for (int si = 0; si < sig_count; si++) {
-        Tok    *tok = &toks[sig_idx[si]];
-        Tok    *next_sig_tok = (si + 1 < sig_count) ? &toks[sig_idx[si + 1]] : 0;
-        TT      next_sig_type = next_sig_tok ? next_sig_tok->type : TT_EOF;
+        Tok *tok = &toks[sig_idx[si]];
+        Tok *next_sig_tok = (si + 1 < sig_count) ? &toks[sig_idx[si + 1]] : 0;
+        TT next_sig_type = next_sig_tok ? next_sig_tok->type : TT_EOF;
         HlGroup group = base_group(tok->type);
         if (group == HL_NONE) {
             prev_sig = tok->type;
@@ -751,8 +853,20 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
 
         int subject_override = 0;
         if (tok->type == TT_DOT) {
-            int line_start = line_start_for_pos(src, tok->start);
-            int at_line_start = line_is_ws_before_pos(src, line_start, tok->start);
+            int line = tok->line - 1;
+            int line_start;
+            int at_line_start;
+            int cur_indent;
+
+            if (line != cached_line) {
+                cached_line = line;
+                line_prefix_info_for_pos(src, src_len, tok->start, &cached_line_start,
+                                         &cached_indent, &cached_first_non_ws);
+            }
+            line_start = cached_line_start;
+            at_line_start = tok->start <= cached_first_non_ws;
+            cur_indent = cached_indent;
+
             if (!at_line_start) {
                 if (!is_expr_end(prev_sig))
                     subject_override = 1;
@@ -760,8 +874,7 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
                 if (!is_expr_end(prev_sig)) {
                     subject_override = 1;
                 } else {
-                    int prev_indent = prev_nonblank_indent(src, src_len, line_start);
-                    int cur_indent = line_indent_width(src, line_start, src_len);
+                    int prev_indent = prev_nonblank_indent(src, line_start);
                     if (prev_indent < 0 || cur_indent <= prev_indent)
                         subject_override = 1;
                 }
@@ -771,8 +884,11 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
         /* Structural classification */
         if (subject_override) {
             group = HL_IMPLICIT_SUBJECT;
+        } else if (tok->type == TT_QMARK && next_sig_tok && next_sig_tok->type == TT_IDENT &&
+                   token_text_equals(src, src_len, next_sig_tok, "ret", 3)) {
+            group = HL_KEYWORD;
         } else if (tok->type == TT_IDENT) {
-            group = classify_ident(src, tok, next_sig_tok, prev_sig);
+            group = classify_ident(src, src_len, tok, next_sig_tok, prev_sig);
         } else if (tok->type == TT_STRING || tok->type == TT_RAW_STRING ||
                    tok->type == TT_RAW_HASH_STRING || tok->type == TT_SHELL_STRING ||
                    tok->type == TT_SHELL_BANG_STRING || tok->type == TT_ENV_STRING) {
