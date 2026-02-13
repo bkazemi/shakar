@@ -17,6 +17,7 @@ GROUP_STYLE = {
     "boolean": "ansicyan",
     "constant": "ansicyan",
     "number": "ansimagenta",
+    "unit": "italic ansimagenta",
     "string": "ansigreen",
     "regex": "ansiyellow",
     "path": "ansiyellow",
@@ -136,6 +137,7 @@ _TT_GROUP = {
     TT.SPREAD: "operator",
 }
 
+_DUR_SIZE_TT = {TT.DURATION, TT.SIZE}
 _LAYOUT = {TT.NEWLINE, TT.INDENT, TT.DEDENT, TT.EOF}
 _SIG_SKIP = _LAYOUT | {TT.COMMENT}
 _SLOT_HEADS = {TT.WAIT, TT.USING, TT.CALL, TT.FAN}
@@ -181,6 +183,42 @@ def _is_bracket_slot_ident(tokens: list[Tok], idx: int) -> bool:
     return head_tok.type in _SLOT_HEADS
 
 
+def _dur_size_spans(tok_text: str) -> StyleAndTextTuples:
+    """Split a duration/size literal into number + unit sub-spans.
+    Mirrors emit_dur_size_spans() in the C highlighter."""
+    num_style = GROUP_STYLE["number"]
+    unit_style = GROUP_STYLE["unit"]
+    spans: StyleAndTextTuples = []
+    pos = 0
+    n = len(tok_text)
+
+    while pos < n:
+        # Number part: digits, underscores, decimal point, exponent.
+        num_start = pos
+        while pos < n and tok_text[pos] in "0123456789_.eE+-":
+            ch = tok_text[pos]
+            if ch in "+-" and pos > 0 and tok_text[pos - 1] not in "eE":
+                break
+            if ch in "eE" and pos > 0 and tok_text[pos - 1] not in "0123456789_":
+                break
+            pos += 1
+
+        # Unit part: lowercase alpha.
+        unit_start = pos
+        while pos < n and tok_text[pos].islower():
+            pos += 1
+
+        if pos > unit_start and num_start < unit_start:
+            spans.append((num_style, tok_text[num_start:unit_start]))
+            spans.append((unit_style, tok_text[unit_start:pos]))
+        else:
+            # Safety: skip one char to avoid infinite loop.
+            if pos == num_start:
+                pos += 1
+
+    return spans
+
+
 def _highlight_line(text: str) -> StyleAndTextTuples:
     """Tokenize a single line and return styled fragments."""
     if not text:
@@ -199,7 +237,11 @@ def _highlight_line(text: str) -> StyleAndTextTuples:
         if tok.type in _LAYOUT:
             continue
         tok_start = tok.column
-        tok_text = str(tok.value) if tok.value is not None else ""
+        # Duration/size tokens store (literal_text, computed_value).
+        raw = tok.value
+        if isinstance(raw, tuple):
+            raw = raw[0]
+        tok_text = str(raw) if raw is not None else ""
         if not tok_text:
             continue
 
@@ -212,11 +254,15 @@ def _highlight_line(text: str) -> StyleAndTextTuples:
         if idx > pos:
             result.append(("", text[pos:idx]))
 
-        group = _TT_GROUP.get(tok.type, "")
-        if tok.type == TT.IDENT and _is_bracket_slot_ident(tokens, i):
-            group = "keyword"
-        style = GROUP_STYLE.get(group, "")
-        result.append((style, tok_text))
+        # Duration/size tokens: split into number + unit sub-spans.
+        if tok.type in _DUR_SIZE_TT:
+            result.extend(_dur_size_spans(tok_text))
+        else:
+            group = _TT_GROUP.get(tok.type, "")
+            if tok.type == TT.IDENT and _is_bracket_slot_ident(tokens, i):
+                group = "keyword"
+            style = GROUP_STYLE.get(group, "")
+            result.append((style, tok_text))
         pos = idx + len(tok_text)
 
     # Trailing unstyled text.
