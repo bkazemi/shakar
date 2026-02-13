@@ -203,7 +203,7 @@ def find_tree_by_label(node: Node, labels: Iterable[str]) -> Optional[Tree]:
         return node
     for child in tree_children(node):
         found = find_tree_by_label(child, lookup)
-        if found is not None:
+        if found:
             return found
     return None
 

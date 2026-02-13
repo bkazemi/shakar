@@ -247,7 +247,7 @@ def repl() -> None:
             print(f"Error: {exc}", file=sys.stderr)
             if debug_py_trace_enabled() and isinstance(exc, ShakarRuntimeError):
                 tb = getattr(exc, "shk_py_trace", None)
-                if tb is not None:
+                if tb:
                     print("\nPython traceback:", file=sys.stderr)
                     print(
                         "".join(traceback.format_tb(tb)),

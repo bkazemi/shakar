@@ -732,13 +732,13 @@ class Parser:
         - etc.
         """
         stmt = self._parse_statement_prefix()
-        if stmt is not None:
+        if stmt:
             return self._wrap_postfix(stmt) or stmt
 
         expr_start = self.pos
 
         stmt = self._parse_destructure_with_contracts()
-        if stmt is not None:
+        if stmt:
             return stmt
 
         expr = self.parse_expr()
@@ -883,7 +883,7 @@ class Parser:
             bind_tok = self.expect(TT.IDENT)
 
         children: list[Node] = [module_node]
-        if bind_tok is not None:
+        if bind_tok:
             children.append(bind_tok)
 
         return Tree("import_stmt", children)
@@ -929,15 +929,15 @@ class Parser:
 
     def _parse_statement_from_expr(self, expr_start: int, expr: Node) -> Tree:
         stmt = self._parse_destructure_after_expr(expr_start)
-        if stmt is not None:
+        if stmt:
             return stmt
 
         stmt = self._parse_guard_chain_after_expr(expr_start)
-        if stmt is not None:
+        if stmt:
             return stmt
 
         stmt = self._parse_catch_stmt_after_expr(expr_start)
-        if stmt is not None:
+        if stmt:
             return stmt
 
         # Fanout block form: expr { .field = value; ... }
@@ -958,7 +958,7 @@ class Parser:
 
         # Postfix if/unless wraps the base statement
         postfix = self._wrap_postfix(base_stmt)
-        if postfix is not None:
+        if postfix:
             return postfix
 
         # Just a statement/expression
@@ -1065,7 +1065,7 @@ class Parser:
                 continue
 
             if self.match(TT.ELSE):
-                if else_body is not None:
+                if else_body:
                     raise ParseError("match has multiple else arms", self.current)
                 self.expect(TT.COLON)
                 else_body = self.parse_body()
@@ -1085,11 +1085,11 @@ class Parser:
         self.expect(TT.DEDENT)
 
         children: list[Node] = []
-        if cmp_node is not None:
+        if cmp_node:
             children.append(cmp_node)
         children.append(subject)
         children.extend(arms)
-        if else_body is not None:
+        if else_body:
             children.append(Tree("matchelse", [else_body]))
         return Tree("matchexpr", children)
 
@@ -1193,7 +1193,7 @@ class Parser:
                 return None
             for child in tree_children(node):
                 tok = _first_token(child)
-                if tok is not None:
+                if tok:
                     return tok
             return None
 
@@ -1203,7 +1203,7 @@ class Parser:
             label = tree_label(node)
             if label in {"subject", "implicit_chain"}:
                 tok = _first_token(node)
-                if tok is not None and label == "implicit_chain":
+                if tok and label == "implicit_chain":
                     dot_col = tok.column - 1 if tok.column > 1 else tok.column
                     tok = Tok(TT.DOT, ".", tok.line, dot_col)
                 raise ParseError(
@@ -1259,7 +1259,7 @@ class Parser:
                     iterable = self.parse_expr()
                     self.expect(TT.COLON)
                     body = self.parse_body()
-                    if binder2 is not None:
+                    if binder2:
                         return Tree(
                             "formap2", [for_tok, binder1, binder2, iterable, body]
                         )
@@ -1346,10 +1346,10 @@ class Parser:
         body = self.parse_body()
 
         children: List[Any] = []
-        if handle is not None:
+        if handle:
             children.append(Tree("using_handle", [handle]))
         children.append(resource)
-        if binder is not None:
+        if binder:
             children.append(Tree("using_bind", [binder]))
         children.append(body)
         return Tree("usingstmt", children)
@@ -1375,7 +1375,7 @@ class Parser:
         if self.match(TT.BIND):
             binder = self.expect(TT.IDENT)
 
-        if handle is not None and binder is not None:
+        if handle and binder:
             raise ParseError(
                 "call supports either [name] or bind name, not both", self.current
             )
@@ -1390,7 +1390,7 @@ class Parser:
 
         children: List[Any] = []
         bind_tok = handle or binder
-        if bind_tok is not None:
+        if bind_tok:
             children.append(Tree("call_bind", [bind_tok]))
         children.append(target)
         children.append(body)
@@ -1743,7 +1743,7 @@ class Parser:
         # fnstmt structure: [name, params, body, return_contract?, decorator_list?]
         children = [name, params, body]
 
-        if return_contract is not None:
+        if return_contract:
             children.append(Tree("return_contract", [return_contract]))
 
         if decorators:
@@ -2602,7 +2602,7 @@ class Parser:
             if op.type == TT.MINUS:
                 # Allow -2^63 (i64 min) by folding into a single signed literal.
                 tok = self._try_consume_int64_min_literal()
-                if tok is not None:
+                if tok:
                     return self._tok(
                         "NUMBER",
                         -(2**63),
@@ -2977,7 +2977,7 @@ class Parser:
         self.expect(TT.RBRACE)
 
         children: List[Node] = []
-        if modifiers is not None:
+        if modifiers:
             children.append(modifiers)
         children.append(Tree("fan_items", items))
         return Tree("fan_literal", children)
@@ -3164,7 +3164,7 @@ class Parser:
                     self.current,
                 )
 
-        if is_spread and default is not None:
+        if is_spread and default:
             raise ParseError("Spread parameter cannot have a default", self.current)
 
         node = self._build_param_node(ident, default, contract, is_spread)
@@ -3179,7 +3179,7 @@ class Parser:
     ) -> Node:
         if is_spread:
             children: List[Node] = [ident]
-            if contract is not None:
+            if contract:
                 children.append(Tree("contract", [contract]))
             return Tree("param_spread", children)
 
@@ -3187,9 +3187,9 @@ class Parser:
             return ident
 
         children = [ident]
-        if default is not None:
+        if default:
             children.append(default)
-        if contract is not None:
+        if contract:
             children.append(Tree("contract", [contract]))
         return Tree("param", children)
 
@@ -3203,20 +3203,20 @@ class Parser:
             self._unpack_param_metadata(node)
         )
 
-        if default is not None:
-            if existing_contract is not None:
+        if default:
+            if existing_contract:
                 raise ParseError(
                     "Default must precede contract in parameter metadata",
                     self.current,
                 )
-            if existing_default is not None:
+            if existing_default:
                 raise ParseError(
                     "Parameter cannot have multiple defaults", self.current
                 )
             if is_spread:
                 raise ParseError("Spread parameter cannot have a default", self.current)
 
-        if contract is not None and existing_contract is not None:
+        if contract and existing_contract:
             raise ParseError("Parameter cannot have multiple contracts", self.current)
 
         merged_default = existing_default or default
@@ -3260,7 +3260,7 @@ class Parser:
             # Parse contract at comparison level to avoid consuming walrus/comma.
             contract = self.parse_compare_expr()
         children: List[Node] = [ident]
-        if contract is not None:
+        if contract:
             children.append(Tree("contract", [contract]))
         return Tree("pattern", children)
 
@@ -3974,17 +3974,17 @@ class Parser:
 
         paramlist_node = None if auto_invoke else params
         anon_children: List[Any] = []
-        if paramlist_node is not None:
+        if paramlist_node:
             anon_children.append(paramlist_node)
         anon_children.append(body)
 
-        if return_contract is not None:
+        if return_contract:
             anon_children.append(Tree("return_contract", [return_contract]))
 
         anon = Tree("anonfn", anon_children)
 
         if auto_invoke:
-            assert auto_call_tok is not None
+            assert auto_call_tok
             return Tree("explicit_chain", [anon, self._call_tree([], auto_call_tok)])
         return anon
 

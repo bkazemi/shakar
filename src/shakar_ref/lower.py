@@ -56,7 +56,7 @@ def _desugar_call_holes(node: Node) -> Node:
     if tree_label(candidate) == "explicit_chain":
         replacement = _chain_to_lambda_if_holes(candidate)
 
-        if replacement is not None:
+        if replacement:
             return replacement
 
     return candidate

@@ -44,9 +44,9 @@ def _install_descriptor(
     existing = slots.get(name)
 
     if isinstance(existing, Descriptor):
-        if getter is not None:
+        if getter:
             existing.getter = getter
-        if setter is not None:
+        if setter:
             existing.setter = setter
         slots[name] = existing
         return
@@ -81,7 +81,7 @@ def _maybe_method_signature(
     target = key_node.children[0] if key_node.children else None
     chain: Optional[Tree] = None
 
-    if target is not None and is_tree(target):
+    if target and is_tree(target):
         if tree_label(target) == "explicit_chain":
             chain = target
         else:
@@ -106,7 +106,7 @@ def _maybe_method_signature(
     args_node = call_node.children[0] if call_node.children else None
     params: List[str] = []
 
-    if args_node is not None and is_tree(args_node):
+    if args_node and is_tree(args_node):
         queue = deque(args_node.children)
 
         while queue:
@@ -128,12 +128,12 @@ def _maybe_method_signature(
                 continue
 
             ident = _unwrap_ident(raw)
-            if ident is not None:
+            if ident:
                 params.append(ident)
                 continue
 
             return None
-    elif args_node is not None:
+    elif args_node:
         ident = _unwrap_ident(args_node)
         if ident is None:
             return None
@@ -152,7 +152,7 @@ def _handle_obj_field(
         raise ShakarRuntimeError("Object field missing key")
     method_sig = _maybe_method_signature(key_node)
 
-    if method_sig is not None:
+    if method_sig:
         name, params = method_sig
         slots[name] = ShkFn(
             params=params,
@@ -312,7 +312,7 @@ def eval_object(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkObject:
 def eval_key(k: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue | str:
     label = tree_label(k)
 
-    if label is not None:
+    if label:
         match label:
             case "key_ident":
                 t = k.children[0]

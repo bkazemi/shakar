@@ -342,7 +342,7 @@ def _iterate_comprehension(
             iter_frame = Frame(parent=frame, dot=element)
             _apply_comp_binders_wrapper(binders, element, iter_frame, frame, eval_fn)
 
-            if ifclause is not None:
+            if ifclause:
                 cond_node = ifclause.children[-1] if ifclause.children else None
                 if cond_node is None:
                     raise ShakarRuntimeError("Malformed comprehension guard")

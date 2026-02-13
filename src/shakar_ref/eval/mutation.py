@@ -148,7 +148,7 @@ def index_value(
     """Read `recv[idx]`, supporting selectors, descriptors, and builtins."""
     match recv:
         case ShkArray(items=items):
-            if default_thunk is not None:
+            if default_thunk:
                 raise ShakarTypeError("Array index does not accept default")
             if isinstance(idx, ShkSelector):
                 # cloning prevents later selectors from mutating the shared object.
@@ -162,7 +162,7 @@ def index_value(
                     raise ShakarIndexError("Array index out of bounds")
             raise ShakarTypeError("Array index must be a number")
         case ShkString(value=s):
-            if default_thunk is not None:
+            if default_thunk:
                 raise ShakarTypeError("String index does not accept default")
             if isinstance(idx, ShkSelector):
                 cloned = clone_selector_parts(idx.parts, clamp=True)
@@ -175,7 +175,7 @@ def index_value(
                     raise ShakarIndexError("String index out of bounds")
             raise ShakarTypeError("String index must be a number")
         case ShkEnvVar(name=name):
-            if default_thunk is not None:
+            if default_thunk:
                 raise ShakarTypeError("String index does not accept default")
 
             env_val = envvar_value_by_name(name)
@@ -208,11 +208,11 @@ def index_value(
                     return call_shkfn(getter, [], subject=recv, caller_frame=frame)
 
                 return val
-            if default_thunk is not None:
+            if default_thunk:
                 return default_thunk()
             raise ShakarKeyError(key)
         case _:
-            if default_thunk is not None:
+            if default_thunk:
                 raise ShakarTypeError("Default index expects an object receiver")
 
             raise ShakarTypeError(

@@ -160,7 +160,7 @@ def _spawn_task(
 
     def runner() -> None:
         call_stack = list(frame.call_stack)
-        if spawn_site is not None:
+        if spawn_site:
             call_stack.append(spawn_site)
         spawn_frame = _spawn_frame(frame, cancel_token, call_stack=call_stack)
         try:
@@ -236,7 +236,7 @@ def eval_wait_any_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
         children = list(tree_children(arm))
 
         if label == "waitany_default":
-            if default_body is not None:
+            if default_body:
                 raise ShakarRuntimeError("wait[any] has multiple default arms")
             if not children:
                 raise ShakarRuntimeError("wait[any] default missing body")
@@ -295,7 +295,7 @@ def eval_wait_any_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
             if kind == "recv":
                 status, value = case.channel.try_recv_value()
                 if status == "ready":
-                    if case.binder is not None:
+                    if case.binder:
                         define_new_ident(case.binder, value, frame)
                     return eval_body_node(case.body, frame, eval_fn)
                 if status == "cancelled":
@@ -310,10 +310,10 @@ def eval_wait_any_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
             if closed_flag:
                 closed += 1
 
-        if default_body is not None:
+        if default_body:
             return eval_body_node(default_body, frame, eval_fn)
 
-        if timeout_case is not None:
+        if timeout_case:
             now = time.monotonic()
             if now >= timeout_case.deadline:
                 return eval_body_node(timeout_case.body, frame, eval_fn)
@@ -328,7 +328,7 @@ def eval_wait_any_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
             case.channel.register_waiter(event)
         try:
             timeout = None
-            if timeout_case is not None:
+            if timeout_case:
                 timeout = max(0.0, timeout_case.deadline - time.monotonic())
             _wait_event_with_cancel(event, timeout, frame)
         finally:

@@ -224,7 +224,7 @@ def _eval_node_inner(n: Node, frame: Frame) -> ShkValue:
 
     d = n.data
     handler = _NODE_DISPATCH.get(d)
-    if handler is not None:
+    if handler:
         return handler(n, frame)
 
     raise ShakarRuntimeError(f"Unknown node: {d}")
@@ -256,7 +256,7 @@ def _eval_implicit_chain(ops: List[Tree], frame: Frame) -> ShkValue:
 
         # Valuefan with trailing ops: switch to fan broadcasting
         fan_result = maybe_valuefan_broadcast(val, op, ops, i + 1, frame, eval_node)
-        if fan_result is not None:
+        if fan_result:
             return fan_result
 
     return val
@@ -335,7 +335,7 @@ def _eval_fan_literal(n: Tree, frame: Frame) -> ShkValue:
         elif is_tree(child) and child.data == "fan_items":
             items_node = child
 
-    if modifiers is not None:
+    if modifiers:
         raise ShakarRuntimeError("Fan modifiers are not supported yet")
 
     if items_node is None:

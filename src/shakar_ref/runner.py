@@ -94,7 +94,7 @@ def _parse_and_lower(src: str, use_indenter: Optional[bool] = None):
             last_error = exc
 
     if tree is None:
-        if last_error is not None:
+        if last_error:
             raise last_error
         raise RuntimeError("Parser failed without producing a parse tree")
 
@@ -235,7 +235,7 @@ def main() -> None:
             import traceback
 
             tb = getattr(exc, "shk_py_trace", None)
-            if tb is not None:
+            if tb:
                 print("\nPython traceback:", file=sys.stderr)
                 print("".join(traceback.format_tb(tb)), file=sys.stderr, end="")
         raise SystemExit(1) from None

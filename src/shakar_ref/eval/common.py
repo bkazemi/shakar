@@ -131,13 +131,13 @@ def extract_function_signature(
             varargs.append(param_index)
             defaults.append(None)
             contract_expr = _param_contract_expr(p)
-            if contract_expr is not None:
+            if contract_expr:
                 spread_contracts[param_name] = contract_expr
             param_index += 1
             continue
 
         name = ident_token_value(p)
-        if name is not None:
+        if name:
             names.append(name)
             defaults.append(None)
             param_index += 1
@@ -157,7 +157,7 @@ def extract_function_signature(
             names.append(param_name)
             defaults.append(param_default_expr(p, on_error=fail))
             contract_expr = _param_contract_expr(p)
-            if contract_expr is not None:
+            if contract_expr:
                 contracts[param_name] = contract_expr
             param_index += 1
             continue
@@ -193,7 +193,7 @@ def param_default_expr(
         if default is None:
             default = child
             continue
-        if on_error is not None:
+        if on_error:
             on_error("Parameter has multiple default values")
         break
 
@@ -276,7 +276,7 @@ def _resolve_line_col(node: Node, frame: Frame) -> tuple[Optional[int], Optional
     col = None
 
     meta = node_meta(node)
-    if meta is not None:
+    if meta:
         meta_line = getattr(meta, "line", None)
         meta_col = getattr(meta, "column", None)
         if isinstance(meta_line, int) and meta_line > 0:

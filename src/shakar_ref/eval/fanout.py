@@ -55,7 +55,7 @@ def eval_fanout_block(
             if _name(tree_label(clause)) == "fanclause_sep":
                 continue
             key = _fan_key(clause)
-            if key is not None:
+            if key:
                 if key in seen_keys:
                     raise ShakarRuntimeError(
                         "Fanout block cannot target the same path twice"
@@ -298,7 +298,7 @@ def _store(
 def _name(label: Optional[Union[str, Tok]]) -> str:
     if isinstance(label, Tok):
         return str(label.value)
-    return str(label) if label is not None else ""
+    return str(label) if label else ""
 
 
 def _seg_fingerprint(seg: Tree) -> str:

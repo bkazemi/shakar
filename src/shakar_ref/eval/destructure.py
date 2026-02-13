@@ -95,7 +95,7 @@ def evaluate_destructure_rhs(
 
         # Object keyed extraction: if RHS is an object and all LHS
         # patterns are simple identifiers, extract fields by name.
-        if isinstance(single, ShkObject) and ident_names is not None:
+        if isinstance(single, ShkObject) and ident_names:
             extracted: list[ShkValue] = []
             for name in ident_names:
                 if name not in single.slots:
@@ -144,14 +144,14 @@ def assign_pattern(
     target = pattern.children[0]
     ident = _ident_token_value(target)
 
-    if ident is not None:
+    if ident:
         # Check for contract: pattern(IDENT, contract(expr))
         contract_node = None
         if len(pattern.children) > 1 and tree_label(pattern.children[1]) == "contract":
             contract_node = pattern.children[1]
 
         # Validate contract before binding
-        if contract_node is not None:
+        if contract_node:
             from .match import match_structure
 
             contract_children = tree_children(contract_node)
@@ -201,14 +201,14 @@ def infer_implicit_binders(
     # Stop at the nearest frozen lexical boundary to avoid outer scope drift.
     boundary = find_frozen_scope_frame(frame)
     local_names = collect_scope_names(frame, boundary)
-    frozen_names = boundary.frozen_scope_names if boundary is not None else None
+    frozen_names = boundary.frozen_scope_names if boundary else None
 
     def consider(name: str) -> None:
         if name in seen:
             return
         if name in local_names:
             return
-        if frozen_names is not None and name in frozen_names:
+        if frozen_names and name in frozen_names:
             return
 
         seen.add(name)
@@ -217,7 +217,7 @@ def infer_implicit_binders(
     for expr in exprs:
         collect_fn(expr, consider)
 
-    if ifclause is not None and ifclause.children:
+    if ifclause and ifclause.children:
         guard_expr = ifclause.children[-1]
         collect_fn(guard_expr, consider)
 

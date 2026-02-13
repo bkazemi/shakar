@@ -247,7 +247,7 @@ def evaluate_index_operand(
 ) -> ShkSelector | ShkValue:
     selectorlist = child_by_label(index_node, "selectorlist")
 
-    if selectorlist is not None:
+    if selectorlist:
         selectors = evaluate_selectorlist(selectorlist, frame, eval_fn)
 
         if len(selectors) == 1 and isinstance(selectors[0], SelectorIndex):
@@ -281,9 +281,7 @@ def apply_index_operation(
 ) -> ShkValue:
     selectorlist = child_by_label(op, "selectorlist")
     default_node = _default_arg(op)
-    default_thunk = (
-        (lambda: eval_fn(default_node, frame)) if default_node is not None else None
-    )
+    default_thunk = (lambda: eval_fn(default_node, frame)) if default_node else None
 
     if selectorlist is None:
         expr_node = _index_expr_from_children(op.children)
@@ -292,13 +290,13 @@ def apply_index_operation(
 
     selectors = evaluate_selectorlist(selectorlist, frame, eval_fn)
 
-    if default_thunk is not None and not _is_single_index_selector(selectors):
+    if default_thunk and not _is_single_index_selector(selectors):
         raise ShakarTypeError("Default index requires a single key selector")
 
     if len(selectors) == 1 and isinstance(selectors[0], SelectorIndex):
         return index_value(recv, selectors[0].value, frame, default_thunk=default_thunk)
 
-    if default_thunk is not None:
+    if default_thunk:
         raise ShakarTypeError("Default index expects an object receiver")
 
     return apply_selectors_to_value(recv, selectors)
@@ -329,7 +327,7 @@ def apply_op(recv: EvalResult, op: Tree, frame: Frame, eval_fn: EvalFn) -> EvalR
     elif op_name == "fieldfan":
         result = apply_fan_op(recv, op, frame, apply_op=apply_op, eval_fn=eval_fn)
     elif op_name == "valuefan":
-        if context is not None:
+        if context:
             # In rebind chain: create FanContext for writeback
             return build_valuefan_context(recv, op, frame, eval_fn, apply_op)
         result = _valuefan(recv, op, frame, eval_fn)
@@ -352,7 +350,7 @@ def apply_op(recv: EvalResult, op: Tree, frame: Frame, eval_fn: EvalFn) -> EvalR
     else:
         raise ShakarRuntimeError(f"Unknown chain op: {op.data}")
 
-    if context is not None:
+    if context:
         context.value = result
 
         if not isinstance(result, (BuiltinMethod, BoundMethod, BoundCallable, ShkFn)):
@@ -408,7 +406,7 @@ def _call_method(recv: ShkValue, op: Tree, frame: Frame, eval_fn: EvalFn) -> Shk
         else:
             raise
 
-    if cal is not None:
+    if cal:
         if isinstance(cal, ShkFn):
             return call_shkfn(
                 cal,
@@ -671,7 +669,7 @@ def call_value(
 ) -> ShkValue:
     call_site = (
         callsite_from_node(_call_name_for_value(cal), call_node, frame)
-        if call_node is not None
+        if call_node
         else None
     )
 

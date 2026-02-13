@@ -81,11 +81,11 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     ):
         implicit_bind_name = expr_node.value
 
-    if binder_tok is not None:
+    if binder_tok:
         bind_name = _expect_ident_token(binder_tok, "Using binder")
-    elif handle_tok is not None:
+    elif handle_tok:
         bind_name = _expect_ident_token(handle_tok, "Using handle")
-    elif implicit_bind_name is not None:
+    elif implicit_bind_name:
         bind_name = implicit_bind_name
 
     resource = eval_fn(expr_node, frame)
@@ -93,18 +93,14 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     enter_method = _lookup_method(resource, ["using_enter", "enter"], frame)
     value = resource
 
-    if enter_method is not None:
+    if enter_method:
         value = _call_method(enter_method, [], frame, eval_fn)
 
     exc: Optional[BaseException] = None
     err_value: Optional[ShkValue] = None
     result: ShkValue = ShkNil()
 
-    ctx = (
-        temporary_bindings(frame, {bind_name: value})
-        if bind_name is not None
-        else nullcontext()
-    )
+    ctx = temporary_bindings(frame, {bind_name: value}) if bind_name else nullcontext()
 
     with ctx:
         try:
@@ -119,10 +115,10 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
                 resource, ["using_exit", "exit", "close"], frame
             )
 
-            if exit_method is not None:
+            if exit_method:
 
                 def _exit_args(method: ShkValue) -> List[ShkValue]:
-                    if err_value is not None:
+                    if err_value:
                         return [err_value]
 
                     target_fn = None
@@ -134,11 +130,7 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
                     ):
                         target_fn = getattr(method, "fn")
 
-                    if (
-                        target_fn is not None
-                        and target_fn.params is not None
-                        and len(target_fn.params) == 1
-                    ):
+                    if target_fn and target_fn.params and len(target_fn.params) == 1:
                         return [ShkNil()]
                     return []
 
@@ -147,14 +139,14 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
                 try:
                     exit_result = _call_method(exit_method, args, frame, eval_fn)
                 except BaseException as exit_exc:  # noqa: BLE001
-                    if exc is not None:
+                    if exc:
                         exit_exc.__context__ = exc
                     raise
                 else:
-                    if exc is not None and is_truthy(exit_result):
+                    if exc and is_truthy(exit_result):
                         exc = None
 
-    if exc is not None:
+    if exc:
         raise exc
 
     return result

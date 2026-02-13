@@ -159,14 +159,14 @@ def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
         slots["method"] = ShkString(exc.name)
 
     data = getattr(exc, "shk_data", None)
-    if data is not None:
+    if data:
         slots["data"] = data
 
     if debug_py_trace_enabled():
         import traceback
 
         tb = getattr(exc, "shk_py_trace", None)
-        if tb is not None:
+        if tb:
             slots["py_trace"] = ShkString("".join(traceback.format_tb(tb)))
 
     return ShkObject(slots)
@@ -232,7 +232,7 @@ def _run_catch_handler(
             raise original_exc
 
     binder_name = None
-    if binder is not None:
+    if binder:
         binder_name = expect_ident_token(binder, "Catch binder")
 
     def _exec_handler() -> ShkValue:
@@ -354,7 +354,7 @@ def eval_if_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
         if _is_truthy(eval_fn(clause_cond, frame)):
             return eval_body_node(clause_body, frame, eval_fn, allow_loop_control=True)
 
-    if else_body is not None:
+    if else_body:
         return eval_body_node(else_body, frame, eval_fn, allow_loop_control=True)
 
     return ShkNil()
@@ -409,7 +409,7 @@ def eval_match_expr(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
         if is_token(child):
             continue
 
-    if else_body is not None:
+    if else_body:
         with temporary_subject(frame, subject):
             return eval_body_node(else_body, frame, eval_fn, allow_loop_control=True)
 

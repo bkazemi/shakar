@@ -133,7 +133,7 @@ def current_function_frame(frame: Frame) -> Optional[Frame]:
     """Walk parents to find the nearest function-call frame marker."""
     cur: Optional[Frame] = frame
 
-    while cur is not None:
+    while cur:
         if cur.is_function_frame():
             return cur
 
@@ -149,8 +149,8 @@ def name_in_current_frame(frame: Frame, name: str) -> bool:
 
 def find_emit_target(frame: Frame) -> Optional[ShkValue]:
     cur: Optional[Frame] = frame
-    while cur is not None:
-        if cur.emit_target is not None:
+    while cur:
+        if cur.emit_target:
             return cur.emit_target
         cur = getattr(cur, "parent", None)
     return None
@@ -160,13 +160,13 @@ def collect_scope_names(frame: Frame, stop_at: Optional[Frame]) -> set[str]:
     """Collect names visible from frame up to an optional boundary frame."""
     names: set[str] = set()
     cur: Optional[Frame] = frame
-    while cur is not None:
+    while cur:
         if cur.hoisted_names:
             names.update(cur.hoisted_names)
         for scope in cur.all_let_scopes():
             names.update(scope.keys())
         names.update(cur.vars.keys())
-        if stop_at is not None and cur is stop_at:
+        if stop_at and cur is stop_at:
             break
         cur = cur.parent
     return names
@@ -180,7 +180,7 @@ def snapshot_visible_names(frame: Frame) -> FrozenSet[str]:
 def find_frozen_scope_frame(frame: Frame) -> Optional[Frame]:
     """Find the nearest frame that marks a frozen lexical boundary."""
     cur: Optional[Frame] = frame
-    while cur is not None:
+    while cur:
         if cur.frozen_scope_names is not None:
             return cur
         cur = cur.parent
@@ -198,5 +198,5 @@ def closure_frame(frame: Frame) -> Frame:
 
 def check_cancel(frame: Frame) -> None:
     token = getattr(frame, "cancel_token", None)
-    if token is not None and token.cancelled():
+    if token and token.cancelled():
         raise ShakarCancelledError("Spawn task cancelled")

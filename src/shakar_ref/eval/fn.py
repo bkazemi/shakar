@@ -88,7 +88,7 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue
 
     # Extract return contract expression if present
     return_contract_expr = None
-    if return_contract_node is not None:
+    if return_contract_node:
         contract_children = tree_children(return_contract_node)
         if contract_children:
             return_contract_expr = contract_children[0]
@@ -108,7 +108,7 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue
         name=name,
     )
 
-    if decorators_node is not None:
+    if decorators_node:
         instances = evaluate_decorator_list(decorators_node, frame, eval_fn)
         if instances:
             fn_value.decorators = tuple(reversed(instances))
@@ -257,7 +257,7 @@ def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
 
     # Extract return contract expression if present
     return_contract_expr = None
-    if return_contract_node is not None:
+    if return_contract_node:
         contract_children = tree_children(return_contract_node)
         if contract_children:
             return_contract_expr = contract_children[0]

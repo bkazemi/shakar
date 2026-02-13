@@ -244,7 +244,7 @@ def _load_module_from_file(
                 last_error = exc
 
         if tree is None:
-            if last_error is not None:
+            if last_error:
                 raise last_error
             raise RuntimeError("Parser failed without producing a parse tree")
 
@@ -292,7 +292,7 @@ def import_module(name: str, frame: Optional[Frame] = None) -> ShkModule:
         return existing
 
     factory = MODULE_FACTORIES.get(key)
-    if factory is not None:
+    if factory:
         return _load_module_from_factory(key, factory)
 
     if path is None:
@@ -814,11 +814,11 @@ def call_builtin_method(
 ) -> ShkValue:
     if isinstance(recv, ShkEnvVar):
         handler = Builtins.envvar_methods.get(name)
-        if handler is not None:
+        if handler:
             return handler(frame, recv, args)
 
         str_handler = Builtins.string_methods.get(name)
-        if str_handler is not None:
+        if str_handler:
             env_val = envvar_value_by_name(recv.name)
             if env_val is None:
                 raise ShakarTypeError(f"Env var '{recv.name}' has no value")
@@ -827,7 +827,7 @@ def call_builtin_method(
     registry = _BUILTIN_METHOD_REGISTRY.get(type(recv))
     if registry:
         handler = registry.get(name)
-        if handler is not None:
+        if handler:
             return handler(frame, recv, args)
 
     raise ShakarMethodNotFound(recv, name)
@@ -871,7 +871,7 @@ def call_shkfn(
     - Named args bind to parameters by name.
     """
 
-    if call_site is not None:
+    if call_site:
         caller_frame.call_stack.append(call_site)
     try:
         if fn.decorators:
@@ -883,11 +883,11 @@ def call_shkfn(
 
         return _call_shkfn_raw(fn, positional, subject, caller_frame, named=named)
     except ShakarRuntimeError as exc:
-        if getattr(exc, "shk_call_stack", None) is None and call_site is not None:
+        if getattr(exc, "shk_call_stack", None) is None and call_site:
             exc.shk_call_stack = list(caller_frame.call_stack)
         raise
     finally:
-        if call_site is not None:
+        if call_site:
             caller_frame.call_stack.pop()
 
 
@@ -915,7 +915,7 @@ def _bind_params_with_defaults(
     for idx in range(len(params)):
         if idx == spread_index:
             continue
-        if defaults_list[idx] is not None:
+        if defaults_list[idx]:
             optional_present = True
             break
 
@@ -924,7 +924,7 @@ def _bind_params_with_defaults(
             raise ShakarArityError(
                 f"{label} expects {len(params)} args; got {len(positional)}"
             )
-        if on_bind is not None:
+        if on_bind:
             for name, val in zip(params, positional):
                 on_bind(name, val)
         return list(positional)
@@ -949,7 +949,7 @@ def _bind_params_with_defaults(
             spread_vals = positional[current_pos:]
             bound = ShkArray(list(spread_vals))
             bound_values.append(bound)
-            if on_bind is not None:
+            if on_bind:
                 on_bind(name, bound)
             current_pos = len(positional)
             continue
@@ -968,7 +968,7 @@ def _bind_params_with_defaults(
             bound = eval_default(default_node)
 
         bound_values.append(bound)
-        if on_bind is not None:
+        if on_bind:
             on_bind(name, bound)
 
     if current_pos < len(positional):
@@ -1073,7 +1073,7 @@ def _merge_named_args(
             on_bind(params[idx], val)
             continue
         default_node = defaults_list[idx]
-        if default_node is not None:
+        if default_node:
             resolved = eval_default(default_node)
             on_bind(params[idx], resolved)
         else:

@@ -17,7 +17,7 @@ def define_new_ident(name: str, value: ShkValue, frame: Frame) -> ShkValue:
     if frame.has_let_name(name):
         raise ShakarRuntimeError(f"Name '{name}' already defined in a let scope")
 
-    if vars_dict is not None and name in vars_dict:
+    if vars_dict and name in vars_dict:
         raise ShakarRuntimeError(f"Name '{name}' already defined in this scope")
 
     frame.define(name, value)
@@ -97,7 +97,7 @@ def _eval_postfix_guard(
 ) -> ShkValue:
     walrus_name = None
     walrus_node = find_tree_by_label(stmt_node, {"walrus"})
-    if walrus_node is not None:
+    if walrus_node:
         walrus_name = _walrus_target_name(walrus_node)
 
     cond_val = eval_fn(cond_node, frame)
@@ -106,7 +106,7 @@ def _eval_postfix_guard(
     if should_run:
         return eval_fn(stmt_node, frame)
 
-    if walrus_name is not None:
+    if walrus_name:
         define_new_ident(walrus_name, ShkNil(), frame)
 
     return ShkNil()

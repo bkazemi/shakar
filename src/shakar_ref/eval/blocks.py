@@ -96,7 +96,7 @@ def _collect_hoisted_defs(children: List[Node], skip_tokens: set[str]) -> set[st
         if label not in {"fndef", "decorator_def"}:
             continue
         first = node.children[0] if node.children else None
-        if first is not None and is_token(first) and _token_kind(first) == "IDENT":
+        if first and is_token(first) and _token_kind(first) == "IDENT":
             names.add(str(first.value))
     return names
 
@@ -245,7 +245,7 @@ def eval_guard(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
             with temporary_subject(frame, outer_dot):
                 return eval_body_node(body_node, frame, eval_fn)
 
-    if else_body is not None:
+    if else_body:
         with temporary_subject(frame, outer_dot):
             return eval_body_node(else_body, frame, eval_fn)
 
@@ -310,7 +310,7 @@ def temporary_bindings(frame: Frame, bindings: dict[str, ShkValue]) -> Iterator[
     for name, value in bindings.items():
         target: Optional[Frame] = frame
 
-        while target is not None and name not in target.vars:
+        while target and name not in target.vars:
             target = getattr(target, "parent", None)
 
         if target is None:
@@ -382,12 +382,10 @@ def eval_call_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if not _is_callable_emit_target(emit_target):
         raise ShakarRuntimeError("call expects a callable emit target")
 
-    bind_name = (
-        _expect_ident_token(bind_tok, "Call binder") if bind_tok is not None else None
-    )
+    bind_name = _expect_ident_token(bind_tok, "Call binder") if bind_tok else None
     ctx = (
         temporary_bindings(frame, {bind_name: emit_target})
-        if bind_name is not None
+        if bind_name
         else nullcontext()
     )
 

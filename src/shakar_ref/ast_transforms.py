@@ -243,7 +243,7 @@ class Prune(Transformer):
 
         result = Tree(result_label, nodes)
         meta = getattr(token, "meta", None)
-        if meta is not None:
+        if meta:
             result.meta = meta
 
         return result
@@ -283,7 +283,7 @@ class Prune(Transformer):
         result = Tree("shell_string", nodes)
 
         meta = getattr(token, "meta", None)
-        if meta is not None:
+        if meta:
             result.meta = meta
         return result
 
@@ -292,7 +292,7 @@ class Prune(Transformer):
         shell_tree = self._transform_shell_string_token(token)
         result = Tree("shell_bang", [shell_tree])
         meta = getattr(token, "meta", None)
-        if meta is not None:
+        if meta:
             result.meta = meta
         return result
 
@@ -325,12 +325,12 @@ class Prune(Transformer):
 
         # env always wraps in a tree — fall back to env_string for plain bodies.
         interp = self._build_interp_tree(body, token, "env_interp_expr", "env_interp")
-        if interp is not None:
+        if interp:
             return interp
 
         result = Tree("env_string", [Tok(TT.STRING, body)])
         meta = getattr(token, "meta", None)
-        if meta is not None:
+        if meta:
             result.meta = meta
 
         return result
@@ -355,7 +355,7 @@ class Prune(Transformer):
 
             # Treat \u{...} as a literal escape so braces don't trigger interpolation.
             escape, next_index = self._try_scan_unicode_escape(text, index)
-            if escape is not None:
+            if escape:
                 literal.append(escape)
                 index = next_index
                 continue
@@ -409,7 +409,7 @@ class Prune(Transformer):
 
             # Treat \u{...} as a literal escape so braces don't trigger interpolation.
             escape, next_index = self._try_scan_unicode_escape(text, index)
-            if escape is not None:
+            if escape:
                 literal.append(escape)
                 index = next_index
                 continue
@@ -466,7 +466,7 @@ class Prune(Transformer):
         while index < length:
             ch = text[index]
 
-            if in_quote is not None:
+            if in_quote:
                 if escape:
                     escape = False
                 elif ch == "\\":
@@ -678,7 +678,7 @@ class Prune(Transformer):
     @v_args(meta=True)
     def call(self, meta, c):
         node = Tree("call", c)
-        if meta is not None:
+        if meta:
             node.meta = meta
         return node
 
@@ -687,7 +687,7 @@ class Prune(Transformer):
         body = c[-1] if c else None
         # unify postfix &(...) into a normal call with an amp_lambda arg
         node = Tree("call", [Tree("args", [Tree("amp_lambda", [body])])])
-        if meta is not None:
+        if meta:
             node.meta = meta
         return node
 
@@ -695,7 +695,7 @@ class Prune(Transformer):
     def lambdacalln(self, meta, c):
         params, body = c[0], c[-1]
         node = Tree("call", [Tree("args", [Tree("amp_lambda", [params, body])])])
-        if meta is not None:
+        if meta:
             node.meta = meta
         return node
 
@@ -747,9 +747,9 @@ class Prune(Transformer):
             raise SyntaxError("Malformed using statement")
 
         children: List[Node] = []
-        if handle is not None:
+        if handle:
             children.append(Tree("using_handle", [Tok(TT.IDENT, handle)]))
-        if binder is not None:
+        if binder:
             children.append(Tree("using_bind", [Tok(TT.IDENT, binder)]))
         children.append(expr)
         children.append(body)
@@ -804,11 +804,11 @@ class Prune(Transformer):
                 body = node
 
         children: List[Node] = []
-        if name is not None:
+        if name:
             children.append(name)
-        if params is not None:
+        if params:
             children.append(params)
-        if body is not None:
+        if body:
             children.append(body)
 
         return Tree("decorator_def", children)
@@ -844,15 +844,15 @@ class Prune(Transformer):
 
         children: List[Node] = []
 
-        if name is not None:
+        if name:
             children.append(name)
-        if params is not None:
+        if params:
             children.append(params)
-        if body is not None:
+        if body:
             children.append(body)
-        if return_contract is not None:
+        if return_contract:
             children.append(return_contract)
-        if decorators is not None:
+        if decorators:
             children.append(decorators)
 
         return Tree("fndef", children)
@@ -888,9 +888,9 @@ class Prune(Transformer):
                 body_node = node
 
         children: List[Node] = []
-        if label is not None:
+        if label:
             children.append(Tree("deferlabel", [Tok(TT.IDENT, label)]))
-        if body_node is not None:
+        if body_node:
             children.append(body_node)
         if deps:
             children.append(Tree("deferdeps", deps))
@@ -1160,9 +1160,9 @@ def _expand_param_group(node: Tree) -> List[_ParamEntry]:
     entries: List[_ParamEntry] = []
 
     for child in tree_children(group_params):
-        if param_default_expr(child) is not None:
+        if param_default_expr(child):
             raise SyntaxError("Grouped parameters cannot include defaults")
-        if _param_contract_expr(child) is not None:
+        if _param_contract_expr(child):
             raise SyntaxError("Grouped parameters cannot include contracts")
         if _param_is_spread(child):
             raise SyntaxError("Grouped parameters cannot include spread")
@@ -1200,7 +1200,7 @@ def _propagate_param_contracts(entries: List[_ParamEntry]) -> None:
                 scan -= 1
                 continue
 
-            if _param_contract_expr(prev.node) is not None:
+            if _param_contract_expr(prev.node):
                 break
 
             prev.node = _add_param_contract(prev.node, contract_expr)
@@ -1261,7 +1261,7 @@ def _param_name(node: Node) -> Optional[str]:
 
 
 def _add_param_contract(node: Node, contract_expr: Node) -> Node:
-    if _param_contract_expr(node) is not None:
+    if _param_contract_expr(node):
         return node
 
     contract_node = Tree("contract", [contract_expr])
@@ -1327,7 +1327,7 @@ def _collect_lambda_free_names(node: Node) -> tuple[List[str], bool]:
                     head = children[0]
                     ident = _get_ident_value(head)
 
-                    if ident is not None:
+                    if ident:
                         append(ident)
                     else:
                         walk(head, label)

@@ -456,13 +456,13 @@ class ShkChannel:
         """Blocking receive. Returns (value, ok)."""
         result = self._recv(block=True, cancel_token=cancel_token)
         if result.ok:
-            return result.value if result.value is not None else ShkNil(), True
+            return result.value if result.value else ShkNil(), True
         return ShkNil(), False
 
     def recv_value(self, *, cancel_token: Optional[CancelToken] = None) -> "ShkValue":
         """Blocking receive that returns value directly (nil if closed)."""
         result = self._recv(block=True, cancel_token=cancel_token)
-        return result.value if result.value is not None else ShkNil()
+        return result.value if result.value else ShkNil()
 
     def recv_with_ok(
         self, *, cancel_token: Optional[CancelToken] = None
@@ -545,7 +545,7 @@ class ShkChannel:
     # ---- Internal helpers ----
 
     def _check_cancel(self, cancel_token: Optional[CancelToken]) -> None:
-        if cancel_token is not None and cancel_token.cancelled():
+        if cancel_token and cancel_token.cancelled():
             raise ShakarCancelledError("Spawn task cancelled")
 
     def _wait_for(
@@ -554,7 +554,7 @@ class ShkChannel:
         cancel_token: Optional[CancelToken],
     ) -> None:
         """Wait until predicate is true, checking cancellation."""
-        if cancel_token is not None:
+        if cancel_token:
             cancel_token.register_condition(self._cond)
         try:
             while not predicate():
@@ -565,7 +565,7 @@ class ShkChannel:
                 self._cond.wait()
                 self._check_cancel(cancel_token)
         finally:
-            if cancel_token is not None:
+            if cancel_token:
                 cancel_token.unregister_condition(self._cond)
 
     # ---- Result channel stubs (overridden in subclass) ----
@@ -676,9 +676,9 @@ class ShkResultChannel(ShkChannel):
             raise ShakarRuntimeError("Spawn result missing value")
 
         if isinstance(value, _ResultItem):
-            if value.error is not None:
+            if value.error:
                 raise value.error
-            return value.value if value.value is not None else ShkNil()
+            return value.value if value.value else ShkNil()
 
         return value
 
@@ -906,9 +906,9 @@ class Frame:
         self.call_stack: List[CallSite]
         self.cancel_token: Optional[CancelToken]
         self.hoisted_names: Optional[set[str]] = None
-        if cancel_token is not None:
+        if cancel_token:
             self.cancel_token = cancel_token
-        elif parent is not None:
+        elif parent:
             self.cancel_token = parent.cancel_token
         else:
             self.cancel_token = None
@@ -923,14 +923,14 @@ class Frame:
 
         if source is not None:
             self.source = source
-        elif parent is not None and hasattr(parent, "source"):
+        elif hasattr(parent, "source"):
             self.source = parent.source
         else:
             self.source = None
 
         if source_path is not None:
             self.source_path = source_path
-        elif parent is not None and hasattr(parent, "source_path"):
+        elif hasattr(parent, "source_path"):
             self.source_path = parent.source_path
         else:
             self.source_path = None
@@ -940,7 +940,7 @@ class Frame:
         # threads MUST snapshot (list(frame.call_stack)) to avoid races.
         if call_stack is not None:
             self.call_stack = call_stack
-        elif parent is not None and hasattr(parent, "call_stack"):
+        elif hasattr(parent, "call_stack"):
             self.call_stack = parent.call_stack
         else:
             self.call_stack = []
@@ -973,7 +973,7 @@ class Frame:
     def name_exists(self, name: str) -> bool:
         if self.has_let_name(name) or name in self.vars:
             return True
-        if self.parent is not None:
+        if self.parent:
             return self.parent.name_exists(name)
         return False
 
@@ -997,7 +997,7 @@ class Frame:
 
     def get(self, name: str) -> ShkValue:
         scope = self._find_let_scope(name)
-        if scope is not None:
+        if scope:
             return scope[name]
 
         if name in self.vars:
@@ -1006,14 +1006,14 @@ class Frame:
         if name in self.builtins:
             return self.builtins[name]
 
-        if self.parent is not None:
+        if self.parent:
             return self.parent.get(name)
 
         raise ShakarRuntimeError(f"Name '{name}' not found")
 
     def set(self, name: str, val: ShkValue) -> None:
         scope = self._find_let_scope(name)
-        if scope is not None:
+        if scope:
             scope[name] = val
             return
 
@@ -1026,7 +1026,7 @@ class Frame:
                 f"Cannot assign to builtin '{name}'; use := to shadow it"
             )
 
-        if self.parent is not None:
+        if self.parent:
             self.parent.set(name, val)
             return
 
@@ -1057,9 +1057,9 @@ class Frame:
         return self._is_function_frame
 
     def get_emit_target(self) -> ShkValue:
-        if self.emit_target is not None:
+        if self.emit_target:
             return self.emit_target
-        if self.parent is not None:
+        if self.parent:
             return self.parent.get_emit_target()
         raise ShakarRuntimeError("No emit target available for '>'")
 

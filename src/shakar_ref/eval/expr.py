@@ -121,7 +121,7 @@ def eval_explicit_chain(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
 
         # Valuefan with trailing ops: switch to fan broadcasting
         fan_result = maybe_valuefan_broadcast(val, op, ops, i + 1, frame, eval_fn)
-        if fan_result is not None:
+        if fan_result:
             return fan_result
 
     if head_is_rebind:
@@ -182,7 +182,7 @@ def _update_anchor(node: Node, value: ShkValue, frame: Frame) -> None:
     override = _consume_anchor_override(frame)  # always consume
     if not retargets_anchor(node):
         return
-    frame.dot = override if override is not None else value
+    frame.dot = override if override else value
 
 
 def normalize_unary_op(op_node: Node, frame: Frame) -> Node | str:
@@ -262,7 +262,7 @@ def eval_infix(
         val = eval_fn(node, frame)
         if _should_retarget(node):
             override = _consume_anchor_override(frame)
-            frame.dot = override if override is not None else val
+            frame.dot = override if override else val
         else:
             _consume_anchor_override(frame)  # discard unused override
         return val
@@ -469,7 +469,7 @@ def as_op(x: Node) -> str:
         return str(x.value)
 
     label = tree_label(x) if is_tree(x) else None
-    if label is not None:
+    if label:
         if (
             label in ("addop", "mulop", "powop")
             and len(x.children) == 1

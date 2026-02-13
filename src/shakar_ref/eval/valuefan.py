@@ -19,7 +19,7 @@ def eval_valuefan(
 
     for item in _iter_items(fan_node):
         key = _fingerprint(item)
-        if key is not None:
+        if key:
             if key in seen:
                 raise ShakarRuntimeError("Value fan cannot contain duplicate fields")
             seen.add(key)
@@ -38,7 +38,7 @@ def build_valuefan_context(
 
     for item in _iter_items(fan_node):
         key = _fingerprint(item)
-        if key is not None:
+        if key:
             if key in seen:
                 raise ShakarRuntimeError("Value fan cannot contain duplicate fields")
             seen.add(key)

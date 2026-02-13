@@ -54,7 +54,7 @@ def eval_selectorliteral(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkSelect
         else:
             # grammar may wrap selitem inside helper nodes; unwrap when present.
             wrapped = child_by_label(item, "selitem")
-            target = wrapped if wrapped is not None else item
+            target = wrapped if wrapped else item
             parts.extend(_selector_parts_from_selitem(target, frame, eval_fn))
 
     return ShkSelector(parts)
@@ -68,7 +68,7 @@ def evaluate_selectorlist(
 
     for raw_selector in tree_children(node):
         inner = child_by_labels(raw_selector, {"slicesel", "indexsel"})
-        target = inner if inner is not None else raw_selector
+        target = inner if inner else raw_selector
         label = tree_label(target)
 
         if label == "slicesel":
@@ -185,7 +185,7 @@ def _selector_parts_from_selitem(
 ) -> List[SelectorPart]:
     """Turn a literal selitem node into concrete slice/index parts."""
     inner = child_by_labels(node, {"sliceitem", "indexitem"})
-    target = inner if inner is not None else node
+    target = inner if inner else node
     label = tree_label(target)
 
     if label == "sliceitem":
@@ -338,7 +338,7 @@ def _eval_seloptstop(
     # Also check source segment for a leading "<" to detect exclusive slices
     if not exclusive:
         segment = _get_source_segment(node, frame)
-        if segment is not None and segment.lstrip().startswith("<"):
+        if segment and segment.lstrip().startswith("<"):
             exclusive = True
 
     selatom = child_by_label(node, "selatom")
