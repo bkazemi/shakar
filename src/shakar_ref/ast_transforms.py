@@ -748,7 +748,13 @@ class Prune(Transformer):
 
         children: List[Node] = []
         if handle:
-            children.append(Tree("using_handle", [Tok(TT.IDENT, handle)]))
+            children.append(
+                Tree(
+                    "using_handle",
+                    [Tok(TT.IDENT, handle)],
+                    attrs={"modifier_name": handle},
+                )
+            )
         if binder:
             children.append(Tree("using_bind", [Tok(TT.IDENT, binder)]))
         children.append(expr)

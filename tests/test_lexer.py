@@ -82,9 +82,9 @@ KEYWORD_CASES: List[Case] = [
     Case("is", "is", expected_types=(TT.IS,)),
     Case("in", "in", expected_types=(TT.IN,)),
     Case("import", "import", expected_types=(TT.IMPORT,)),
-    Case("any", "any", expected_types=(TT.ANY,)),
-    Case("all", "all", expected_types=(TT.ALL,)),
-    Case("group", "group", expected_types=(TT.GROUP,)),
+    Case("any-ident", "any", expected_types=(TT.IDENT,)),
+    Case("all-ident", "all", expected_types=(TT.IDENT,)),
+    Case("group-ident", "group", expected_types=(TT.IDENT,)),
     Case("over", "over", expected_types=(TT.OVER,)),
 ]
 

@@ -27,12 +27,14 @@ from .runtime import (
 
 from .eval.common import (
     is_literal_node,
+    modifier_from_node,
     token_number,
     token_duration,
     token_size,
     token_path,
     token_regex,
     token_string,
+    validate_modifier,
     _resolve_line_col,
 )
 from .eval.selector import eval_selectorliteral
@@ -238,7 +240,7 @@ def _eval_token(t: Tok, frame: Frame) -> ShkValue:
     if handler:
         return handler(t, frame)
 
-    if t.type in (TT.IDENT, TT.ANY, TT.ALL, TT.GROUP, TT.OVER):
+    if t.type in (TT.IDENT, TT.OVER):
         return frame.get(t.value)
 
     raise ShakarRuntimeError(f"Unhandled token {t.type}:{t.value}")
@@ -336,6 +338,9 @@ def _eval_fan_literal(n: Tree, frame: Frame) -> ShkValue:
             items_node = child
 
     if modifiers:
+        modifier_name, modifier_tok = modifier_from_node(modifiers)
+        if modifier_name:
+            validate_modifier("fan", modifier_name, modifier_tok)
         raise ShakarRuntimeError("Fan modifiers are not supported yet")
 
     if items_node is None:
@@ -450,6 +455,26 @@ def _eval_waitallcall(n: Tree, frame: Frame) -> ShkValue:
 
 def _eval_waitgroupcall(n: Tree, frame: Frame) -> ShkValue:
     return eval_wait_group_call(n, frame, eval_node)
+
+
+def _eval_waitmodifierblock(n: Tree, _frame: Frame) -> ShkValue:
+    modifier_name, modifier_tok = modifier_from_node(n)
+    if not modifier_name:
+        raise ShakarRuntimeError("Malformed wait modifier block")
+    validate_modifier("wait", modifier_name, modifier_tok)
+    raise ShakarRuntimeError(
+        "Internal error: known wait modifier should use a dedicated wait block node"
+    )
+
+
+def _eval_waitmodifiercall(n: Tree, _frame: Frame) -> ShkValue:
+    modifier_name, modifier_tok = modifier_from_node(n)
+    if not modifier_name:
+        raise ShakarRuntimeError("Malformed wait modifier call")
+    validate_modifier("wait", modifier_name, modifier_tok)
+    raise ShakarRuntimeError(
+        "Internal error: known wait modifier should use a dedicated wait call node"
+    )
 
 
 def _eval_subject(_n: Tree, frame: Frame) -> ShkValue:
@@ -868,8 +893,10 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "waitanyblock": _eval_waitanyblock,
     "waitallblock": _eval_waitallblock,
     "waitgroupblock": _eval_waitgroupblock,
+    "waitmodifierblock": _eval_waitmodifierblock,
     "waitallcall": _eval_waitallcall,
     "waitgroupcall": _eval_waitgroupcall,
+    "waitmodifiercall": _eval_waitmodifiercall,
     "usingstmt": _eval_usingstmt,
     "callstmt": _eval_callstmt,
     "catchexpr": _eval_catchexpr,

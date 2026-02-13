@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Optional, Tuple, TypeAlias
+import difflib
 import re
+from types import SimpleNamespace
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, TypeAlias
 
 from ..tree import Tree, Tok
 from ..token_types import TT
@@ -50,6 +52,53 @@ SIZE_UNITS: Dict[str, int] = {
     "gib": 1_073_741_824,
     "tib": 1_099_511_627_776,
 }
+
+MODIFIER_REGISTRY: Dict[str, Tuple[str, ...]] = {
+    "wait": ("any", "all", "group"),
+    "fan": ("par",),
+}
+
+
+def modifier_from_node(node: Node) -> Tuple[Optional[str], Optional[Tok]]:
+    if not is_tree(node) or not node.attrs:
+        return None, None
+
+    name = node.attrs.get("modifier_name")
+    tok = node.attrs.get("modifier_tok")
+
+    if not isinstance(name, str):
+        name = None
+    if not isinstance(tok, Tok):
+        tok = None
+
+    return name, tok
+
+
+def _modifier_suggestion(name: str, allowed: Sequence[str]) -> Optional[str]:
+    matches = difflib.get_close_matches(name, allowed, n=1, cutoff=0.75)
+    if matches:
+        return matches[0]
+    return None
+
+
+def validate_modifier(construct: str, name: str, tok: Optional[Tok]) -> None:
+    allowed = MODIFIER_REGISTRY.get(construct)
+    if allowed is None:
+        raise ShakarRuntimeError(f"unknown modifier construct '{construct}'")
+    if name in allowed:
+        return
+
+    expected = ", ".join(allowed)
+    message = f"unknown {construct} modifier '{name}'; " f"expected one of: {expected}"
+    suggestion = _modifier_suggestion(name, allowed)
+    if suggestion:
+        message = f"{message}; did you mean '{suggestion}'?"
+
+    error = ShakarRuntimeError(message)
+    if tok and tok.line > 0:
+        error.shk_meta = SimpleNamespace(line=tok.line, column=max(1, tok.column))
+
+    raise error
 
 
 def is_token_type(node: Node, kind: str) -> bool:

@@ -9,6 +9,7 @@ from tests.support.harness import (
     ShakarRuntimeError,
     run_runtime_case,
 )
+from shakar_ref.runner import run as run_program
 
 SCENARIOS = [
     pytest.param(
@@ -390,3 +391,11 @@ SCENARIOS = [
 @pytest.mark.parametrize("source, expectation, expected_exc", SCENARIOS)
 def test_fan(source: str, expectation, expected_exc) -> None:
     run_runtime_case(source, expectation, expected_exc)
+
+
+def test_fan_unknown_modifier_runtime_error() -> None:
+    with pytest.raises(
+        ShakarRuntimeError,
+        match="unknown fan modifier 'group'; expected one of: par",
+    ):
+        run_program("fan[group] { 1 }")

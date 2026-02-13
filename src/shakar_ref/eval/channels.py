@@ -36,7 +36,12 @@ from ..runtime import (
 from ..tree import Node, Tree, is_tree, tree_children, tree_label
 from .blocks import eval_body_node
 from .chains import call_value
-from .common import callsite_from_node, expect_ident_token
+from .common import (
+    callsite_from_node,
+    expect_ident_token,
+    modifier_from_node,
+    validate_modifier,
+)
 from .helpers import check_cancel
 from .postfix import define_new_ident
 from .selector import selector_iter_values
@@ -116,6 +121,17 @@ def _spawn_callable(
         return call_value(value, [], spawn_frame, eval_fn)
 
     return _spawn_task(frame, thunk, spawn_site=spawn_site)
+
+
+def _validate_wait_modifier(node: Tree, fallback: str) -> None:
+    """Validate wait modifier name from node attrs.
+
+    `fallback` keeps validation behavior stable for older/lowered trees that may
+    not carry `modifier_name` attrs yet. In that case we validate the expected
+    known modifier label supplied by the caller.
+    """
+    name, tok = modifier_from_node(node)
+    validate_modifier("wait", name or fallback, tok)
 
 
 def eval_recv_expr(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
@@ -226,6 +242,8 @@ def eval_spawn_expr(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
 
 
 def eval_wait_any_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
+    _validate_wait_modifier(n, "any")
+
     recv_cases: list[_RecvCase] = []
     send_cases: list[_SendCase] = []
     timeout_case: Optional[_TimeoutCase] = None
@@ -460,6 +478,8 @@ def _cancel_pending(pending: list[ShkChannel]) -> None:
 
 
 def eval_wait_all_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
+    _validate_wait_modifier(n, "all")
+
     arms = []
     for arm in tree_children(n):
         if tree_label(arm) != "waitallarm":
@@ -501,6 +521,8 @@ def eval_wait_all_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
 
 
 def eval_wait_group_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
+    _validate_wait_modifier(n, "group")
+
     arms = []
     for arm in tree_children(n):
         if tree_label(arm) != "waitgrouparm":
@@ -540,6 +562,8 @@ def eval_wait_group_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
 
 
 def eval_wait_all_call(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
+    _validate_wait_modifier(n, "all")
+
     if not n.children:
         raise ShakarRuntimeError("wait[all](tasks) missing argument")
     value = eval_fn(n.children[0], frame)
@@ -568,6 +592,8 @@ def eval_wait_all_call(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
 
 
 def eval_wait_group_call(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
+    _validate_wait_modifier(n, "group")
+
     if not n.children:
         raise ShakarRuntimeError("wait[group](tasks) missing argument")
     value = eval_fn(n.children[0], frame)

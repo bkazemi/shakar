@@ -57,9 +57,6 @@ class TT(Enum):
     OVER = auto()
     BIND = auto()
     IMPORT = auto()
-    ANY = auto()
-    ALL = auto()
-    GROUP = auto()
     FAN = auto()
 
     # Literals

@@ -1048,7 +1048,7 @@ db := env"DB_TYPE" == "postgres" ? import "./pg" : import "./sqlite"
 - **wait[any]** selects over channel ops; cases are `x := <-ch`, `val -> ch`, `timeout <duration>`, or `default`. Closed-and-empty channels are skipped; if all channels are closed and no `default`/`timeout` exists, raises `AllChannelsClosed`.
 - **wait[all]** starts all calls concurrently (spawn is implicit) and returns an object of results. On error, cancels remaining tasks and re-raises the first error.
 - **wait[group]** is like `wait[all]` but discards results (structured concurrency for side effects).
-- Notes: block forms use `:` indentation; single-expr forms `wait[all] tasks` / `wait[group] tasks` accept arrays of channels (typically from `spawn` in a comprehension). Parentheses are allowed for grouping. `timeout` and duration literals are built-in. `sleep(ms)` blocks.
+- Notes: parser accepts `wait[IDENT]` in modifier position and semantic validation enforces known wait modifiers (`any`, `all`, `group`). Unknown modifiers raise runtime diagnostics like `unknown wait modifier 'foo'; expected one of: any, all, group` (with close-match suggestions when available). `wait[any]` is block-only (`wait[any] expr` is a parse error). Block forms use `:` indentation; single-expr forms `wait[all] tasks` / `wait[group] tasks` accept arrays of channels (typically from `spawn` in a comprehension). Parentheses are allowed for grouping. `timeout` and duration literals are built-in. `sleep(ms)` blocks.
 
 ```shakar
 task := spawn fetch_user(id)

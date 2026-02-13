@@ -50,8 +50,8 @@ from .mutation import get_field_value, index_value, slice_value
 from .selector import evaluate_selectorlist, apply_selectors_to_value
 from .valuefan import eval_valuefan, build_valuefan_context
 
-# Tokens valid as method names: identifiers and builtin function tokens (any/all).
-METHOD_NAME_TOKENS = frozenset({TT.IDENT, TT.ANY, TT.ALL})
+# Tokens valid as method names.
+METHOD_NAME_TOKENS = frozenset({TT.IDENT})
 
 EvalFn = Callable[[Node, Frame], ShkValue]
 

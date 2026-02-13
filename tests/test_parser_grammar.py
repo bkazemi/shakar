@@ -5,6 +5,8 @@ from textwrap import dedent
 import pytest
 
 from tests.support.harness import check_dot_continuation_invalid, parse_both_modes
+from tests.support.harness import ParseError, parse_pipeline
+from shakar_ref.tree import Tree
 
 PARSER_GRAMMAR_CASES = [
     ("op-0", "1 and 2 or 3", "both"),
@@ -39,6 +41,30 @@ PARSER_GRAMMAR_CASES = [
     ("wait-8", "spawn fan {f, g}", "both"),
     ("wait-9", "x := <-ch", "both"),
     ("wait-10", "1 -> ch", "both"),
+    ("wait-11", "wait[foo] tasks", "both"),
+    (
+        "wait-12",
+        dedent(
+            """\
+            wait[foo]:
+              spawn task()
+
+        """
+        ),
+        "indented",
+    ),
+    (
+        "wait-13",
+        dedent(
+            """\
+            group := 1
+            wait[group]:
+              spawn work()
+
+        """
+        ),
+        "indented",
+    ),
     (
         "wait-block-0",
         dedent(
@@ -686,3 +712,55 @@ def test_parser_grammar(code: str, start: str) -> None:
 
 def test_dot_continuation_invalid() -> None:
     check_dot_continuation_invalid()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "wait[]:",
+        "wait[1]:",
+        'wait["any"]:',
+        "wait[any all]:",
+    ],
+)
+def test_wait_modifier_slot_parse_errors(source: str) -> None:
+    for use_indenter in (False, True):
+        with pytest.raises(ParseError):
+            parse_pipeline(source, use_indenter=use_indenter)
+
+
+def _collect_tree_labels(node: object) -> set[str]:
+    labels: set[str] = set()
+    if not isinstance(node, Tree):
+        return labels
+
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        labels.add(current.data)
+        for child in current.children:
+            if isinstance(child, Tree):
+                stack.append(child)
+    return labels
+
+
+def test_wait_unknown_call_uses_generic_wait_modifier_node() -> None:
+    ast = parse_pipeline("wait[foo] tasks", use_indenter=False)
+    labels = _collect_tree_labels(ast)
+    assert "waitmodifiercall" in labels
+    assert "waitgroupcall" not in labels
+
+
+def test_wait_unknown_block_uses_generic_wait_modifier_node() -> None:
+    ast = parse_pipeline(
+        dedent(
+            """\
+            wait[foo]:
+              spawn work()
+        """
+        ),
+        use_indenter=True,
+    )
+    labels = _collect_tree_labels(ast)
+    assert "waitmodifierblock" in labels
+    assert "waitgroupblock" not in labels

@@ -29,9 +29,6 @@ class ParseContext(Enum):
     DESTRUCTURE_PACK = 3  # Inside destructure RHS pack: commas are value separators
 
 
-UFCS_BUILTIN_TOKENS = frozenset({TT.ANY, TT.ALL})
-
-
 # ============================================================================
 # Parser
 # ============================================================================
@@ -126,6 +123,12 @@ class Parser:
             column if column is not None else self.previous.column,
         )
 
+    def _modifier_attrs(self, modifier_tok: Tok) -> dict[str, Any]:
+        return {
+            "modifier_name": str(modifier_tok.value),
+            "modifier_tok": modifier_tok,
+        }
+
     def _call_tree(self, args: List[Node], call_tok: Tok) -> Tree:
         return Tree(
             "call",
@@ -199,22 +202,6 @@ class Parser:
 
     def _check_field_name(self) -> bool:
         return self.check(TT.IDENT)
-
-    def _check_ufcs_builtin_call(self) -> bool:
-        if self.current.type not in UFCS_BUILTIN_TOKENS:
-            return False
-        return self.peek(1).type == TT.LPAR
-
-    def _parse_ufcs_builtin_call(self, noanchor: bool) -> Tree:
-        """Parse .all(), .any() - builtin function tokens valid as UFCS method names."""
-        tok = self.advance()
-        field_tok = Tok(tok.type, tok.value, tok.line, tok.column)
-        self.expect(TT.LPAR)
-        args = self.parse_arg_list()
-        self.expect(TT.RPAR)
-        args_node = Tree("arglistnamedmixed", args) if args else None
-        children = [field_tok] + ([args_node] if args_node else [])
-        return self._maybe_noanchor(Tree("method", children), noanchor)
 
     def _field_node(self, tok: Tok) -> Tree:
         return Tree("field", [self._tok("IDENT", tok.value, tok.line, tok.column)])
@@ -371,9 +358,6 @@ class Parser:
         if self._check_field_name():
             return self._parse_field_or_method(noanchor)
 
-        if self._check_ufcs_builtin_call():
-            return self._parse_ufcs_builtin_call(noanchor)
-
         if self.check(TT.LPAR):
             if noanchor:
                 raise ParseError(
@@ -413,8 +397,6 @@ class Parser:
                 noanchor = self._take_noanchor_once(seen_noanchor)
                 if self._check_field_name():
                     ops.append(self._parse_field_or_method(noanchor))
-                elif self._check_ufcs_builtin_call():
-                    ops.append(self._parse_ufcs_builtin_call(noanchor))
                 elif self.match(TT.LBRACE):
                     if noanchor:
                         raise ParseError(
@@ -1347,7 +1329,13 @@ class Parser:
 
         children: List[Any] = []
         if handle:
-            children.append(Tree("using_handle", [handle]))
+            children.append(
+                Tree(
+                    "using_handle",
+                    [handle],
+                    attrs=self._modifier_attrs(handle),
+                )
+            )
         children.append(resource)
         if binder:
             children.append(Tree("using_bind", [binder]))
@@ -1391,7 +1379,13 @@ class Parser:
         children: List[Any] = []
         bind_tok = handle or binder
         if bind_tok:
-            children.append(Tree("call_bind", [bind_tok]))
+            children.append(
+                Tree(
+                    "call_bind",
+                    [bind_tok],
+                    attrs=self._modifier_attrs(bind_tok),
+                )
+            )
         children.append(target)
         children.append(body)
         return Tree("callstmt", children)
@@ -1756,46 +1750,59 @@ class Parser:
         """
         Parse wait forms:
         - wait expr / wait(expr)
-        - wait[any]: ... (select)
-        - wait[all]: ... (join, returns object)
-        - wait[group]: ... (join, discard results)
-        - wait[all] expr / wait[group] expr
+        - wait[IDENT]: ... (block forms)
+        - wait[IDENT] expr (single-expr forms)
         """
         self.expect(TT.WAIT)
 
         if self.match(TT.LSQB):
-            kind_tok = self.advance()
-            kind_type = getattr(kind_tok, "type", None)
-            kind_value = kind_tok.value if kind_type == TT.IDENT else kind_tok.value
-
-            if kind_type == TT.ANY or kind_value == "any":
-                kind = "any"
-            elif kind_type == TT.ALL or kind_value == "all":
-                kind = "all"
-            elif kind_type == TT.GROUP or kind_value == "group":
-                kind = "group"
-            else:
-                raise ParseError("wait expects [any], [all], or [group]", kind_tok)
-
+            kind_tok = self.expect(TT.IDENT)
+            kind = str(kind_tok.value)
             self.expect(TT.RSQB)
 
             if self.match(TT.COLON):
                 if kind == "any":
-                    return self._parse_wait_any_block()
+                    return self._parse_wait_any_block(kind_tok)
                 if kind == "all":
                     return self._parse_wait_named_block(
-                        "waitallblock", "waitallarm", "wait[all]"
+                        "waitallblock",
+                        "waitallarm",
+                        "wait[all]",
+                        kind_tok,
                     )
-                return self._parse_wait_group_block()
+                if kind == "group":
+                    return self._parse_wait_group_block(
+                        kind_tok,
+                        context="wait[group]",
+                    )
+                return self._parse_wait_unknown_block(
+                    kind_tok,
+                    context=f"wait[{kind}]",
+                )
 
             if kind == "any":
+                # Intentional asymmetry: `wait[any]` only supports block form.
+                # Unknown non-colon forms (e.g. wait[xyz] expr) are parsed into
+                # waitmodifiercall so semantic validation can report unknown
+                # modifiers uniformly at runtime.
                 raise ParseError("wait[any] requires ':' block form", kind_tok)
 
             # Single-expr form: treat wait[all]/wait[group] as unary; use parens for
             # broader expressions or CCC if needed.
             expr = self.parse_unary_expr()
-            node_label = "waitallcall" if kind == "all" else "waitgroupcall"
-            return Tree(node_label, [expr])
+            if kind == "all":
+                return Tree("waitallcall", [expr], attrs=self._modifier_attrs(kind_tok))
+            if kind == "group":
+                return Tree(
+                    "waitgroupcall",
+                    [expr],
+                    attrs=self._modifier_attrs(kind_tok),
+                )
+            return Tree(
+                "waitmodifiercall",
+                [expr],
+                attrs=self._modifier_attrs(kind_tok),
+            )
 
         # wait expr / wait(expr)
         if self.match(TT.LPAR):
@@ -1820,7 +1827,7 @@ class Parser:
             expr = self.parse_unary_expr()
         return Tree("spawn", [expr])
 
-    def _parse_wait_any_block(self) -> Tree:
+    def _parse_wait_any_block(self, modifier_tok: Tok) -> Tree:
         self._expect_indented_block("wait[any]", require_arm=True)
 
         arms: list[Tree] = []
@@ -1860,10 +1867,14 @@ class Parser:
             self._consume_newlines()
 
         self.expect(TT.DEDENT)
-        return Tree("waitanyblock", arms)
+        return Tree("waitanyblock", arms, attrs=self._modifier_attrs(modifier_tok))
 
     def _parse_wait_named_block(
-        self, root_label: str, arm_label: str, context: str
+        self,
+        root_label: str,
+        arm_label: str,
+        context: str,
+        modifier_tok: Tok,
     ) -> Tree:
         self._expect_indented_block(context, require_arm=True)
 
@@ -1881,10 +1892,10 @@ class Parser:
             self._consume_newlines()
 
         self.expect(TT.DEDENT)
-        return Tree(root_label, arms)
+        return Tree(root_label, arms, attrs=self._modifier_attrs(modifier_tok))
 
-    def _parse_wait_group_block(self) -> Tree:
-        self._expect_indented_block("wait[group]", require_arm=True)
+    def _parse_wait_group_block(self, modifier_tok: Tok, context: str) -> Tree:
+        self._expect_indented_block(context, require_arm=True)
 
         arms: list[Tree] = []
 
@@ -1898,7 +1909,26 @@ class Parser:
             self._consume_newlines()
 
         self.expect(TT.DEDENT)
-        return Tree("waitgroupblock", arms)
+        return Tree("waitgroupblock", arms, attrs=self._modifier_attrs(modifier_tok))
+
+    def _parse_wait_unknown_block(self, modifier_tok: Tok, context: str) -> Tree:
+        # Unknown wait modifiers are still parsed by shape so semantic validation
+        # can produce a precise construct-specific diagnostic later.
+        self._expect_indented_block(context, require_arm=True)
+
+        arms: list[Tree] = []
+
+        while not self.check(TT.DEDENT, TT.EOF):
+            if self.match(TT.NEWLINE):
+                continue
+
+            expr = self.parse_expr()
+            arms.append(Tree("waitmodifierarm", [expr]))
+
+            self._consume_newlines()
+
+        self.expect(TT.DEDENT)
+        return Tree("waitmodifierblock", arms, attrs=self._modifier_attrs(modifier_tok))
 
     def parse_return_stmt(self) -> Tree:
         """Parse return statement: return [expr | pack]"""
@@ -2905,12 +2935,6 @@ class Parser:
         # Special identifiers
         if self.match(TT.OVER):
             return self._tok("OVER", "_")
-        if self.match(TT.ANY):
-            return self._tok("ANY", "any")
-        if self.match(TT.ALL):
-            return self._tok("ALL", "all")
-        if self.match(TT.GROUP):
-            return self._tok("GROUP", "group")
 
         # Parenthesized expression
         if self.match(TT.LPAR):
@@ -2952,6 +2976,7 @@ class Parser:
             modifiers = Tree(
                 "fan_modifiers",
                 [self._tok("IDENT", mod_tok.value, mod_tok.line, mod_tok.column)],
+                attrs=self._modifier_attrs(mod_tok),
             )
 
         self.expect(TT.LBRACE)

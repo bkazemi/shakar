@@ -5,9 +5,11 @@ from textwrap import dedent
 import pytest
 
 from tests.support.harness import (
+    ShakarRuntimeError,
     ShakarTypeError,
     run_runtime_case,
 )
+from shakar_ref.runner import run as run_program
 
 SCENARIOS = [
     pytest.param(
@@ -184,3 +186,19 @@ def test_channel_cancel_race() -> None:
     from tests.support.harness import check_channel_cancel_race
 
     check_channel_cancel_race()
+
+
+def test_wait_unknown_modifier_runtime_error() -> None:
+    with pytest.raises(
+        ShakarRuntimeError,
+        match="unknown wait modifier 'foo'; expected one of: any, all, group",
+    ):
+        run_program("wait[foo] 1")
+
+
+def test_wait_modifier_close_match_suggestion() -> None:
+    with pytest.raises(
+        ShakarRuntimeError,
+        match=r"unknown wait modifier 'gruop'.*did you mean 'group'\?",
+    ):
+        run_program("wait[gruop] 1")
