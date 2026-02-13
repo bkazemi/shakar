@@ -49,9 +49,6 @@ typedef enum {
     TT_OVER,
     TT_BIND,
     TT_IMPORT,
-    TT_ANY,
-    TT_ALL,
-    TT_GROUP,
     TT_FAN,
 
     /* Literal keywords */
@@ -145,7 +142,7 @@ typedef enum {
 
 /* Token: references source buffer via offset + length (zero-copy). */
 typedef struct {
-    TT  type;
+    TT type;
     int start; /* byte offset into source */
     int len;   /* byte length of token value */
     int line;  /* 1-based line */
@@ -155,8 +152,8 @@ typedef struct {
 /* Growable token buffer. */
 typedef struct {
     Tok *toks;
-    int  count;
-    int  capacity;
+    int count;
+    int capacity;
 } TokBuf;
 
 static inline void tokbuf_init(TokBuf *b) {

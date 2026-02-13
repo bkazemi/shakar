@@ -97,9 +97,6 @@ static HlGroup base_group(TT t) {
     case TT_OVER:
     case TT_BIND:
     case TT_IMPORT:
-    case TT_ANY:
-    case TT_ALL:
-    case TT_GROUP:
     case TT_FAN:
     case TT_NOT:
     case TT_AND:
@@ -350,10 +347,30 @@ static int token_text_equals(const char *src, int src_len, const Tok *tok, const
     return memcmp(src + tok->start, text, (size_t)text_len) == 0;
 }
 
+static int is_slot_head_keyword(TT t) {
+    switch (t) {
+    case TT_WAIT:
+    case TT_USING:
+    case TT_CALL:
+    case TT_FAN:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 /* Classify identifier based on prev/next significant token. */
-static HlGroup classify_ident(const char *src, int src_len, Tok *tok, Tok *next_sig, TT prev_sig) {
+static HlGroup classify_ident(const char *src, int src_len, Tok *tok, Tok *next_sig, TT prev_sig,
+                              TT prev_prev_sig) {
     if (prev_sig == TT_QMARK && token_text_equals(src, src_len, tok, "ret", 3))
         return HL_KEYWORD;
+
+    /* Modifier/binder bracket slot: wait[mod], using[name], call[name], fan[mod]. */
+    if (prev_sig == TT_LSQB && next_sig && next_sig->type == TT_RSQB) {
+        if (is_slot_head_keyword(prev_prev_sig)) {
+            return HL_KEYWORD;
+        }
+    }
 
     if (prev_sig == TT_FN)
         return HL_FUNCTION;
@@ -844,6 +861,7 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
     for (int si = 0; si < sig_count; si++) {
         Tok *tok = &toks[sig_idx[si]];
         Tok *next_sig_tok = (si + 1 < sig_count) ? &toks[sig_idx[si + 1]] : 0;
+        TT prev_prev_sig = (si >= 2) ? toks[sig_idx[si - 2]].type : TT_EOF;
         TT next_sig_type = next_sig_tok ? next_sig_tok->type : TT_EOF;
         HlGroup group = base_group(tok->type);
         if (group == HL_NONE) {
@@ -888,7 +906,7 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
                    token_text_equals(src, src_len, next_sig_tok, "ret", 3)) {
             group = HL_KEYWORD;
         } else if (tok->type == TT_IDENT) {
-            group = classify_ident(src, src_len, tok, next_sig_tok, prev_sig);
+            group = classify_ident(src, src_len, tok, next_sig_tok, prev_sig, prev_prev_sig);
         } else if (tok->type == TT_STRING || tok->type == TT_RAW_STRING ||
                    tok->type == TT_RAW_HASH_STRING || tok->type == TT_SHELL_STRING ||
                    tok->type == TT_SHELL_BANG_STRING || tok->type == TT_ENV_STRING) {

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Callable, List
+from typing import Callable
 
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.lexers import Lexer
 
 from .lexer_rd import Lexer as ShkLexer, LexError
-from .token_types import TT
+from .token_types import TT, Tok
 
 # Map highlight groups → prompt_toolkit style strings.
 GROUP_STYLE = {
@@ -137,6 +137,48 @@ _TT_GROUP = {
 }
 
 _LAYOUT = {TT.NEWLINE, TT.INDENT, TT.DEDENT, TT.EOF}
+_SIG_SKIP = _LAYOUT | {TT.COMMENT}
+_SLOT_HEADS = {TT.WAIT, TT.USING, TT.CALL, TT.FAN}
+
+
+def _prev_sig_idx(tokens: list[Tok], idx: int) -> int:
+    j = idx - 1
+    while j >= 0:
+        tok = tokens[j]
+        if tok.type not in _SIG_SKIP:
+            return j
+        j -= 1
+    return -1
+
+
+def _next_sig_idx(tokens: list[Tok], idx: int) -> int:
+    j = idx + 1
+    while j < len(tokens):
+        tok = tokens[j]
+        if tok.type not in _SIG_SKIP:
+            return j
+        j += 1
+    return -1
+
+
+def _is_bracket_slot_ident(tokens: list[Tok], idx: int) -> bool:
+    prev_idx = _prev_sig_idx(tokens, idx)
+    next_idx = _next_sig_idx(tokens, idx)
+    if prev_idx < 0 or next_idx < 0:
+        return False
+
+    prev_tok = tokens[prev_idx]
+    next_tok = tokens[next_idx]
+    if prev_tok.type != TT.LSQB:
+        return False
+    if next_tok.type != TT.RSQB:
+        return False
+
+    head_idx = _prev_sig_idx(tokens, prev_idx)
+    if head_idx < 0:
+        return False
+    head_tok = tokens[head_idx]
+    return head_tok.type in _SLOT_HEADS
 
 
 def _highlight_line(text: str) -> StyleAndTextTuples:
@@ -153,7 +195,7 @@ def _highlight_line(text: str) -> StyleAndTextTuples:
     result: StyleAndTextTuples = []
     pos = 0
 
-    for tok in tokens:
+    for i, tok in enumerate(tokens):
         if tok.type in _LAYOUT:
             continue
         tok_start = tok.column
@@ -171,6 +213,8 @@ def _highlight_line(text: str) -> StyleAndTextTuples:
             result.append(("", text[pos:idx]))
 
         group = _TT_GROUP.get(tok.type, "")
+        if tok.type == TT.IDENT and _is_bracket_slot_ident(tokens, i):
+            group = "keyword"
         style = GROUP_STYLE.get(group, "")
         result.append((style, tok_text))
         pos = idx + len(tok_text)

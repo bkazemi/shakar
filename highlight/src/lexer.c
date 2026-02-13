@@ -20,9 +20,7 @@ static inline char pk(Lexer *L, int off) {
     return (i < L->src_len) ? L->src[i] : '\0';
 }
 
-static inline char pk0(Lexer *L) {
-    return pk(L, 0);
-}
+static inline char pk0(Lexer *L) { return pk(L, 0); }
 
 static inline void adv(Lexer *L, int n) {
     for (int i = 0; i < n; i++) {
@@ -111,9 +109,7 @@ static int starts_with(Lexer *L, const char *s, int off) {
     return 1;
 }
 
-static int starts_with0(Lexer *L, const char *s) {
-    return starts_with(L, s, 0);
-}
+static int starts_with0(Lexer *L, const char *s) { return starts_with(L, s, 0); }
 
 /* ======================================================================== */
 /* Keyword lookup                                                            */
@@ -121,13 +117,12 @@ static int starts_with0(Lexer *L, const char *s) {
 
 typedef struct {
     const char *word;
-    TT          type;
+    TT type;
 } KWEntry;
 
 /* Sorted by word for binary search. */
 static const KWEntry KEYWORDS[] = {
-    {"after", TT_AFTER},   {"all", TT_ALL},
-    {"and", TT_AND},       {"any", TT_ANY},
+    {"after", TT_AFTER},   {"and", TT_AND},
     {"assert", TT_ASSERT}, {"bind", TT_BIND},
     {"break", TT_BREAK},   {"call", TT_CALL},
     {"catch", TT_CATCH},   {"continue", TT_CONTINUE},
@@ -136,17 +131,16 @@ static const KWEntry KEYWORDS[] = {
     {"else", TT_ELSE},     {"false", TT_FALSE},
     {"fan", TT_FAN},       {"fn", TT_FN},
     {"for", TT_FOR},       {"get", TT_GET},
-    {"group", TT_GROUP},   {"hook", TT_HOOK},
-    {"if", TT_IF},         {"import", TT_IMPORT},
-    {"in", TT_IN},         {"is", TT_IS},
-    {"let", TT_LET},       {"match", TT_MATCH},
-    {"nil", TT_NIL},       {"not", TT_NOT},
-    {"or", TT_OR},         {"over", TT_OVER},
-    {"return", TT_RETURN}, {"set", TT_SET},
-    {"spawn", TT_SPAWN},   {"throw", TT_THROW},
-    {"true", TT_TRUE},     {"unless", TT_UNLESS},
-    {"using", TT_USING},   {"wait", TT_WAIT},
-    {"while", TT_WHILE},
+    {"hook", TT_HOOK},     {"if", TT_IF},
+    {"import", TT_IMPORT}, {"in", TT_IN},
+    {"is", TT_IS},         {"let", TT_LET},
+    {"match", TT_MATCH},   {"nil", TT_NIL},
+    {"not", TT_NOT},       {"or", TT_OR},
+    {"over", TT_OVER},     {"return", TT_RETURN},
+    {"set", TT_SET},       {"spawn", TT_SPAWN},
+    {"throw", TT_THROW},   {"true", TT_TRUE},
+    {"unless", TT_UNLESS}, {"using", TT_USING},
+    {"wait", TT_WAIT},     {"while", TT_WHILE},
 };
 
 #define KW_COUNT (sizeof(KEYWORDS) / sizeof(KEYWORDS[0]))
@@ -176,8 +170,8 @@ static TT keyword_lookup(const char *word, int len) {
 
 typedef struct {
     const char *op;
-    int         len;
-    TT          type;
+    int len;
+    TT type;
 } OpEntry;
 
 static const OpEntry OPERATORS[] = {
@@ -473,7 +467,7 @@ static void scan_number(Lexer *L) {
 
     /* Check for duration/size unit */
     int unit_len = match_unit(L, DUR_UNITS, DUR_UNIT_COUNT);
-    TT  lit_type = TT_DURATION;
+    TT lit_type = TT_DURATION;
     if (!unit_len) {
         unit_len = match_unit(L, SIZE_UNITS, SIZE_UNIT_COUNT);
         lit_type = TT_SIZE;
@@ -492,7 +486,7 @@ static void scan_number(Lexer *L) {
 
     /* Compound literal: more digit+unit pairs */
     const char **unit_list = (lit_type == TT_DURATION) ? DUR_UNITS : SIZE_UNITS;
-    int          unit_count = (lit_type == TT_DURATION) ? DUR_UNIT_COUNT : SIZE_UNIT_COUNT;
+    int unit_count = (lit_type == TT_DURATION) ? DUR_UNIT_COUNT : SIZE_UNIT_COUNT;
 
     while (pk0(L) >= '0' && pk0(L) <= '9') {
         scan_digits_us(L);
@@ -514,7 +508,7 @@ static void scan_number(Lexer *L) {
 /* ======================================================================== */
 
 static void scan_string(Lexer *L) {
-    int  sline = L->line, scol = L->col, spos = L->pos;
+    int sline = L->line, scol = L->col, spos = L->pos;
     char quote = pk0(L);
     adv(L, 1);
 
@@ -563,7 +557,7 @@ static void scan_raw_string(Lexer *L) {
 }
 
 static void scan_shell_string(Lexer *L, int prefix_len, int allow_esc) {
-    int  sline = L->line, scol = L->col - prefix_len, spos = L->pos - prefix_len;
+    int sline = L->line, scol = L->col - prefix_len, spos = L->pos - prefix_len;
     char quote = pk0(L);
     adv(L, 1);
     if (scan_quoted(L, quote, allow_esc, 1) < 0)
@@ -577,7 +571,7 @@ static void scan_shell_string(Lexer *L, int prefix_len, int allow_esc) {
 }
 
 static void scan_shell_bang_string(Lexer *L, int prefix_len, int allow_esc) {
-    int  sline = L->line, scol = L->col - prefix_len, spos = L->pos - prefix_len;
+    int sline = L->line, scol = L->col - prefix_len, spos = L->pos - prefix_len;
     char quote = pk0(L);
     adv(L, 1);
     if (scan_quoted(L, quote, allow_esc, 1) < 0)
@@ -592,7 +586,7 @@ static void scan_shell_bang_string(Lexer *L, int prefix_len, int allow_esc) {
 
 static void scan_path_string(Lexer *L) {
     /* 'p' already consumed */
-    int  sline = L->line, scol = L->col - 1, spos = L->pos - 1;
+    int sline = L->line, scol = L->col - 1, spos = L->pos - 1;
     char quote = pk0(L);
     adv(L, 1);
     if (scan_quoted(L, quote, 1, 0) < 0)
@@ -607,7 +601,7 @@ static void scan_path_string(Lexer *L) {
 
 static void scan_env_string(Lexer *L) {
     /* 'env' already consumed */
-    int  sline = L->line, scol = L->col - 3, spos = L->pos - 3;
+    int sline = L->line, scol = L->col - 3, spos = L->pos - 3;
     char quote = pk0(L);
     adv(L, 1);
     if (scan_quoted(L, quote, 1, 0) < 0)
@@ -664,7 +658,7 @@ static void scan_identifier(Lexer *L) {
         adv(L, 1);
 
     int len = L->pos - spos;
-    TT  type = keyword_lookup(L->src + spos, len);
+    TT type = keyword_lookup(L->src + spos, len);
     emit(L, type, spos, len, sline, scol);
 }
 
@@ -674,7 +668,7 @@ static void scan_operator(Lexer *L) {
     for (int i = 0; i < (int)OP_COUNT; i++) {
         if (starts_with0(L, OPERATORS[i].op)) {
             int olen = OPERATORS[i].len;
-            TT  type = OPERATORS[i].type;
+            TT type = OPERATORS[i].type;
             int spos = L->pos;
             adv(L, olen);
             emit(L, type, spos, olen, sline, scol);
