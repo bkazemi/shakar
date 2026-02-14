@@ -936,10 +936,18 @@ class Lexer:
                 raise LexError(f"Malformed {kind} literal at line {line}")
             parts.append((num_str, unit))
 
-        if len(parts) > 1 and any("." in n or "e" in n.lower() for n, _ in parts):
-            raise LexError(
-                f"Decimal component in compound {kind} literal at line {line}"
-            )
+        if len(parts) > 1:
+            if any("." in n or "e" in n.lower() for n, _ in parts):
+                raise LexError(
+                    f"Decimal component in compound {kind} literal at line {line}"
+                )
+            seen: set[str] = set()
+            for _, u in parts:
+                if u in seen:
+                    raise LexError(
+                        f"Duplicate unit '{u}' in compound {kind} literal at line {line}"
+                    )
+                seen.add(u)
 
         total = Decimal(0)
         for num_str, unit in parts:

@@ -42,7 +42,7 @@ from .selector import (
     _selector_index_to_int,
     _selector_slice_to_slice,
 )
-from .common import DURATION_UNITS, SIZE_UNITS
+from ..types import DURATION_NANOS, SIZE_BYTES
 
 
 def set_field_value(
@@ -288,14 +288,14 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
         case ShkDuration(nanos=nanos):
             if name == "total_nsec":
                 return ShkNumber(float(nanos))
-            if name in DURATION_UNITS:
-                return ShkNumber(float(nanos) / DURATION_UNITS[name])
+            if name in DURATION_NANOS:
+                return ShkNumber(float(nanos) / DURATION_NANOS[name])
             raise ShakarFieldNotFoundError(f"Duration has no field '{name}'")
         case ShkSize(byte_count=bytes_val):
             if name == "total_bytes":
                 return ShkNumber(float(bytes_val))
-            if name in SIZE_UNITS:
-                return ShkNumber(float(bytes_val) / SIZE_UNITS[name])
+            if name in SIZE_BYTES:
+                return ShkNumber(float(bytes_val) / SIZE_BYTES[name])
             raise ShakarFieldNotFoundError(f"Size has no field '{name}'")
         case ShkRegex():
             if name in Builtins.regex_methods:

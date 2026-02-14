@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from collections import deque
+import math
 import pathlib
 import re
 import threading
@@ -52,10 +53,149 @@ class ShkNumber:
         return str(int(v)) if v.is_integer() else str(v)
 
 
+DURATION_NANOS: Dict[str, int] = {
+    "nsec": 1,
+    "usec": 1_000,
+    "msec": 1_000_000,
+    "sec": 1_000_000_000,
+    "min": 60_000_000_000,
+    "hr": 3_600_000_000_000,
+    "day": 86_400_000_000_000,
+    "wk": 604_800_000_000_000,
+}
+
+SIZE_BYTES: Dict[str, int] = {
+    "b": 1,
+    "kb": 1_000,
+    "mb": 1_000_000,
+    "gb": 1_000_000_000,
+    "tb": 1_000_000_000_000,
+    "kib": 1_024,
+    "mib": 1_048_576,
+    "gib": 1_073_741_824,
+    "tib": 1_099_511_627_776,
+}
+
+
+MAX_REPEATING_FRACTION_DIGITS = 20
+
+
+def _has_terminating_decimal(remainder: int, per_unit: int) -> bool:
+    """Check whether remainder/per_unit has a finite decimal expansion."""
+    denominator = per_unit // math.gcd(remainder, per_unit)
+
+    while denominator % 2 == 0:
+        denominator //= 2
+    while denominator % 5 == 0:
+        denominator //= 5
+
+    return denominator == 1
+
+
+def _format_single(abs_val: int, unit: str, per_unit: int) -> str:
+    """Format a non-negative value with a single unit."""
+    if per_unit == 1:
+        return f"{abs_val}{unit}"
+
+    whole, remainder = divmod(abs_val, per_unit)
+    if remainder == 0:
+        return f"{whole}{unit}"
+
+    # Exact rational formatting using integer long-division.
+    # For terminating decimals, emit the full exact expansion.
+    # For repeating decimals, cap output to keep rendering bounded.
+    frac_digits: List[str] = []
+    r = remainder
+    if _has_terminating_decimal(remainder, per_unit):
+        while r:
+            r *= 10
+            d, r = divmod(r, per_unit)
+            frac_digits.append(str(d))
+    else:
+        for _ in range(MAX_REPEATING_FRACTION_DIGITS):
+            r *= 10
+            d, r = divmod(r, per_unit)
+            frac_digits.append(str(d))
+            if r == 0:
+                break
+
+    # Preserve literal shape for very tiny values in large units.
+    frac = "".join(frac_digits) or "0"
+    return f"{whole}.{frac}{unit}"
+
+
+def _format_places(
+    abs_val: int,
+    places: Tuple[str, ...],
+    unit_map: Dict[str, int],
+) -> str:
+    """Decompose a non-negative value across ordered unit places.
+    Places are ordered largest-first. Zero-valued places are omitted.
+    The last place absorbs the remainder (possibly fractional)."""
+    if len(places) == 1:
+        single = places[0]
+        return _format_single(abs_val, single, unit_map[single])
+
+    # Compound literals require integer components. If the tail would be
+    # fractional in the smallest stored place, render as a single-unit value.
+    tail = abs_val
+    for u in places[:-1]:
+        _, tail = divmod(tail, unit_map[u])
+    smallest_per = unit_map[places[-1]]
+    if tail % smallest_per != 0:
+        primary = places[0]
+        return _format_single(abs_val, primary, unit_map[primary])
+
+    parts: List[str] = []
+    remaining = abs_val
+    for i, u in enumerate(places):
+        per = unit_map[u]
+        if i < len(places) - 1:
+            count, remaining = divmod(remaining, per)
+            if count:
+                parts.append(f"{count}{u}")
+        else:
+            # Last place absorbs whatever is left
+            if remaining or not parts:
+                count, _ = divmod(remaining, per)
+                parts.append(f"{count}{u}")
+
+    return "".join(parts)
+
+
+def _format_value(
+    raw_value: int,
+    places: Optional[Tuple[str, ...]],
+    unit_map: Dict[str, int],
+    fallback_unit: str,
+) -> str:
+    """Format a raw value (nanos or bytes) using stored unit places."""
+    if not places:
+        places = (fallback_unit,)
+
+    sign = "-" if raw_value < 0 else ""
+    return sign + _format_places(abs(raw_value), places, unit_map)
+
+
+def merge_units(
+    a: Optional[Tuple[str, ...]],
+    b: Optional[Tuple[str, ...]],
+    unit_map: Dict[str, int],
+) -> Optional[Tuple[str, ...]]:
+    """Merge two unit tuples, returning the union sorted largest-first."""
+    if a is None:
+        return b
+    if b is None:
+        return a
+
+    combined = set(a) | set(b)
+    return tuple(sorted(combined, key=lambda u: unit_map[u], reverse=True))
+
+
 @dataclass
 class ShkDuration:
     nanos: int
-    display: Optional[str] = None
+    units: Optional[Tuple[str, ...]] = None
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ShkDuration):
@@ -66,16 +206,13 @@ class ShkDuration:
         return self.__str__()
 
     def __str__(self) -> str:
-        text = self.display if self.display is not None else f"{self.nanos}nsec"
-        if self.nanos < 0 and not text.startswith("-"):
-            return "-" + text
-        return text
+        return _format_value(self.nanos, self.units, DURATION_NANOS, "nsec")
 
 
 @dataclass
 class ShkSize:
     byte_count: int
-    display: Optional[str] = None
+    units: Optional[Tuple[str, ...]] = None
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ShkSize):
@@ -86,10 +223,7 @@ class ShkSize:
         return self.__str__()
 
     def __str__(self) -> str:
-        text = self.display if self.display is not None else f"{self.byte_count}b"
-        if self.byte_count < 0 and not text.startswith("-"):
-            return "-" + text
-        return text
+        return _format_value(self.byte_count, self.units, SIZE_BYTES, "b")
 
 
 @dataclass

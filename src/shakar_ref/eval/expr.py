@@ -6,6 +6,7 @@ from typing import Callable, List, Optional, Set
 from ..tree import Tok, is_grouped_rebind
 from ..token_types import TT
 
+from ..types import DURATION_NANOS, SIZE_BYTES, merge_units
 from ..runtime import (
     Frame,
     ShkArray,
@@ -232,9 +233,9 @@ def eval_unary(
             if isinstance(rhs, ShkNumber):
                 return ShkNumber(-rhs.value)
             if isinstance(rhs, ShkDuration):
-                return ShkDuration(-rhs.nanos, display=rhs.display)
+                return ShkDuration(-rhs.nanos, units=rhs.units)
             if isinstance(rhs, ShkSize):
-                return ShkSize(-rhs.byte_count, display=rhs.display)
+                return ShkSize(-rhs.byte_count, units=rhs.units)
             raise ShakarTypeError("Expected number, duration, or size")
         case Tok(type=TT.TILDE) | "~":
             raise ShakarRuntimeError("bitwise ~ not supported yet")
@@ -503,9 +504,13 @@ def _scaled_int64(value: float, kind: str) -> int:
 
 def _mul_duration(lhs: ShkValue, rhs: ShkValue) -> ShkDuration:
     if isinstance(lhs, ShkDuration) and isinstance(rhs, ShkNumber):
-        return ShkDuration(_scaled_int64(lhs.nanos * rhs.value, "Duration"))
+        return ShkDuration(
+            _scaled_int64(lhs.nanos * rhs.value, "Duration"), units=lhs.units
+        )
     if isinstance(rhs, ShkDuration) and isinstance(lhs, ShkNumber):
-        return ShkDuration(_scaled_int64(rhs.nanos * lhs.value, "Duration"))
+        return ShkDuration(
+            _scaled_int64(rhs.nanos * lhs.value, "Duration"), units=rhs.units
+        )
     if isinstance(lhs, ShkDuration) or isinstance(rhs, ShkDuration):
         raise ShakarTypeError("Duration multiplication expects a number")
     raise ShakarTypeError("Expected duration or number")
@@ -519,7 +524,9 @@ def _div_duration(lhs: ShkValue, rhs: ShkValue) -> ShkDuration | ShkNumber:
     if isinstance(lhs, ShkDuration) and isinstance(rhs, ShkNumber):
         if rhs.value == 0:
             raise ShakarRuntimeError("Division by zero")
-        return ShkDuration(_scaled_int64(lhs.nanos / rhs.value, "Duration"))
+        return ShkDuration(
+            _scaled_int64(lhs.nanos / rhs.value, "Duration"), units=lhs.units
+        )
     if isinstance(lhs, ShkDuration) or isinstance(rhs, ShkDuration):
         raise ShakarTypeError("Duration division expects a number or duration")
     raise ShakarTypeError("Expected duration or number")
@@ -527,9 +534,13 @@ def _div_duration(lhs: ShkValue, rhs: ShkValue) -> ShkDuration | ShkNumber:
 
 def _mul_size(lhs: ShkValue, rhs: ShkValue) -> ShkSize:
     if isinstance(lhs, ShkSize) and isinstance(rhs, ShkNumber):
-        return ShkSize(_scaled_int64(lhs.byte_count * rhs.value, "Size"))
+        return ShkSize(
+            _scaled_int64(lhs.byte_count * rhs.value, "Size"), units=lhs.units
+        )
     if isinstance(rhs, ShkSize) and isinstance(lhs, ShkNumber):
-        return ShkSize(_scaled_int64(rhs.byte_count * lhs.value, "Size"))
+        return ShkSize(
+            _scaled_int64(rhs.byte_count * lhs.value, "Size"), units=rhs.units
+        )
     if isinstance(lhs, ShkSize) or isinstance(rhs, ShkSize):
         raise ShakarTypeError("Size multiplication expects a number")
     raise ShakarTypeError("Expected size or number")
@@ -543,7 +554,9 @@ def _div_size(lhs: ShkValue, rhs: ShkValue) -> ShkSize | ShkNumber:
     if isinstance(lhs, ShkSize) and isinstance(rhs, ShkNumber):
         if rhs.value == 0:
             raise ShakarRuntimeError("Division by zero")
-        return ShkSize(_scaled_int64(lhs.byte_count / rhs.value, "Size"))
+        return ShkSize(
+            _scaled_int64(lhs.byte_count / rhs.value, "Size"), units=lhs.units
+        )
     if isinstance(lhs, ShkSize) or isinstance(rhs, ShkSize):
         raise ShakarTypeError("Size division expects a number or size")
     raise ShakarTypeError("Expected size or number")
@@ -561,11 +574,17 @@ def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
             if isinstance(lhs, ShkDuration) or isinstance(rhs, ShkDuration):
                 if not (isinstance(lhs, ShkDuration) and isinstance(rhs, ShkDuration)):
                     raise ShakarTypeError("Duration arithmetic expects durations")
-                return ShkDuration(_scaled_int64(lhs.nanos + rhs.nanos, "Duration"))
+                units = merge_units(lhs.units, rhs.units, DURATION_NANOS)
+                return ShkDuration(
+                    _scaled_int64(lhs.nanos + rhs.nanos, "Duration"), units=units
+                )
             if isinstance(lhs, ShkSize) or isinstance(rhs, ShkSize):
                 if not (isinstance(lhs, ShkSize) and isinstance(rhs, ShkSize)):
                     raise ShakarTypeError("Size arithmetic expects sizes")
-                return ShkSize(_scaled_int64(lhs.byte_count + rhs.byte_count, "Size"))
+                units = merge_units(lhs.units, rhs.units, SIZE_BYTES)
+                return ShkSize(
+                    _scaled_int64(lhs.byte_count + rhs.byte_count, "Size"), units=units
+                )
             lhs_num = require_number(lhs)
             rhs_num = require_number(rhs)
             return ShkNumber(lhs_num.value + rhs_num.value)
@@ -573,11 +592,17 @@ def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
             if isinstance(lhs, ShkDuration) or isinstance(rhs, ShkDuration):
                 if not (isinstance(lhs, ShkDuration) and isinstance(rhs, ShkDuration)):
                     raise ShakarTypeError("Duration arithmetic expects durations")
-                return ShkDuration(_scaled_int64(lhs.nanos - rhs.nanos, "Duration"))
+                units = merge_units(lhs.units, rhs.units, DURATION_NANOS)
+                return ShkDuration(
+                    _scaled_int64(lhs.nanos - rhs.nanos, "Duration"), units=units
+                )
             if isinstance(lhs, ShkSize) or isinstance(rhs, ShkSize):
                 if not (isinstance(lhs, ShkSize) and isinstance(rhs, ShkSize)):
                     raise ShakarTypeError("Size arithmetic expects sizes")
-                return ShkSize(_scaled_int64(lhs.byte_count - rhs.byte_count, "Size"))
+                units = merge_units(lhs.units, rhs.units, SIZE_BYTES)
+                return ShkSize(
+                    _scaled_int64(lhs.byte_count - rhs.byte_count, "Size"), units=units
+                )
             lhs_num = require_number(lhs)
             rhs_num = require_number(rhs)
             return ShkNumber(lhs_num.value - rhs_num.value)

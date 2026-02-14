@@ -442,6 +442,199 @@ SCENARIOS = [
         None,
         id="size-sub",
     ),
+    # --- Duration/Size display (str representation) ---
+    pytest.param(
+        '"" + 1sec * 2',
+        ("string", "2sec"),
+        None,
+        id="duration-display-simple-mul",
+    ),
+    pytest.param(
+        '"" + 1min30sec',
+        ("string", "1min30sec"),
+        None,
+        id="duration-display-compound-literal",
+    ),
+    pytest.param(
+        '"" + 1min30sec * 1',
+        ("string", "1min30sec"),
+        None,
+        id="duration-display-compound-identity",
+    ),
+    pytest.param(
+        '"" + 1min30sec * 2',
+        ("string", "3min"),
+        None,
+        id="duration-display-compound-mul",
+    ),
+    pytest.param(
+        '"" + 1min30sec * 4',
+        ("string", "6min"),
+        None,
+        id="duration-display-compound-mul-zero-sec",
+    ),
+    pytest.param(
+        '"" + 1min30sec * 3',
+        ("string", "4min30sec"),
+        None,
+        id="duration-display-compound-mul-nonzero",
+    ),
+    pytest.param(
+        '"" + (1hr30min + 30min)',
+        ("string", "2hr"),
+        None,
+        id="duration-display-compound-add",
+    ),
+    pytest.param(
+        '"" + (1hr + 1sec)',
+        ("string", "1hr1sec"),
+        None,
+        id="duration-display-mixed-add",
+    ),
+    pytest.param(
+        '"" + -1min30sec',
+        ("string", "-1min30sec"),
+        None,
+        id="duration-display-negate-compound",
+    ),
+    pytest.param(
+        '"" + 1sec / 3',
+        ("string", "0.333333333sec"),
+        None,
+        id="duration-display-fractional",
+    ),
+    pytest.param(
+        '"" + 1gb512mb * 2',
+        ("string", "3gb24mb"),
+        None,
+        id="size-display-compound-mul",
+    ),
+    pytest.param(
+        '"" + 1gb * 2',
+        ("string", "2gb"),
+        None,
+        id="size-display-simple-mul",
+    ),
+    pytest.param(
+        '"" + 1nsec * 1',
+        ("string", "1nsec"),
+        None,
+        id="duration-display-nsec-identity",
+    ),
+    pytest.param(
+        '"" + 1sec / 1000000000',
+        ("string", "0.000000001sec"),
+        None,
+        id="duration-display-sub-precision",
+    ),
+    pytest.param(
+        '"" + 1min / 60000000000',
+        ("string", "0.00000000001666666666min"),
+        None,
+        id="duration-display-tiny-in-large-unit",
+    ),
+    pytest.param(
+        '"" + (1min + 1sec / 3)',
+        ("string", "1.00555555555min"),
+        None,
+        id="duration-display-compound-fractional-tail-falls-back",
+    ),
+    pytest.param(
+        '"" + 1.5sec',
+        ("string", "1.5sec"),
+        None,
+        id="duration-display-decimal-literal",
+    ),
+    # --- Duplicate / misordered units in compound literals ---
+    pytest.param(
+        "1kb2kb",
+        None,
+        LexError,
+        id="size-duplicate-unit-rejected",
+    ),
+    pytest.param(
+        "1msec2msec",
+        None,
+        LexError,
+        id="duration-duplicate-unit-rejected",
+    ),
+    pytest.param(
+        '"" + 1sec30min',
+        ("string", "30min1sec"),
+        None,
+        id="duration-ascending-order-accepted",
+    ),
+    # --- Unit prefix collisions (kb vs b, msec vs sec) ---
+    pytest.param(
+        '"" + 1kb500b',
+        ("string", "1kb500b"),
+        None,
+        id="size-display-prefix-collision",
+    ),
+    pytest.param(
+        '"" + 1msec500usec',
+        ("string", "1msec500usec"),
+        None,
+        id="duration-display-prefix-collision",
+    ),
+    pytest.param(
+        '"" + (1kb500b * 2)',
+        ("string", "3kb"),
+        None,
+        id="size-display-prefix-collision-arith",
+    ),
+    # --- Mixed-unit addition merges places ---
+    pytest.param(
+        '"" + (1min + 1sec)',
+        ("string", "1min1sec"),
+        None,
+        id="duration-display-mixed-add-places",
+    ),
+    pytest.param(
+        '"" + (1gb + 1mb)',
+        ("string", "1gb1mb"),
+        None,
+        id="size-display-mixed-add-places",
+    ),
+    # --- Compound with zero remainder after arith ---
+    pytest.param(
+        '"" + 1hr30min * 2',
+        ("string", "3hr"),
+        None,
+        id="duration-display-compound-mul-clean",
+    ),
+    pytest.param(
+        '"" + 1hr30min * 3',
+        ("string", "4hr30min"),
+        None,
+        id="duration-display-compound-mul-remainder",
+    ),
+    # --- Scalar mul/div preserve units ---
+    pytest.param(
+        '"" + 1min30sec / 2',
+        ("string", "45sec"),
+        None,
+        id="duration-display-compound-div",
+    ),
+    pytest.param(
+        '"" + 1gb / 4',
+        ("string", "0.25gb"),
+        None,
+        id="size-display-simple-div-fractional",
+    ),
+    pytest.param(
+        '"" + 1tib / 1099511627776',
+        ("string", "0.0000000000009094947017729282379150390625tib"),
+        None,
+        id="size-display-exact-terminating-fraction",
+    ),
+    # --- Scientific notation in literal doesn't pollute units ---
+    pytest.param(
+        '"" + 1e3sec',
+        ("string", "1000sec"),
+        None,
+        id="duration-display-sci-notation",
+    ),
 ]
 
 

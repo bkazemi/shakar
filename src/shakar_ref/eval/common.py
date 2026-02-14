@@ -10,7 +10,9 @@ from ..token_types import TT
 
 from ..types import (
     CallSite,
+    DURATION_NANOS,
     Frame,
+    SIZE_BYTES,
     ShkBool,
     ShkEnvVar,
     ShkNumber,
@@ -30,28 +32,6 @@ from ..utils import envvar_value_by_name, stringify
 
 SourceSpan: TypeAlias = tuple[int, int] | tuple[None, None]
 
-DURATION_UNITS: Dict[str, int] = {
-    "nsec": 1,
-    "usec": 1_000,
-    "msec": 1_000_000,
-    "sec": 1_000_000_000,
-    "min": 60_000_000_000,
-    "hr": 3_600_000_000_000,
-    "day": 86_400_000_000_000,
-    "wk": 604_800_000_000_000,
-}
-
-SIZE_UNITS: Dict[str, int] = {
-    "b": 1,
-    "kb": 1_000,
-    "mb": 1_000_000,
-    "gb": 1_000_000_000,
-    "tb": 1_000_000_000_000,
-    "kib": 1_024,
-    "mib": 1_048_576,
-    "gib": 1_073_741_824,
-    "tib": 1_099_511_627_776,
-}
 
 MODIFIER_REGISTRY: Dict[str, Tuple[str, ...]] = {
     "wait": ("any", "all", "group"),
@@ -384,14 +364,47 @@ def token_number(token: Tok, _: None) -> ShkNumber:
     return ShkNumber(float(clean))
 
 
+def _extract_units(raw: str, unit_map: Dict[str, int]) -> Tuple[str, ...]:
+    """Extract all unit suffixes from a literal like '1hr30min', largest-first."""
+    # Try longest unit names first to avoid partial matches (e.g. 'mb' before 'b')
+    keys = sorted(unit_map.keys(), key=len, reverse=True)
+    units: List[str] = []
+    pos = 0
+    while pos < len(raw):
+        # Skip non-alpha (digits, underscores, dots, e/E, +/-)
+        if not raw[pos].isalpha():
+            pos += 1
+            continue
+
+        # Consume a matched unit atomically, even if it is a duplicate.
+        matched: Optional[str] = None
+        for u in keys:
+            if raw[pos : pos + len(u)] == u:
+                matched = u
+                break
+
+        if matched is None:
+            # Skip unrecognized alpha (e.g. 'e' from scientific notation)
+            pos += 1
+            continue
+
+        if matched not in units:
+            units.append(matched)
+        pos += len(matched)
+
+    return tuple(sorted(units, key=lambda u: unit_map[u], reverse=True))
+
+
 def token_duration(token: Tok, _: None) -> ShkDuration:
     raw, nanos = token.value
-    return ShkDuration(nanos=nanos, display=raw)
+    units = _extract_units(raw, DURATION_NANOS)
+    return ShkDuration(nanos=nanos, units=units or None)
 
 
 def token_size(token: Tok, _: None) -> ShkSize:
     raw, byte_count = token.value
-    return ShkSize(byte_count=byte_count, display=raw)
+    units = _extract_units(raw, SIZE_BYTES)
+    return ShkSize(byte_count=byte_count, units=units or None)
 
 
 def token_string(token: Tok, _: None) -> ShkString:
