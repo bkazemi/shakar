@@ -10,10 +10,11 @@ Features:
 - String literal handling (raw, shell, etc.)
 """
 
-from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, Tuple
 
 from .token_types import TT, Tok
+from .utils import parse_compound_literal
+from .types import ShakarTypeError
 
 # ============================================================================
 # Lexer Implementation
@@ -903,66 +904,17 @@ class Lexer:
     def _compute_compound_value(
         self, raw: str, unit_values: Dict[str, int], kind: str, line: int
     ) -> int:
-        """Parse compound literal and compute total value."""
-        unit_keys = sorted(unit_values.keys(), key=len, reverse=True)
-        parts: List[Tuple[str, str]] = []
-        pos = 0
+        """Parse compound literal and compute total value.
 
-        while pos < len(raw):
-            start = pos
-            while pos < len(raw) and (raw[pos].isdigit() or raw[pos] == "_"):
-                pos += 1
+        Delegates to the shared parse_compound_literal utility,
+        converting ShakarTypeError to LexError for lexer context.
+        """
+        try:
+            total, _units = parse_compound_literal(raw, unit_values, kind)
+        except ShakarTypeError as exc:
+            raise LexError(f"Malformed {kind} literal at line {line}") from exc
 
-            if pos < len(raw) and raw[pos] == ".":
-                pos += 1
-                while pos < len(raw) and (raw[pos].isdigit() or raw[pos] == "_"):
-                    pos += 1
-
-            if pos < len(raw) and raw[pos] in {"e", "E"}:
-                pos += 1
-                if pos < len(raw) and raw[pos] in {"+", "-"}:
-                    pos += 1
-                while pos < len(raw) and (raw[pos].isdigit() or raw[pos] == "_"):
-                    pos += 1
-
-            num_str = raw[start:pos]
-            unit = None
-            for u in unit_keys:
-                if raw.startswith(u, pos):
-                    unit = u
-                    pos += len(u)
-                    break
-            if unit is None:
-                raise LexError(f"Malformed {kind} literal at line {line}")
-            parts.append((num_str, unit))
-
-        if len(parts) > 1:
-            if any("." in n or "e" in n.lower() for n, _ in parts):
-                raise LexError(
-                    f"Decimal component in compound {kind} literal at line {line}"
-                )
-            seen: set[str] = set()
-            for _, u in parts:
-                if u in seen:
-                    raise LexError(
-                        f"Duplicate unit '{u}' in compound {kind} literal at line {line}"
-                    )
-                seen.add(u)
-
-        total = Decimal(0)
-        for num_str, unit in parts:
-            try:
-                num = Decimal(num_str)
-            except InvalidOperation as exc:
-                raise LexError(f"Malformed {kind} literal at line {line}") from exc
-            total += num * Decimal(unit_values[unit])
-
-        if total != total.to_integral_value():
-            raise LexError(
-                f"{kind.capitalize()} literal not representable at line {line}"
-            )
-
-        return int(total)
+        return total
 
     def emit(
         self,

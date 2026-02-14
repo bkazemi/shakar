@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from decimal import Decimal, InvalidOperation
+from typing import Dict, List, Optional, Tuple
 
 from .types import (
     ShkValue,
@@ -212,3 +213,92 @@ def stringify(value: Optional[ShkValue]) -> str:
         return value.render()
 
     return str(value)
+
+
+def parse_compound_literal(
+    raw: str, unit_values: Dict[str, int], kind: str
+) -> Tuple[int, Tuple[str, ...]]:
+    """Parse a compound literal string and return (total_value, units_tuple).
+
+    Reusable by both the lexer (for source literals) and stdlib conversion
+    functions (for runtime string→duration/size parsing).
+    Raises ShakarTypeError on malformed input.
+    """
+    unit_keys = sorted(unit_values.keys(), key=len, reverse=True)
+    parts: List[Tuple[str, str]] = []
+    pos = 0
+
+    while pos < len(raw):
+        start = pos
+
+        # Consume digits (with underscores)
+        while pos < len(raw) and (raw[pos].isdigit() or raw[pos] == "_"):
+            pos += 1
+
+        # Optional fractional part
+        if pos < len(raw) and raw[pos] == ".":
+            pos += 1
+            while pos < len(raw) and (raw[pos].isdigit() or raw[pos] == "_"):
+                pos += 1
+
+        # Optional exponent
+        if pos < len(raw) and raw[pos] in {"e", "E"}:
+            pos += 1
+            if pos < len(raw) and raw[pos] in {"+", "-"}:
+                pos += 1
+            while pos < len(raw) and (raw[pos].isdigit() or raw[pos] == "_"):
+                pos += 1
+
+        num_str = raw[start:pos]
+        if not num_str:
+            raise ShakarTypeError(f"Cannot convert string to {kind}: malformed literal")
+
+        # Match unit suffix
+        unit = None
+        for u in unit_keys:
+            if raw[pos : pos + len(u)] == u:
+                unit = u
+                pos += len(u)
+                break
+
+        if unit is None:
+            raise ShakarTypeError(f"Cannot convert string to {kind}: malformed literal")
+
+        parts.append((num_str, unit))
+
+    if not parts:
+        raise ShakarTypeError(f"Cannot convert string to {kind}: empty literal")
+
+    # Validate compound literals: no decimals, no duplicate units
+    if len(parts) > 1:
+        if any("." in n or "e" in n.lower() for n, _ in parts):
+            raise ShakarTypeError(
+                f"Cannot convert string to {kind}: decimal in compound literal"
+            )
+        seen: set[str] = set()
+        for _, u in parts:
+            if u in seen:
+                raise ShakarTypeError(
+                    f"Cannot convert string to {kind}: duplicate unit '{u}'"
+                )
+            seen.add(u)
+
+    total = Decimal(0)
+    for num_str, unit in parts:
+        try:
+            num = Decimal(num_str)
+        except InvalidOperation:
+            raise ShakarTypeError(f"Cannot convert string to {kind}: malformed literal")
+        total += num * Decimal(unit_values[unit])
+
+    if total != total.to_integral_value():
+        raise ShakarTypeError(
+            f"Cannot convert string to {kind}: not representable as integer"
+        )
+
+    # Sort largest-first to match _format_places expectation in types.py
+    units = tuple(
+        sorted((u for _, u in parts), key=lambda u: unit_values[u], reverse=True)
+    )
+
+    return int(total), units

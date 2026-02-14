@@ -298,7 +298,8 @@ Typed literals representing time spans. Distinct from integers—cannot accident
 - **Units**: `nsec` (nanoseconds), `usec` (microseconds), `msec` (milliseconds), `sec` (seconds), `min` (minutes), `hr` (hours), `day` (days), `wk` (weeks).
 - **Decimals**: allowed in simple durations (`1.5min`); forbidden in compound durations (`1.5min30sec` is invalid).
 - **Internal representation**: nanoseconds (`int64`); max ~292 years; overflow throws.
-- **Display**: original format preserved for stringification (`5min30sec` displays as `5min30sec`).
+- **Display**: compounds stringify in normalized largest-first order (`30sec1min` displays as `1min30sec`; canonical forms like `5min30sec` remain unchanged).
+- **Conversion helper**: `duration(x)` accepts `Duration` (identity), `Number` (interpreted as nanoseconds), or `Str` (parsed using duration literal rules, including compound validation).
 - **Type system**:
   - `Duration + Duration` → `Duration`
   - `Duration - Duration` → `Duration`
@@ -334,6 +335,8 @@ Typed literals representing byte quantities. Distinct from integers and duration
 - **Binary units**: `kib` (1,024), `mib` (1,048,576), `gib` (1,073,741,824), `tib` (1,099,511,627,776).
 - **Decimals**: same rule as durations—allowed in simple, forbidden in compound.
 - **Internal representation**: bytes (`int64`); max ~9.2 exabytes.
+- **Display**: compounds stringify in normalized largest-first order (`512mb1gb` displays as `1gb512mb`; canonical forms remain unchanged).
+- **Conversion helper**: `size(x)` accepts `Size` (identity), `Number` (interpreted as bytes), or `Str` (parsed using size literal rules, including compound validation).
 - **Type system**:
   - `Size + Size` → `Size`
   - `Size - Size` → `Size`
@@ -819,7 +822,7 @@ u := makeUser() and .isValid()
 - **Inline vs block handlers:** `expr catch err: handler_expr` is expression-valued (usable in walrus/assign chains without parentheses). A block-bodied catch (`expr catch err: { … }` or newline/indent) is statement-valued and yields `nil`. Use inline form when you need the handler’s value; use a block when you need multiple statements or don’t care about the value.
 - **assert expr, "msg"`** raises if falsey; build can strip.
 - **throw [expr]** re-raises current payload when expression omitted; otherwise raises new `ShakarRuntimeError` from value (strings → message; objects set `.type/.message`). Bare `throw` (no expression) is valid in inline positions: clause delimiters (`else`, `elif`, `|`), postfix guards (`if`, `unless`), and standard terminators (newline, `;`, `}`, `)`, `,`) all end the bare form. Examples: `if cond: throw else: 0`, `throw if err`.
-- **Helpers**: `error(type, message, data?)` builds tagged payload; `dbg expr` logs and returns expr (strip-able); `tap(value, fn, ...args)` calls `fn(value, ...args)` and returns `value` for side-effect-friendly chaining. Conversion helpers: `int(x)`, `float(x)`, `bool(x)`, `str(x)` (and UFCS forms like `x.int()`).
+- **Helpers**: `error(type, message, data?)` builds tagged payload; `dbg expr` logs and returns expr (strip-able); `tap(value, fn, ...args)` calls `fn(value, ...args)` and returns `value` for side-effect-friendly chaining. Conversion helpers: `int(x)`, `float(x)`, `bool(x)`, `str(x)`, `duration(x)`, `size(x)` (and UFCS forms like `x.int()`).
 - **Events**: `hook "name": .emit()` ⇒ `Event.on(name, &( .emit()))`.
 
 ---
@@ -1140,7 +1143,7 @@ wait[any]:
 ### Formatter / lint rules (normative)
 
 - `IndentBlock` = off-side indented form; `InlineBody` = single `SimpleStmt` or braced inline `{…}`. Punctuation guards remain block-only via `IndentBlock`.
-- **Unary `+` invalid**; use explicit conversions (`int(x)`, `float(x)`, `bool(x)`, `str(x)`).
+- **Unary `+` invalid**; use explicit conversions (`int(x)`, `float(x)`, `bool(x)`, `str(x)`, `duration(x)`, `size(x)`).
 - Selector literal style: prefer bare names/numbers for bounds; require `{…}` for non-trivial expressions; no top-level `(…)` inside backticks.
 - Discourage inline backticks inside `[]` (allowed but warn); prefer flattened form unless reused selector values.
 - Selector values in `[]` are flattened; selector values in collection literals are not. Selector literal values use backticks around the body (no brackets inside).

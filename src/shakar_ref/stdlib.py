@@ -12,6 +12,7 @@ from .runtime import (
     ShkString,
     ShkNumber,
     ShkDuration,
+    ShkSize,
     ShkBool,
     ShkEnvVar,
     ShkChannel,
@@ -28,7 +29,8 @@ from .runtime import (
 )
 from .runtime import ShakarRuntimeError
 from .eval.helpers import is_truthy, current_function_frame, name_in_current_frame
-from .utils import stringify
+from .lexer_rd import Lexer
+from .utils import stringify, parse_compound_literal
 
 
 @register_stdlib("int")
@@ -113,6 +115,68 @@ def std_str(
         raise ShakarTypeError("str() expects exactly one argument")
 
     return ShkString(stringify(args[0]))
+
+
+@register_stdlib("duration")
+def std_duration(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkDuration:
+    """Convert a value to a duration.
+    duration(string) — parse "1min30sec" → ShkDuration
+    duration(number) — interpret as nanoseconds → ShkDuration
+    duration(duration) — identity passthrough"""
+    args = _with_subject(subject, args)
+    if len(args) != 1:
+        raise ShakarTypeError("duration() expects exactly one argument")
+
+    val = args[0]
+
+    if isinstance(val, ShkDuration):
+        return val
+
+    if isinstance(val, ShkNumber):
+        return ShkDuration(nanos=int(val.value), units=("nsec",))
+
+    if isinstance(val, ShkString):
+        total, units = parse_compound_literal(
+            val.value, Lexer.DURATION_VALUES, "duration"
+        )
+        return ShkDuration(nanos=total, units=units)
+
+    raise ShakarTypeError("duration() expects a string, number, or duration")
+
+
+@register_stdlib("size")
+def std_size(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkSize:
+    """Convert a value to a size.
+    size(string) — parse "1gb512mb" → ShkSize
+    size(number) — interpret as bytes → ShkSize
+    size(size) — identity passthrough"""
+    args = _with_subject(subject, args)
+    if len(args) != 1:
+        raise ShakarTypeError("size() expects exactly one argument")
+
+    val = args[0]
+
+    if isinstance(val, ShkSize):
+        return val
+
+    if isinstance(val, ShkNumber):
+        return ShkSize(byte_count=int(val.value), units=("b",))
+
+    if isinstance(val, ShkString):
+        total, units = parse_compound_literal(val.value, Lexer.SIZE_VALUES, "size")
+        return ShkSize(byte_count=total, units=units)
+
+    raise ShakarTypeError("size() expects a string, number, or size")
 
 
 def _with_subject(subject: Optional[ShkValue], args: List[ShkValue]) -> List[ShkValue]:

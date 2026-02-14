@@ -635,6 +635,87 @@ SCENARIOS = [
         None,
         id="duration-display-sci-notation",
     ),
+    # --- duration() stdlib conversion ---
+    pytest.param(
+        'duration("1sec")',
+        ("duration", 1_000_000_000),
+        None,
+        id="duration-from-string-simple",
+    ),
+    pytest.param(
+        'duration("1min30sec")',
+        ("duration", 90_000_000_000),
+        None,
+        id="duration-from-string-compound",
+    ),
+    pytest.param(
+        "duration(1000)",
+        ("duration", 1000),
+        None,
+        id="duration-from-number",
+    ),
+    pytest.param(
+        "duration(1sec)",
+        ("duration", 1_000_000_000),
+        None,
+        id="duration-from-duration-passthrough",
+    ),
+    pytest.param(
+        'duration("invalid")',
+        None,
+        ShakarTypeError,
+        id="duration-from-string-invalid",
+    ),
+    pytest.param(
+        '"" + duration("1min30sec")',
+        ("string", "1min30sec"),
+        None,
+        id="duration-from-string-roundtrip",
+    ),
+    # --- size() stdlib conversion ---
+    pytest.param(
+        'size("1gb512mb")',
+        ("size", 1_512_000_000),
+        None,
+        id="size-from-string-compound",
+    ),
+    pytest.param(
+        "size(1024)",
+        ("size", 1024),
+        None,
+        id="size-from-number",
+    ),
+    pytest.param(
+        "size(1kb)",
+        ("size", 1000),
+        None,
+        id="size-from-size-passthrough",
+    ),
+    pytest.param(
+        'size("invalid")',
+        None,
+        ShakarTypeError,
+        id="size-from-string-invalid",
+    ),
+    pytest.param(
+        '"" + size("1gb512mb")',
+        ("string", "1gb512mb"),
+        None,
+        id="size-from-string-roundtrip",
+    ),
+    # --- reversed input order normalizes to largest-first ---
+    pytest.param(
+        '"" + duration("30sec1min")',
+        ("string", "1min30sec"),
+        None,
+        id="duration-from-string-reversed-order",
+    ),
+    pytest.param(
+        '"" + size("512mb1gb")',
+        ("string", "1gb512mb"),
+        None,
+        id="size-from-string-reversed-order",
+    ),
 ]
 
 
