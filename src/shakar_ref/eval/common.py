@@ -76,7 +76,14 @@ def validate_modifier(construct: str, name: str, tok: Optional[Tok]) -> None:
 
     error = ShakarRuntimeError(message)
     if tok and tok.line > 0:
-        error.shk_meta = SimpleNamespace(line=tok.line, column=max(1, tok.column))
+        tok_text = "" if tok.value is None else str(tok.value)
+        col = max(1, tok.column)
+        error.shk_meta = SimpleNamespace(
+            line=tok.line,
+            column=col,
+            end_line=tok.line,
+            end_column=col + max(1, len(tok_text)),
+        )
         error._augmented = True  # type: ignore[attr-defined]
 
     raise error
@@ -330,6 +337,56 @@ def _resolve_line_col(node: Node, frame: Frame) -> tuple[Optional[int], Optional
             col = start + 1 if last_nl == -1 else start - last_nl
 
     return line, col
+
+
+def _line_col_from_offset(source: str, offset: int) -> tuple[int, int]:
+    line = source.count("\n", 0, offset) + 1
+    last_nl = source.rfind("\n", 0, offset)
+    col = offset + 1 if last_nl == -1 else offset - last_nl
+    return line, col
+
+
+def _resolve_error_span(
+    node: Node, frame: Frame
+) -> tuple[Optional[int], Optional[int], Optional[int], Optional[int]]:
+    """Resolve a best-effort source span as 1-based [line/col, end_line/end_col_exclusive]."""
+    line, col = _resolve_line_col(node, frame)
+    end_line = None
+    end_col = None
+
+    meta = node_meta(node)
+    if meta:
+        meta_end_line = getattr(meta, "end_line", None)
+        meta_end_col = getattr(meta, "end_column", None)
+        if isinstance(meta_end_line, int) and meta_end_line > 0:
+            end_line = meta_end_line
+        if isinstance(meta_end_col, int) and meta_end_col > 0:
+            end_col = meta_end_col
+
+    if end_line is not None and end_col is not None:
+        return line, col, end_line, end_col
+
+    source = getattr(frame, "source", None)
+    start, end = node_source_span(node)
+    if source is not None and start is not None and end is not None and end > start:
+        if line is None or col is None:
+            line, col = _line_col_from_offset(source, start)
+        end_line, end_col = _line_col_from_offset(source, end)
+        return line, col, end_line, end_col
+
+    if is_token(node) and line is not None and col is not None:
+        # DURATION/SIZE/REGEX tokens store tuples; lexeme is the first element
+        val = node.value
+        if isinstance(val, tuple):
+            val = val[0]
+        text = "" if val is None else str(val)
+        width = max(1, len(text))
+        return line, col, line, col + width
+
+    if line is not None and col is not None:
+        return line, col, line, col + 1
+
+    return line, col, end_line, end_col
 
 
 def callsite_from_node(name: str, node: Node, frame: Frame) -> CallSite:

@@ -20,6 +20,8 @@ class Case:
     expected_lines: Optional[Tuple[Tuple[str, int], ...]] = None
     exc: Optional[type[Exception]] = None
     msg: Optional[str] = None
+    err_line: Optional[int] = None
+    err_col: Optional[int] = None
     track_indentation: bool = False
 
 
@@ -121,36 +123,95 @@ POSITION_CASES: List[Case] = [
 ]
 
 LEX_ERROR_CASES: List[Case] = [
-    Case("unterminated-string", '"abc', exc=LexError, msg="Unterminated string"),
     Case(
-        "unterminated-shell", 'sh"echo', exc=LexError, msg="Unterminated shell string"
+        "unterminated-string",
+        '"abc',
+        exc=LexError,
+        msg="Unterminated string",
+        err_line=1,
+        err_col=1,
     ),
-    Case("unterminated-path", 'p"/tmp', exc=LexError, msg="Unterminated path string"),
-    Case("regex-unknown-flag", 'r"a"/z', exc=LexError, msg="Unknown regex flag"),
+    Case(
+        "unterminated-shell",
+        'sh"echo',
+        exc=LexError,
+        msg="Unterminated shell string",
+        err_line=1,
+        err_col=1,
+    ),
+    Case(
+        "unterminated-path",
+        'p"/tmp',
+        exc=LexError,
+        msg="Unterminated path string",
+        err_line=1,
+        err_col=1,
+    ),
+    Case(
+        "regex-unknown-flag",
+        'r"a"/z',
+        exc=LexError,
+        msg="Unknown regex flag",
+        err_line=1,
+        err_col=6,
+    ),
     Case(
         "invalid-underscore",
         "1__0",
         exc=LexError,
         msg="Invalid underscore in number literal",
+        err_line=1,
+        err_col=1,
     ),
     Case(
         "trailing-underscore",
         "100_",
         exc=LexError,
         msg="Trailing underscore in number literal",
+        err_line=1,
+        err_col=1,
     ),
     Case(
         "invalid-exponent-underscore",
         "1e_5",
         exc=LexError,
         msg="Leading underscore in exponent",
+        err_line=1,
+        err_col=1,
     ),
     Case(
         "indentation-mismatch",
         "if true:\n  x\n y\n",
         exc=LexError,
         msg="Indentation mismatch",
+        err_line=3,
         track_indentation=True,
+    ),
+    # Multi-line: error on line 2
+    Case(
+        "unterminated-string-line2",
+        'x = 1\ny = "abc',
+        exc=LexError,
+        msg="Unterminated string",
+        err_line=2,
+        err_col=5,
+    ),
+    # Error with col offset on same line
+    Case(
+        "unexpected-char",
+        "x = \\",
+        exc=LexError,
+        msg="Unexpected character",
+        err_line=1,
+        err_col=5,
+    ),
+    Case(
+        "invalid-suffix",
+        "123abc",
+        exc=LexError,
+        msg="Invalid number suffix",
+        err_line=1,
+        err_col=1,
     ),
 ]
 
@@ -230,7 +291,17 @@ def test_lex_errors(case: Case) -> None:
     with pytest.raises(case.exc) as exc_info:
         tokenize(case.source, track_indentation=case.track_indentation)
 
-    assert case.msg in str(exc_info.value)
+    err = exc_info.value
+    assert case.msg in str(err)
+
+    if case.err_line is not None:
+        assert (
+            err.line == case.err_line
+        ), f"expected line {case.err_line}, got {err.line}"
+    if case.err_col is not None:
+        assert (
+            err.column == case.err_col
+        ), f"expected col {case.err_col}, got {err.column}"
 
 
 def test_tetris_file() -> None:

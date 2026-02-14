@@ -272,15 +272,25 @@ function setTraceback(text) {
     tracebackEl.classList.remove('hidden');
 }
 
-function setOutput(text, isError = false, traceback = '') {
+function setOutput(text, isError = false, traceback = '', errorRange = null) {
     outputEl.textContent = text;
     outputEl.className = isError ? 'error' : '';
 
-    if (isError && text) {
-        const errInfo = parseErrorLocation(text);
-        if (errInfo) {
-            highlightError(errInfo.line, errInfo.col);
-        }
+    if (
+        isError &&
+        errorRange &&
+        Number.isFinite(errorRange.line) &&
+        Number.isFinite(errorRange.col_start) &&
+        Number.isFinite(errorRange.col_end)
+    ) {
+        highlightErrorRange(
+            errorRange.line,
+            errorRange.col_start,
+            errorRange.col_end
+        );
+    } else if (currentError) {
+        clearError();
+        updateHighlights();
     }
 
     if (isError && traceback) {
@@ -1023,31 +1033,22 @@ function resetRepl() {
     }
 }
 
-function parseErrorLocation(errorText) {
-    const match = errorText.match(/(?:at\s+)?line\s+(\d+),?\s*(?:col(?:umn)?\s*)?(\d+)?/i);
-    if (match) {
-        return {
-            line: parseInt(match[1], 10) - 1,
-            col: match[2] ? parseInt(match[2], 10) - 1 : 0
-        };
-    }
-    return null;
-}
-
 let currentError = null;
 
-function highlightError(line, col) {
+function highlightErrorRange(line, colStart, colEnd) {
     const code = codeEl.value;
     const lines = code.split('\n');
 
     if (line < 0 || line >= lines.length) return;
 
     const lineText = lines[line];
-    const colEnd = Math.min(col + 10, lineText.length);
+    const safeStart = Math.max(0, Math.min(colStart, lineText.length));
+    const safeEnd = Math.max(safeStart + 1, Math.min(colEnd, lineText.length));
+
     currentError = {
         line: line,
-        col_start: Math.max(0, col),
-        col_end: Math.max(col + 1, colEnd),
+        col_start: safeStart,
+        col_end: safeEnd,
         group: 'error'
     };
 
@@ -1057,7 +1058,7 @@ function highlightError(line, col) {
     for (let i = 0; i < line; i++) {
         pos += lines[i].length + 1;
     }
-    pos += Math.min(col, lineText.length);
+    pos += safeStart;
 
     codeEl.focus();
     codeEl.setSelectionRange(pos, pos);
@@ -1471,7 +1472,12 @@ function initWorker() {
                 break;
 
             case 'output':
-                setOutput(msg.text, msg.isError, msg.traceback || '');
+                setOutput(
+                    msg.text,
+                    msg.isError,
+                    msg.traceback || '',
+                    msg.errorRange || null
+                );
                 if (msg.isError && !shakarLoaded) {
                     setStatus('Load error: ' + msg.text, 'error');
                     if (splashEl) {

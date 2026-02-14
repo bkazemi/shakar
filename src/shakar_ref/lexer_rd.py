@@ -365,7 +365,7 @@ class Lexer:
                 # If we are inside a group and return to base indentation, ignore mismatch
                 # because the base indentation was likely suppressed/ignored.
                 if not (self.group_depth > 0 and len(self.indent_stack) == 1):
-                    raise LexError(f"Indentation mismatch at line {self.line}")
+                    raise LexError("Indentation mismatch", line=self.line)
 
     # ========================================================================
     # Tok Scanners
@@ -394,7 +394,7 @@ class Lexer:
             quote, allow_escapes=True, allow_newlines=True, kind="string literal"
         )
         if self.pos >= len(self.source):
-            raise LexError(f"Unterminated string at line {start_line}")
+            raise LexError("Unterminated string", line=start_line, column=start_col)
 
         body = self.source[start_pos + 1 : self.pos]
         self.advance()  # Closing quote
@@ -416,12 +416,14 @@ class Lexer:
         while self.pos < len(self.source) and self.peek() != quote:
             ch = self.peek()
             if ch in {"\n", "\r"} and not allow_newlines:
-                raise LexError(f"Newline in {kind} at line {self.line}")
+                raise LexError(f"Newline in {kind}", line=self.line, column=self.column)
             if allow_escapes and ch == "\\":
                 self._advance_in_literal()
                 if self.pos < len(self.source):
                     if self.peek() in {"\n", "\r"} and not allow_newlines:
-                        raise LexError(f"Newline in {kind} at line {self.line}")
+                        raise LexError(
+                            f"Newline in {kind}", line=self.line, column=self.column
+                        )
                     self._advance_in_literal()
                 continue
             self._advance_in_literal()
@@ -453,7 +455,9 @@ class Lexer:
                     return
                 self._advance_in_literal()
 
-            raise LexError(f"Unterminated hash raw string at line {self.line}")
+            raise LexError(
+                "Unterminated hash raw string", line=self.line, column=self.column
+            )
         else:
             # Regular raw string: raw"..." or raw'...'
             quote = self.advance()
@@ -464,7 +468,9 @@ class Lexer:
                 kind="raw string literal",
             )
             if self.pos >= len(self.source):
-                raise LexError(f"Unterminated raw string at line {self.line}")
+                raise LexError(
+                    "Unterminated raw string", line=start_line, column=start_col
+                )
 
             self.advance()  # Closing quote
             full_value = self.source[start_pos : self.pos]
@@ -492,7 +498,7 @@ class Lexer:
             quote, allow_escapes=allow_escapes, allow_newlines=allow_newlines, kind=kind
         )
         if self.pos >= len(self.source):
-            raise LexError(f"Unterminated {kind} at line {start_line}")
+            raise LexError(f"Unterminated {kind}", line=start_line, column=start_col)
         content = self.source[content_start : self.pos]
         if dedent:
             content = self._dedent_multiline(content)
@@ -512,7 +518,9 @@ class Lexer:
         )
 
         if self.pos >= len(self.source):
-            raise LexError(f"Unterminated regex literal at line {start_line}")
+            raise LexError(
+                "Unterminated regex literal", line=start_line, column=start_col
+            )
 
         pattern = self.source[start_pos : self.pos]
         self.advance()  # Closing quote
@@ -521,11 +529,11 @@ class Lexer:
         if self.peek() == "/":
             self.advance()  # consume /
             if self.peek() not in {"i", "m", "s", "x", "f"}:
-                raise LexError(f"Unknown regex flag at line {self.line}")
+                raise LexError("Unknown regex flag", line=self.line, column=self.column)
             while self.peek() in {"i", "m", "s", "x", "f"}:
                 flags += self.advance()
             if self.peek().isalnum() or self.peek() == "_":
-                raise LexError(f"Unknown regex flag at line {self.line}")
+                raise LexError("Unknown regex flag", line=self.line, column=self.column)
 
         self.emit(
             TT.REGEX, (pattern, flags), start_line=start_line, start_col=start_col
@@ -555,13 +563,17 @@ class Lexer:
             next_ch = self.peek(1)
             if next_ch in {"e", "E"}:
                 raise LexError(
-                    f"Fractional digits required after decimal point at line {start_line}, col {start_col}"
+                    "Fractional digits required after decimal point",
+                    line=start_line,
+                    column=start_col,
                 )
             if next_ch.isdigit() or next_ch == "_":
                 self.advance()  # consume '.'
                 if self.peek() == "_":
                     raise LexError(
-                        f"Leading underscore in fractional part at line {start_line}, col {start_col}"
+                        "Leading underscore in fractional part",
+                        line=start_line,
+                        column=start_col,
                     )
                 self._scan_digits_with_underscores(start_line, start_col)
 
@@ -573,18 +585,24 @@ class Lexer:
             # Check for leading underscore in exponent
             if self.peek() == "_":
                 raise LexError(
-                    f"Leading underscore in exponent at line {start_line}, col {start_col}"
+                    "Leading underscore in exponent",
+                    line=start_line,
+                    column=start_col,
                 )
             if not self._scan_digits_with_underscores(start_line, start_col):
                 raise LexError(
-                    f"Missing digits in exponent at line {start_line}, col {start_col}"
+                    "Missing digits in exponent",
+                    line=start_line,
+                    column=start_col,
                 )
 
         # Reject trailing dot without member name (1e5., 1.5.)
         # Allow 1.foo and 1e5.bar (member access on numeric literals).
         if self.peek() == "." and not self.peek(1).isalpha() and self.peek(1) != "_":
             raise LexError(
-                f"Trailing dot after number literal at line {start_line}, col {start_col}"
+                "Trailing dot after number literal",
+                line=start_line,
+                column=start_col,
             )
 
         value = self.source[start_pos : self.pos]
@@ -599,21 +617,31 @@ class Lexer:
             # Reject number followed by letters (invalid suffix or typo like 1scec)
             if self.peek().isalpha() or self.peek() == "_":
                 raise LexError(
-                    f"Invalid number suffix at line {start_line}, col {start_col}"
+                    "Invalid number suffix",
+                    line=start_line,
+                    column=start_col,
+                    end_line=start_line,
+                    end_column=self._bad_token_end_col(start_col, start_pos),
                 )
             self.emit(TT.NUMBER, value, start_line=start_line, start_col=start_col)
             return
 
         if self.peek().isalpha() or self.peek() == "_":
             raise LexError(
-                f"Invalid duration/size literal at line {start_line}, col {start_col}"
+                "Invalid duration/size literal",
+                line=start_line,
+                column=start_col,
+                end_line=start_line,
+                end_column=self._bad_token_end_col(start_col, start_pos),
             )
 
         has_decimal = "." in value or "e" in value.lower()
 
         if has_decimal and self.peek().isdigit():
             raise LexError(
-                f"Decimal component in compound literal at line {start_line}, col {start_col}"
+                "Decimal component in compound literal",
+                line=start_line,
+                column=start_col,
             )
 
         unit_list = (
@@ -624,7 +652,9 @@ class Lexer:
             unit = self._match_unit(unit_list)
             if unit is None:
                 raise LexError(
-                    f"Expected unit in compound literal at line {start_line}, col {start_col}"
+                    "Expected unit in compound literal",
+                    line=start_line,
+                    column=start_col,
                 )
 
         literal_value = self.source[start_pos : self.pos]
@@ -657,7 +687,9 @@ class Lexer:
         prefix = self.peek(1)
         if prefix in {"B", "O", "X"}:
             raise LexError(
-                f"Uppercase base prefixes are not allowed at line {start_line}, col {start_col}"
+                "Uppercase base prefixes are not allowed",
+                line=start_line,
+                column=start_col,
             )
 
         base = {"b": 2, "o": 8, "x": 16}.get(prefix)
@@ -669,19 +701,27 @@ class Lexer:
         valid = lambda ch: self._is_valid_prefixed_digit(ch, base)
         if not self._scan_digits_with_underscores(start_line, start_col, valid=valid):
             raise LexError(
-                f"Incomplete base-prefixed integer at line {start_line}, col {start_col}"
+                "Incomplete base-prefixed integer",
+                line=start_line,
+                column=start_col,
             )
 
         # Base-prefixed integers cannot have decimal points (0x1.5 invalid)
         if self.peek() == "." and self.peek(1).isdigit():
             raise LexError(
-                f"Base-prefixed integers cannot be floats at line {start_line}, col {start_col}"
+                "Base-prefixed integers cannot be floats",
+                line=start_line,
+                column=start_col,
             )
 
         # Base-prefixed integers cannot have duration/size suffixes (0x10sec invalid)
         if self.peek().isalnum() or self.peek() == "_":
             raise LexError(
-                f"Base-prefixed integers cannot have unit suffixes at line {start_line}, col {start_col}"
+                "Base-prefixed integers cannot have unit suffixes",
+                line=start_line,
+                column=start_col,
+                end_line=start_line,
+                end_column=self._bad_token_end_col(start_col, start_pos),
             )
 
         literal = self.source[start_pos : self.pos]
@@ -711,7 +751,9 @@ class Lexer:
             if ch == "_":
                 if not saw_digit or prev_underscore:
                     raise LexError(
-                        f"Invalid underscore in number literal at line {line}, col {col}"
+                        "Invalid underscore in number literal",
+                        line=line,
+                        column=col,
                     )
                 prev_underscore = True
                 self.advance()
@@ -727,7 +769,9 @@ class Lexer:
 
         if prev_underscore:
             raise LexError(
-                f"Trailing underscore in number literal at line {line}, col {col}"
+                "Trailing underscore in number literal",
+                line=line,
+                column=col,
             )
 
         return saw_digit
@@ -761,8 +805,21 @@ class Lexer:
 
         ch = self.peek()
         raise LexError(
-            f"Unexpected character '{ch}' at line {self.line}, col {self.column}"
+            f"Unexpected character '{ch}'",
+            line=self.line,
+            column=self.column,
         )
+
+    def _bad_token_end_col(self, start_col: int, start_pos: int) -> int:
+        """Compute exclusive end column for an invalid token spanning from
+        start_pos through any remaining alphanumeric/underscore chars."""
+        end = self.pos
+        while end < len(self.source) and (
+            self.source[end].isalnum() or self.source[end] == "_"
+        ):
+            end += 1
+
+        return start_col + (end - start_pos)
 
     # ========================================================================
     # Utilities
@@ -912,7 +969,7 @@ class Lexer:
         try:
             total, _units = parse_compound_literal(raw, unit_values, kind)
         except ShakarTypeError as exc:
-            raise LexError(f"Malformed {kind} literal at line {line}") from exc
+            raise LexError(f"Malformed {kind} literal", line=line) from exc
 
         return total
 
@@ -943,9 +1000,30 @@ class Lexer:
 
 
 class LexError(Exception):
-    """Lexical analysis error"""
+    """Lexical analysis error with optional structured location."""
 
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        line: Optional[int] = None,
+        column: Optional[int] = None,
+        end_line: Optional[int] = None,
+        end_column: Optional[int] = None,
+    ):
+        self.line = line
+        self.column = column
+        self.end_line = end_line
+        self.end_column = end_column
+
+        if line is not None and column is not None:
+            display = f"{message} at line {line}, col {column}"
+        elif line is not None:
+            display = f"{message} at line {line}"
+        else:
+            display = message
+
+        super().__init__(display)
 
 
 # ============================================================================

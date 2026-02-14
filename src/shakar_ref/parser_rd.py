@@ -40,6 +40,23 @@ class ParseError(Exception):
     def __init__(self, message: str, token: Optional[Tok] = None):
         self.message = message
         self.token = token
+        self.line: Optional[int] = None
+        self.column: Optional[int] = None
+        self.end_line: Optional[int] = None
+        self.end_column: Optional[int] = None
+
+        if token and token.line > 0 and token.column > 0:
+            self.line = token.line
+            self.column = max(1, token.column)
+            # DURATION/SIZE/REGEX store tuples; lexeme is always the first element
+            val = token.value
+            if isinstance(val, tuple):
+                val = val[0]
+            text = "" if val is None else str(val)
+            width = max(1, len(text))
+            self.end_line = self.line
+            self.end_column = self.column + width
+
         super().__init__(
             f"{message} at line {token.line}, col {token.column}" if token else message
         )
@@ -2709,7 +2726,9 @@ class Parser:
             value = self._parse_number_literal(tok.value)
             if isinstance(value, int) and value > 2**63 - 1:
                 raise LexError(
-                    f"Integer literal overflows int64 at line {tok.line}, col {tok.column}"
+                    "Integer literal overflows int64",
+                    line=tok.line,
+                    column=tok.column,
                 )
             return self._tok("NUMBER", value, line=tok.line, column=tok.column)
 
@@ -2718,7 +2737,9 @@ class Parser:
         if total < -(2**63) or total > 2**63 - 1:
             kind = "Duration" if tok.type == TT.DURATION else "Size"
             raise LexError(
-                f"{kind} literal overflows int64 at line {tok.line}, col {tok.column}"
+                f"{kind} literal overflows int64",
+                line=tok.line,
+                column=tok.column,
             )
 
         return self._tok(tok.type.name, tok.value, line=tok.line, column=tok.column)
@@ -3551,13 +3572,17 @@ class Parser:
                 # Allow -2**63 but reject larger magnitude.
                 if value > 2**63:
                     raise LexError(
-                        f"Integer literal overflows int64 at line {tok.line}, col {tok.column}"
+                        "Integer literal overflows int64",
+                        line=tok.line,
+                        column=tok.column,
                     )
                 return self._tok("NUMBER", -value, line=tok.line, column=tok.column)
 
             if value > 2**63 - 1:
                 raise LexError(
-                    f"Integer literal overflows int64 at line {tok.line}, col {tok.column}"
+                    "Integer literal overflows int64",
+                    line=tok.line,
+                    column=tok.column,
                 )
             return self._tok("NUMBER", tok.value, line=tok.line, column=tok.column)
 

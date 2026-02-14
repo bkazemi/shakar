@@ -35,7 +35,7 @@ from .eval.common import (
     token_regex,
     token_string,
     validate_modifier,
-    _resolve_line_col,
+    _resolve_error_span,
 )
 from .eval.selector import eval_selectorliteral
 from .eval.control import (
@@ -150,12 +150,17 @@ def _maybe_attach_location(exc: ShakarRuntimeError, node: Node, frame: Frame) ->
     if getattr(exc, "_augmented", False):
         return
 
-    line, col = _resolve_line_col(node, frame)
+    line, col, end_line, end_col = _resolve_error_span(node, frame)
 
     if line is None:
         return
 
-    exc.shk_meta = SimpleNamespace(line=line, column=col)
+    meta = SimpleNamespace(line=line, column=col)
+    if end_line is not None:
+        meta.end_line = end_line
+    if end_col is not None:
+        meta.end_column = end_col
+    exc.shk_meta = meta
     exc._augmented = True  # type: ignore[attr-defined]
 
 

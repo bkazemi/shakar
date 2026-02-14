@@ -272,11 +272,29 @@ import sys
 import traceback
 import os
 import js
+import json
 from io import StringIO
+
+def _range_from_coords(line, col, end_line, end_col):
+    if not isinstance(line, int) or line <= 0:
+        return None
+    if not isinstance(col, int) or col <= 0:
+        col = 1
+    start = col - 1
+
+    if isinstance(end_line, int) and end_line == line and isinstance(end_col, int) and end_col > col:
+        end = max(start + 1, end_col - 1)
+    else:
+        # The web overlay renderer applies spans per line. For multi-line
+        # diagnostics, keep a minimal anchor on the start line.
+        end = start + 1
+
+    return {"line": line - 1, "col_start": start, "col_end": end}
 
 _shk_stdout = StringIO()
 _shk_stderr = StringIO()
 _shk_traceback = None
+_shk_error_range_json = "null"
 sys.stdout = _shk_stdout
 sys.stderr = _shk_stderr
 
@@ -296,6 +314,41 @@ try:
     _shk_error = None
 except Exception as e:
     _shk_error = str(e)
+    _shk_error_range = None
+
+    try:
+        from shakar_ref.parser_rd import ParseError as _ParseError
+        from shakar_ref.lexer_rd import LexError as _LexError
+    except Exception:
+        _ParseError = None
+        _LexError = None
+
+    if _ParseError is not None and isinstance(e, _ParseError):
+        _shk_error_range = _range_from_coords(
+            getattr(e, "line", None),
+            getattr(e, "column", None),
+            getattr(e, "end_line", None),
+            getattr(e, "end_column", None),
+        )
+
+    if _shk_error_range is None and _LexError is not None and isinstance(e, _LexError):
+        _shk_error_range = _range_from_coords(
+            getattr(e, "line", None),
+            getattr(e, "column", None),
+            getattr(e, "end_line", None),
+            getattr(e, "end_column", None),
+        )
+
+    if _shk_error_range is None:
+        meta = getattr(e, "shk_meta", None)
+        _shk_error_range = _range_from_coords(
+            getattr(meta, "line", None) if meta is not None else None,
+            getattr(meta, "column", None) if meta is not None else None,
+            getattr(meta, "end_line", None) if meta is not None else None,
+            getattr(meta, "end_column", None) if meta is not None else None,
+        )
+
+    _shk_error_range_json = json.dumps(_shk_error_range)
     if os.environ.get("SHAKAR_DEBUG_PY_TRACE"):
         _shk_traceback = traceback.format_exc()
 finally:
@@ -306,11 +359,26 @@ finally:
         const stdout = pyodide.runPython('_shk_stdout.getvalue()');
         const stderr = pyodide.runPython('_shk_stderr.getvalue()');
         const error = pyodide.runPython('_shk_error');
+        const errorRangeJson = pyodide.runPython('_shk_error_range_json');
         const tracebackText = pyodide.runPython('_shk_traceback');
         const detailText = tracebackText || '';
+        let errorRange = null;
+        if (errorRangeJson) {
+            try {
+                errorRange = JSON.parse(errorRangeJson);
+            } catch (_err) {
+                errorRange = null;
+            }
+        }
 
         if (error) {
-            self.postMessage({type: 'output', text: error, isError: true, traceback: detailText});
+            self.postMessage({
+                type: 'output',
+                text: error,
+                isError: true,
+                traceback: detailText,
+                errorRange: errorRange
+            });
         } else {
             const output = (stdout + stderr).trim();
             self.postMessage({type: 'output', text: output || '(no output)', isError: false});

@@ -729,6 +729,41 @@ def test_wait_modifier_slot_parse_errors(source: str) -> None:
             parse_pipeline(source, use_indenter=use_indenter)
 
 
+PARSE_ERROR_LOCATION_CASES = [
+    ("missing-rpar", "f(1, 2", 1, 7, "Expected RPAR"),
+    ("bad-fn-arg", "fn 123()", 1, 4, "Expected COLON"),
+    ("lone-colon", ":", 1, 1, "Unexpected token"),
+    ("missing-body", "if true:", 1, 9, "Unexpected token"),
+    # Multi-line: error on later line
+    ("line2-missing-rpar", "x = 1\nf(1, 2", 2, 7, "Expected RPAR"),
+    ("line3-bad-fn", "a = 1\nb = 2\nfn 99()", 3, 4, "Expected COLON"),
+    ("line2-unexpected", "x = 1\n:", 2, 1, "Unexpected token"),
+]
+
+
+@pytest.mark.parametrize(
+    "name,source,exp_line,exp_col,msg",
+    PARSE_ERROR_LOCATION_CASES,
+    ids=[c[0] for c in PARSE_ERROR_LOCATION_CASES],
+)
+def test_parse_error_location(
+    name: str, source: str, exp_line: int, exp_col: int, msg: str
+) -> None:
+    with pytest.raises(ParseError) as exc_info:
+        parse_pipeline(source, use_indenter=False)
+
+    err = exc_info.value
+    assert msg in err.message
+    assert err.line == exp_line, f"expected line {exp_line}, got {err.line}"
+    assert err.column == exp_col, f"expected col {exp_col}, got {err.column}"
+    # end span must be present and at least as wide as start
+    assert err.end_line is not None
+    assert err.end_column is not None
+    assert err.end_line >= err.line
+    if err.end_line == err.line:
+        assert err.end_column > err.column
+
+
 def _collect_tree_labels(node: object) -> set[str]:
     labels: set[str] = set()
     if not isinstance(node, Tree):
