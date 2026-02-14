@@ -77,6 +77,7 @@ def validate_modifier(construct: str, name: str, tok: Optional[Tok]) -> None:
     error = ShakarRuntimeError(message)
     if tok and tok.line > 0:
         error.shk_meta = SimpleNamespace(line=tok.line, column=max(1, tok.column))
+        error._augmented = True  # type: ignore[attr-defined]
 
     raise error
 
