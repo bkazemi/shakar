@@ -926,7 +926,12 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
         }
 
         emit_token_spans(src, tok, group, out);
-        if (tok->type != TT_COMMENT)
+        /* Standalone implicit-subject dot (next sig token on different line):
+         * preserve prev_sig to prevent the next identifier from being
+         * incorrectly classified as a property access. */
+        int standalone_subject =
+            subject_override && (!next_sig_tok || next_sig_tok->line != tok->line);
+        if (tok->type != TT_COMMENT && !standalone_subject)
             prev_sig = tok->type;
     }
 
