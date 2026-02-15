@@ -125,6 +125,10 @@ class Parser:
             ParseContext.NORMAL
         )  # Track parsing context for comma disambiguation
         self.call_depth = 0  # Track lexical call-block nesting for emit '>'
+        # -1 means "not inside a pattern default"; >= 0 records the paren_depth
+        # at which the default expression began so that ~ / ~~ are suppressed at
+        # that depth but allowed inside user-written parentheses.
+        self._pattern_default_paren_depth: int = -1
 
     def _tok(
         self,
@@ -798,7 +802,7 @@ class Parser:
         self.expect(TT.LET)
 
         pattern_snapshot = self._snapshot()
-        if self.check(TT.IDENT, TT.LPAR):
+        if self.check(TT.IDENT, TT.LPAR, TT.SPREAD):
             try:
                 pattern = self.parse_pattern()
                 patterns = [pattern]
@@ -807,6 +811,12 @@ class Parser:
                     patterns.append(self.parse_pattern())
                     while self.match(TT.COMMA):
                         patterns.append(self.parse_pattern())
+
+                # Validate: rest pattern must be last
+                for i, pat in enumerate(patterns):
+                    if tree_label(pat) == "pattern_rest" and i != len(patterns) - 1:
+                        tok = pat.children[0] if pat.children else self.current
+                        raise ParseError("Rest pattern must be last", tok)
 
                 if self.check(TT.ASSIGN, TT.WALRUS):
                     op = self.advance()
@@ -904,9 +914,11 @@ class Parser:
         return None
 
     def _parse_destructure_with_contracts(self) -> Optional[Tree]:
-        # Lookahead for destructuring with contracts
-        # Scan ahead to detect pattern: "ident [~ contract] (, ident [~ contract])* (:=|=)"
-        if not (self.check(TT.IDENT) and self._is_destructure_with_contracts()):
+        # Lookahead for destructuring with contracts, defaults, or rest patterns
+        # Detects: ident [= default] [~ contract] (, pattern)* (:=|=)
+        if not (
+            self.check(TT.IDENT, TT.SPREAD) and self._is_destructure_with_contracts()
+        ):
             return None
 
         # Parse pattern(s) using general parse_pattern() to support nested patterns
@@ -914,6 +926,12 @@ class Parser:
 
         while self.match(TT.COMMA):
             patterns.append(self.parse_pattern())
+
+        # Validate: rest pattern must be last
+        for i, pat in enumerate(patterns):
+            if tree_label(pat) == "pattern_rest" and i != len(patterns) - 1:
+                tok = pat.children[0] if pat.children else self.current
+                raise ParseError("Rest pattern must be last", tok)
 
         # Always wrap in pattern_list for evaluator consistency
         pattern_node = Tree("pattern_list", patterns)
@@ -971,13 +989,14 @@ class Parser:
             return None
 
         first_tok = self.tokens[expr_start] if expr_start < len(self.tokens) else None
-        if first_tok is None or first_tok.type not in {TT.IDENT, TT.LPAR}:
+        if first_tok is None or first_tok.type not in {TT.IDENT, TT.LPAR, TT.SPREAD}:
             # Not a valid pattern start; comma belongs to surrounding expression (e.g., anon fn body)
             return None
 
-        # Backtrack and parse as pattern_list
+        # Backtrack and parse as pattern_list.
+        # Disable defaults: `=` here means the assignment operator, not a default.
         self._rewind(expr_start)
-        pattern_list = self.parse_pattern_list()
+        pattern_list = self.parse_pattern_list(allow_default=False)
 
         if self.match(TT.ASSIGN):
             rhs = self.parse_destructure_rhs()
@@ -2542,6 +2561,12 @@ class Parser:
 
     def is_compare_op(self) -> bool:
         """Check if current token is a comparison operator"""
+        if (
+            self._pattern_default_paren_depth >= 0
+            and self.paren_depth <= self._pattern_default_paren_depth
+            and self.check(TT.TILDE, TT.REGEXMATCH)
+        ):
+            return False
         return self._is_compare_op_at(self.pos)
 
     def parse_compare_op(self) -> List[Tok]:
@@ -3300,19 +3325,151 @@ class Parser:
 
         return ident, default, contract, is_spread
 
-    def _parse_pattern_from_ident(self, ident: Tok) -> Tree:
+    def _parse_pattern_default_expr(self) -> Node:
+        """Parse a default value expression for destructure patterns.
+        Parse a full expression while preserving pattern delimiters.
+        Defaults need full expression power, but top-level `~` / `~~` remain
+        reserved for contract metadata in pattern context.
+        """
+        saved_context = self._push_parse_context(ParseContext.DESTRUCTURE_PACK)
+        prev_depth = self._pattern_default_paren_depth
+        self._pattern_default_paren_depth = self.paren_depth
+        try:
+            return self.parse_catch_expr()
+        finally:
+            self._pattern_default_paren_depth = prev_depth
+            self._pop_parse_context(saved_context)
+
+    def _is_pattern_start_token(self, tok: Tok) -> bool:
+        return tok.type in {TT.IDENT, TT.LPAR, TT.SPREAD}
+
+    def _assign_starts_pattern_default(self) -> bool:
+        """Whether the current ASSIGN token belongs to `ident = <default>`."""
+        if not self.check(TT.ASSIGN):
+            return False
+
+        idx = self.pos + 1
+        depth = 0
+        saw_expr_token = False
+
+        while idx < len(self.tokens):
+            tok = self.tokens[idx]
+
+            if tok.type in {TT.LPAR, TT.LBRACE, TT.LSQB}:
+                depth += 1
+                saw_expr_token = True
+                idx += 1
+                continue
+
+            if tok.type in {TT.RPAR, TT.RBRACE, TT.RSQB}:
+                if depth == 0:
+                    return tok.type == TT.RPAR and saw_expr_token
+                depth -= 1
+                saw_expr_token = True
+                idx += 1
+                continue
+
+            if depth == 0:
+                if tok.type == TT.COMMA:
+                    next_tok = self._lookahead_peek(idx + 1)
+                    return saw_expr_token and self._is_pattern_start_token(next_tok)
+
+                if tok.type in {TT.TILDE, TT.REGEXMATCH, TT.WALRUS}:
+                    return saw_expr_token
+
+                if tok.type == TT.ASSIGN:
+                    return saw_expr_token
+
+                if tok.type in {TT.NEWLINE, TT.SEMI, TT.PIPE, TT.EOF}:
+                    return False
+
+            saw_expr_token = True
+            idx += 1
+
+        return False
+
+    def _lookahead_assign_starts_pattern_default(self, assign_idx: int) -> bool:
+        """Lookahead variant of `_assign_starts_pattern_default`."""
+        if not self._lookahead_check(assign_idx, TT.ASSIGN):
+            return False
+
+        idx = assign_idx + 1
+        depth = 0
+        saw_expr_token = False
+
+        while idx < len(self.tokens):
+            tok = self._lookahead_peek(idx)
+
+            if tok.type in {TT.LPAR, TT.LBRACE, TT.LSQB}:
+                depth += 1
+                saw_expr_token = True
+                idx += 1
+                continue
+
+            if tok.type in {TT.RPAR, TT.RBRACE, TT.RSQB}:
+                if depth == 0:
+                    return tok.type == TT.RPAR and saw_expr_token
+                depth -= 1
+                saw_expr_token = True
+                idx += 1
+                continue
+
+            if depth == 0:
+                if tok.type == TT.COMMA:
+                    next_tok = self._lookahead_peek(idx + 1)
+                    return saw_expr_token and self._is_pattern_start_token(next_tok)
+
+                if tok.type in {TT.TILDE, TT.REGEXMATCH, TT.WALRUS}:
+                    return saw_expr_token
+
+                if tok.type == TT.ASSIGN:
+                    return saw_expr_token
+
+                if tok.type in {TT.NEWLINE, TT.SEMI, TT.PIPE, TT.EOF}:
+                    return False
+
+            saw_expr_token = True
+            idx += 1
+
+        return False
+
+    def _parse_pattern_from_ident(
+        self, ident: Tok, *, allow_default: bool = True
+    ) -> Tree:
+        default = None
         contract = None
+
+        # Default before contract, matching param convention.
+        # Parse full default expressions, but only when `=` is truly a default
+        # marker rather than the destructure assignment delimiter.
+        if (
+            allow_default
+            and self.check(TT.ASSIGN)
+            and self._assign_starts_pattern_default()
+        ):
+            self.advance()
+            default = self._parse_pattern_default_expr()
         if self.match(TT.TILDE):
             # Parse contract at comparison level to avoid consuming walrus/comma.
             contract = self.parse_compare_expr()
+
         children: List[Node] = [ident]
+        if default:
+            children.append(Tree("default", [default]))
         if contract:
             children.append(Tree("contract", [contract]))
         return Tree("pattern", children)
 
-    def parse_pattern(self) -> Tree:
+    def parse_pattern(self, *, allow_default: bool = True) -> Tree:
+        # Rest/spread pattern: ...ident
+        if self.match(TT.SPREAD):
+            ident = self.expect(TT.IDENT)
+            return Tree("pattern_rest", [ident])
+
         if self.check(TT.IDENT):
-            return self._parse_pattern_from_ident(self.advance())
+            return self._parse_pattern_from_ident(
+                self.advance(), allow_default=allow_default
+            )
 
         if self.match(TT.LPAR):
             items = [self.parse_pattern()]
@@ -3322,6 +3479,13 @@ class Parser:
             while self.match(TT.COMMA):
                 items.append(self.parse_pattern())
             self.expect(TT.RPAR)
+
+            # Rest patterns are not supported inside nested tuple patterns
+            for item in items:
+                if tree_label(item) == "pattern_rest":
+                    tok = item.children[0] if item.children else self.current
+                    raise ParseError("Rest pattern not allowed in nested pattern", tok)
+
             return Tree("pattern", [Tree("pattern_list", items)])
 
         raise ParseError("Expected pattern", self.current)
@@ -3835,19 +3999,25 @@ class Parser:
 
         return Tree("body", stmts, attrs={"inline": False})
 
-    def parse_pattern_list(self) -> Tree:
+    def parse_pattern_list(self, *, allow_default: bool = True) -> Tree:
         """Parse destructuring pattern list: a, b, c"""
-        patterns = [self.parse_pattern()]
+        patterns = [self.parse_pattern(allow_default=allow_default)]
 
         if not self.match(TT.COMMA):
             raise ParseError(
                 "Pattern list requires at least two patterns", self.current
             )
 
-        patterns.append(self.parse_pattern())
+        patterns.append(self.parse_pattern(allow_default=allow_default))
 
         while self.match(TT.COMMA):
-            patterns.append(self.parse_pattern())
+            patterns.append(self.parse_pattern(allow_default=allow_default))
+
+        # Validate: rest pattern must be last
+        for i, pat in enumerate(patterns):
+            if tree_label(pat) == "pattern_rest" and i != len(patterns) - 1:
+                tok = pat.children[0] if pat.children else self.current
+                raise ParseError("Rest pattern must be last", tok)
 
         return Tree("pattern_list", patterns)
 
@@ -3881,53 +4051,111 @@ class Parser:
         return Tree("patternlist", items)
 
     def _parse_pattern_item(self) -> Tree:
-        """Parse a single pattern item: IDENT [~ contract]"""
+        """Parse a single pattern item: IDENT [= default] [~ contract] or ...IDENT"""
+        if self.match(TT.SPREAD):
+            ident = self.expect(TT.IDENT)
+            return Tree("pattern_rest", [ident])
         return self._parse_pattern_from_ident(self.expect(TT.IDENT))
 
     def _is_destructure_with_contracts(self) -> bool:
         """
-        Lookahead to detect destructure patterns with contracts.
-        Returns True if current position looks like: ident [~ contract] (, ident [~ contract])* (:=|=)
-        Must have at least one comma to distinguish from simple assignment.
+        Lookahead to detect destructure patterns with contracts, defaults, or rest.
+        Scans all comma-separated patterns looking for any that has `= default`,
+        `~ contract`, or `...rest`. Returns True if at least one special marker
+        is found and the sequence ends with `:=` or `=`.
         Uses stateless lookahead helper - does not mutate parser state.
         """
         idx = self.pos
         paren_depth = 0
-        start_idx = idx
+        has_special = False
 
-        # Must start with IDENT
-        if not self._lookahead_check(idx, TT.IDENT):
-            return False
-        _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
-
-        # Optional contract: ~ <anything until comma/assign>
-        if self._lookahead_check(idx, TT.TILDE):
-            _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
-
-            # Skip contract expression by counting bracket depth
-            depth = 0
-            while idx < len(self.tokens):
-                tok = self._lookahead_peek(idx)
-                if depth == 0 and tok.type in {TT.COMMA, TT.WALRUS, TT.ASSIGN}:
-                    break
-                if tok.type in {TT.LPAR, TT.LBRACE, TT.LSQB}:
-                    depth += 1
-                elif tok.type in {TT.RPAR, TT.RBRACE, TT.RSQB}:
-                    depth -= 1
-                    if depth < 0:
-                        return False  # Unbalanced
-                elif tok.type in {TT.NEWLINE, TT.SEMI, TT.EOF}:
-                    return False  # Hit statement boundary
+        while True:
+            # Spread pattern: ...ident
+            if self._lookahead_check(idx, TT.SPREAD):
+                has_special = True
+                _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+                if not self._lookahead_check(idx, TT.IDENT):
+                    return False
                 _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
 
-        # Only match if we actually saw a contract (consumed more than just the ident)
-        has_contract = start_idx + 1 < idx
+            # Nested tuple pattern: (a, b, ...)
+            elif self._lookahead_check(idx, TT.LPAR):
+                depth = 1
+                _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+                while idx < len(self.tokens) and depth > 0:
+                    tok = self._lookahead_peek(idx)
+                    if tok.type == TT.LPAR:
+                        depth += 1
+                    elif tok.type == TT.RPAR:
+                        depth -= 1
+                    elif tok.type in {TT.NEWLINE, TT.SEMI, TT.EOF}:
+                        return False
+                    _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
 
-        if has_contract:
-            # Contract present: match single or multi-pattern with contract
-            return self._lookahead_check(idx, TT.COMMA, TT.WALRUS, TT.ASSIGN)
+            else:
+                # Must be IDENT
+                if not self._lookahead_check(idx, TT.IDENT):
+                    return False
+                _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
 
-        return False
+                # Optional default: = <expr until comma/tilde/walrus>
+                if self._lookahead_check(
+                    idx, TT.ASSIGN
+                ) and self._lookahead_assign_starts_pattern_default(idx):
+                    has_special = True
+                    _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+
+                    depth = 0
+                    while idx < len(self.tokens):
+                        tok = self._lookahead_peek(idx)
+                        if depth == 0 and tok.type in {
+                            TT.COMMA,
+                            TT.TILDE,
+                            TT.REGEXMATCH,
+                            TT.WALRUS,
+                            TT.ASSIGN,
+                        }:
+                            break
+                        if tok.type in {TT.LPAR, TT.LBRACE, TT.LSQB}:
+                            depth += 1
+                        elif tok.type in {TT.RPAR, TT.RBRACE, TT.RSQB}:
+                            depth -= 1
+                            if depth < 0:
+                                return False
+                        elif tok.type in {TT.NEWLINE, TT.SEMI, TT.EOF}:
+                            return False
+                        _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+
+                # Optional contract: ~ <expr until comma/assign/walrus>
+                if self._lookahead_check(idx, TT.TILDE):
+                    has_special = True
+                    _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+
+                    depth = 0
+                    while idx < len(self.tokens):
+                        tok = self._lookahead_peek(idx)
+                        if depth == 0 and tok.type in {TT.COMMA, TT.WALRUS, TT.ASSIGN}:
+                            break
+                        if tok.type in {TT.LPAR, TT.LBRACE, TT.LSQB}:
+                            depth += 1
+                        elif tok.type in {TT.RPAR, TT.RBRACE, TT.RSQB}:
+                            depth -= 1
+                            if depth < 0:
+                                return False
+                        elif tok.type in {TT.NEWLINE, TT.SEMI, TT.EOF}:
+                            return False
+                        _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+
+            # After one pattern: check for comma (more patterns) or assignment
+            if self._lookahead_check(idx, TT.COMMA):
+                _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
+                continue
+
+            # End of pattern list: check for assignment operator
+            if has_special and self._lookahead_check(idx, TT.WALRUS, TT.ASSIGN):
+                return True
+
+            return False
 
     def parse_fan_items(self) -> List[Node]:
         """Parse fan items: {field1, field2} or {chain1, chain2}"""

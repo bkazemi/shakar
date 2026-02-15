@@ -397,7 +397,9 @@ binder_pattern = ( "^" , IDENT ) | pattern ;
 if_clause = "if" , expression ;
 
 (* Patterns for destructuring *)
-pattern = IDENT , [ "~" , compare_expression ] | ( "(" , pattern_list , ")" ) ;
+pattern = IDENT , [ "=" , expression ] , [ "~" , compare_expression ]
+        | SPREAD , IDENT
+        | ( "(" , pattern_list , ")" ) ;
 pattern_list = pattern , "," , pattern , { "," , pattern } ;
 
 (* Lambdas and anonymous functions *)

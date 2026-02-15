@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Callable, List
 
 from ..runtime import Frame, ShkNil, ShkValue, ShakarRuntimeError
-from ..tree import Node, Tree, is_tree, tree_children, tree_label
+from ..tree import Node, Tree, is_tree, tree_label
 from .bind import assign_ident, eval_assign_stmt
 from .common import expect_ident_token
 from .destructure import assign_pattern as destructure_assign_pattern
-from .destructure import evaluate_destructure_rhs, _extract_pattern_idents
+from .destructure import prepare_destructure_bindings
 
 EvalFn = Callable[[Node, Frame], ShkValue]
 ApplyOpFunc = Callable[[ShkValue, Tree, Frame, EvalFn], ShkValue]
@@ -63,23 +63,13 @@ def eval_let_destructure(
     create: bool,
     allow_broadcast: bool,
 ) -> ShkValue:
-    if len(node.children) != 2:
-        raise ShakarRuntimeError("Malformed let destructure")
-
-    pattern_list, rhs_node = node.children
-    patterns = [c for c in tree_children(pattern_list) if tree_label(c) == "pattern"]
-
-    if not patterns:
-        raise ShakarRuntimeError("Empty let destructure pattern")
-
-    ident_names = _extract_pattern_idents(patterns) if len(patterns) > 1 else None
-    values, result = evaluate_destructure_rhs(
-        eval_fn,
-        rhs_node,
+    patterns, values, result = prepare_destructure_bindings(
+        node,
         frame,
-        len(patterns),
-        allow_broadcast,
-        ident_names=ident_names,
+        eval_fn,
+        allow_broadcast=allow_broadcast,
+        malformed_message="Malformed let destructure",
+        empty_message="Empty let destructure pattern",
     )
 
     for pat, val in zip(patterns, values):

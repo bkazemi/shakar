@@ -5,6 +5,7 @@ from textwrap import dedent
 import pytest
 
 from tests.support.harness import (
+    ParseError,
     ShakarAssertionError,
     ShakarRuntimeError,
     ShakarTypeError,
@@ -570,6 +571,397 @@ SCENARIOS = [
         None,
         ShakarAssertionError,
         id="destructure-contract-fail",
+    ),
+    # Contract lookahead: final `=` must remain the destructure assignment op.
+    pytest.param(
+        dedent(
+            """\
+            a := 0
+            b := 0
+            a ~ Int, b = 1, 2
+            a + b
+        """
+        ),
+        ("number", 3),
+        None,
+        id="destr-contract-assign-delim",
+    ),
+    # Last-pattern default with `=` assignment delimiter should parse correctly.
+    pytest.param(
+        dedent(
+            """\
+            a := 0
+            b := 0
+            a = 1, b = 2 = 3, 4
+            a + b
+        """
+        ),
+        ("number", 7),
+        None,
+        id="destr-default-assign-delim",
+    ),
+    # Single-pattern default followed by `=` destructure assignment delimiter.
+    pytest.param(
+        dedent(
+            """\
+            a := 0
+            a = 1 = 2
+            a
+        """
+        ),
+        ("number", 2),
+        None,
+        id="destr-default-single-assign-delim",
+    ),
+    # --- Destructure defaults ---
+    # Default used: key missing from object
+    pytest.param(
+        dedent(
+            """\
+            cfg := {port: 5432}
+            host = "localhost", port := cfg
+            host
+        """
+        ),
+        ("string", "localhost"),
+        None,
+        id="destr-default-obj-used",
+    ),
+    # Default unused: key present in object
+    pytest.param(
+        dedent(
+            """\
+            cfg := {host: "myhost", port: 5432}
+            host = "localhost", port := cfg
+            host
+        """
+        ),
+        ("string", "myhost"),
+        None,
+        id="destr-default-obj-unused",
+    ),
+    # Default with array positional
+    pytest.param(
+        dedent(
+            """\
+            a, b = 0 := [1]
+            a + b
+        """
+        ),
+        ("number", 1),
+        None,
+        id="destr-default-arr",
+    ),
+    # Default with contract (default not used, contract passes)
+    pytest.param(
+        dedent(
+            """\
+            a = 0 ~ Int, b := 1, 2
+            a
+        """
+        ),
+        ("number", 1),
+        None,
+        id="destr-default-contract",
+    ),
+    # --- Rest/spread ---
+    # Rest collects remaining array elements
+    pytest.param(
+        dedent(
+            """\
+            a, ...rest := [1, 2, 3]
+            rest
+        """
+        ),
+        ("array", [2.0, 3.0]),
+        None,
+        id="destr-rest-arr",
+    ),
+    # Rest is empty when array exhausted
+    pytest.param(
+        dedent(
+            """\
+            a, b, ...rest := [1, 2]
+            rest
+        """
+        ),
+        ("array", []),
+        None,
+        id="destr-rest-arr-empty",
+    ),
+    # Rest with object: remaining keys collected
+    pytest.param(
+        dedent(
+            """\
+            host, ...rest := {host: "h", port: 80, tls: true}
+            rest.port
+        """
+        ),
+        ("number", 80),
+        None,
+        id="destr-rest-obj",
+    ),
+    # Rest + defaults combo: check a gets 1, b defaults to 0, rest is empty
+    pytest.param(
+        dedent(
+            """\
+            a, b = 0, ...rest := [1]
+            a + b
+        """
+        ),
+        ("number", 1),
+        None,
+        id="destr-rest-default",
+    ),
+    # Rest + defaults combo: verify rest is empty array
+    pytest.param(
+        dedent(
+            """\
+            a, b = 0, ...rest := [1]
+            rest
+        """
+        ),
+        ("array", []),
+        None,
+        id="destr-rest-default-rest-empty",
+    ),
+    # Parser error: rest not last
+    pytest.param(
+        "...rest, a := [1, 2]",
+        None,
+        ParseError,
+        id="destr-rest-not-last",
+    ),
+    # Parser error: rest not last in let path
+    pytest.param(
+        "let ...rest, a := [1, 2]",
+        None,
+        ParseError,
+        id="destr-rest-not-last-let",
+    ),
+    # Parser error: rest in nested pattern
+    pytest.param(
+        "a, (b, ...rest) := [1, [2, 3]]",
+        None,
+        ParseError,
+        id="destr-rest-nested-rejected",
+    ),
+    # Comparison expression in default value
+    pytest.param(
+        dedent(
+            """\
+            a = 1 > 0, b := [true, 2]
+            a
+        """
+        ),
+        ("bool", True),
+        None,
+        id="destr-default-comparison",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a = 1 or 0, b := [5, 2]
+            a
+        """
+        ),
+        ("number", 5),
+        None,
+        id="destr-default-full-expr-or",
+    ),
+    # Nested pattern with defaults
+    pytest.param(
+        dedent(
+            """\
+            a, (b, c = 0) := [1, [2]]
+            c
+        """
+        ),
+        ("number", 0),
+        None,
+        id="destr-default-nested",
+    ),
+    # Walrus scalar broadcast preserves original result type
+    pytest.param(
+        dedent(
+            """\
+            a, b := 42
+            a
+        """
+        ),
+        ("number", 42),
+        None,
+        id="destr-walrus-scalar-preserved",
+    ),
+    # Walrus destructure with defaults: default is materialized, not sentinel
+    pytest.param(
+        dedent(
+            """\
+            a, b = 0 := [1]
+            b
+        """
+        ),
+        ("number", 0),
+        None,
+        id="destr-default-walrus-materialized",
+    ),
+    # Let destructure reuses the same default-materialization pipeline.
+    pytest.param(
+        dedent(
+            """\
+            let a, b = 0 := [1]
+            a + b
+        """
+        ),
+        ("number", 1),
+        None,
+        id="let-destr-default-walrus",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            let a, (b, c = 0) := [1, [2]]
+            c
+        """
+        ),
+        ("number", 0),
+        None,
+        id="let-destr-default-nested",
+    ),
+    # Nested walrus destructure should keep arity mismatch errors for sequences.
+    pytest.param(
+        "a, (b, c) := [1, [2, 3, 4]]",
+        None,
+        ShakarRuntimeError,
+        id="destr-walrus-nested-arity-mismatch",
+    ),
+    # Regex match inside parenthesized default expression
+    pytest.param(
+        dedent(
+            """\
+            a = ("hello" ~~ r"h.*"), b := [true, 2]
+            a
+        """
+        ),
+        ("bool", True),
+        None,
+        id="destr-default-regex-in-parens",
+    ),
+    # Tilde comparison in parenthesized default expression
+    pytest.param(
+        dedent(
+            """\
+            a = (0 ~ Int), b := [true, 2]
+            a
+        """
+        ),
+        ("bool", True),
+        None,
+        id="destr-default-tilde-in-parens",
+    ),
+    # Contract in nested pattern with default: ~ must not be consumed by default expr
+    pytest.param(
+        dedent(
+            """\
+            a, (b = "x" ~ Str, c) := [0, ["y", 1]]
+            b
+        """
+        ),
+        ("string", "y"),
+        None,
+        id="destr-default-contract-nested",
+    ),
+    # Contract in nested pattern with default: contract fails
+    pytest.param(
+        'a, (b = "x" ~ Int, c) := [0, ["y", 1]]',
+        None,
+        ShakarAssertionError,
+        id="destr-default-contract-nested-fail",
+    ),
+    # Let path with rest pattern
+    pytest.param(
+        dedent(
+            """\
+            let a, ...rest := [1, 2, 3]
+            rest
+        """
+        ),
+        ("array", [2.0, 3.0]),
+        None,
+        id="let-destr-rest-arr",
+    ),
+    # Scalar RHS with rest + non-broadcast = must error
+    pytest.param(
+        dedent(
+            """\
+            a := 0
+            rest := 0
+            a, ...rest = 1
+        """
+        ),
+        None,
+        ShakarRuntimeError,
+        id="destr-rest-scalar-non-broadcast",
+    ),
+    # Scalar RHS with rest + broadcast := is allowed
+    pytest.param(
+        dedent(
+            """\
+            a, ...rest := 1
+            a
+        """
+        ),
+        ("number", 1),
+        None,
+        id="destr-rest-scalar-broadcast",
+    ),
+    # Falsy value present should not trigger default
+    pytest.param(
+        dedent(
+            """\
+            a = 99, b = 99 := [0, false]
+            a
+        """
+        ),
+        ("number", 0),
+        None,
+        id="destr-default-falsy-present",
+    ),
+    # Object rest + default on extracted key (key missing)
+    pytest.param(
+        dedent(
+            """\
+            name = "anon", ...rest := {age: 30, active: true}
+            name
+        """
+        ),
+        ("string", "anon"),
+        None,
+        id="destr-rest-obj-default-used",
+    ),
+    # Object rest + default: verify rest contains remaining keys
+    pytest.param(
+        dedent(
+            """\
+            name = "anon", ...rest := {age: 30, active: true}
+            rest.age
+        """
+        ),
+        ("number", 30),
+        None,
+        id="destr-rest-obj-default-rest-keys",
+    ),
+    # Multiple defaults all used (short array)
+    pytest.param(
+        dedent(
+            """\
+            a, b = 10, c = 20 := [1]
+            b + c
+        """
+        ),
+        ("number", 30),
+        None,
+        id="destr-default-multi-all-used",
     ),
     # Hygienic builtin_ref: user-defined Optional must not shadow key?: sugar
     pytest.param(
