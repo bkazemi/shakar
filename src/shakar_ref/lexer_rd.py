@@ -54,6 +54,7 @@ class Lexer:
         "after": TT.AFTER,
         "throw": TT.THROW,
         "catch": TT.CATCH,
+        "try": TT.TRY,
         "assert": TT.ASSERT,
         "dbg": TT.DBG,
         "decorator": TT.DECORATOR,

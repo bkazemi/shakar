@@ -47,6 +47,7 @@ from .eval.control import (
     eval_throw_stmt,
     eval_catch_expr,
     eval_catch_stmt,
+    eval_try_stmt,
 )
 from .eval.helpers import (
     is_truthy,
@@ -593,6 +594,10 @@ def _eval_catchstmt(n: Tree, frame: Frame) -> ShkValue:
     return eval_catch_stmt(n.children, frame, eval_node)
 
 
+def _eval_trystmt(n: Tree, frame: Frame) -> ShkValue:
+    return eval_try_stmt(n.children, frame, eval_node)
+
+
 # ---- Control flow handlers ----
 
 
@@ -906,6 +911,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "callstmt": _eval_callstmt,
     "catchexpr": _eval_catchexpr,
     "catchstmt": _eval_catchstmt,
+    "trystmt": _eval_trystmt,
     # Control flow
     "ifstmt": _eval_ifstmt,
     "whilestmt": _eval_whilestmt,

@@ -217,6 +217,7 @@ def _run_catch_handler(
     original_exc: ShakarRuntimeError,
     allowed_types: list[str],
     eval_fn: EvalFn,
+    allow_loop_control: bool = False,
 ) -> ShkValue:
     # type matching happens before we evaluate the handler body so unmatched errors bubble up
     payload_type = None
@@ -236,7 +237,9 @@ def _run_catch_handler(
         binder_name = expect_ident_token(binder, "Catch binder")
 
     def _exec_handler() -> ShkValue:
-        return eval_body_node(handler, frame, eval_fn)
+        return eval_body_node(
+            handler, frame, eval_fn, allow_loop_control=allow_loop_control
+        )
 
     # track the currently handled exception so a bare `throw` can rethrow it later
     prev_error = getattr(frame, "_active_error", None)
@@ -273,6 +276,28 @@ def eval_catch_stmt(children: list[Node], frame: Frame, eval_fn: EvalFn) -> ShkV
     except ShakarRuntimeError as exc:
         payload = _build_error_payload(exc)
         _run_catch_handler(body, frame, binder, payload, exc, type_names, eval_fn)
+        return ShkNil()
+
+
+def eval_try_stmt(children: list[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
+    """Evaluate try: body catch: handler with loop-control propagation."""
+    try_node, binder, type_names, handler = _parse_catch_components(children)
+
+    try:
+        eval_body_node(try_node, frame, eval_fn, allow_loop_control=True)
+        return ShkNil()
+    except ShakarRuntimeError as exc:
+        payload = _build_error_payload(exc)
+        _run_catch_handler(
+            handler,
+            frame,
+            binder,
+            payload,
+            exc,
+            type_names,
+            eval_fn,
+            allow_loop_control=True,
+        )
         return ShkNil()
 
 

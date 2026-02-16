@@ -729,6 +729,32 @@ def test_wait_modifier_slot_parse_errors(source: str) -> None:
             parse_pipeline(source, use_indenter=use_indenter)
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "try: risky() catch err: handle(err)",
+        dedent(
+            """\
+            try: risky()
+            catch:
+              handle()
+        """
+        ),
+        dedent(
+            """\
+            try:
+              risky()
+            catch: handle()
+        """
+        ),
+    ],
+)
+def test_try_requires_indented_blocks(source: str) -> None:
+    for use_indenter in (False, True):
+        with pytest.raises(ParseError, match="requires indented block form"):
+            parse_pipeline(source, use_indenter=use_indenter)
+
+
 PARSE_ERROR_LOCATION_CASES = [
     ("missing-rpar", "f(1, 2", 1, 7, "Expected RPAR"),
     ("bad-fn-arg", "fn 123()", 1, 4, "Expected COLON"),

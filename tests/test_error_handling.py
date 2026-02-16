@@ -345,6 +345,151 @@ SCENARIOS = [
         ShakarRuntimeError,
         id="throw-bare-postfix-if",
     ),
+    # ---- try/catch block form ----
+    pytest.param(
+        dedent(
+            """\
+            msg := ""
+            try:
+                throw "boom"
+            catch err:
+                msg = err.message
+            msg
+        """
+        ),
+        ("string", "boom"),
+        None,
+        id="try-catch-basic",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            result := 0
+            try:
+                result = 1
+                result = result + 1
+            catch:
+                result = -1
+            result
+        """
+        ),
+        ("number", 2),
+        None,
+        id="try-catch-no-error",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn risky(): { throw error("ValidationError", "bad") }
+            result := ""
+            try:
+                risky()
+            catch (ValidationError) bind err:
+                result = err.type
+            result
+        """
+        ),
+        ("string", "ValidationError"),
+        None,
+        id="try-catch-typed-bind",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn risky(): { throw error("TypeError", "bad") }
+            try:
+                risky()
+            catch (ValidationError):
+                "caught"
+        """
+        ),
+        None,
+        ShakarRuntimeError,
+        id="try-catch-type-miss",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            result := ""
+            try:
+                throw "inner"
+            catch:
+                result = .message
+            result
+        """
+        ),
+        ("string", "inner"),
+        None,
+        id="try-catch-dot-subject",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            result := 0
+            for i in [1, 2, 3, 4, 5]:
+                try:
+                    if i == 3: break
+                    result = result + i
+                catch:
+                    result = -1
+            result
+        """
+        ),
+        ("number", 3),
+        None,
+        id="try-catch-break-propagates",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            result := 0
+            for i in [1, 2, 3, 4, 5]:
+                try:
+                    if i == 3: continue
+                    result = result + i
+                catch:
+                    result = -1
+            result
+        """
+        ),
+        ("number", 12),
+        None,
+        id="try-catch-continue-propagates",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            result := 0
+            for i in [1, 2, 3, 4, 5]:
+                try:
+                    throw "err"
+                catch:
+                    if i == 3: break
+                    result = result + i
+            result
+        """
+        ),
+        ("number", 3),
+        None,
+        id="try-catch-handler-break",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            result := 0
+            for i in [1, 2, 3, 4, 5]:
+                try:
+                    throw "err"
+                catch:
+                    if i == 3: continue
+                    result = result + i
+            result
+        """
+        ),
+        ("number", 12),
+        None,
+        id="try-catch-handler-continue",
+    ),
 ]
 
 

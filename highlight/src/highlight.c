@@ -88,6 +88,7 @@ static HlGroup base_group(TT t) {
     case TT_AFTER:
     case TT_THROW:
     case TT_CATCH:
+    case TT_TRY:
     case TT_ASSERT:
     case TT_DBG:
     case TT_DECORATOR:
@@ -607,6 +608,7 @@ static int is_block_header(TT t) {
     case TT_FN:
     case TT_UNLESS:
     case TT_CATCH:
+    case TT_TRY:
     case TT_DECORATOR:
         return 1;
     default:

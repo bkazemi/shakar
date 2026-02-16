@@ -40,6 +40,7 @@ typedef enum {
     TT_AFTER,
     TT_THROW,
     TT_CATCH,
+    TT_TRY,
     TT_ASSERT,
     TT_DBG,
     TT_DECORATOR,

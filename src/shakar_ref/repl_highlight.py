@@ -56,6 +56,7 @@ _TT_GROUP = {
     TT.AFTER: "keyword",
     TT.THROW: "keyword",
     TT.CATCH: "keyword",
+    TT.TRY: "keyword",
     TT.ASSERT: "keyword",
     TT.DBG: "keyword",
     TT.DECORATOR: "keyword",

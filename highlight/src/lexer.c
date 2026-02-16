@@ -139,8 +139,9 @@ static const KWEntry KEYWORDS[] = {
     {"over", TT_OVER},     {"return", TT_RETURN},
     {"set", TT_SET},       {"spawn", TT_SPAWN},
     {"throw", TT_THROW},   {"true", TT_TRUE},
-    {"unless", TT_UNLESS}, {"using", TT_USING},
-    {"wait", TT_WAIT},     {"while", TT_WHILE},
+    {"try", TT_TRY},       {"unless", TT_UNLESS},
+    {"using", TT_USING},   {"wait", TT_WAIT},
+    {"while", TT_WHILE},
 };
 
 #define KW_COUNT (sizeof(KEYWORDS) / sizeof(KEYWORDS[0]))

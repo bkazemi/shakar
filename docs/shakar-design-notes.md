@@ -21,7 +21,7 @@ This is a living technical spec. The language grows in two ways: new runtime pri
 - **Expression-local magic only**: implicit subject `.` never crosses statement boundaries; it follows the anchor stack rules.
 - **Truthiness**: falsey = `nil`, `false`, zero numbers/durations/sizes, empty strings/arrays/fans/objects/paths/commands; truthy = non-empty of those. Regexes, selectors, functions/methods, and type descriptors are invalid in boolean contexts (type error).
 - **Evaluation**: eager; `and`/`or` short-circuit.
-- **Errors**: exceptions; one-statement handlers via `catch`/`@@`.
+- **Errors**: exceptions; one-statement handlers via `catch`/`@@`; block-form `try`/`catch`.
 - **Strings**: raw forms `raw"…"` (escapes processed) and `raw#"…"#` (no interpolation; no escapes; exactly one `#` in v0.1). Examples: `raw"Line1\nLine2"`, `raw#"C:\\path\\file"#`, `raw#"he said "hi""#`.
 - **Objects**: objects with getters/setters; no class system required in v0.1.
 - **Habitats**: CLI scripting (Python niche) and safe embedding (Lua niche).
@@ -48,7 +48,7 @@ This is a living technical spec. The language grows in two ways: new runtime pri
     dangling dot into a continuation marker rather than a hard error.
 - **Semicolons**: hard statement delimiters at top level and inside braced inline suites `{ ... }`. Multiple statements may share a line. Grammar shape: `stmtlist := stmt (SEMI stmt)* SEMI?`.
 - **Inline suites after `:`**: exactly one simple statement. Wrap a braced inline suite on the right of the colon for multiple statements.
-- **Reserved keywords**: `and, or, not, if, elif, else, unless, for, in, break, continue, return, assert, using, call, defer, after, catch, decorator, decorate, hook, fn, get, set, bind, import, over, fan, true, false, nil`.
+- **Reserved keywords**: `and, or, not, if, elif, else, unless, for, in, break, continue, return, assert, using, call, defer, after, try, catch, decorator, decorate, hook, fn, get, set, bind, import, over, fan, true, false, nil`.
 - **Contextual keywords**: `for` (in comprehensions), `get`/`set` (inside object literals).
 - **Punctuation tokens**: `.=` (apply-assign), `|`/`|:` (guards), `?ret` (statement head), `??(expr)` (nil-safe chain), `:=` (walrus).
 
@@ -822,7 +822,16 @@ u := makeUser() and .isValid()
   ```
   Evaluate left; on success return original value. On `ShakarRuntimeError` (or subclass), run handler and use its value. Without a type guard, `catch err:` binds payload (omit binder to rely on `.`). With a guard: `catch (Type, …) bind name:` filters. Payload exposes `.type`, `.message`, `.key` (for `ShakarKeyError`), `.method` (for `ShakarMethodNotFound`). Bare `catch` is catch-all. `throw` inside handler rethrows; `throw expr` raises new error.
 - **Catch statements** mirror expression semantics but discard original value; bodies execute only on failure.
-- **Inline vs block handlers:** `expr catch err: handler_expr` is expression-valued (usable in walrus/assign chains without parentheses). A block-bodied catch (`expr catch err: { … }` or newline/indent) is statement-valued and yields `nil`. Use inline form when you need the handler’s value; use a block when you need multiple statements or don’t care about the value.
+- **Try/catch statements** provide block-form error handling for protecting multiple statements:
+  ```shakar
+  try:
+      risky1()
+      risky2()
+  catch err:
+      handle(err)
+  ```
+  `try` always requires a `catch` clause. Both `try:` and `catch:` in this form require indented blocks (no inline body form). Supports all catch features: type filters `(Type1, Type2)`, `bind name`, and `.` implicit subject. Unlike postfix `catch`, `try` blocks correctly propagate `break`/`continue` signals from enclosing loops.
+- **Inline vs block handlers:** `expr catch err: handler_expr` is expression-valued (usable in walrus/assign chains without parentheses). A block-bodied catch (`expr catch err: { … }` or newline/indent) is statement-valued and yields `nil`. Use inline form when you need the handler's value; use a block when you need multiple statements or don't care about the value.
 - **assert expr, "msg"`** raises if falsey; build can strip.
 - **throw [expr]** re-raises current payload when expression omitted; otherwise raises new `ShakarRuntimeError` from value (strings => message; objects set `.type/.message`). Bare `throw` (no expression) is valid in inline positions: clause delimiters (`else`, `elif`, `|`), postfix guards (`if`, `unless`), and standard terminators (newline, `;`, `}`, `)`, `,`) all end the bare form. Examples: `if cond: throw else: 0`, `throw if err`.
 - **Helpers**: `error(type, message, data?)` builds tagged payload; `dbg expr` logs and returns expr (strip-able); `tap(value, fn, ...args)` calls `fn(value, ...args)` and returns `value` for side-effect-friendly chaining. Conversion helpers: `int(x)`, `float(x)`, `bool(x)`, `str(x)`, `duration(x)`, `size(x)` (and UFCS forms like `x.int()`).
@@ -1283,6 +1292,7 @@ BaseSimpleStmt  ::= RebindStmt
                   | DeferStmt
                   | Hook
                   | CatchStmt
+                  | TryStmt
                   | AwaitStmt
                   | AwaitAnyCall
                   | AwaitAllCall
@@ -1397,6 +1407,7 @@ WaitGroupCall   ::= "wait" "[" "group" "]" UnaryExpr ;
 
 CatchExpr       ::= Expr ("catch" | "@@") CatchBinder? CatchTypes? ":" Expr ;
 CatchStmt       ::= Expr "catch" CatchBinder? CatchTypes? ":" (InlineBody | IndentBlock) ;
+TryStmt         ::= "try" ":" IndentBlock "catch" CatchBinder? CatchTypes? ":" IndentBlock ;
 CatchBinder     ::= IDENT | "bind" IDENT ;
 CatchTypes      ::= "(" IDENT ("," IDENT)* ")" ;
 

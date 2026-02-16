@@ -767,6 +767,7 @@ class Parser:
                 TT.BREAK: self.parse_break_stmt,
                 TT.CONTINUE: self.parse_continue_stmt,
                 TT.THROW: self.parse_throw_stmt,
+                TT.TRY: self.parse_try_stmt,
                 TT.ASSERT: self.parse_assert_stmt,
                 TT.DBG: self.parse_dbg_stmt,
             }
@@ -2152,6 +2153,18 @@ class Parser:
         self.in_inline_body = old_inline
         return Tree("body", [stmt], attrs={"inline": True})
 
+    def _parse_required_indented_body(self, context: str) -> Tree:
+        """Parse body and require the next non-newline token to be INDENT."""
+        lookahead = 0
+        while self.peek(lookahead).type == TT.NEWLINE:
+            lookahead += 1
+
+        next_tok = self.peek(lookahead)
+        if next_tok.type != TT.INDENT:
+            raise ParseError(f"{context} requires indented block form", next_tok)
+
+        return self.parse_body()
+
     # ========================================================================
     # Expressions - Precedence Climbing
     # ========================================================================
@@ -2211,6 +2224,24 @@ class Parser:
 
         return Tree(
             "catchstmt", self._build_catch_children(try_expr, types, binder, body)
+        )
+
+    def parse_try_stmt(self) -> Tree:
+        """Parse try statement: try: INDENT...DEDENT catch ... : INDENT...DEDENT"""
+        self.expect(TT.TRY)
+        self.expect(TT.COLON)
+        try_body = self._parse_required_indented_body("try")
+
+        if not self.check(TT.CATCH):
+            raise ParseError("try requires a catch clause", self.current)
+
+        self.advance()  # consume 'catch'
+        types, binder = self._parse_catch_filter()
+        self.expect(TT.COLON)
+        handler = self._parse_required_indented_body("try catch")
+
+        return Tree(
+            "trystmt", self._build_catch_children(try_body, types, binder, handler)
         )
 
     def parse_ternary_expr(self) -> Node:

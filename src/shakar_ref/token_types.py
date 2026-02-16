@@ -48,6 +48,7 @@ class TT(Enum):
     AFTER = auto()
     THROW = auto()
     CATCH = auto()
+    TRY = auto()
     ASSERT = auto()
     DBG = auto()
     DECORATOR = auto()
