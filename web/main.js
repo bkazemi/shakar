@@ -45,6 +45,7 @@ let replHighlightRequests = new Map();
 let replLastLiveHighlightId = 0;
 let replLastBlockHighlightId = 0;
 let replHighlightTimer = 0;
+let replLiveHasSyntaxHighlight = false;
 let replIndentProbeSeq = 0;
 let replIndentProbeId = 0;
 let replIndentProbeIndent = '';
@@ -328,6 +329,7 @@ function initReplTranscript() {
     }
     replHighlightRequests.clear();
     replLastLiveHighlightId = 0;
+    replLiveHasSyntaxHighlight = false;
     hideReplSuggestions();
     setReplInputHighlight('');
     replInput.value = '';
@@ -726,6 +728,7 @@ function setReplInputText(value) {
     replInput.value = value;
     replInput.scrollTop = 0;
     setReplInputHighlight(escapeHtml(value));
+    replLiveHasSyntaxHighlight = false;
     scheduleReplLiveHighlight();
     replInput.selectionStart = replInput.value.length;
     replInput.selectionEnd = replInput.value.length;
@@ -1264,6 +1267,7 @@ function handleReplHighlightResult(msg) {
         if (msg.requestId !== replLastLiveHighlightId) return;
         const htmlLines = renderHighlightedLines(meta.code, msg.highlights || []);
         setReplInputHighlight(htmlLines.join('<br>'));
+        replLiveHasSyntaxHighlight = true;
         return;
     }
 
@@ -1301,10 +1305,15 @@ function scheduleReplLiveHighlight() {
         const code = getReplInputText();
         if (!code.trim()) {
             setReplInputHighlight('');
+            replLiveHasSyntaxHighlight = false;
             return;
         }
-        setReplInputHighlight(escapeHtml(code));
+        if (!replLiveHasSyntaxHighlight) {
+            setReplInputHighlight(escapeHtml(code));
+        }
         if (code.trim().startsWith('/')) {
+            setReplInputHighlight(escapeHtml(code));
+            replLiveHasSyntaxHighlight = false;
             replLastLiveHighlightId = 0;
             return;
         }
@@ -1666,7 +1675,9 @@ replInput.addEventListener('keydown', (e) => {
         replInput.value = value.slice(0, start) + '    ' + value.slice(end);
         replInput.selectionStart = replInput.selectionEnd = start + 4;
         updateReplSuggestions();
-        setReplInputHighlight(escapeHtml(getReplInputText()));
+        if (!replLiveHasSyntaxHighlight) {
+            setReplInputHighlight(escapeHtml(getReplInputText()));
+        }
         scheduleReplLiveHighlight();
         syncReplInputHeight();
         return;
@@ -1714,7 +1725,9 @@ replInput.addEventListener('keydown', (e) => {
         replInput.value = value.slice(0, start) + '\n' + value.slice(end);
         replInput.selectionStart = replInput.selectionEnd = start + 1;
         updateReplSuggestions();
-        setReplInputHighlight(escapeHtml(getReplInputText()));
+        if (!replLiveHasSyntaxHighlight) {
+            setReplInputHighlight(escapeHtml(getReplInputText()));
+        }
         scheduleReplLiveHighlight();
         syncReplInputHeight();
         return;
@@ -1750,7 +1763,9 @@ replInput.addEventListener('input', () => {
         replHistoryDisplay = '';
     }
     updateReplSuggestions();
-    setReplInputHighlight(escapeHtml(getReplInputText()));
+    if (!replLiveHasSyntaxHighlight) {
+        setReplInputHighlight(escapeHtml(getReplInputText()));
+    }
     scheduleReplLiveHighlight();
     syncReplInputHeight();
 });
