@@ -109,15 +109,15 @@ The first explicit subject in an expression sets the **anchor**; leading-dot cha
 ```shakar
 user and .profile and .id
 # `user` sets the anchor
-# `.profile` → user.profile, `.id` → user.id
+# `.profile` => user.profile, `.id` => user.id
 ```
 
 Parentheses isolate anchor changes — retargeting inside a group doesn't leak out:
 
 ```shakar
 user and (other and .name) and .id
-# inside group: `other` retargets, `.name` → other.name
-# `.id` uses outer anchor → user.id
+# inside group: `other` retargets, `.name` => other.name
+# `.id` uses outer anchor => user.id
 ```
 
 `$expr` suppresses retargeting on a single unit without parens:
@@ -156,7 +156,7 @@ user.{name, email} .= .trim()
 # Fieldfan chaining: navigate fields after the fanout
 state.{a, b}.nested .= .update()
 
-# Fan-out block: anchors `.` to state, runs clauses top→down
+# Fan-out block: anchors `.` to state, runs clauses top=>down
 state{ .cur = .next; .x += 1; .name .= .trim() }
 
 # Fan literal: broadcast calls and updates
@@ -169,7 +169,7 @@ level == `warn, error`, or >= `critical:`:
   notify(level)
 
 # Destructure directly from a selector list
-key, val := arr[0,1]  # binds arr[0] → key, arr[1] → val
+key, val := arr[0,1]  # binds arr[0] => key, arr[1] => val
 ```
 
 Selector literals use backticks and have precise semantics for ranges, lists, and membership; the [design notes](docs/shakar-design-notes.md#selector-values-slices-and-selectors) cover the details.
@@ -180,9 +180,9 @@ Any in-scope callable can be invoked with method syntax. When the receiver doesn
 
 ```shakar
 fn double(x): x * 2
-5.double()            # UFCS → double(5)
+5.double()            # UFCS => double(5)
 
-"hello".print()       # UFCS → print("hello")
+"hello".print()       # UFCS => print("hello")
 
 fn clamp(x, lo, hi):
   x < lo: return lo

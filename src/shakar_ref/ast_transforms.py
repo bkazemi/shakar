@@ -315,7 +315,7 @@ class Prune(Transformer):
         """Transform env string token, handling interpolation."""
         raw = token.value
 
-        # Strip prefix and quotes: env"..." -> body
+        # Strip prefix and quotes: env"..." => body
         if raw.startswith('env"') and raw.endswith('"'):
             body = raw[4:-1]
         elif raw.startswith("env'") and raw.endswith("'"):
@@ -700,11 +700,11 @@ class Prune(Transformer):
         return node
 
     def amp_lambda1(self, c):
-        # Standalone &(expr) -> amp_lambda
+        # Standalone &(expr) => amp_lambda
         return Tree("amp_lambda", [c[0]])
 
     def amp_lambdan(self, c):
-        # Standalone &[params](expr) -> amp_lambda with paramlist
+        # Standalone &[params](expr) => amp_lambda with paramlist
         params, body = c[0], c[1]
         return Tree("amp_lambda", [params, body])
 

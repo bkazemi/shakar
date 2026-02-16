@@ -81,7 +81,7 @@ def evaluate_destructure_rhs(
     When rest_index is set, the rest element collects surplus values.
     When has_defaults is set, missing positions with defaults get _MISSING.
     """
-    # Normalize: empty defaults list → all-False list matching target_count
+    # Normalize: empty defaults list => all-False list matching target_count
     if not has_defaults:
         has_defaults = [False] * target_count
 
@@ -199,7 +199,7 @@ def _expand_with_rest(
     if len(vals) == 1:
         single = vals[0]
 
-        # Object rest: extract named keys, remaining → rest object
+        # Object rest: extract named keys, remaining => rest object
         if isinstance(single, ShkObject) and ident_names:
             out: list[ShkValue] = []
             remaining = dict(single.slots)
@@ -222,7 +222,7 @@ def _expand_with_rest(
             out[rest_index] = rest_obj
             return out, result
 
-        # Sequence rest: items before rest → 1:1, remaining → rest array
+        # Sequence rest: items before rest => 1:1, remaining => rest array
         if is_sequence_value(single):
             items = list(sequence_items(single))
         elif allow_broadcast:

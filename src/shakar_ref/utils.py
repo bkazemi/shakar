@@ -221,7 +221,7 @@ def parse_compound_literal(
     """Parse a compound literal string and return (total_value, units_tuple).
 
     Reusable by both the lexer (for source literals) and stdlib conversion
-    functions (for runtime string→duration/size parsing).
+    functions (for runtime string=>duration/size parsing).
     Raises ShakarTypeError on malformed input.
     """
     unit_keys = sorted(unit_values.keys(), key=len, reverse=True)

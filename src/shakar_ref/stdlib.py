@@ -125,8 +125,8 @@ def std_duration(
     named: Optional[Dict[str, ShkValue]] = None,
 ) -> ShkDuration:
     """Convert a value to a duration.
-    duration(string) — parse "1min30sec" → ShkDuration
-    duration(number) — interpret as nanoseconds → ShkDuration
+    duration(string) — parse "1min30sec" => ShkDuration
+    duration(number) — interpret as nanoseconds => ShkDuration
     duration(duration) — identity passthrough"""
     args = _with_subject(subject, args)
     if len(args) != 1:
@@ -157,8 +157,8 @@ def std_size(
     named: Optional[Dict[str, ShkValue]] = None,
 ) -> ShkSize:
     """Convert a value to a size.
-    size(string) — parse "1gb512mb" → ShkSize
-    size(number) — interpret as bytes → ShkSize
+    size(string) — parse "1gb512mb" => ShkSize
+    size(number) — interpret as bytes => ShkSize
     size(size) — identity passthrough"""
     args = _with_subject(subject, args)
     if len(args) != 1:

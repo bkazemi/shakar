@@ -32,13 +32,14 @@ else:  # script execution (e.g. tools invoking parser directly)
 
 InterpolationSegment: TypeAlias = tuple[str, str | Node]
 
+
 def pretty_inline(t: Node, indent: str = "") -> List[str]:
     lines: List[str] = []
 
     if is_tree(t):
         children = tree_children(t)
 
-        if tree_label(t) == 'method' and children and is_token(children[0]):
+        if tree_label(t) == "method" and children and is_token(children[0]):
             # inline: method <name>
             head = f"{indent}{tree_label(t)} {children[0].value}"
             rest = children[1:]
@@ -56,6 +57,7 @@ def pretty_inline(t: Node, indent: str = "") -> List[str]:
         # Token
         return [f"{indent}{t.type.lower()}  {t.value}"]
 
+
 def enforce_subject_scope(tree: Tree) -> None:
     """Validate that bare '.' only appears inside an anchor/binder context."""
     errors: List[str] = []
@@ -67,27 +69,27 @@ def enforce_subject_scope(tree: Tree) -> None:
         label = tree_label(node)
         children = list(tree_children(node))
 
-        if label == 'subject':
+        if label == "subject":
             if depth == 0:
                 errors.append("bare '.' outside a binder/anchor context")
             return
-        if label == 'bindexpr' and len(children) == 2:
+        if label == "bindexpr" and len(children) == 2:
             visit(children[0], depth)
             visit(children[1], depth + 1)
             return
-        if label in {'awaitstmt', 'hook'}:
+        if label in {"awaitstmt", "hook"}:
             for ch in children:
-                if is_tree(ch) and tree_label(ch) in {'inlinebody', 'indentblock'}:
+                if is_tree(ch) and tree_label(ch) in {"inlinebody", "indentblock"}:
                     visit(ch, depth + 1)
                 else:
                     visit(ch, depth)
             return
-        if label in {'forsubject', 'forindexed'} and children:
+        if label in {"forsubject", "forindexed"} and children:
             for ch in children[:-1]:
                 visit(ch, depth)
             visit(children[-1], depth + 1)
             return
-        if label in {'lambdacall1', 'lambdacalln', 'stmtsubjectassign'} and children:
+        if label in {"lambdacall1", "lambdacalln", "stmtsubjectassign"} and children:
             for ch in children[:-1]:
                 visit(ch, depth)
             visit(children[-1], depth + 1)
@@ -101,6 +103,7 @@ def enforce_subject_scope(tree: Tree) -> None:
     if errors:
         raise SyntaxError(errors[0])
 
+
 class ChainNormalize(Transformer):
     @staticmethod
     def _fuse(items: List[Node]) -> List[Node]:
@@ -111,24 +114,35 @@ class ChainNormalize(Transformer):
             node = items[i]
 
             if (
-                is_tree(node) and tree_label(node) == 'field'
-                and i + 1 < len(items) and is_tree(items[i + 1])
+                is_tree(node)
+                and tree_label(node) == "field"
+                and i + 1 < len(items)
+                and is_tree(items[i + 1])
             ):
                 nxt = items[i + 1]
 
-                if tree_label(nxt) == 'call':
+                if tree_label(nxt) == "call":
                     name = node.children[0]
-                    out.append(Tree('method', [name, *nxt.children]))
+                    out.append(Tree("method", [name, *nxt.children]))
                     i += 2
                     continue
 
-                if tree_label(nxt) in {'lambdacall1', 'lambdacalln'}:
+                if tree_label(nxt) in {"lambdacall1", "lambdacalln"}:
                     name = node.children[0]
                     body = nxt.children[-1] if nxt.children else None
-                    params = next((ch for ch in nxt.children if is_tree(ch) and tree_label(ch) == 'paramlist'), None)
-                    lam_children = ([params] if params is not None else []) + ([body] if body is not None else [])
-                    args_node = Tree('args', [Tree('amp_lambda', lam_children)])
-                    out.append(Tree('method', [name, args_node]))
+                    params = next(
+                        (
+                            ch
+                            for ch in nxt.children
+                            if is_tree(ch) and tree_label(ch) == "paramlist"
+                        ),
+                        None,
+                    )
+                    lam_children = ([params] if params is not None else []) + (
+                        [body] if body is not None else []
+                    )
+                    args_node = Tree("args", [Tree("amp_lambda", lam_children)])
+                    out.append(Tree("method", [name, args_node]))
                 i += 2
                 continue
 
@@ -138,10 +152,11 @@ class ChainNormalize(Transformer):
         return out
 
     def implicit_chain(self, c: List[Node]) -> Tree:
-        return Tree('implicit_chain', self._fuse(c))
+        return Tree("implicit_chain", self._fuse(c))
 
     def explicit_chain(self, c: List[Node]) -> Tree:
-        return Tree('explicit_chain', self._fuse(c))
+        return Tree("explicit_chain", self._fuse(c))
+
 
 class Prune(Transformer):
     _fragment_parser: Optional[Lark] = None
@@ -167,7 +182,7 @@ class Prune(Transformer):
         self._compare_depth = 0
 
     def _transform_tree(self, tree):
-        if is_tree(tree) and tree_label(tree) in {'compareexpr', 'compareexpr_nc'}:
+        if is_tree(tree) and tree_label(tree) in {"compareexpr", "compareexpr_nc"}:
             self._compare_depth += 1
 
             try:
@@ -178,12 +193,12 @@ class Prune(Transformer):
 
     # ---- unified object literal ----
     def object(self, c):
-        return Tree('object', c)
+        return Tree("object", c)
 
     @v_args(meta=True)
     def literal(self, meta, c):
         if not c:
-            node = Tree('literal', [])
+            node = Tree("literal", [])
             node.meta = meta
 
             return node
@@ -203,15 +218,15 @@ class Prune(Transformer):
     # Canonicalize fields to a single node shape: obj_field(key, value)
     def obj_field_ident(self, c):
         # c = [IDENT, expr]
-        return Tree('obj_field', [Tree('key_ident', [c[0]]), c[1]])
+        return Tree("obj_field", [Tree("key_ident", [c[0]]), c[1]])
 
     def obj_field_string(self, c):
         # c = [STRING, expr]
-        return Tree('obj_field', [Tree('key_string', [c[0]]), c[1]])
+        return Tree("obj_field", [Tree("key_string", [c[0]]), c[1]])
 
     def obj_field_expr(self, c):
         # c = [expr_key, expr_val]
-        return Tree('obj_field', [Tree('key_expr', [c[0]]), c[1]])
+        return Tree("obj_field", [Tree("key_expr", [c[0]]), c[1]])
 
     def obj_sep(self, _c):
         return Discard
@@ -284,7 +299,9 @@ class Prune(Transformer):
             result.meta = meta
         return result
 
-    def _split_interpolation_segments(self, text: str, token: Token) -> List[InterpolationSegment]:
+    def _split_interpolation_segments(
+        self, text: str, token: Token
+    ) -> List[InterpolationSegment]:
         parts: List[InterpolationSegment] = []
         literal: List[str] = []
         index = 0
@@ -300,7 +317,9 @@ class Prune(Transformer):
                     index += 2
                     continue
 
-                expr_text, next_index = self._extract_interpolation_expr(text, index + 1, token)
+                expr_text, next_index = self._extract_interpolation_expr(
+                    text, index + 1, token
+                )
 
                 if literal:
                     parts.append(("text", "".join(literal)))
@@ -328,7 +347,9 @@ class Prune(Transformer):
             parts.append(("text", "".join(literal)))
         return parts
 
-    def _split_shell_interpolation_segments(self, text: str, token: Token) -> List[InterpolationSegment]:
+    def _split_shell_interpolation_segments(
+        self, text: str, token: Token
+    ) -> List[InterpolationSegment]:
         parts: List[InterpolationSegment] = []
         literal: List[str] = []
         index = 0
@@ -339,7 +360,9 @@ class Prune(Transformer):
 
             if ch == "{":
                 if index + 1 < length and text[index + 1] == "{":
-                    expr_text, next_index = self._extract_interpolation_expr(text, index + 2, token, raw_close=True)
+                    expr_text, next_index = self._extract_interpolation_expr(
+                        text, index + 2, token, raw_close=True
+                    )
 
                     if literal:
                         parts.append(("text", "".join(literal)))
@@ -350,7 +373,9 @@ class Prune(Transformer):
                     index = next_index
                     continue
 
-                expr_text, next_index = self._extract_interpolation_expr(text, index + 1, token)
+                expr_text, next_index = self._extract_interpolation_expr(
+                    text, index + 1, token
+                )
 
                 if literal:
                     parts.append(("text", "".join(literal)))
@@ -373,7 +398,9 @@ class Prune(Transformer):
             parts.append(("text", "".join(literal)))
         return parts
 
-    def _extract_interpolation_expr(self, text: str, start: int, token: Token, raw_close: bool=False) -> Tuple[str, int]:
+    def _extract_interpolation_expr(
+        self, text: str, start: int, token: Token, raw_close: bool = False
+    ) -> Tuple[str, int]:
         depth = 1
         index = start
         length = len(text)
@@ -407,17 +434,23 @@ class Prune(Transformer):
                     expr = text[start:index]
 
                     if not expr.strip():
-                        raise SyntaxError("Empty interpolation expression in string literal")
+                        raise SyntaxError(
+                            "Empty interpolation expression in string literal"
+                        )
 
                     if raw_close:
                         if index + 1 >= length or text[index + 1] != "}":
-                            raise SyntaxError(f"Unterminated interpolation expression in string literal: {token.value!r}")
+                            raise SyntaxError(
+                                f"Unterminated interpolation expression in string literal: {token.value!r}"
+                            )
                         return expr, index + 2
 
                     return expr, index + 1
             index += 1
 
-        raise SyntaxError(f"Unterminated interpolation expression in string literal: {token.value!r}")
+        raise SyntaxError(
+            f"Unterminated interpolation expression in string literal: {token.value!r}"
+        )
 
     def _parse_interpolation_expr(self, expr_src: str) -> Node:
         parser = self._fragment_parser
@@ -431,7 +464,7 @@ class Prune(Transformer):
     def _unwrap_fragment_expr(self, node: Node) -> Node:
         current = node
 
-        while is_tree(current) and tree_label(current) == 'expr':
+        while is_tree(current) and tree_label(current) == "expr":
             children = tree_children(current)
 
             if not children:
@@ -448,7 +481,7 @@ class Prune(Transformer):
             if is_token(part) and getattr(part, "type", "") == "IDENT":
                 name = part
                 break
-        return Tree('obj_get', [name, body])
+        return Tree("obj_get", [name, body])
 
     def obj_set(self, c):
         name = None
@@ -461,13 +494,13 @@ class Prune(Transformer):
                     name = part
                 elif param is None:
                     param = part
-        return Tree('obj_set', [name, param, body])
+        return Tree("obj_set", [name, param, body])
 
     def obj_body(self, c):
         if c:
             return c[0]
 
-        return Tree('indentblock', [])
+        return Tree("indentblock", [])
 
     def obj_method(self, c):
         name = None
@@ -478,46 +511,46 @@ class Prune(Transformer):
             if is_token(part) and getattr(part, "type", "") == "IDENT":
                 if name is None:
                     name = part
-            elif is_tree(part) and tree_label(part) == 'paramlist':
+            elif is_tree(part) and tree_label(part) == "paramlist":
                 params = part
-        return Tree('obj_method', [name, params, body])
+        return Tree("obj_method", [name, params, body])
 
     def pattern_list_inline(self, c):
         items = []
 
         for tok in c:
             if is_token(tok) and getattr(tok, "type", "") == "IDENT":
-                items.append(Tree('pattern', [tok]))
+                items.append(Tree("pattern", [tok]))
 
         if not items:
             raise SyntaxError("Empty inline pattern list")
-        return Tree('pattern', [Tree('pattern_list', items)])
+        return Tree("pattern", [Tree("pattern_list", items)])
 
     def forin_pattern(self, c):
-        return c[0] if c else Tree('pattern', [])
+        return c[0] if c else Tree("pattern", [])
 
     def key_ident(self, c):
-        return Tree('key_ident', c)
+        return Tree("key_ident", c)
 
     def key_string(self, c):
-        return Tree('key_string', c)
+        return Tree("key_string", c)
 
     def key_expr(self, c):
-        return Tree('key_expr', c)
+        return Tree("key_expr", c)
 
     def group_expr(self, c):
-        return Tree('group', c)
+        return Tree("group", c)
 
     def setliteral(self, c):
-        items = [x for x in c if not (is_token(x) and x.type == 'COMMA')]
-        return Tree('setliteral', items)
+        items = [x for x in c if not (is_token(x) and x.type == "COMMA")]
+        return Tree("setliteral", items)
 
     def setliteral_empty(self, _):
-        return Tree('setliteral', [])
+        return Tree("setliteral", [])
 
     def setcomp(self, c):
         items = [x for x in c if not (is_token(x) and getattr(x, "type", "") == "SET")]
-        return Tree('setcomp', items)
+        return Tree("setcomp", items)
 
     def hook(self, c):
         event_name = None
@@ -526,7 +559,7 @@ class Prune(Transformer):
         for node in c:
             if is_token(node) and getattr(node, "type", "") == "STRING":
                 event_name = node
-            elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+            elif is_tree(node) and tree_label(node) in {"inlinebody", "indentblock"}:
                 body = node
         children: List[Node] = []
 
@@ -534,29 +567,27 @@ class Prune(Transformer):
             children.append(event_name)
 
         if body is not None:
-            children.append(Tree('amp_lambda', [body]))
+            children.append(Tree("amp_lambda", [body]))
         else:
-            children.append(Tree('amp_lambda', [Tree('inlinebody', [])]))
-        return Tree('hook', children)
+            children.append(Tree("amp_lambda", [Tree("inlinebody", [])]))
+        return Tree("hook", children)
 
     def lambdacall1(self, c):
         body = c[-1] if c else None
         # unify postfix &(...) into a normal call with an amp_lambda arg
-        return Tree('call', [Tree('args', [Tree('amp_lambda', [body])])])
+        return Tree("call", [Tree("args", [Tree("amp_lambda", [body])])])
 
     def lambdacalln(self, c):
         params, body = c[0], c[-1]
-        return Tree('call', [Tree('args', [Tree('amp_lambda', [params, body])])])
+        return Tree("call", [Tree("args", [Tree("amp_lambda", [params, body])])])
 
     def array(self, c):
         filtered = [
             node
-
             for node in c
-
             if not (is_token(node) and node.type in {"LSQB", "RSQB", "COMMA", "_NL"})
         ]
-        return Tree('array', filtered)
+        return Tree("array", filtered)
 
     def usingstmt(self, c: List[Node]) -> Tree:
         handle = None
@@ -575,15 +606,27 @@ class Prune(Transformer):
                     idx += 1
                     continue
                 if t == "LSQB":
-                    if idx + 1 < len(c) and is_token(c[idx + 1]) and getattr(c[idx + 1], "type", "") == "IDENT":
+                    if (
+                        idx + 1 < len(c)
+                        and is_token(c[idx + 1])
+                        and getattr(c[idx + 1], "type", "") == "IDENT"
+                    ):
                         handle = c[idx + 1]
                         idx += 2
 
-                        if idx < len(c) and is_token(c[idx]) and getattr(c[idx], "type", "") == "RSQB":
+                        if (
+                            idx < len(c)
+                            and is_token(c[idx])
+                            and getattr(c[idx], "type", "") == "RSQB"
+                        ):
                             idx += 1
                         continue
                 if t == "BIND":
-                    if idx + 1 < len(c) and is_token(c[idx + 1]) and getattr(c[idx + 1], "type", "") == "IDENT":
+                    if (
+                        idx + 1 < len(c)
+                        and is_token(c[idx + 1])
+                        and getattr(c[idx + 1], "type", "") == "IDENT"
+                    ):
                         binder = c[idx + 1]
                         idx += 2
                         continue
@@ -632,36 +675,52 @@ class Prune(Transformer):
 
         if (
             len(items) == 2
-            and is_tree(items[0]) and tree_label(items[0]) == 'explicit_chain'
-            and is_tree(items[1]) and tree_label(items[1]) == 'explicit_chain'
+            and is_tree(items[0])
+            and tree_label(items[0]) == "explicit_chain"
+            and is_tree(items[1])
+            and tree_label(items[1]) == "explicit_chain"
         ):
-            return Tree('explicit_chain', list(items[0].children) + list(items[1].children))
+            return Tree(
+                "explicit_chain", list(items[0].children) + list(items[1].children)
+            )
 
-        return self._keep_or_flatten('start_indented', items)
+        return self._keep_or_flatten("start_indented", items)
 
     @staticmethod
     def _is_ident_token(node: Node) -> bool:
-        return is_token(node) and getattr(node, 'type', None) == 'IDENT'
+        return is_token(node) and getattr(node, "type", None) == "IDENT"
 
     def _merge_ident_head(self, ident: Token, node: Node) -> Optional[Tree]:
         if is_tree(node):
             label = tree_label(node)
             children = tree_children(node)
 
-            if label in {'implicit_chain', 'explicit_chain'}:
-                return Tree('explicit_chain', [ident, *children])
+            if label in {"implicit_chain", "explicit_chain"}:
+                return Tree("explicit_chain", [ident, *children])
 
-            if label == 'call':
-                return Tree('explicit_chain', [ident, node])
+            if label == "call":
+                return Tree("explicit_chain", [ident, node])
 
-            if label == 'amp_lambda':
-                return Tree('explicit_chain', [ident, Tree('call', [Tree('args', [node])])])
+            if label == "amp_lambda":
+                return Tree(
+                    "explicit_chain", [ident, Tree("call", [Tree("args", [node])])]
+                )
 
-            if label == 'postfixexpr' and children:
+            if label == "postfixexpr" and children:
                 first = children[0]
 
-                if is_tree(first) and tree_label(first) in {'lambdacall1', 'lambdacalln'}:
-                    callee = next((ch for ch in tree_children(first) if is_tree(ch) and tree_label(ch) == 'callee'), None)
+                if is_tree(first) and tree_label(first) in {
+                    "lambdacall1",
+                    "lambdacalln",
+                }:
+                    callee = next(
+                        (
+                            ch
+                            for ch in tree_children(first)
+                            if is_tree(ch) and tree_label(ch) == "callee"
+                        ),
+                        None,
+                    )
 
                     if callee:
                         callee_children = tree_children(callee)
@@ -669,8 +728,13 @@ class Prune(Transformer):
                         if callee_children:
                             chain = callee_children[0]
 
-                            if is_tree(chain) and tree_label(chain) in {'implicit_chain', 'explicit_chain'}:
-                                callee.children[0] = Tree('explicit_chain', [ident, *chain.children])
+                            if is_tree(chain) and tree_label(chain) in {
+                                "implicit_chain",
+                                "explicit_chain",
+                            }:
+                                callee.children[0] = Tree(
+                                    "explicit_chain", [ident, *chain.children]
+                                )
                                 return node
         return None
 
@@ -683,7 +747,7 @@ class Prune(Transformer):
             if is_tree(item):
                 label = tree_label(item)
 
-                if label in {'chain_suffix', 'chain_steps', 'chain_incr'}:
+                if label in {"chain_suffix", "chain_steps", "chain_incr"}:
                     yield from self._flatten_chain_parts(tree_children(item))
                     continue
 
@@ -695,12 +759,12 @@ class Prune(Transformer):
                 label = tree_label(item)
 
                 if label in {
-                    'ccc_trailer',
-                    'ccc_chain',
-                    'ccc_leg',
-                    'ccc_or_leg',
-                    'ccc_and_leg',
-                    'ccc_and_payload',
+                    "ccc_trailer",
+                    "ccc_chain",
+                    "ccc_leg",
+                    "ccc_or_leg",
+                    "ccc_and_leg",
+                    "ccc_and_payload",
                 }:
                     yield from self._flatten_ccc_parts(tree_children(item))
                     continue
@@ -711,55 +775,62 @@ class Prune(Transformer):
         if not c:
             return Discard
 
-        return self._keep_or_flatten('stmt', c)
+        return self._keep_or_flatten("stmt", c)
 
     def stmtlist(self, c):
         c = [x for x in c if x is not Discard]
         if not c:
             return Discard
 
-        return self._keep_or_flatten('stmtlist', c)
+        return self._keep_or_flatten("stmtlist", c)
 
     def simplecall(self, c):
         """Normalize one-liner call statements to the same explicit_chain+call
         shape as expression-mode calls. Safe no-op if it isn't a direct call.
         """
         if not c:
-            return Tree('simplecall', c)
+            return Tree("simplecall", c)
 
         head = c[0]
 
-        if is_tree(head) and tree_label(head) == 'callee' and head.children:
+        if is_tree(head) and tree_label(head) == "callee" and head.children:
             head = head.children[0]
 
-        if is_tree(head) and tree_label(head) == 'explicit_chain':
+        if is_tree(head) and tree_label(head) == "explicit_chain":
             chain, rest = head, c[1:]
         else:
-            chain, rest = Tree('explicit_chain', [head]), c[1:]
+            chain, rest = Tree("explicit_chain", [head]), c[1:]
 
         callnode = None
 
         for node in rest:
-            if is_tree(node) and tree_label(node) == 'call':
+            if is_tree(node) and tree_label(node) == "call":
                 callnode = node
                 break
 
-            if is_tree(node) and tree_label(node) in {'args', 'arglist', 'arglistnamedmixed'}:
+            if is_tree(node) and tree_label(node) in {
+                "args",
+                "arglist",
+                "arglistnamedmixed",
+            }:
                 # Wrap raw args into a call node
-                callnode = Tree('call', [node] if tree_label(node) == 'args' else list(node.children))
+                callnode = Tree(
+                    "call",
+                    [node] if tree_label(node) == "args" else list(node.children),
+                )
                 break
 
         if callnode is None:
-            callnode = Tree('call', [])
+            callnode = Tree("call", [])
 
         # Prefer the canonical chain fuse if available, otherwise build directly
 
         try:
             # XXX
-            #return ChainNormalize._fuse(chain, callnode)  # keeps chain invariants identical to expr-mode
+            # return ChainNormalize._fuse(chain, callnode)  # keeps chain invariants identical to expr-mode
             raise NameError()
         except NameError:
-            return Tree('explicit_chain', list(chain.children) + [callnode])
+            return Tree("explicit_chain", list(chain.children) + [callnode])
 
     def inlinecall(self, c):
         return self.simplecall(c)
@@ -771,15 +842,15 @@ class Prune(Transformer):
         decorators = None
 
         for node in c:
-            if is_tree(node) and tree_label(node) == 'decorator_list':
+            if is_tree(node) and tree_label(node) == "decorator_list":
                 decorators = node
                 continue
 
             if is_token(node) and getattr(node, "type", "") == "IDENT" and name is None:
                 name = node
-            elif is_tree(node) and tree_label(node) == 'paramlist':
+            elif is_tree(node) and tree_label(node) == "paramlist":
                 params = node
-            elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+            elif is_tree(node) and tree_label(node) in {"inlinebody", "indentblock"}:
                 body = node
         children: List[Node] = []
 
@@ -794,12 +865,12 @@ class Prune(Transformer):
 
         if decorators is not None:
             children.append(decorators)
-        return Tree('fndef', children)
+        return Tree("fndef", children)
 
     def decorator_list(self, c):
         # preserve every decorator expression in order; runtime evaluates them later.
         entries = [node for node in c if node is not Discard]
-        return Tree('decorator_list', entries)
+        return Tree("decorator_list", entries)
 
     def decorator_entry(self, c):
         expr = next(
@@ -814,7 +885,7 @@ class Prune(Transformer):
         if expr is None:
             return Discard
         # store the raw expression cargo; this keeps @decorator and @decorator(...) uniform.
-        return Tree('decorator_spec', [expr])
+        return Tree("decorator_spec", [expr])
 
     def decoratorstmt(self, c):
         name = None
@@ -824,9 +895,9 @@ class Prune(Transformer):
         for node in c:
             if is_token(node) and getattr(node, "type", "") == "IDENT" and name is None:
                 name = node
-            elif is_tree(node) and tree_label(node) == 'paramlist':
+            elif is_tree(node) and tree_label(node) == "paramlist":
                 params = node
-            elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+            elif is_tree(node) and tree_label(node) in {"inlinebody", "indentblock"}:
                 body = node
 
         children: List[Node] = []
@@ -837,18 +908,20 @@ class Prune(Transformer):
         if body is not None:
             children.append(body)
 
-        return Tree('decorator_def', children)
+        return Tree("decorator_def", children)
 
-    def _build_anonfn_node(self, parts: List[Node], allow_params: bool=True) -> Tree:
+    def _build_anonfn_node(self, parts: List[Node], allow_params: bool = True) -> Tree:
         params = None
         body = None
 
         for node in parts:
-            if is_tree(node) and tree_label(node) == 'paramlist':
+            if is_tree(node) and tree_label(node) == "paramlist":
                 if not allow_params:
-                    raise SyntaxError("Auto-invoked anonymous fn cannot have parameters")
+                    raise SyntaxError(
+                        "Auto-invoked anonymous fn cannot have parameters"
+                    )
                 params = node
-            elif is_tree(node) and tree_label(node) in {'inlinebody', 'indentblock'}:
+            elif is_tree(node) and tree_label(node) in {"inlinebody", "indentblock"}:
                 body = node
 
         children: List[Node] = []
@@ -856,15 +929,15 @@ class Prune(Transformer):
             children.append(params)
         if body is not None:
             children.append(body)
-        return Tree('anonfn', children)
+        return Tree("anonfn", children)
 
     def anonymous_fn(self, c):
         return self._build_anonfn_node(c)
 
     def anonymous_fn_auto(self, c):
         fn_node = self._build_anonfn_node(c, allow_params=False)
-        call_node = Tree('call', [])
-        return Tree('explicit_chain', [fn_node, call_node])
+        call_node = Tree("call", [])
+        return Tree("explicit_chain", [fn_node, call_node])
 
     def deferstmt(self, c: List[Node]) -> Tree:
         label = None
@@ -875,26 +948,26 @@ class Prune(Transformer):
             if is_tree(node):
                 tag = tree_label(node)
 
-                if tag == 'deferlabel' and label is None:
+                if tag == "deferlabel" and label is None:
                     label = _first_ident(node)
                     continue
-                if tag == 'deferafter':
+                if tag == "deferafter":
                     deps.extend(_collect_defer_after(node))
                     continue
-                if tag == 'defer_block':
+                if tag == "defer_block":
                     block = self._transform_tree(node.children[0])
-                    body_node = Tree('deferblock', [block])
+                    body_node = Tree("deferblock", [block])
                 else:
                     body_node = self._transform_tree(node)
 
         children: List[Node] = []
         if label is not None:
-            children.append(Tree('deferlabel', [Token('IDENT', label)]))
+            children.append(Tree("deferlabel", [Token("IDENT", label)]))
         if body_node is not None:
             children.append(body_node)
         if deps:
-            children.append(Tree('deferdeps', deps))
-        return Tree('deferstmt', children)
+            children.append(Tree("deferdeps", deps))
+        return Tree("deferstmt", children)
 
     def returnstmt(self, c: List[Node]) -> Tree:
         exprs: List[Node] = []
@@ -903,9 +976,10 @@ class Prune(Transformer):
             if is_token(node) and getattr(node, "type", "") == "RETURN":
                 continue
             exprs.append(node)
-        return Tree('returnstmt', exprs)
+        return Tree("returnstmt", exprs)
+
     def returnif(self, c: List[Node]) -> Tree:
-        return Tree('returnif', c)
+        return Tree("returnif", c)
 
     def throwstmt(self, c: List[Node]) -> Tree:
         exprs: List[Node] = []
@@ -914,9 +988,11 @@ class Prune(Transformer):
             if is_token(node) and getattr(node, "type", "") == "THROW":
                 continue
             exprs.append(node)
-        return Tree('throwstmt', exprs)
+        return Tree("throwstmt", exprs)
 
-    def _parse_catch_head(self, nodes: List[Node]) -> tuple[Optional[Node], Optional[Token], List[Token], Optional[Node]]:
+    def _parse_catch_head(
+        self, nodes: List[Node]
+    ) -> tuple[Optional[Node], Optional[Token], List[Token], Optional[Node]]:
         try_node: Optional[Node] = None
         binder: Optional[Token] = None
         types: List[Token] = []
@@ -924,7 +1000,7 @@ class Prune(Transformer):
         flat_nodes: List[Node] = []
 
         for node in nodes:
-            if is_tree(node) and tree_label(node) == 'catchtail':
+            if is_tree(node) and tree_label(node) == "catchtail":
                 flat_nodes.extend(tree_children(node))
             else:
                 flat_nodes.append(node)
@@ -943,23 +1019,23 @@ class Prune(Transformer):
                     continue
 
             label = tree_label(node)
-            if label == 'catchtyped':
+            if label == "catchtyped":
                 for child in tree_children(node):
                     child_label = tree_label(child)
 
-                    if child_label == 'catchtypes':
+                    if child_label == "catchtypes":
                         types = [tok for tok in tree_children(child) if is_token(tok)]
-                    elif child_label in {'catchbinder_kw', 'catchbinder_simple'}:
+                    elif child_label in {"catchbinder_kw", "catchbinder_simple"}:
                         if child.children:
                             binder = child.children[0]
                 continue
-            if label == 'catchbinder_simple':
+            if label == "catchbinder_simple":
                 binder = node.children[0] if node.children else None
                 continue
-            if label == 'catchbinder_kw':
+            if label == "catchbinder_kw":
                 binder = node.children[0] if node.children else None
                 continue
-            if label == 'catchtypes':
+            if label == "catchtypes":
                 types = [tok for tok in tree_children(node) if is_token(tok)]
                 continue
             handler = self._transform_tree(node) if is_tree(node) else node
@@ -969,7 +1045,7 @@ class Prune(Transformer):
     def catchexpr(self, c: List[Node]) -> Tree:
         nodes = c
 
-        if len(c) >= 2 and is_tree(c[1]) and tree_label(c[1]) == 'catchhead':
+        if len(c) >= 2 and is_tree(c[1]) and tree_label(c[1]) == "catchhead":
             nodes = [c[0]] + tree_children(c[1]) + c[2:]
 
         try_node, binder, types, handler = self._parse_catch_head(nodes)
@@ -980,21 +1056,21 @@ class Prune(Transformer):
         if binder is not None:
             children.append(binder)
         if types:
-            children.append(Tree('catchtypes', types))
+            children.append(Tree("catchtypes", types))
         if handler is not None:
             children.append(handler)
 
-        return Tree('catchexpr', children)
+        return Tree("catchexpr", children)
 
     def walrus_rhs(self, c: List[Node]) -> Node:
-        return c[0] if len(c) == 1 else Tree('walrus_rhs', c)
+        return c[0] if len(c) == 1 else Tree("walrus_rhs", c)
 
     def catchstmt(self, c: List[Node]) -> Tree:
         try_node, binder, types, body_node = self._parse_catch_head(c)
 
         # If the handler is a simple inline expression, lower to the expression-form catch.
         body_expr = None
-        if is_tree(body_node) and tree_label(body_node) == 'inlinebody':
+        if is_tree(body_node) and tree_label(body_node) == "inlinebody":
             body_children = list(tree_children(body_node))
 
             if len(body_children) == 1:
@@ -1008,9 +1084,9 @@ class Prune(Transformer):
             if binder is not None:
                 children.append(binder)
             if types:
-                children.append(Tree('catchtypes', types))
+                children.append(Tree("catchtypes", types))
             children.append(body_expr)
-            return Tree('catchexpr', children)
+            return Tree("catchexpr", children)
 
         children: List[Node] = []
 
@@ -1019,56 +1095,78 @@ class Prune(Transformer):
         if binder is not None:
             children.append(binder)
         if types:
-            children.append(Tree('catchtypes', types))
+            children.append(Tree("catchtypes", types))
         if body_node is not None:
             children.append(body_node)
 
-        return Tree('catchstmt', children)
+        return Tree("catchstmt", children)
 
     def amp_lambda1(self, c):
-        return Tree('amp_lambda', [c[0]]) # body only; unary implicit '.'
+        return Tree("amp_lambda", [c[0]])  # body only; unary implicit '.'
 
     def amp_lambdan(self, c):
         params, body = c
-        return Tree('amp_lambda', [params, body]) # explicit paramlist + body
+        return Tree("amp_lambda", [params, body])  # explicit paramlist + body
 
     # Prune
-    def slicearm_empty(self, _):    # unify all “missing expr” to a single sentinel
-        return Tree('emptyexpr', [])
+    def slicearm_empty(self, _):  # unify all “missing expr” to a single sentinel
+        return Tree("emptyexpr", [])
 
     def slicearm_expr(self, c):
-        return c[0]                 # unwrap the expr
+        return c[0]  # unwrap the expr
 
     def slicesel(self, c):
         arms = list(c)
 
-        if len(arms) == 2:          # no third colon → empty step
-            arms.append(Tree('emptyexpr', []))
-        return Tree('slicesel', arms)   # exactly [start, stop, step]
+        if len(arms) == 2:  # no third colon => empty step
+            arms.append(Tree("emptyexpr", []))
+        return Tree("slicesel", arms)  # exactly [start, stop, step]
 
     # XXX: make sure this doesn't break stuff
-    #def addop(self, c): return c[0]     # PLUS | MINUS
-    #def mulop(self, c): return c[0]     # STAR | SLASH | PERCENT, etc
-    #def powop(self, c): return c[0]     # POW or '**'
-    #def literal(self, c): return c[0]   # (from the previous error)
+    # def addop(self, c): return c[0]     # PLUS | MINUS
+    # def mulop(self, c): return c[0]     # STAR | SLASH | PERCENT, etc
+    # def powop(self, c): return c[0]     # POW or '**'
+    # def literal(self, c): return c[0]   # (from the previous error)
 
     # precedence scaffolding: collapse when singleton; keep & rename when operative
-    def ternaryexpr(self, c):   return self._keep_or_flatten('ternaryexpr', c, 'ternary')
-    def orexpr(self, c):        return self._keep_or_flatten('orexpr', c, 'or')
-    def andexpr(self, c):       return self._keep_or_flatten('andexpr', c, 'and')
+    def ternaryexpr(self, c):
+        return self._keep_or_flatten("ternaryexpr", c, "ternary")
+
+    def orexpr(self, c):
+        return self._keep_or_flatten("orexpr", c, "or")
+
+    def andexpr(self, c):
+        return self._keep_or_flatten("andexpr", c, "and")
+
     def bindexpr(self, c):
-        filtered = [item for item in c if not (is_token(item) and getattr(item, 'type', None) == 'APPLYASSIGN')]
-        return self._keep_or_flatten('bindexpr', filtered, 'bind')
-    def walrusexpr(self, c):    return self._keep_or_flatten('walrusexpr', c, 'walrus')
-    def nullishexpr(self, c):   return self._keep_or_flatten('nullishexpr', c, 'nullish')
+        filtered = [
+            item
+            for item in c
+            if not (is_token(item) and getattr(item, "type", None) == "APPLYASSIGN")
+        ]
+        return self._keep_or_flatten("bindexpr", filtered, "bind")
+
+    def walrusexpr(self, c):
+        return self._keep_or_flatten("walrusexpr", c, "walrus")
+
+    def nullishexpr(self, c):
+        return self._keep_or_flatten("nullishexpr", c, "nullish")
+
     def compareexpr(self, c):
         c = list(self._flatten_ccc_parts(c))
-        return self._keep_or_flatten('compareexpr', c, 'compare')
-    def addexpr(self, c):       return self._keep_or_flatten('addexpr', c, 'add')
-    def mulexpr(self, c):       return self._keep_or_flatten('mulexpr', c, 'mul')
-    def powexpr(self, c):       return self._keep_or_flatten('powexpr', c, 'pow')
-    def unaryexpr(self, c):     return self._keep_or_flatten('unaryexpr', c, 'unary')
+        return self._keep_or_flatten("compareexpr", c, "compare")
 
+    def addexpr(self, c):
+        return self._keep_or_flatten("addexpr", c, "add")
+
+    def mulexpr(self, c):
+        return self._keep_or_flatten("mulexpr", c, "mul")
+
+    def powexpr(self, c):
+        return self._keep_or_flatten("powexpr", c, "pow")
+
+    def unaryexpr(self, c):
+        return self._keep_or_flatten("unaryexpr", c, "unary")
 
     # collapse explicit head when it's just a single, non-hop child
     def explicit_chain(self, c):
@@ -1077,55 +1175,80 @@ class Prune(Transformer):
         if len(c) == 1:
             child = c[0]
 
-            if not (is_tree(child) and tree_label(child) in {'field', 'index', 'call', 'incr', 'decr', 'fieldfan'}):
+            if not (
+                is_tree(child)
+                and tree_label(child)
+                in {"field", "index", "call", "incr", "decr", "fieldfan"}
+            ):
                 return child
-        return Tree('explicit_chain', c)
+        return Tree("explicit_chain", c)
+
     def implicit_chain(self, c):
         c = list(self._flatten_chain_parts(c))
-        return Tree('implicit_chain', c)
+        return Tree("implicit_chain", c)
+
     def field(self, c):
         # Normalize field to hold only the IDENT token (drop DOT), so printers show the name
-        ident_only = [tok for tok in c if getattr(tok, 'type', None) == 'IDENT']
-        return Tree('field', ident_only or c)
+        ident_only = [tok for tok in c if getattr(tok, "type", None) == "IDENT"]
+        return Tree("field", ident_only or c)
 
     def bind(self, c):
         kept = []
 
         for item in c:
-            if is_token(item) and getattr(item, 'type', None) == 'APPLYASSIGN':
+            if is_token(item) and getattr(item, "type", None) == "APPLYASSIGN":
                 continue
             kept.append(item)
-        return Tree('bind', kept)
+        return Tree("bind", kept)
 
-    def index(self, c):  return Tree('index', c)
-    def call(self, c):   return Tree('call', c)
+    def index(self, c):
+        return Tree("index", c)
+
+    def call(self, c):
+        return Tree("call", c)
 
     # light unwrapping that’s always safe
-    def primary(self, c):       return c[0] if len(c) == 1 else Tree('primary', c)
-    def expr(self, c):          return c[0]  # expr is always a wrapper in this grammar
+    def primary(self, c):
+        return c[0] if len(c) == 1 else Tree("primary", c)
+
+    def expr(self, c):
+        return c[0]  # expr is always a wrapper in this grammar
 
     # ignore comments
-    def COMMENT(self, _c): return Discard
-    def comment(self, _c): return Discard
+    def COMMENT(self, _c):
+        return Discard
+
+    def comment(self, _c):
+        return Discard
 
     def AND(self, _c):
-        if getattr(self, '_compare_depth', 0) > 0:
-            return Token('AND', 'and')
+        if getattr(self, "_compare_depth", 0) > 0:
+            return Token("AND", "and")
         return Discard
 
     def OR(self, _c):
-        if getattr(self, '_compare_depth', 0) > 0:
-            return Token('OR', 'or')
+        if getattr(self, "_compare_depth", 0) > 0:
+            return Token("OR", "or")
         return Discard
 
-    def COLON(self, _c): return Discard
+    def COLON(self, _c):
+        return Discard
+
 
 # tidy arg nodes for printing
 class ArgTidy(Transformer):
-    def arg(self, c):        return c[0]              # unwrap single arg
-    def argitem(self, c):    return c[0]
-    def arglist(self, c):    return Tree('args', c)   # nicer label
-    def arglistnamedmixed(self, c): return Tree('args', c)
+    def arg(self, c):
+        return c[0]  # unwrap single arg
+
+    def argitem(self, c):
+        return c[0]
+
+    def arglist(self, c):
+        return Tree("args", c)  # nicer label
+
+    def arglistnamedmixed(self, c):
+        return Tree("args", c)
+
 
 def _enforce_toplevel_line_separators(tree: Tree, code: str, start_sym: str) -> None:
     """
@@ -1179,6 +1302,7 @@ def _enforce_toplevel_line_separators(tree: Tree, code: str, start_sym: str) -> 
         e.expected = {"SEMI"}
         raise e
 
+
 class ShakarIndenter(Indenter):
     # Match your grammar
     NL_type = "_NL"
@@ -1192,8 +1316,8 @@ class ShakarIndenter(Indenter):
         if self.paren_level > 0:
             return
 
-        indent_str = token.rsplit('\n', 1)[1]
-        indent = indent_str.count(' ') + indent_str.count('\t') * self.tab_len
+        indent_str = token.rsplit("\n", 1)[1]
+        indent = indent_str.count(" ") + indent_str.count("\t") * self.tab_len
 
         yield token
 
@@ -1210,18 +1334,22 @@ class ShakarIndenter(Indenter):
             yield Token.new_borrow_pos(self.DEDENT_type, indent_str, token)
 
         if indent != self.indent_level[-1]:
-            raise DedentError('Unexpected dedent to column %s. Expected dedent to %s' % (indent, self.indent_level[-1]))
+            raise DedentError(
+                "Unexpected dedent to column %s. Expected dedent to %s"
+                % (indent, self.indent_level[-1])
+            )
 
         if emitted_dedent:
             # Propagate a newline token at the new indentation level so outer blocks
             # can see the line break that triggered this dedent.
             yield Token.new_borrow_pos(self.NL_type, "\n" + indent_str, token)
 
+
 KEYWORDS = {
     "and": "AND",
-    "or":  "OR",
-    "is":  "IS",
-    "in":  "IN",
+    "or": "OR",
+    "is": "IS",
+    "in": "IN",
     "not": "NOT",
     "for": "FOR",
     "if": "IF",
@@ -1249,19 +1377,25 @@ KEYWORDS = {
     "false": "FALSE",
 }
 
+
 def _remap_ident(t: Token) -> Token:
     # Only remap exact word matches, never prefixes
     t.type = KEYWORDS.get(t.value, t.type)
     return t
 
+
 # Module-level parser cache for reuse within same Python process
 _PARSER_CACHE: Dict[Tuple[str, str, str], Lark] = {}
 
-def build_parser(grammar_text: str, parser_kind: str, use_indenter: bool, start_sym: str) -> Lark:
+
+def build_parser(
+    grammar_text: str, parser_kind: str, use_indenter: bool, start_sym: str
+) -> Lark:
     _ = use_indenter  # legacy flag; indentation handling now always on
 
     # Check cache first
     import hashlib
+
     grammar_hash = hashlib.md5(grammar_text.encode()).hexdigest()[:16]
     cache_key = (parser_kind, start_sym, grammar_hash)
 
@@ -1285,7 +1419,7 @@ def build_parser(grammar_text: str, parser_kind: str, use_indenter: bool, start_
     # Cache it
     _PARSER_CACHE[cache_key] = parser
     return parser
-    '''else: # dynamic ver
+    """else: # dynamic ver
         return Lark(
             grammar_text,
             parser=parser_kind,
@@ -1293,19 +1427,25 @@ def build_parser(grammar_text: str, parser_kind: str, use_indenter: bool, start_
             start=start_sym,
             maybe_placeholders=False,
             propagate_positions=True,
-        )'''
+        )"""
+
 
 def looks_like_offside(code: str) -> bool:
     # Heuristic: a colon at end-of-line followed by a newline, or leading indentation on a non-empty line
     lines = code.splitlines()
 
     for i, ln in enumerate(lines):
-        if ln.rstrip().endswith(":") and i < len(lines)-1 and lines[i+1].startswith((" ", "\t")):
+        if (
+            ln.rstrip().endswith(":")
+            and i < len(lines) - 1
+            and lines[i + 1].startswith((" ", "\t"))
+        ):
             return True
 
         if ln and (ln[0] == " " or ln[0] == "\t"):
             return True
     return False
+
 
 def parse_or_first_error(parser: Lark, src: str) -> Tree:
     """
@@ -1331,6 +1471,7 @@ def parse_or_first_error(parser: Lark, src: str) -> Tree:
         # If all prefixes were ok, re-raise the original (usually EOF/dedent problem)
         raise whole_err
 
+
 def validate_named_args(tree: Tree) -> None:
     def is_namedarg(n: Node) -> bool:
         return is_tree(n) and tree_label(n) == "namedarg"
@@ -1348,8 +1489,13 @@ def validate_named_args(tree: Tree) -> None:
             argnode = None
 
             for ch in tree_children(n):
-                if is_tree(ch) and tree_label(ch) in {"arglistnamedmixed", "arglist", "args"}:
-                    argnode = ch; break
+                if is_tree(ch) and tree_label(ch) in {
+                    "arglistnamedmixed",
+                    "arglist",
+                    "args",
+                }:
+                    argnode = ch
+                    break
 
             if argnode is not None:
                 seen_named = False
@@ -1366,13 +1512,18 @@ def validate_named_args(tree: Tree) -> None:
                             continue
                         name = children[0].value
 
-                        if name in names: raise SyntaxError(f"Duplicate named argument '{name}'")
+                        if name in names:
+                            raise SyntaxError(f"Duplicate named argument '{name}'")
                         names.add(name)
                     else:
-                        if seen_named: raise SyntaxError("Positional argument after named argument")
+                        if seen_named:
+                            raise SyntaxError(
+                                "Positional argument after named argument"
+                            )
 
         for ch in tree_children(n):
             visit(ch)
+
     visit(tree)
 
 
@@ -1403,11 +1554,14 @@ def validate_hoisted_binders(tree: Tree) -> None:
                     children = tree_children(ch)
 
                     if children and is_token(children[0]):
-                        res.append((ch.children[0].value, True)); seen += 1
+                        res.append((ch.children[0].value, True))
+                        seen += 1
                 elif is_token(ch) and getattr(ch, "type", "") == "IDENT":
-                    res.append((ch.value, False)); seen += 1
+                    res.append((ch.value, False))
+                    seen += 1
 
-                if seen >= 2: break
+                if seen >= 2:
+                    break
 
         if is_tree(n) and tree_label(n) == "overspec":
             for ch in tree_children(n):
@@ -1436,13 +1590,18 @@ def validate_hoisted_binders(tree: Tree) -> None:
 
             for base, kinds in byname.items():
                 if kinds == {"H", "P"}:
-                    raise SyntaxError(f"Cannot use both hoisted and local binder for '{base}' in the same binder list")
+                    raise SyntaxError(
+                        f"Cannot use both hoisted and local binder for '{base}' in the same binder list"
+                    )
 
                 if sum(1 for nm, is_h in pairs if nm == base and is_h) > 1:
-                    raise SyntaxError(f"Duplicate hoisted binder '{base}' in binder list")
+                    raise SyntaxError(
+                        f"Duplicate hoisted binder '{base}' in binder list"
+                    )
 
         for ch in tree_children(n):
             walk(ch)
+
     walk(tree)
 
 
@@ -1519,27 +1678,29 @@ def parse_to_ast(
     canonical = _infer_amp_lambda_params(canonical)
 
     if not is_tree(canonical):
-        canonical = Tree('module', [canonical])
+        canonical = Tree("module", [canonical])
     return canonical
 
+
 _CANONICAL_RENAMES = {
-    'expr_nc': 'expr',
-    'ternary_nc': 'ternary',
-    'or_nc': 'or',
-    'and_nc': 'and',
-    'bind_nc': 'bind',
-    'walrus_nc': 'walrus',
-    'nullish_nc': 'nullish',
-    'compare_nc': 'compare',
-    'add_nc': 'add',
-    'mul_nc': 'mul',
-    'pow_nc': 'pow',
-    'unary_nc': 'unary',
+    "expr_nc": "expr",
+    "ternary_nc": "ternary",
+    "or_nc": "or",
+    "and_nc": "and",
+    "bind_nc": "bind",
+    "walrus_nc": "walrus",
+    "nullish_nc": "nullish",
+    "compare_nc": "compare",
+    "add_nc": "add",
+    "mul_nc": "mul",
+    "pow_nc": "pow",
+    "unary_nc": "unary",
 }
 
-_FLATTEN_SINGLE = {'expr'}
+_FLATTEN_SINGLE = {"expr"}
 
-_IGNORED_TOKEN_TYPES = {'SEMI', '_NL', 'INDENT', 'DEDENT'}
+_IGNORED_TOKEN_TYPES = {"SEMI", "_NL", "INDENT", "DEDENT"}
+
 
 # Canonical AST node expectations for downstream consumers. Every Tree returned
 # by parse_to_ast adheres to these shapes:
@@ -1559,15 +1720,21 @@ def _normalize_root(tree: Tree) -> Tree:
         return tree
     children = [child for child in tree_children(tree) if child is not Discard]
 
-    if len(children) == 1 and is_tree(children[0]) and tree_label(children[0]) == "stmtlist":
+    if (
+        len(children) == 1
+        and is_tree(children[0])
+        and tree_label(children[0]) == "stmtlist"
+    ):
         stmtlist = _strip_discard(children[0])
     else:
         stmtlist = _strip_discard(Tree("stmtlist", children))
     return Tree("module", [stmtlist])
 
+
 def _strip_discard(node: Tree) -> Tree:
     kept = [child for child in tree_children(node) if child is not Discard]
     return Tree(node.data, kept)
+
 
 def _desugar_call_holes(node: Node) -> Node:
     if is_token(node) or not is_tree(node):
@@ -1583,19 +1750,20 @@ def _desugar_call_holes(node: Node) -> Node:
             changed = True
 
     candidate = node
-    if tree_label(candidate) == 'explicit_chain':
+    if tree_label(candidate) == "explicit_chain":
         replacement = _chain_to_lambda_if_holes(candidate)
 
         if replacement is not None:
             return replacement
     return candidate
 
+
 def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
     def _contains_hole(node: Node) -> bool:
         if is_token(node) or not is_tree(node):
             return False
 
-        if tree_label(node) == 'holeexpr':
+        if tree_label(node) == "holeexpr":
             return True
         return any(_contains_hole(child) for child in tree_children(node))
 
@@ -1608,12 +1776,14 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
     hole_call_index = None
 
     for idx, op in enumerate(ops):
-        if tree_label(op) == 'call' and _contains_hole(op):
+        if tree_label(op) == "call" and _contains_hole(op):
             hole_call_index = idx
             break
 
     if hole_call_index is not None and hole_call_index + 1 < len(ops):
-        raise SyntaxError("Hole partials cannot be immediately invoked; assign or pass the partial before calling it")
+        raise SyntaxError(
+            "Hole partials cannot be immediately invoked; assign or pass the partial before calling it"
+        )
 
     def clone(node: Node) -> Node:
         if is_token(node):
@@ -1623,10 +1793,10 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
             return node
         label = tree_label(node)
 
-        if label == 'holeexpr':
+        if label == "holeexpr":
             name = f"_hole{len(holes)}"
             holes.append(name)
-            return Token('IDENT', name)
+            return Token("IDENT", name)
         cloned_children = [clone(child) for child in tree_children(node)]
         return Tree(label, cloned_children)
 
@@ -1634,30 +1804,34 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
 
     if not holes:
         return None
-    params = [Token('IDENT', name) for name in holes]
-    paramlist = Tree('paramlist', params)
-    return Tree('amp_lambda', [paramlist, cloned_chain])
+    params = [Token("IDENT", name) for name in holes]
+    paramlist = Tree("paramlist", params)
+    return Tree("amp_lambda", [paramlist, cloned_chain])
+
 
 def _infer_amp_lambda_params(node: Node) -> Node:
     if is_token(node) or not is_tree(node):
         return node
     label = tree_label(node)
 
-    if label == 'amp_lambda' and len(node.children) == 1:
+    if label == "amp_lambda" and len(node.children) == 1:
         body = _infer_amp_lambda_params(node.children[0])
         names, uses_subject = _collect_lambda_free_names(body)
 
         if uses_subject and names:
-            raise SyntaxError("Cannot mix subject '.' with implicit parameters in amp_lambda body")
+            raise SyntaxError(
+                "Cannot mix subject '.' with implicit parameters in amp_lambda body"
+            )
 
         if uses_subject or not names:
             node.children = [body]
         else:
-            params = [Token('IDENT', name) for name in names]
-            node.children = [Tree('paramlist', params), body]
+            params = [Token("IDENT", name) for name in names]
+            node.children = [Tree("paramlist", params), body]
         return node
     node.children = [_infer_amp_lambda_params(child) for child in tree_children(node)]
     return node
+
 
 def _collect_lambda_free_names(node: Node) -> tuple[List[str], bool]:
     names: List[str] = []
@@ -1673,13 +1847,13 @@ def _collect_lambda_free_names(node: Node) -> tuple[List[str], bool]:
         if is_tree(n):
             label = tree_label(n)
 
-            if label == 'amp_lambda':
+            if label == "amp_lambda":
                 return
 
-            if label in {'implicit_chain', 'subject'}:
+            if label in {"implicit_chain", "subject"}:
                 uses_subject = True
 
-            if label == 'explicit_chain':
+            if label == "explicit_chain":
                 children = tree_children(n)
 
                 if children:
@@ -1699,18 +1873,20 @@ def _collect_lambda_free_names(node: Node) -> tuple[List[str], bool]:
                 walk(child, label)
             return
 
-        if is_token(n) and getattr(n, 'type', None) == 'IDENT':
-            if parent_label in {'field', 'paramlist', 'key_ident', 'key_string'}:
+        if is_token(n) and getattr(n, "type", None) == "IDENT":
+            if parent_label in {"field", "paramlist", "key_ident", "key_string"}:
                 return
             append(n.value)
 
     walk(node, None)
     return names, uses_subject
 
+
 def _get_ident_value(node: Node) -> Optional[str]:
-    if is_token(node) and getattr(node, 'type', None) == 'IDENT':
+    if is_token(node) and getattr(node, "type", None) == "IDENT":
         return node.value
     return None
+
 
 def _canonicalize_ast(node: Node) -> Optional[Node]:
     if is_token(node):
@@ -1736,19 +1912,33 @@ def _canonicalize_ast(node: Node) -> Optional[Node]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("source", nargs="?", help="Path to a source file (defaults to stdin)")
-    ap.add_argument("-g", "--grammar", default="grammar.lark", help="Path to grammar.lark")
+    ap.add_argument(
+        "source", nargs="?", help="Path to a source file (defaults to stdin)"
+    )
+    ap.add_argument(
+        "-g", "--grammar", default="grammar.lark", help="Path to grammar.lark"
+    )
     ap.add_argument("--indenter", action="store_true", help="Force Indenter ON")
     ap.add_argument("--no-indenter", action="store_true", help="Force Indenter OFF")
     ap.add_argument("--tree", action="store_true", help="Print parse tree")
-    ap.add_argument("--prune", action="store_true", help="Prune precedence wrapper nodes")
-    ap.add_argument("--normalize", action="store_true", help="Fuse [field, call] → method in chains")
+    ap.add_argument(
+        "--prune", action="store_true", help="Prune precedence wrapper nodes"
+    )
+    ap.add_argument(
+        "--normalize",
+        action="store_true",
+        help="Fuse [field, call] => method in chains",
+    )
 
     args = ap.parse_args()
 
     parser_kind = "earley"  # RD variant can be wired here later
     grammar_text = Path(args.grammar).read_text(encoding="utf-8")
-    code = Path(args.source).read_text(encoding="utf-8") if args.source else sys.stdin.read()
+    code = (
+        Path(args.source).read_text(encoding="utf-8")
+        if args.source
+        else sys.stdin.read()
+    )
 
     # Decide mode
     force = None
@@ -1765,7 +1955,7 @@ def main() -> None:
             parser_kind=parser_kind,
             force_indenter=force,
         )
-        #_enforce_toplevel_line_separators(tree, code, start_sym)
+        # _enforce_toplevel_line_separators(tree, code, start_sym)
     except SyntaxError as err:
         sys.stderr.write(str(err) + "\n")
         sys.exit(1)
@@ -1785,20 +1975,27 @@ def main() -> None:
         enforce_subject_scope(tree)
         print("OK")
 
+
 def _prune_assert(_self: Transformer, c: List[Node]) -> Tree:
-    filtered = [node for node in c if not (is_token(node) and getattr(node, "type", "") == "ASSERT")]
-    node = Tree('assert', filtered)
-    meta = getattr(c[0], 'meta', None) if c else None
+    filtered = [
+        node
+        for node in c
+        if not (is_token(node) and getattr(node, "type", "") == "ASSERT")
+    ]
+    node = Tree("assert", filtered)
+    meta = getattr(c[0], "meta", None) if c else None
 
     if meta is not None:
         node.meta = meta
 
     return node
 
-setattr(Prune, 'assert', _prune_assert)
+
+setattr(Prune, "assert", _prune_assert)
 
 if __name__ == "__main__":
     main()
+
 
 def _first_ident(node: Node) -> Optional[str]:
     queue: List[Node] = [node]
@@ -1813,6 +2010,7 @@ def _first_ident(node: Node) -> Optional[str]:
             queue.extend(tree_children(cur))
     return None
 
+
 def _collect_defer_after(node: Tree) -> List[Token]:
     deps: List[Token] = []
 
@@ -1820,6 +2018,6 @@ def _collect_defer_after(node: Tree) -> List[Token]:
         name = _first_ident(ch)
 
         if name:
-            deps.append(Token('IDENT', name))
+            deps.append(Token("IDENT", name))
 
     return deps

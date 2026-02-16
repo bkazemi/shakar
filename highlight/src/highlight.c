@@ -61,7 +61,7 @@ const char *hl_group_name(HlGroup g) {
 }
 
 /* ======================================================================== */
-/* Token → base group mapping                                                */
+/* Token => base group mapping                                                */
 /* ======================================================================== */
 
 static HlGroup base_group(TT t) {
@@ -671,7 +671,7 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
         /* ---- Layout tokens: update statement boundary ---- */
         if (t == TT_NEWLINE || t == TT_INDENT || t == TT_DEDENT) {
             if (bracket_depth == 0) {
-                /* Missing colon check: block keyword seen, then NEWLINE→INDENT
+                /* Missing colon check: block keyword seen, then NEWLINE=>INDENT
                  * without an intervening colon. */
                 if (need_colon && t == TT_NEWLINE && diags) {
                     int j = i + 1;
@@ -757,7 +757,7 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
                 cur_indent != continuation_indent)
                 continuation_indent = -1;
 
-            /* Starting dot at statement start → begin chain */
+            /* Starting dot at statement start => begin chain */
             if (at_stmt_start && t == TT_DOT) {
                 if (at_line_start) {
                     if (continuation_indent >= 0 && cur_indent == continuation_indent) {

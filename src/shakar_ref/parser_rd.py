@@ -1605,7 +1605,7 @@ class Parser:
 
         return Tree("decorator_def", [name, params, body])
 
-    # Fanout assignment operator token → tree label mapping.
+    # Fanout assignment operator token => tree label mapping.
     _FANOP_MAP = {
         TT.ASSIGN: "fanop_assign",
         TT.APPLYASSIGN: "fanop_apply",
@@ -2498,21 +2498,21 @@ class Parser:
         # Peek at token after comma
         next_tok = self.peek(1)
 
-        # `, or` → definitely CCC OR leg
+        # `, or` => definitely CCC OR leg
         if next_tok.type == TT.OR:
             return True
 
-        # `, and` → definitely CCC AND leg (explicit)
+        # `, and` => definitely CCC AND leg (explicit)
         if next_tok.type == TT.AND:
             return True
 
-        # Check if followed by comparison operator (`, <cmpop>` → implicit AND)
+        # Check if followed by comparison operator (`, <cmpop>` => implicit AND)
         # Lookahead past the comma
         _, idx, _ = self._lookahead_advance(self.pos, 0)  # skip comma
         is_cmp = idx < len(self.tokens) and self._is_compare_op_at(idx)
 
         if is_cmp:
-            return True  # `, <cmpop>` → CCC implicit AND
+            return True  # `, <cmpop>` => CCC implicit AND
 
         # At this point: `, <addexpr>` (bare value, no cmpop)
         # This is ambiguous - use context to decide:
@@ -3918,7 +3918,7 @@ class Parser:
                 self.expect(TT.COLON)
                 return Tree("obj_method", [name, params, self._parse_obj_item_body()])
 
-            # Pun: bare IDENT (not followed by : or ?) → {x} desugars to {x: x}
+            # Pun: bare IDENT (not followed by : or ?) => {x} desugars to {x: x}
             if name.type == TT.IDENT and not self.check(TT.COLON, TT.QMARK):
                 return Tree("obj_field", [Tree("key_ident", [name]), name])
 

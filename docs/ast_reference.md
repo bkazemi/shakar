@@ -35,8 +35,8 @@ Tree("body", [Tok("INDENT", ...), Tree("stmt", [...]), Tok("DEDENT", ...)], attr
 
 `rebind_primary` distinguishes grouped vs simple forms via attrs:
 
-- `=ident` → `Tree("rebind_primary", [Tok("IDENT", ...)], attrs={"grouped": False})`
-- `=(lvalue)` → `Tree("rebind_primary", [Tree("lvalue", ...)], attrs={"grouped": True})`
+- `=ident` => `Tree("rebind_primary", [Tok("IDENT", ...)], attrs={"grouped": False})`
+- `=(lvalue)` => `Tree("rebind_primary", [Tree("lvalue", ...)], attrs={"grouped": True})`
 
 The evaluator relies on `grouped` to determine chain semantics.
 

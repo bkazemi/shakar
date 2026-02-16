@@ -60,7 +60,7 @@ This is a **living technical spec**. It front-loads design choices to avoid “o
 **Set and Object algebra precedence:** `*` for set/object intersection participates at the multiplicative tier. `+`, `-`, and set/obj `^` participate at the additive tier. Numeric bitwise `^` remains behind the `bitwise_symbols` gate and stays in the bitwise tier.
 
 **Associativity**: unless noted, binary operators are **left-associative**.
-**Precedence table (high → low):**
+**Precedence table (high => low):**
 
 1. **Postfix**: member `.`, call `()`, index `[]`
 2. **Unary**: `-x` boolean `not x` / `!x`, `~x` (bitwise not; gated via `bitwise_symbols`, otherwise use `bit.not(x)`)
@@ -1019,7 +1019,7 @@ xs[1 : .len-1]        # drop first and last (half-open excludes last)
   - `customSelector := `1:10, someIdx`; xs[customSelector]`  # define & reuse a selector value
 - **Type checks**: each item must evaluate to either an integer index or a selector value; otherwise it is a type error.
 - **Per-selector steps** are allowed.
-- **Index selectors**: OOB → **throw**.  **Slice selectors**: **clamp**.
+- **Index selectors**: OOB => **throw**.  **Slice selectors**: **clamp**.
 - Inside each selector expression, **`.` = the base** (e.g., `xs`) for that selector only.
 **LHS restrictions (v0.1):** selector lists and slices are **expression-only**; they cannot be used as assignment targets. Use single index/property updates instead.
 - Immutable UTF-8 with **views** for slices/trim/drop and **ropes** for concat.
@@ -1043,8 +1043,8 @@ For heavy edits, use `TextBuilder/Buf` and `freeze()` back to `Str`.
 - **Execution:** Use `cmd.run()` or `!cmd` (if `!` is overloaded for execution in future). Standard library methods (`.run()`, `.output()`) control I/O capture.
 - **Interpolation & Safety (Auto-Quoting):**
   - Interpolations `{expr}` inside the string are **mandatory quoted** by the compiler.
-  - **Scalar:** `{filename}` → escapes the value (e.g. wraps in `'...'`) to prevent injection.
-  - **Array:** `{files}` where `files` is `["a", "b"]` → expands to multiple quoted arguments (`'a' 'b'`).
+  - **Scalar:** `{filename}` => escapes the value (e.g. wraps in `'...'`) to prevent injection.
+  - **Array:** `{files}` where `files` is `["a", "b"]` => expands to multiple quoted arguments (`'a' 'b'`).
   - **Raw Splice:** To inject flags or raw shell syntax, use double-braces `{{expr}}` (Unsafe/Raw).
 - **Pass-through:** Pipes `|`, redirects `>`, `>>`, `&&` are preserved literally and passed to the system shell (`/bin/sh` or equivalent).
 - **Example:**
@@ -1059,10 +1059,10 @@ For heavy edits, use `TextBuilder/Buf` and `freeze()` back to `Str`.
 
 ## 13) Object model (objects and descriptors)
 
-- **Object**: map `name → Slot`.
+- **Object**: map `name => Slot`.
 - **Slot**: `Plain(value)` or `Descriptor{ getter?: fn, setter?: fn }`.
-- **Property read**: Plain → value; Descriptor.getter → call with implicit `self`.
-- **Property write**: Plain → set; Descriptor.setter → call with `self, value`; strict mode can forbid setting Plain when a descriptor exists.
+- **Property read**: Plain => value; Descriptor.getter => call with implicit `self`.
+- **Property write**: Plain => set; Descriptor.setter => call with `self, value`; strict mode can forbid setting Plain when a descriptor exists.
 - **Methods**: `obj.m(args)` sets `self=obj` for the call frame.
 - **Contextual `get/set`** inside object literals desugar to `Descriptor` slots.
 - **Decorator-based getters/setters** set flags or return descriptor wrappers so assignment installs the right slot.
@@ -1129,16 +1129,16 @@ user[1+2]       # computed
 **When it triggers.** Only when `&( body )` is passed to a call site whose arity **N** is known (e.g., `map`=1, `filter`=1, `zipWith`=2).
 
 **How parameters are inferred**
-- Collect **free, unqualified identifiers** used as **bases** in `body` (e.g., `a`, `a.lower()`, `a[0]`, `f(a)`), scanning left→right. Occurrences inside nested lambdas are ignored.
+- Collect **free, unqualified identifiers** used as **bases** in `body` (e.g., `a`, `a.lower()`, `a[0]`, `f(a)`), scanning left=>right. Occurrences inside nested lambdas are ignored.
 - If the body contains the **subject** `.` anywhere, inference is disabled for that lambda. Use either `.` **or** implicit parameters, not both.
 - If #distinct_free > N: hard error (name the extras).
-- If #distinct_free < N: behavior depends on the callee’s `implicit_params` policy: `exact` → error; `pad` → pad with anonymous parameters (ignored); `off` → error.
+- If #distinct_free < N: behavior depends on the callee’s `implicit_params` policy: `exact` => error; `pad` => pad with anonymous parameters (ignored); `off` => error.
 - If a name resolves in the surrounding scope, it **captures** that outer value (it is not a binder). Use an explicit parameter list if you intend to shadow: `&[x](...)` or `&[x,y](...)`.
 
 **Examples (valid under current call shape: lambda-first)**
 ```shakar
 zipWith&(left + right)(xs, ys)      # infers &[left, right](left+right)
-pairs.filter&(value > 0)            # unary site → &[value](value>0)
+pairs.filter&(value > 0)            # unary site => &[value](value>0)
 lines.map&(.trim())                 # uses subject — no inference
 ```
 **Errors**
@@ -1177,7 +1177,7 @@ Known-arity callees declare an `implicit_params` policy that controls whether im
 ### Anonymous `fn` expressions
 
 - `fn(params?): body` is an expression that produces a callable value. Body syntax matches named `fn` (colon + inline or indented block).
-- Example: `inc := fn(x): { x + 1 }; inc(5)` → `6`.
+- Example: `inc := fn(x): { x + 1 }; inc(5)` => `6`.
 - Zero-arg IIFE sugar: `fn(()): body` defines a zero-arg anonymous function and immediately invokes it (desugars to `(fn(): body)()`).
 - Expression bodies without braces execute when the function is invoked, not when the `fn` literal is evaluated, so `handler := fn(): print("awd")` simply stores the function until you call `handler()`. Braces remain the preferred way to wrap multi-statement bodies.
 
@@ -1256,7 +1256,7 @@ reduce&(acc + x)(xs, 0)            # error: implicit params disabled; write &[ac
 - **Bool**: `true/false`
 - **Str**: immutable UTF-8
 - **Array**: ordered, dynamic
-- **Object**: key→value map (string keys); descriptors for getters/setters
+- **Object**: key=>value map (string keys); descriptors for getters/setters
 - **Func**: user/native functions
 - **Selector literal**: iterable numeric range
 - **Nil**: null value

@@ -29,7 +29,7 @@ from .tree import Node
 if TYPE_CHECKING:
     from .eval.bind import RebindContext, FanContext
 
-# ---------- Value Model (only Sh* -> Shk*) ----------
+# ---------- Value Model (only Sh* => Shk*) ----------
 
 
 @dataclass

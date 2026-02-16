@@ -81,11 +81,11 @@ Method-call syntax can fall back to in-scope callables when the receiver lacks a
 
 ```shakar
 fn double(x): x * 2
-5.double()          # UFCS → double(5)
+5.double()          # UFCS => double(5)
 
-"hi".print()        # UFCS → print("hi")
-"42".int()          # UFCS → int("42")
-123.str()           # UFCS → str(123)
+"hi".print()        # UFCS => print("hi")
+"42".int()          # UFCS => int("42")
+123.str()           # UFCS => str(123)
 
 fn clamp(x, lo, hi):
   x < lo: return lo
@@ -199,7 +199,7 @@ for[i] names: names[i] .= .trim()   # in RHS: '.' = old names[i]
 ```shakar
 # No-anchor segment
 state = { lines: 6, level: 2 }
-state.$lines >= .level * 3        # anchor -> state
+state.$lines >= .level * 3        # anchor => state
 rows = [{x: 1}, {x: 2}]
 rows$[0].x and .len == 2
 ```
@@ -285,7 +285,7 @@ if user.is_admin:
 - **Floats**: IEEE-754 double; leading zero required (`0.5`, not `.5`). Underscores allowed between digits. Base prefixes are NOT supported for floats.
 - **Strings**: `"…"`, `'…'` with escapes `\n \t \r \b \f \0 \\ \" \' \xNN \u{…}`. Multiline is allowed for regular and shell strings. If the first character after the opening quote is a newline, it is dropped; then the common leading indentation of all non-blank lines is stripped (blank lines preserved, trailing newline preserved). `env"..."` and `p"..."` remain single-line. Environment strings: `env"VAR"`/`env'VAR'` (interpolation allowed) evaluate to a string or `nil`.
 - **Arrays**: `[1, 2, 3]`.
-- **Fans**: `fan { expr, ... }` (reserved keyword; not a valid identifier or property name). Evaluates elements left→right into a `Fan`; property/method access broadcasts across elements and returns a `Fan`. Fans are iterable (e.g., `for x in fan { ... }`). Fan literals can also be used as assignment lvalue heads when each item resolves to an assignable target (`=`, `.=`, and compound assignment). For concurrency, use `spawn` to create channels and `wait[all]` to join them. Modifiers like `fan[par] { ... }` are reserved but not implemented in v0.1.
+- **Fans**: `fan { expr, ... }` (reserved keyword; not a valid identifier or property name). Evaluates elements left=>right into a `Fan`; property/method access broadcasts across elements and returns a `Fan`. Fans are iterable (e.g., `for x in fan { ... }`). Fan literals can also be used as assignment lvalue heads when each item resolves to an assignable target (`=`, `.=`, and compound assignment). For concurrency, use `spawn` to create channels and `wait[all]` to join them. Modifiers like `fan[par] { ... }` are reserved but not implemented in v0.1.
 - **Objects**: `{ key: value }` (getters/setters contextual, below).
 - **Selector literals (values)**: backtick selectors like `` `1:10` `` produce Selector values (views/iterables). Default stop is inclusive; use `<stop` for exclusive (e.g., `` `[1:<10]` ``).
 
@@ -301,14 +301,14 @@ Typed literals representing time spans. Distinct from integers—cannot accident
 - **Display**: compounds stringify in normalized largest-first order (`30sec1min` displays as `1min30sec`; canonical forms like `5min30sec` remain unchanged).
 - **Conversion helper**: `duration(x)` accepts `Duration` (identity), `Number` (interpreted as nanoseconds), or `Str` (parsed using duration literal rules, including compound validation).
 - **Type system**:
-  - `Duration + Duration` → `Duration`
-  - `Duration - Duration` → `Duration`
-  - `Duration * Number` → `Duration`
-  - `Duration / Number` → `Duration`
-  - `Duration / Duration` → `Float` (ratio)
-  - `Duration + Int` → **Type Error**
-  - `Duration < Duration` → `Bool` (comparison works)
-- **Extraction methods**: `.nsec`, `.usec`, `.msec`, `.sec`, `.min`, `.hr`, `.day`, `.wk` → `Float` (value in that unit); `.total_nsec` → `Int` (raw nanoseconds).
+  - `Duration + Duration` => `Duration`
+  - `Duration - Duration` => `Duration`
+  - `Duration * Number` => `Duration`
+  - `Duration / Number` => `Duration`
+  - `Duration / Duration` => `Float` (ratio)
+  - `Duration + Int` => **Type Error**
+  - `Duration < Duration` => `Bool` (comparison works)
+- **Extraction methods**: `.nsec`, `.usec`, `.msec`, `.sec`, `.min`, `.hr`, `.day`, `.wk` => `Float` (value in that unit); `.total_nsec` => `Int` (raw nanoseconds).
 - **Examples**:
   ```shakar
   timeout := 5min30sec
@@ -338,14 +338,14 @@ Typed literals representing byte quantities. Distinct from integers and duration
 - **Display**: compounds stringify in normalized largest-first order (`512mb1gb` displays as `1gb512mb`; canonical forms remain unchanged).
 - **Conversion helper**: `size(x)` accepts `Size` (identity), `Number` (interpreted as bytes), or `Str` (parsed using size literal rules, including compound validation).
 - **Type system**:
-  - `Size + Size` → `Size`
-  - `Size - Size` → `Size`
-  - `Size * Number` → `Size`
-  - `Size / Number` → `Size`
-  - `Size / Size` → `Float` (ratio)
-  - `Size + Int` → **Type Error**
-  - `Size + Duration` → **Type Error**
-- **Extraction methods**: `.b`, `.kb`, `.mb`, `.gb`, `.tb`, `.kib`, `.mib`, `.gib`, `.tib` → `Float`; `.total_bytes` → `Int`.
+  - `Size + Size` => `Size`
+  - `Size - Size` => `Size`
+  - `Size * Number` => `Size`
+  - `Size / Number` => `Size`
+  - `Size / Size` => `Float` (ratio)
+  - `Size + Int` => **Type Error**
+  - `Size + Duration` => **Type Error**
+- **Extraction methods**: `.b`, `.kb`, `.mb`, `.gb`, `.tb`, `.kib`, `.mib`, `.gib`, `.tib` => `Float`; `.total_bytes` => `Int`.
 - **Examples**:
   ```shakar
   max_upload := 10mb
@@ -428,9 +428,9 @@ Typed literals representing byte quantities. Distinct from integers and duration
 
 ### Objects & descriptors
 
-- Object = map `name → Slot`; Slot = `Plain(value)` or `Descriptor{ getter?, setter? }`.
-- Property read: Plain → value; Descriptor.getter → call with implicit `self`.
-- Property write: Plain → set; Descriptor.setter → call with `self, value`; strict mode may forbid setting Plain when descriptor exists.
+- Object = map `name => Slot`; Slot = `Plain(value)` or `Descriptor{ getter?, setter? }`.
+- Property read: Plain => value; Descriptor.getter => call with implicit `self`.
+- Property write: Plain => set; Descriptor.setter => call with `self, value`; strict mode may forbid setting Plain when descriptor exists.
 - Methods: `obj.m(args)` sets `self=obj`.
 - Contextual `get/set` in object literals desugar to descriptor slots. Getter arity 0; setter arity 1.
 - Literal keys: identifier (`a: expr`), string (`"a-b": expr`), computed (`(expr): expr`).
@@ -506,7 +506,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
 
 - Set/object algebra precedence: `*` (intersection) is multiplicative; `+`, `-`, `^` additive. Numeric bitwise `^` remains gated.
 - Associativity: binary operators are left-associative unless noted.
-- Order (high → low):
+- Order (high => low):
   1) Postfix: member `.`, call `()`, index `[]`
   2) Unary: `-x`, `not x`/`!x`, `$x`
   3) Power: `x ** y` (right-assoc)
@@ -541,8 +541,8 @@ Typed literals representing byte quantities. Distinct from integers and duration
   - Enter chain after a comparison followed by a comma (`S op X,`). Subject `S` evaluates once.
   - Leg form (after commas): optional `and|or`, optional comparator, then `Expr`. Carry-forward comparator allowed when joiner absent or `and`; after `or`, comparator required. Joiner is sticky (`and` by default) until changed by `, or`/`, and`.
   - Leaving chain: any `and|or` without a comma leaves chain mode and resumes normal boolean parsing.
-  - Desugar: expand left→right to `S op_i Expr_i` joined by current sticky joiner; apply normal precedence (`and` tighter than `or`).
-  - **Disambiguation**: Commas disambiguate via lookahead (`, or`/`, and`/`, <cmpop>` → CCC) and context. Without explicit markers, bare `, <value>` is treated as a separator in function arguments, array literals, and destructure packs. Parentheses reset context and allow CCC: `f((x == 5, < 10))` passes a single CCC result; `[1, (a > 0, < 10)]` is a 2-element array.
+  - Desugar: expand left=>right to `S op_i Expr_i` joined by current sticky joiner; apply normal precedence (`and` tighter than `or`).
+  - **Disambiguation**: Commas disambiguate via lookahead (`, or`/`, and`/`, <cmpop>` => CCC) and context. Without explicit markers, bare `, <value>` is treated as a separator in function arguments, array literals, and destructure packs. Parentheses reset context and allow CCC: `f((x == 5, < 10))` passes a single CCC result; `[1, (a > 0, < 10)]` is a 2-element array.
   - Parentheses nest CCCs without affecting subject/eval rules.
   - **Selectors in comparisons**: with backtick selector literals, `S == \`Sel\`` ⇒ any(); `S != \`Sel\`` ⇒ all not-in; `S <op> \`Sel\`` for `< <= > >=` ⇒ all(), reducing to `min/max(Sel)` with openness respected (e.g., ``a < `1:<5` `` ⇒ `a < 1`; ``a >= `lo, hi` `` ⇒ `a >= max(lo, hi)`).
   - **Examples**:
@@ -667,11 +667,11 @@ Typed literals representing byte quantities. Distinct from integers and duration
     state.x += 1
     state.name .= .trim()  # RHS sees old state.name as `.`
     ```
-  - Semantics: `.` anchors to `state`; each clause starts with `.` and uses `=/.=/+= -= *= /= //= %= **=`; `.=` RHS sees the old field value as `.` then resets `.` to the base for the next clause. Clauses run top→down; base eval once; missing/duplicate fields error; result unused (statement-only).
-  - Selector fanout (subtle!): path segments may include index selectors and slices. If a selector yields multiple elements (e.g., `.rows[1:3]`), the clause broadcasts to each selected element, preserving left→right order. Example:
+  - Semantics: `.` anchors to `state`; each clause starts with `.` and uses `=/.=/+= -= *= /= //= %= **=`; `.=` RHS sees the old field value as `.` then resets `.` to the base for the next clause. Clauses run top=>down; base eval once; missing/duplicate fields error; result unused (statement-only).
+  - Selector fanout (subtle!): path segments may include index selectors and slices. If a selector yields multiple elements (e.g., `.rows[1:3]`), the clause broadcasts to each selected element, preserving left=>right order. Example:
     ```shakar
     state := {rows: [{v:1}, {v:3}, {v:5}]}
-    state{ .rows[1:3].v = 0 }   # rows -> [{v:1},{v:0},{v:0}]
+    state{ .rows[1:3].v = 0 }   # rows => [{v:1},{v:0},{v:0}]
     state{ .rows[1][0].v += 5 } # works through nested indices
     ```
     Broadcasting only happens when the selector produces multiple targets (slice or multi-selector); single-index selectors behave as a single target. Duplicate target detection still applies on the resolved targets.
@@ -682,7 +682,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
   values = state.{a, b, c}      # [state.a, state.b, state.c]
   fn call(): someFn(1, state.{a, b}, 2)  # spreads to positional args
   ```
-  Items may be field names or chained postfix off a field (calls/indexes). Evaluates base once, items left→right; missing/duplicate fields error. In arglists the resulting tuple/array auto-flattens; illegal in named-arg position unless wrapped (e.g., `f(xs: [state.{a,b}])`). LHS fanout semantics stay the same; shared duplicate/missing checks.
+  Items may be field names or chained postfix off a field (calls/indexes). Evaluates base once, items left=>right; missing/duplicate fields error. In arglists the resulting tuple/array auto-flattens; illegal in named-arg position unless wrapped (e.g., `f(xs: [state.{a,b}])`). LHS fanout semantics stay the same; shared duplicate/missing checks.
   Expression-style fanout blocks (`base{ .c - .d }` returning a value) remain in the "considering" bucket.
 # Apply-assign with selector on old LHS + expression-valued anchor
 - **Deep object merge `+>` and `+>=`**: recursive key-wise merge where RHS wins; non-object at a path replaces LHS at that path; arrays/sets/strings/numbers replace wholesale. Additive-tier precedence. `+>=` mutates LHS (must be object or error); `+>` yields value.
@@ -824,9 +824,9 @@ u := makeUser() and .isValid()
 - **Catch statements** mirror expression semantics but discard original value; bodies execute only on failure.
 - **Inline vs block handlers:** `expr catch err: handler_expr` is expression-valued (usable in walrus/assign chains without parentheses). A block-bodied catch (`expr catch err: { … }` or newline/indent) is statement-valued and yields `nil`. Use inline form when you need the handler’s value; use a block when you need multiple statements or don’t care about the value.
 - **assert expr, "msg"`** raises if falsey; build can strip.
-- **throw [expr]** re-raises current payload when expression omitted; otherwise raises new `ShakarRuntimeError` from value (strings → message; objects set `.type/.message`). Bare `throw` (no expression) is valid in inline positions: clause delimiters (`else`, `elif`, `|`), postfix guards (`if`, `unless`), and standard terminators (newline, `;`, `}`, `)`, `,`) all end the bare form. Examples: `if cond: throw else: 0`, `throw if err`.
+- **throw [expr]** re-raises current payload when expression omitted; otherwise raises new `ShakarRuntimeError` from value (strings => message; objects set `.type/.message`). Bare `throw` (no expression) is valid in inline positions: clause delimiters (`else`, `elif`, `|`), postfix guards (`if`, `unless`), and standard terminators (newline, `;`, `}`, `)`, `,`) all end the bare form. Examples: `if cond: throw else: 0`, `throw if err`.
 - **Helpers**: `error(type, message, data?)` builds tagged payload; `dbg expr` logs and returns expr (strip-able); `tap(value, fn, ...args)` calls `fn(value, ...args)` and returns `value` for side-effect-friendly chaining. Conversion helpers: `int(x)`, `float(x)`, `bool(x)`, `str(x)`, `duration(x)`, `size(x)` (and UFCS forms like `x.int()`).
-- **Events**: `hook "name": .emit()` ⇒ `Event.on(name, &( .emit()))`.
+- **Events**: `hook "name": .emit()` => `Event.on(name, &( .emit()))`.
 
 ---
 
@@ -856,18 +856,18 @@ u := makeUser() and .isValid()
 ### Decorators
 
 - Define with `decorator name(params?): body`; inside, `f` is the next callable and `args` is a mutable array of positional arguments. Mutate `args`, reassign it, or `return` to short-circuit; implicit `return f(args)` when body falls through.
-- Apply with `@decorator` lines above `fn` definitions. Expressions evaluate top→bottom; the closest decorator wraps first (so outer runs after inner). Parameterized decorators behave the same; bare `@decorator` calls parameterless decorator. Decorator expressions must produce a decorator/instance.
+- Apply with `@decorator` lines above `fn` definitions. Expressions evaluate top=>bottom; the closest decorator wraps first (so outer runs after inner). Parameterized decorators behave the same; bare `@decorator` calls parameterless decorator. Decorator expressions must produce a decorator/instance.
 - `args` is ordinary `Array`; mutate elements or rebind entirely. Helpers allowed before calling `f(args)`.
 
 ### Amp-lambdas (`&`) and implicit parameters
 
 - `map&(.trim())` (single arg implicit subject) or `zipWith&[a,b](a+b)` (explicit params). `&` lives on the callee.
-- **Implicit parameter inference** at known-arity call sites: collect free, unqualified identifiers used as bases in the body (ignore inside nested lambdas), left→right. If body uses `.` anywhere, inference is disabled (choose implicit params or subject, not both).
+- **Implicit parameter inference** at known-arity call sites: collect free, unqualified identifiers used as bases in the body (ignore inside nested lambdas), left=>right. If body uses `.` anywhere, inference is disabled (choose implicit params or subject, not both).
 - Errors: distinct free names > arity; names that resolve in surrounding scope are captures (use `&[x](...)` to shadow). No mixing of `.` with implicit params.
 - Examples:
   ```shakar
   zipWith&(left + right)(xs, ys)      # infers &[left, right](left+right)
-  pairs.filter&(value > 0)            # unary site -> &[value](value>0)
+  pairs.filter&(value > 0)            # unary site => &[value](value>0)
   lines.map&(.trim())                 # uses subject; no inference
   ```
 - Callee policy via `@implicit_params(policy)` (`exact` default, `pad`, `off`):
@@ -881,7 +881,7 @@ u := makeUser() and .isValid()
 
 ### Placeholder partials `?`
 
-- A `?` among the immediate arguments of a call produces a lambda with one parameter per hole, left→right. Each hole is distinct; named args participate in order.
+- A `?` among the immediate arguments of a call produces a lambda with one parameter per hole, left=>right. Each hole is distinct; named args participate in order.
 - Works for free or method calls; yields a function (no immediate invocation). `?` is recognized only inside a call’s argument list.
 - Prefer `&` path-lambdas for single holes; use `?` when 2+ holes increase clarity. Examples:
   ```shakar

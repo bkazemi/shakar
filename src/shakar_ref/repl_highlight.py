@@ -11,7 +11,7 @@ from prompt_toolkit.lexers import Lexer
 from .lexer_rd import Lexer as ShkLexer, LexError
 from .token_types import TT, Tok
 
-# Map highlight groups → prompt_toolkit style strings.
+# Map highlight groups => prompt_toolkit style strings.
 GROUP_STYLE = {
     "keyword": "bold ansicyan",
     "boolean": "ansicyan",
@@ -32,7 +32,7 @@ GROUP_STYLE = {
     "type": "bold ansiblue",
 }
 
-# Token type → highlight group (mirrors nvim-plugin/highlight_server.py TOKEN_GROUPS).
+# Token type => highlight group (mirrors nvim-plugin/highlight_server.py TOKEN_GROUPS).
 _TT_GROUP = {
     TT.IF: "keyword",
     TT.ELIF: "keyword",

@@ -24,7 +24,7 @@ from .utils import debug_py_trace_enabled
 # Zero-width and invisible characters to strip from input.
 _INVISIBLE_RE = re.compile("[\u200b\u200c\u200d\ufeff\u00a0\r]")
 
-# Slash commands: name → (description, argument_hint).
+# Slash commands: name => (description, argument_hint).
 _SLASH_CMDS = {
     "/clear": ("Clear the terminal screen", ""),
     "/py-traceback": ("Toggle Python traceback on errors", "[on|off]"),
@@ -179,7 +179,7 @@ def repl() -> None:
         buf = event.app.current_buffer
         text = buf.text
 
-        # Single-line, not a block header and not a backslash continuation → accept.
+        # Single-line, not a block header and not a backslash continuation => accept.
         if "\n" not in text:
             first_line = text
             if first_line.endswith("\\") or _is_block_header(first_line):
@@ -190,7 +190,7 @@ def repl() -> None:
             buf.validate_and_handle()
             return
 
-        # Multiline: if the current (last) line is empty → accept.
+        # Multiline: if the current (last) line is empty => accept.
         lines = text.split("\n")
         if lines[-1].strip() == "":
             # Remove trailing empty line before accepting.
@@ -206,7 +206,7 @@ def repl() -> None:
             buf.insert_text("\n" + indent)
             return
 
-        # Non-empty continuation line, not a block header → insert newline
+        # Non-empty continuation line, not a block header => insert newline
         # to allow more lines; user submits with empty line.
         indent = _compute_indent(text)
         buf.insert_text("\n" + indent)

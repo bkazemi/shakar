@@ -31,11 +31,11 @@ This is the key to understanding binding order:
 ```shakar
 pairs := [[1, 5], [2, 3]]
 
-# Body mentions 'x', guard mentions 'y' → order: [x, y]
+# Body mentions 'x', guard mentions 'y' => order: [x, y]
 result := [x over pairs if y > 3]
 # x=first element, y=second element ✓ Intuitive!
 
-# Body mentions 'y', guard mentions 'x' → order: [y, x]
+# Body mentions 'y', guard mentions 'x' => order: [y, x]
 result := [y over pairs if x < 4]
 # y=first element, x=second element (order follows code appearance)
 ```
@@ -63,8 +63,8 @@ result := [a + b over pairs]
 pairs := [[1, 5], [2, 3]]
 result := [x over pairs if y > 3]
 # Creates TWO binders [x, y] from body and guard
-# [1, 5]: x=1, y=5, check y>3 ✓ → include 1
-# [2, 3]: x=2, y=3, check y>3 ✗ → skip
+# [1, 5]: x=1, y=5, check y>3 ✓ => include 1
+# [2, 3]: x=2, y=3, check y>3 ✗ => skip
 # result = [1]
 ```
 
@@ -74,14 +74,14 @@ pairs := [[1, 5], [2, 3]]
 
 # Works correctly: body-first gives natural order
 result := [x over pairs if y > 3]
-# Order: [x, y] → x=first, y=second
-# [1, 5]: x=1, y=5, check y>3 ✓ → [1]
+# Order: [x, y] => x=first, y=second
+# [1, 5]: x=1, y=5, check y>3 ✓ => [1]
 
 # Still works, but naming is misleading
 result := [second over pairs if first < 4]
 # Order: [second, first] (body-first!)
 # second=elem[0], first=elem[1]
-# [2, 3]: second=2, first=3, check 3<4 ✓ → [2]
+# [2, 3]: second=2, first=3, check 3<4 ✓ => [2]
 ```
 
 **Tip**: Name variables according to their order of appearance in code, not their semantic role in the array.
@@ -89,7 +89,7 @@ result := [second over pairs if first < 4]
 ### ❌ Arity Mismatch Error
 ```shakar
 pairs := [[1, 2]]
-# Body uses 'a' and 'b', guard uses 'c' → THREE binders
+# Body uses 'a' and 'b', guard uses 'c' => THREE binders
 # But pairs only have TWO elements
 result := [a + b over pairs if c > 0]
 # ERROR: Destructure arity mismatch

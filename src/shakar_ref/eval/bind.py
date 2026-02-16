@@ -311,7 +311,7 @@ def resolve_assignable_node(
 # ---------------------------------------------------------------------------
 # Final-segment resolution helpers
 #
-# These centralise the `unwrap_noanchor → match label → field/index` dispatch
+# These centralise the `unwrap_noanchor => match label => field/index` dispatch
 # that previously lived inline in resolve_chain_assignment,
 # _complete_chain_assignment, and fanout.py's _read/_store.
 # ---------------------------------------------------------------------------
