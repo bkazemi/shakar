@@ -291,14 +291,6 @@ static int find_prev_nonblank_line(const char *src, int line_start, int *start_o
     return 0;
 }
 
-static int prev_nonblank_indent(const char *src, int line_start) {
-    int line_begin = 0;
-    int line_end = 0;
-    if (!find_prev_nonblank_line(src, line_start, &line_begin, &line_end))
-        return -1;
-    return line_indent_width(src, line_begin, line_end, 0);
-}
-
 static int prev_nonblank_line_info(const char *src, int line_start, int *indent_out) {
     int line_begin = 0;
     int line_end = 0;
@@ -702,10 +694,6 @@ static void diagbuf_push(DiagBuf *b, int line, int cs, int ce, int sev, const ch
     snprintf(d->message, sizeof(d->message), "%s", msg);
 }
 
-/* ======================================================================== */
-/* Structural highlight pass                                                 */
-/* ======================================================================== */
-
 /* Compare spans by document position for sorted lookup. */
 static int span_pos_cmp(const void *a, const void *b) {
     const HlSpan *sa = (const HlSpan *)a;
@@ -752,6 +740,35 @@ static int is_block_header(TT t) {
     }
 }
 
+/* ======================================================================== */
+/* Line-prefix cache                                                         */
+/* ======================================================================== */
+
+/* Cached line-prefix state to avoid rescanning the same line for every token. */
+typedef struct {
+    int line;
+    int line_start;
+    int indent;
+    int first_non_ws;
+} LinePrefixCache;
+
+static void lpc_update(LinePrefixCache *c, const char *src, int src_len, const Tok *tok) {
+    int line = tok->line - 1;
+    if (line != c->line) {
+        c->line = line;
+        line_prefix_info_for_pos(src, src_len, tok->start, &c->line_start, &c->indent,
+                                 &c->first_non_ws);
+    }
+}
+
+static int lpc_at_line_start(const LinePrefixCache *c, const Tok *tok) {
+    return tok->start <= c->first_non_ws;
+}
+
+/* ======================================================================== */
+/* Structural highlight pass                                                 */
+/* ======================================================================== */
+
 void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *hl, DiagBuf *diags) {
     int tc = tokens->count;
     Tok *toks = tokens->toks;
@@ -766,10 +783,7 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
     int bracket_depth = 0;
     int continuation_indent = -1; /* explicit dot-continuation block indent, -1 when inactive */
     int cursor = 0;               /* span search cursor */
-    int cached_line = -1;
-    int cached_line_start = 0;
-    int cached_indent = -1;
-    int cached_first_non_ws = 0;
+    LinePrefixCache lpc = {-1, 0, -1, 0};
 
     /* Bracket matching stack */
     typedef struct {
@@ -793,18 +807,9 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
         TT t = tok->type;
         int line = tok->line - 1;
         int col = tok->col - 1;
-        int line_start;
-        int at_line_start;
-        int cur_indent;
-
-        if (line != cached_line) {
-            cached_line = line;
-            line_prefix_info_for_pos(src, src_len, tok->start, &cached_line_start, &cached_indent,
-                                     &cached_first_non_ws);
-        }
-        line_start = cached_line_start;
-        at_line_start = tok->start <= cached_first_non_ws;
-        cur_indent = at_line_start ? cached_indent : -1;
+        lpc_update(&lpc, src, src_len, tok);
+        int at_line_start = lpc_at_line_start(&lpc, tok);
+        int cur_indent = at_line_start ? lpc.indent : -1;
 
         /* ---- Layout tokens: update statement boundary ---- */
         if (t == TT_NEWLINE || t == TT_INDENT || t == TT_DEDENT) {
@@ -866,7 +871,13 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
             continue;
         }
         if (t == TT_RPAR || t == TT_RSQB || t == TT_RBRACE) {
-            TT expected = (t == TT_RPAR) ? TT_LPAR : (t == TT_RSQB) ? TT_LSQB : TT_LBRACE;
+            TT expected;
+            if (t == TT_RPAR)
+                expected = TT_LPAR;
+            else if (t == TT_RSQB)
+                expected = TT_LSQB;
+            else
+                expected = TT_LBRACE;
             if (bcount > 0 && bstack[bcount - 1].type == expected) {
                 bcount--;
                 if (bracket_depth > 0)
@@ -902,7 +913,7 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
                         explicit_continuation_dot = 1;
                     } else if (is_expr_end(prev_sig)) {
                         int prev_indent = -1;
-                        if (prev_nonblank_line_info(src, line_start, &prev_indent) &&
+                        if (prev_nonblank_line_info(src, lpc.line_start, &prev_indent) &&
                             cur_indent > prev_indent) {
                             explicit_continuation_dot = 1;
                             continuation_indent = cur_indent;
@@ -949,31 +960,6 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
             diagbuf_push(diags, bstack[i].line, bstack[i].col, bstack[i].col + 1, 1,
                          "unclosed bracket");
     }
-}
-
-/* ======================================================================== */
-/* Line-prefix cache                                                         */
-/* ======================================================================== */
-
-/* Cached line-prefix state to avoid rescanning the same line for every token. */
-typedef struct {
-    int line;
-    int line_start;
-    int indent;
-    int first_non_ws;
-} LinePrefixCache;
-
-static void lpc_update(LinePrefixCache *c, const char *src, int src_len, const Tok *tok) {
-    int line = tok->line - 1;
-    if (line != c->line) {
-        c->line = line;
-        line_prefix_info_for_pos(src, src_len, tok->start, &c->line_start, &c->indent,
-                                 &c->first_non_ws);
-    }
-}
-
-static int lpc_at_line_start(const LinePrefixCache *c, const Tok *tok) {
-    return tok->start <= c->first_non_ws;
 }
 
 /* ======================================================================== */
@@ -1074,8 +1060,9 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
                 if (!is_expr_end(prev_sig)) {
                     subject_override = 1;
                 } else {
-                    int prev_indent = prev_nonblank_indent(src, line_start);
-                    if (prev_indent < 0 || cur_indent <= prev_indent)
+                    int prev_indent = -1;
+                    if (!prev_nonblank_line_info(src, line_start, &prev_indent) ||
+                        cur_indent <= prev_indent)
                         subject_override = 1;
                 }
             }

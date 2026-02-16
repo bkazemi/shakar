@@ -557,7 +557,7 @@ static void scan_raw_string(Lexer *L) {
     emit(L, TT_RAW_STRING, spos, L->pos - spos, sline, scol);
 }
 
-static void scan_shell_string(Lexer *L, int prefix_len, int allow_esc) {
+static void scan_shell_string(Lexer *L, int prefix_len, int allow_esc, TT type) {
     int sline = L->line, scol = L->col - prefix_len, spos = L->pos - prefix_len;
     char quote = pk0(L);
     adv(L, 1);
@@ -568,21 +568,7 @@ static void scan_shell_string(Lexer *L, int prefix_len, int allow_esc) {
         return;
     }
     adv(L, 1);
-    emit(L, TT_SHELL_STRING, spos, L->pos - spos, sline, scol);
-}
-
-static void scan_shell_bang_string(Lexer *L, int prefix_len, int allow_esc) {
-    int sline = L->line, scol = L->col - prefix_len, spos = L->pos - prefix_len;
-    char quote = pk0(L);
-    adv(L, 1);
-    if (scan_quoted(L, quote, allow_esc, 1) < 0)
-        return;
-    if (L->pos >= L->src_len) {
-        lexer_error_at(L, sline, scol, spos, "Unterminated shell string");
-        return;
-    }
-    adv(L, 1);
-    emit(L, TT_SHELL_BANG_STRING, spos, L->pos - spos, sline, scol);
+    emit(L, type, spos, L->pos - spos, sline, scol);
 }
 
 static void scan_path_string(Lexer *L) {
@@ -793,13 +779,8 @@ static void scan_token(Lexer *L) {
         else
             adv(L, 1);
         emit(L, TT_NEWLINE, spos, L->pos - spos, sline, scol);
-        L->line++;
-        L->col = 1;
         L->at_line_start = 1;
-        /* Fix: adv already moved col, but newline resets to 1 */
-        /* We advanced past the newline chars, line was tracked by emit,
-         * but we need to manually fix line/col since adv doesn't handle newlines. */
-        /* Actually, adv increments col. We need to override. */
+        /* adv() incremented col past the newline chars; override to start of next line. */
         L->line = sline + 1;
         L->col = 1;
         return;
@@ -824,14 +805,14 @@ static void scan_token(Lexer *L) {
     /* sh_raw! strings */
     if (starts_with0(L, "sh_raw!") && (pk(L, 7) == '"' || pk(L, 7) == '\'')) {
         adv(L, 7);
-        scan_shell_bang_string(L, 7, 0);
+        scan_shell_string(L, 7, 0, TT_SHELL_BANG_STRING);
         return;
     }
 
     /* sh_raw strings */
     if (starts_with0(L, "sh_raw") && (pk(L, 6) == '"' || pk(L, 6) == '\'')) {
         adv(L, 6);
-        scan_shell_string(L, 6, 0);
+        scan_shell_string(L, 6, 0, TT_SHELL_STRING);
         return;
     }
 
@@ -839,14 +820,14 @@ static void scan_token(Lexer *L) {
     if (pk0(L) == 's' && pk(L, 1) == 'h' && pk(L, 2) == '!' &&
         (pk(L, 3) == '"' || pk(L, 3) == '\'')) {
         adv(L, 3);
-        scan_shell_bang_string(L, 3, 1);
+        scan_shell_string(L, 3, 1, TT_SHELL_BANG_STRING);
         return;
     }
 
     /* sh strings */
     if (match_str_prefix(L, "sh")) {
         adv(L, 2);
-        scan_shell_string(L, 2, 1);
+        scan_shell_string(L, 2, 1, TT_SHELL_STRING);
         return;
     }
 
@@ -894,23 +875,13 @@ void lexer_init(Lexer *L, const char *src, int len, int track_indent, int emit_c
     memset(L, 0, sizeof(*L));
     L->src = src;
     L->src_len = len;
-    L->pos = 0;
     L->line = 1;
     L->col = 1;
     L->track_indent = track_indent;
     L->emit_comments = emit_comments;
-    L->indent_stack[0] = 0;
     L->indent_count = 1;
     L->at_line_start = 1;
-    L->group_depth = 0;
-    L->line_ended_with_colon = 0;
-    L->indent_after_colon = 0;
     L->prev_line_indent = -1;
-    L->has_error = 0;
-    L->error_line = 0;
-    L->error_col = 0;
-    L->error_pos = 0;
-    tokbuf_init(&L->tokens);
 }
 
 int lexer_tokenize(Lexer *L) {
