@@ -10,8 +10,7 @@ from .lexer_rd import LexError
 from .ast_transforms import Prune, looks_like_offside
 from .lower import lower
 from .evaluator import eval_expr
-from .runtime import ShkValue
-from .runtime import Frame, init_stdlib
+from .runtime import Frame, ShkValue, init_stdlib
 from .types import ShkNil, ShakarRuntimeError
 from .utils import debug_py_trace_enabled
 from .tree import Tree
@@ -233,14 +232,12 @@ def main() -> None:
         os.environ["SHAKAR_DEBUG_PY_TRACE"] = "1"
 
     try:
+        init_stdlib()
+        ast2 = _parse_and_lower(source)
+
         if show_tree:
-            # Parse and show AST without executing
-            init_stdlib()
-            ast2 = _parse_and_lower(source)
             print(ast2.pretty())
         else:
-            init_stdlib()
-            ast2 = _parse_and_lower(source)
             stmt = _last_is_stmt(ast2)
             result = eval_expr(
                 ast2, Frame(source=source, source_path=source_path), source=source

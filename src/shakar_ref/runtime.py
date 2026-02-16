@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import os as _os
 import pathlib
 import subprocess
 from typing import Callable, Dict, List, Optional, Tuple, Union
@@ -367,18 +368,22 @@ def register_stdlib(name: str, *, arity: Optional[int] = None, named: bool = Fal
     return dec
 
 
-def _string_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
+def _expect_arity(
+    type_name: str, method: str, args: List[ShkValue], expected: int
+) -> None:
+    """Check method argument count, raising ShakarArityError on mismatch."""
     if len(args) != expected:
         raise ShakarArityError(
-            f"string.{method} expects {expected} argument(s); got {len(args)}"
+            f"{type_name}.{method} expects {expected} argument(s); got {len(args)}"
         )
 
 
-def _string_arg(method: str, arg: ShkValue) -> str:
+def _expect_string_arg(type_name: str, method: str, arg: ShkValue) -> str:
+    """Extract string value from arg, raising ShakarTypeError if not a string."""
     if isinstance(arg, ShkString):
         return arg.value
 
-    raise ShakarTypeError(f"string.{method} expects a string argument")
+    raise ShakarTypeError(f"{type_name}.{method} expects a string argument")
 
 
 def _validate_repeat_count(method_name: str, arg: ShkValue) -> int:
@@ -392,18 +397,21 @@ def _validate_repeat_count(method_name: str, arg: ShkValue) -> int:
     return count
 
 
+# Convenience aliases for call sites
+def _string_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
+    _expect_arity("string", method, args, expected)
+
+
+def _string_arg(method: str, arg: ShkValue) -> str:
+    return _expect_string_arg("string", method, arg)
+
+
 def _regex_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
-    if len(args) != expected:
-        raise ShakarArityError(
-            f"regex.{method} expects {expected} argument(s); got {len(args)}"
-        )
+    _expect_arity("regex", method, args, expected)
 
 
 def _regex_arg(method: str, arg: ShkValue) -> str:
-    if isinstance(arg, ShkString):
-        return arg.value
-
-    raise ShakarTypeError(f"regex.{method} expects a string argument")
+    return _expect_string_arg("regex", method, arg)
 
 
 @register_array("push")
@@ -519,12 +527,7 @@ def _string_join(_frame: Frame, recv: ShkString, args: List[ShkValue]) -> ShkStr
 
     from .eval.common import stringify
 
-    strings = []
-
-    for item in items:
-        strings.append(stringify(item))
-
-    return ShkString(recv.value.join(strings))
+    return ShkString(recv.value.join(stringify(item) for item in items))
 
 
 @register_string("trim")
@@ -682,10 +685,7 @@ def _regex_replace(_frame: Frame, recv: ShkRegex, args: List[ShkValue]) -> ShkSt
 
 
 def _path_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
-    if len(args) != expected:
-        raise ShakarArityError(
-            f"path.{method} expects {expected} argument(s); got {len(args)}"
-        )
+    _expect_arity("path", method, args, expected)
 
 
 def _path_arg_number(method: str, arg: ShkValue) -> int:
@@ -697,9 +697,7 @@ def _path_arg_number(method: str, arg: ShkValue) -> int:
 
 
 def _path_arg_string(method: str, arg: ShkValue) -> str:
-    if isinstance(arg, ShkString):
-        return arg.value
-    raise ShakarTypeError(f"path.{method} expects a string argument")
+    return _expect_string_arg("path", method, arg)
 
 
 @register_path("read")
@@ -741,10 +739,7 @@ def _path_chmod(_frame: Frame, recv: ShkPath, args: List[ShkValue]) -> ShkNil:
 
 
 def _channel_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
-    if len(args) != expected:
-        raise ShakarArityError(
-            f"channel.{method} expects {expected} args; got {len(args)}"
-        )
+    _expect_arity("channel", method, args, expected)
 
 
 @register_channel("close")
@@ -756,14 +751,9 @@ def _channel_close(_frame: Frame, recv: ShkChannel, args: List[ShkValue]) -> Shk
 
 # ---------- EnvVar methods ----------
 
-import os as _os
-
 
 def _envvar_expect_arity(method: str, args: List[ShkValue], expected: int) -> None:
-    if len(args) != expected:
-        raise ShakarArityError(
-            f"envvar.{method} expects {expected} args; got {len(args)}"
-        )
+    _expect_arity("envvar", method, args, expected)
 
 
 @register_envvar("assign")

@@ -1,11 +1,8 @@
 from __future__ import annotations
 from typing import List, Optional
 
-from .tree import Tree, Tok
+from .tree import Node, Tree, Tok, is_token, is_tree, tree_children, tree_label
 from .token_types import TT
-
-from .tree import Node, is_tree, tree_children, tree_label
-from .tree import is_token as is_token
 from .ast_transforms import (
     _HOLE_PARAM_PREFIX,
     _infer_amp_lambda_params,
@@ -43,23 +40,17 @@ def _desugar_call_holes(node: Node) -> Node:
     if is_token(node) or not is_tree(node):
         return node
 
-    children = getattr(node, "children", [])
-
-    for idx, child in enumerate(list(children)):
+    for idx, child in enumerate(list(node.children)):
         lowered = _desugar_call_holes(child)
-
         if lowered is not child:
-            children[idx] = lowered
+            node.children[idx] = lowered
 
-    candidate = node
-
-    if tree_label(candidate) == "explicit_chain":
-        replacement = _chain_to_lambda_if_holes(candidate)
-
+    if tree_label(node) == "explicit_chain":
+        replacement = _chain_to_lambda_if_holes(node)
         if replacement:
             return replacement
 
-    return candidate
+    return node
 
 
 def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
@@ -104,9 +95,8 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
             holes.append(name)
             return Tok(TT.IDENT, name, 0, 0)
 
-        cloned_children: list[Node] = [clone(child) for child in tree_children(node)]
-        cloned = Tree(label, cloned_children)
-        setattr(cloned, "_meta", getattr(node, "meta", None))
+        cloned = Tree(label, [clone(child) for child in tree_children(node)])
+        cloned._meta = getattr(node, "meta", None)
         return cloned
 
     cloned_chain = clone(chain)
@@ -115,11 +105,9 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
         return None
 
     params = [Tok(TT.IDENT, name, 0, 0) for name in holes]
-    param_children: list[Tok] = list(params)
-    paramlist = Tree("paramlist", param_children)
-    setattr(paramlist, "_meta", getattr(chain, "meta", None))
+    paramlist = Tree("paramlist", params)
+    paramlist._meta = getattr(chain, "meta", None)
 
-    lambda_children: list[Node] = [paramlist, cloned_chain]
-    lam = Tree("amp_lambda", lambda_children)
-    setattr(lam, "_meta", getattr(chain, "meta", None))
+    lam = Tree("amp_lambda", [paramlist, cloned_chain])
+    lam._meta = getattr(chain, "meta", None)
     return lam

@@ -5,6 +5,7 @@ were previously defined inside parse_auto.py.
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, TypeAlias
 
@@ -62,14 +63,14 @@ def enforce_subject_scope(tree: Tree) -> None:
             visit(children[0], depth)
             visit(children[1], depth + 1)
             return
-        if label in {"hook"}:
+        if label == "hook":
             for ch in children:
-                if is_tree(ch) and tree_label(ch) in {"body"}:
+                if is_tree(ch) and tree_label(ch) == "body":
                     visit(ch, depth + 1)
                 else:
                     visit(ch, depth)
             return
-        if label in {"waitany_arm"}:
+        if label == "waitany_arm":
             for idx, ch in enumerate(children):
                 if idx == 1 and is_tree(ch) and tree_label(ch) == "body":
                     visit(ch, depth + 1)
@@ -87,12 +88,18 @@ def enforce_subject_scope(tree: Tree) -> None:
                 else:
                     visit(ch, depth)
             return
-        if label in {"forsubject", "forindexed"} and children:
-            for ch in children[:-1]:
-                visit(ch, depth)
-            visit(children[-1], depth + 1)
-            return
-        if label in {"lambdacall1", "lambdacalln", "stmtsubjectassign"} and children:
+        # These labels all visit the last child at depth+1 (binder scope).
+        if (
+            label
+            in {
+                "forsubject",
+                "forindexed",
+                "lambdacall1",
+                "lambdacalln",
+                "stmtsubjectassign",
+            }
+            and children
+        ):
             for ch in children[:-1]:
                 visit(ch, depth)
             visit(children[-1], depth + 1)
@@ -159,6 +166,11 @@ class ChainNormalize(Transformer):
         return Tree("explicit_chain", self._fuse(c))
 
 
+def _strip_tokens(children: List[Node], token_type: TT) -> List[Node]:
+    """Filter out tokens of the given type from a children list."""
+    return [n for n in children if not (is_token(n) and n.type == token_type)]
+
+
 class Prune(Transformer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -220,6 +232,13 @@ class Prune(Transformer):
 
     # ---- string interpolation ----
 
+    @staticmethod
+    def _copy_meta(source: Tok, target: Tree) -> None:
+        """Copy meta from a token to a tree node, if present."""
+        meta = getattr(source, "meta", None)
+        if meta:
+            target.meta = meta
+
     def _build_interp_tree(
         self, body: str, token: Tok, expr_label: str, result_label: str
     ) -> Optional[Tree]:
@@ -242,9 +261,7 @@ class Prune(Transformer):
             nodes.append(Tree(expr_label, [payload]))
 
         result = Tree(result_label, nodes)
-        meta = getattr(token, "meta", None)
-        if meta:
-            result.meta = meta
+        self._copy_meta(token, result)
 
         return result
 
@@ -281,30 +298,28 @@ class Prune(Transformer):
             raise SyntaxError("Unknown shell string segment")
 
         result = Tree("shell_string", nodes)
-
-        meta = getattr(token, "meta", None)
-        if meta:
-            result.meta = meta
+        self._copy_meta(token, result)
         return result
 
     def _transform_shell_bang_token(self, token: Tok) -> Tree:
         """Transform eager shell string token into a shell_bang node."""
         shell_tree = self._transform_shell_string_token(token)
         result = Tree("shell_bang", [shell_tree])
-        meta = getattr(token, "meta", None)
-        if meta:
-            result.meta = meta
+        self._copy_meta(token, result)
         return result
 
-    def _transform_path_string_token(self, token: Tok) -> Node:
-        raw = token.value
+    @staticmethod
+    def _strip_prefix_quotes(raw: str, prefix: str) -> str:
+        """Strip prefix and surrounding quotes from a prefixed string literal."""
+        n = len(prefix)
+        if raw.startswith(f'{prefix}"') and raw.endswith('"'):
+            return raw[n + 1 : -1]
+        if raw.startswith(f"{prefix}'") and raw.endswith("'"):
+            return raw[n + 1 : -1]
+        return raw
 
-        if raw.startswith('p"') and raw.endswith('"'):
-            body = raw[2:-1]
-        elif raw.startswith("p'") and raw.endswith("'"):
-            body = raw[2:-1]
-        else:
-            body = raw
+    def _transform_path_string_token(self, token: Tok) -> Node:
+        body = self._strip_prefix_quotes(token.value, "p")
 
         return (
             self._build_interp_tree(body, token, "path_interp_expr", "path_interp")
@@ -313,15 +328,7 @@ class Prune(Transformer):
 
     def _transform_env_string_token(self, token: Tok) -> Node:
         """Transform env string token, handling interpolation."""
-        raw = token.value
-
-        # Strip prefix and quotes: env"..." => body
-        if raw.startswith('env"') and raw.endswith('"'):
-            body = raw[4:-1]
-        elif raw.startswith("env'") and raw.endswith("'"):
-            body = raw[4:-1]
-        else:
-            body = raw
+        body = self._strip_prefix_quotes(token.value, "env")
 
         # env always wraps in a tree — fall back to env_string for plain bodies.
         interp = self._build_interp_tree(body, token, "env_interp_expr", "env_interp")
@@ -329,9 +336,7 @@ class Prune(Transformer):
             return interp
 
         result = Tree("env_string", [Tok(TT.STRING, body)])
-        meta = getattr(token, "meta", None)
-        if meta:
-            result.meta = meta
+        self._copy_meta(token, result)
 
         return result
 
@@ -614,19 +619,16 @@ class Prune(Transformer):
         return Tree("group", c)
 
     def setliteral(self, c):
-        items = [x for x in c if not (is_token(x) and x.type == TT.COMMA)]
-        return Tree("setliteral", items)
+        return Tree("setliteral", _strip_tokens(c, TT.COMMA))
 
     def setliteral_empty(self, _):
         return Tree("setliteral", [])
 
     def setcomp(self, c):
-        items = [x for x in c if not (is_token(x) and x.type == TT.SET)]
-        return Tree("setcomp", items)
+        return Tree("setcomp", _strip_tokens(c, TT.SET))
 
     def array(self, c):
-        arr = [item for item in c if not (is_token(item) and item.type == TT.COMMA)]
-        return Tree("array", arr)
+        return Tree("array", _strip_tokens(c, TT.COMMA))
 
     def array_empty(self, _c):
         return Tree("array", [])
@@ -651,12 +653,10 @@ class Prune(Transformer):
         return Tree("subjectassign_rhs", c)
 
     def implicit_subject_chain(self, c):
-        c = [x for x in c if not (is_token(x) and x.type == TT.DOT)]
-        return Tree("implicit_chain", c)
+        return Tree("implicit_chain", _strip_tokens(c, TT.DOT))
 
     def explicit_subject_chain(self, c):
-        c = [x for x in c if not (is_token(x) and x.type == TT.DOT)]
-        return Tree("explicit_chain", c)
+        return Tree("explicit_chain", _strip_tokens(c, TT.DOT))
 
     # Dot stripping
     def field(self, c):
@@ -732,7 +732,7 @@ class Prune(Transformer):
         binder: Optional[str] = None
 
         for node in c:
-            if is_tree(node) and tree_label(node) in {"body"}:
+            if is_tree(node) and tree_label(node) == "body":
                 body = node
             elif is_tree(node) and tree_label(node) == "using_handle":
                 handle = _first_ident(node)
@@ -806,7 +806,7 @@ class Prune(Transformer):
                 name = node
             elif is_tree(node) and tree_label(node) == "paramlist":
                 params = node
-            elif is_tree(node) and tree_label(node) in {"body"}:
+            elif is_tree(node) and tree_label(node) == "body":
                 body = node
 
         children: List[Node] = []
@@ -838,7 +838,7 @@ class Prune(Transformer):
                 elif label == "paramlist":
                     params = node
                     continue
-                elif label in {"body"}:
+                elif label == "body":
                     body = node
                     continue
                 elif label == "return_contract":
@@ -903,22 +903,16 @@ class Prune(Transformer):
         return Tree("deferstmt", children)
 
     def returnstmt(self, c: List[Node]) -> Tree:
-        exprs: List[Node] = []
-
-        for node in c:
-            if is_token(node) and node.type == TT.RETURN:
-                continue
-            exprs.append(node)
-        return Tree("returnstmt", exprs)
+        return self._strip_keyword(c, TT.RETURN, "returnstmt")
 
     def throwstmt(self, c: List[Node]) -> Tree:
-        exprs: List[Node] = []
+        return self._strip_keyword(c, TT.THROW, "throwstmt")
 
-        for node in c:
-            if is_token(node) and node.type == TT.THROW:
-                continue
-            exprs.append(node)
-        return Tree("throwstmt", exprs)
+    @staticmethod
+    def _strip_keyword(children: List[Node], keyword: TT, label: str) -> Tree:
+        """Strip a leading keyword token and wrap remaining nodes."""
+        exprs = [n for n in children if not (is_token(n) and n.type == keyword)]
+        return Tree(label, exprs)
 
     # ---- catch normalization ----
     def catchexpr(self, c: List[Node]) -> Tree:
@@ -938,12 +932,10 @@ class Prune(Transformer):
         return Tree("catchexpr", children)
 
     def catchtypes(self, c: List[Node]) -> Tree:
-        items = [item for item in c if not (is_token(item) and item.type == TT.COMMA)]
-        return Tree("catchtypes", items)
+        return Tree("catchtypes", _strip_tokens(c, TT.COMMA))
 
     def catchassign(self, c: List[Node]) -> Tree:
-        items = [item for item in c if not (is_token(item) and item.type == TT.BIND)]
-        return Tree("catchassign", items)
+        return Tree("catchassign", _strip_tokens(c, TT.BIND))
 
     # tidy arg nodes for printing
     def arg(self, c):
@@ -1413,10 +1405,11 @@ def _canonicalize_ast(node: Node) -> Optional[Node]:
 
 
 def _first_ident(node: Node) -> Optional[str]:
-    queue: List[Node] = [node]
+    """BFS to find the first IDENT token value in a subtree."""
+    queue = deque([node])
 
     while queue:
-        cur = queue.pop(0)
+        cur = queue.popleft()
 
         if is_token(cur) and cur.type == TT.IDENT:
             return str(cur.value)

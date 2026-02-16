@@ -559,6 +559,14 @@ def _io_browser_read_key(timeout_ms: Optional[float]) -> ShkString:
     return ShkString("")
 
 
+def _strip_ansi(text: str) -> str:
+    """Strip ANSI escape codes for browser output."""
+    import re
+
+    text = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
+    return re.sub(r"\x1b\[\?[0-9;]*[a-zA-Z]", "", text)
+
+
 def _io_write(
     _frame,
     subject: Optional[ShkValue],
@@ -573,13 +581,9 @@ def _io_write(
     text = args[0].value
 
     if _detect_platform() == "browser":
-        import re
         import js
 
-        # Strip ANSI escape codes for browser
-        clean = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
-        clean = re.sub(r"\x1b\[\?[0-9;]*[a-zA-Z]", "", clean)
-        js.self.shk_io_write(clean)
+        js.self.shk_io_write(_strip_ansi(text))
     else:
         import sys
 
@@ -631,13 +635,9 @@ def _io_overwrite(
     text = args[0].value
 
     if _detect_platform() == "browser":
-        import re
         import js
 
-        # Strip ANSI escape codes for browser
-        clean = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
-        clean = re.sub(r"\x1b\[\?[0-9;]*[a-zA-Z]", "", clean)
-        js.self.shk_io_overwrite(clean)
+        js.self.shk_io_overwrite(_strip_ansi(text))
     else:
         import sys
 

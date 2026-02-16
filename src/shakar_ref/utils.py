@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os as _os
 from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, Tuple
 
@@ -33,9 +34,6 @@ def value_in_list(seq: List[ShkValue], value: ShkValue) -> bool:
             return True
 
     return False
-
-
-import os as _os
 
 
 def envvar_is_nil(env: ShkEnvVar) -> bool:

@@ -270,14 +270,6 @@ def _eval_implicit_chain(ops: List[Tree], frame: Frame) -> ShkValue:
     return val
 
 
-def _eval_break_stmt(frame: Frame) -> ShkValue:
-    raise ShakarBreakSignal()
-
-
-def _eval_continue_stmt(frame: Frame) -> ShkValue:
-    raise ShakarContinueSignal()
-
-
 def _eval_formap1(n: Tree, frame: Frame) -> ShkValue:
     child = n.children[0] if n.children else None
 
@@ -463,35 +455,31 @@ def _eval_waitgroupcall(n: Tree, frame: Frame) -> ShkValue:
     return eval_wait_group_call(n, frame, eval_node)
 
 
-def _eval_waitmodifierblock(n: Tree, _frame: Frame) -> ShkValue:
+def _eval_wait_modifier_stub(kind: str, n: Tree) -> ShkValue:
+    """Shared handler for wait modifier block/call stubs."""
     modifier_name, modifier_tok = modifier_from_node(n)
     if not modifier_name:
-        raise ShakarRuntimeError("Malformed wait modifier block")
+        raise ShakarRuntimeError(f"Malformed wait modifier {kind}")
     validate_modifier("wait", modifier_name, modifier_tok)
     raise ShakarRuntimeError(
-        "Internal error: known wait modifier should use a dedicated wait block node"
+        f"Internal error: known wait modifier should use a dedicated wait {kind} node"
     )
+
+
+def _eval_waitmodifierblock(n: Tree, _frame: Frame) -> ShkValue:
+    return _eval_wait_modifier_stub("block", n)
 
 
 def _eval_waitmodifiercall(n: Tree, _frame: Frame) -> ShkValue:
-    modifier_name, modifier_tok = modifier_from_node(n)
-    if not modifier_name:
-        raise ShakarRuntimeError("Malformed wait modifier call")
-    validate_modifier("wait", modifier_name, modifier_tok)
-    raise ShakarRuntimeError(
-        "Internal error: known wait modifier should use a dedicated wait call node"
-    )
+    return _eval_wait_modifier_stub("call", n)
 
 
 def _eval_subject(_n: Tree, frame: Frame) -> ShkValue:
     return get_subject(frame)
 
 
-def _eval_keyexpr(n: Tree, frame: Frame) -> ShkValue:
-    return eval_node(n.children[0], frame) if n.children else ShkNil()
-
-
-def _eval_slicearm_expr(n: Tree, frame: Frame) -> ShkValue:
+def _eval_optional_child(n: Tree, frame: Frame) -> ShkValue:
+    """Evaluate single optional child, returning nil if absent."""
     return eval_node(n.children[0], frame) if n.children else ShkNil()
 
 
@@ -613,12 +601,12 @@ def _eval_whilestmt(n: Tree, frame: Frame) -> ShkValue:
     return eval_while_stmt(n, frame, eval_node)
 
 
-def _eval_breakstmt_node(_n: Tree, frame: Frame) -> ShkValue:
-    return _eval_break_stmt(frame)
+def _eval_breakstmt_node(_n: Tree, _frame: Frame) -> ShkValue:
+    raise ShakarBreakSignal()
 
 
-def _eval_continuestmt_node(_n: Tree, frame: Frame) -> ShkValue:
-    return _eval_continue_stmt(frame)
+def _eval_continuestmt_node(_n: Tree, _frame: Frame) -> ShkValue:
+    raise ShakarContinueSignal()
 
 
 # ---- Loop handlers ----
@@ -879,8 +867,8 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "send": _eval_send,
     "spawn": _eval_spawn,
     "subject": _eval_subject,
-    "keyexpr": _eval_keyexpr,
-    "slicearm_expr": _eval_slicearm_expr,
+    "keyexpr": _eval_optional_child,
+    "slicearm_expr": _eval_optional_child,
     "slicearm_empty": _eval_slicearm_empty,
     "pack": _eval_pack,
     # Statements
