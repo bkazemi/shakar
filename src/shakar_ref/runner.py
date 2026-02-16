@@ -61,6 +61,26 @@ _STMT_LABELS = frozenset(
 )
 
 
+def _error_rank(exc: Exception) -> tuple[int, int, int]:
+    """Rank parser/lexer errors by how far they reached in the source."""
+    line = getattr(exc, "end_line", None)
+    col = getattr(exc, "end_column", None)
+
+    # end_* location must be valid as a pair; otherwise use primary line/column.
+    if not isinstance(line, int) or line <= 0 or not isinstance(col, int) or col < 0:
+        line = getattr(exc, "line", None)
+        col = getattr(exc, "column", None)
+
+    if not isinstance(line, int) or line <= 0:
+        return (0, 0, 0)
+
+    if not isinstance(col, int) or col < 0:
+        col = 0
+
+    # Errors at higher (line, col) positions are usually more relevant.
+    return (1, line, col)
+
+
 def _last_is_stmt(ast: object) -> bool:
     """Check if the last meaningful node in the AST is a statement."""
     if isinstance(ast, Tree):
@@ -85,7 +105,7 @@ def _parse_and_lower(src: str, use_indenter: Optional[bool] = None):
     else:
         attempts = [use_indenter]
 
-    last_error: Optional[Exception] = None
+    best_error: Optional[Exception] = None
     tree = None
 
     for flag in attempts:
@@ -93,11 +113,12 @@ def _parse_and_lower(src: str, use_indenter: Optional[bool] = None):
             tree = parse_source(src, use_indenter=flag)
             break
         except (ParseError, LexError) as exc:
-            last_error = exc
+            if best_error is None or _error_rank(exc) > _error_rank(best_error):
+                best_error = exc
 
     if tree is None:
-        if last_error:
-            raise last_error
+        if best_error:
+            raise best_error
         raise RuntimeError("Parser failed without producing a parse tree")
 
     ast = Prune().transform(tree)
