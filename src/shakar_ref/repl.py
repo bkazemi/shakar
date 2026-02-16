@@ -140,19 +140,31 @@ def _normalize(text: str) -> str:
 
 
 def _awaits_catch(text: str) -> bool:
-    """Return True if *text* starts with ``try:`` but has no ``catch`` clause yet."""
+    """Return True if *text* is a ``try:`` block with no base-level content yet.
+
+    Empty lines are allowed indefinitely (like Python).  Once the user types
+    any non-empty content at the base indentation level (catch or otherwise),
+    returns False so the next empty line submits normally.
+    """
     lines = text.split("\n")
     first = lines[0] if lines else ""
-    # Measure the indentation of the opening try:.
     try_indent = len(first) - len(first.lstrip())
     if first.strip() != "try:":
         return False
 
-    # Look for a catch token at the same indentation level.
+    # If a catch clause already exists at the try indentation, no need to wait.
+    # If any line at the base level already appeared after the body, the user
+    # had their chance — let submission proceed.
     for line in lines[1:]:
-        indent = len(line) - len(line.lstrip())
         stripped = line.lstrip()
-        if indent == try_indent and stripped.startswith("catch"):
+        if not stripped:
+            continue
+
+        indent = len(line) - len(line.lstrip())
+        if indent <= try_indent:
+            # Non-empty content at the base level.  If it's a catch clause
+            # the try is complete; otherwise the user typed something wrong
+            # and the next empty line should submit so the parser can error.
             return False
 
     return True
