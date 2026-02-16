@@ -31,8 +31,12 @@ native: shakar_hl_native
 shakar_hl_native: $(SOURCES) src/lexer.h src/highlight.h src/token_types.h
 	cc -O2 -Wall -Wextra -Wno-unused-parameter -DSHK_NATIVE_TEST -o $@ $(SOURCES)
 
-test: shakar_hl_native
+test: shakar_hl_native tests/test_highlight
 	python tests/validate_tokens.py
+	tests/test_highlight
+
+tests/test_highlight: tests/test_highlight.c src/lexer.c src/highlight.c src/lexer.h src/highlight.h src/token_types.h
+	cc -O2 -Wall -Wextra -Wno-unused-parameter -Isrc -o $@ tests/test_highlight.c src/lexer.c src/highlight.c
 
 # Deploy WASM artifacts to web/ directory
 deploy: js/shakar_hl.js
@@ -40,4 +44,4 @@ deploy: js/shakar_hl.js
 	cp js/shakar_hl.wasm ../web/shakar_hl_glue.wasm
 
 clean:
-	rm -f js/shakar_hl.js js/shakar_hl.wasm shakar_hl_native
+	rm -f js/shakar_hl.js js/shakar_hl.wasm shakar_hl_native tests/test_highlight

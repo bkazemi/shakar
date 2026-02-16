@@ -359,9 +359,26 @@ static int is_slot_head_keyword(TT t) {
     }
 }
 
+/* Whether the next significant token stays in the same statement as current.
+ * NEWLINE only splits statements outside parenthesized grouping.
+ * SEMI always splits statements. */
+static int next_sig_same_statement(const Tok *toks, int cur_sig_idx, int next_sig_idx,
+                                   int paren_depth_after_cur) {
+    for (int i = cur_sig_idx + 1; i < next_sig_idx; i++) {
+        TT t = toks[i].type;
+        if (t == TT_COMMENT || t == TT_INDENT || t == TT_DEDENT)
+            continue;
+        if (t == TT_SEMI)
+            return 0;
+        if (t == TT_NEWLINE && paren_depth_after_cur == 0)
+            return 0;
+    }
+    return 1;
+}
+
 /* Classify identifier based on prev/next significant token. */
 static HlGroup classify_ident(const char *src, int src_len, Tok *tok, Tok *next_sig, TT prev_sig,
-                              TT prev_prev_sig) {
+                              TT prev_prev_sig, int same_stmt_next) {
     if (prev_sig == TT_QMARK && token_text_equals(src, src_len, tok, "ret", 3))
         return HL_KEYWORD;
 
@@ -378,8 +395,14 @@ static HlGroup classify_ident(const char *src, int src_len, Tok *tok, Tok *next_
         return HL_DECORATOR;
     if (prev_sig == TT_HOOK)
         return HL_HOOK;
-    if (prev_sig == TT_GET || prev_sig == TT_SET || prev_sig == TT_DOT)
+    if (prev_sig == TT_GET || prev_sig == TT_SET)
         return HL_PROPERTY;
+    if (prev_sig == TT_DOT) {
+        /* Method call only within the same statement: .method() => function, .prop => property */
+        if (same_stmt_next && next_sig && next_sig->type == TT_LPAR)
+            return HL_FUNCTION;
+        return HL_PROPERTY;
+    }
     if (prev_sig == TT_TILDE)
         return HL_TYPE;
 
@@ -601,7 +624,7 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
 
     /* State */
     int at_stmt_start = 1;
-    int in_chain = 0; /* inside a .IDENT chain from stmt-start dot */
+
     int bracket_depth = 0;
     int continuation_indent = -1; /* explicit dot-continuation block indent, -1 when inactive */
     int cursor = 0;               /* span search cursor */
@@ -661,7 +684,6 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
                     need_colon = 0;
                 }
                 at_stmt_start = 1;
-                in_chain = 0;
             }
             continue;
         }
@@ -671,7 +693,7 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
         /* ---- Semicolon: statement boundary ---- */
         if (t == TT_SEMI) {
             at_stmt_start = 1;
-            in_chain = 0;
+
             continuation_indent = -1;
             need_colon = 0;
             prev_sig = t;
@@ -682,7 +704,7 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
         if (t == TT_COLON && bracket_depth == 0) {
             need_colon = 0;
             at_stmt_start = 0;
-            in_chain = 0;
+
             continuation_indent = -1;
             prev_sig = t;
             continue;
@@ -690,6 +712,10 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
 
         /* ---- Bracket tracking + diagnostics ---- */
         if (t == TT_LPAR || t == TT_LSQB || t == TT_LBRACE) {
+            /* Bracket-led top-level statements must break explicit dot-continuation chains. */
+            if (bracket_depth == 0 && at_stmt_start)
+                continuation_indent = -1;
+
             bracket_depth++;
             if (bcount < 256) {
                 bstack[bcount].type = t;
@@ -698,8 +724,6 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
                 bcount++;
             }
             at_stmt_start = 0;
-            in_chain = 0;
-            continuation_indent = -1;
             prev_sig = t;
             continue;
         }
@@ -718,8 +742,6 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
                     bracket_depth--;
             }
             at_stmt_start = 0;
-            in_chain = 0;
-            continuation_indent = -1;
             prev_sig = t;
             continue;
         }
@@ -754,49 +776,17 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
                     /* Dot-chain continuation keeps explicit receiver semantics. */
                     override_span(hl, line, col, HL_PUNCTUATION, &cursor);
                     at_stmt_start = 0;
-                    in_chain = 0;
+
                     prev_sig = t;
                     continue;
                 }
 
                 continuation_indent = -1;
-                in_chain = 1;
-                /* Lexical pass likely already set this to HL_IMPLICIT_SUBJECT,
-                 * but ensure it via override. */
+                /* Only the leading dot is implicit subject; subsequent
+                 * dots and idents keep their lexical classification
+                 * (punctuation / property / function). */
                 override_span(hl, line, col, HL_IMPLICIT_SUBJECT, &cursor);
                 at_stmt_start = 0;
-                prev_sig = t;
-                continue;
-            }
-
-            /* Ident after dot in chain */
-            if (in_chain && prev_sig == TT_DOT && t == TT_IDENT) {
-                /* Peek at the next significant token */
-                TT next_type = TT_EOF;
-                for (int j = i + 1; j < tc; j++) {
-                    TT nt = toks[j].type;
-                    if (nt != TT_COMMENT && !is_layout(nt)) {
-                        next_type = nt;
-                        break;
-                    }
-                }
-
-                if (next_type == TT_LPAR) {
-                    /* Method call — keep lexical classification (function).
-                     * Chain ends after this ident. */
-                    in_chain = 0;
-                } else {
-                    /* Subject ident (fanpath target or implicit-subject access) */
-                    override_span(hl, line, col, HL_IMPLICIT_SUBJECT, &cursor);
-                }
-                at_stmt_start = 0;
-                prev_sig = t;
-                continue;
-            }
-
-            /* Continuation dot in chain */
-            if (in_chain && t == TT_DOT) {
-                override_span(hl, line, col, HL_IMPLICIT_SUBJECT, &cursor);
                 prev_sig = t;
                 continue;
             }
@@ -809,8 +799,6 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
             nc_col = col;
         }
 
-        /* Any other token breaks the chain */
-        in_chain = 0;
         if (at_stmt_start)
             continuation_indent = -1;
         at_stmt_start = 0;
@@ -836,6 +824,7 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
 
     /* We iterate only over significant (non-layout) tokens. */
     TT prev_sig = TT_EOF;
+    int paren_depth = 0;
     int cached_line = -1;
     int cached_line_start = 0;
     int cached_indent = -1;
@@ -859,13 +848,29 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
     }
 
     for (int si = 0; si < sig_count; si++) {
-        Tok *tok = &toks[sig_idx[si]];
-        Tok *next_sig_tok = (si + 1 < sig_count) ? &toks[sig_idx[si + 1]] : 0;
+        int cur_sig_idx = sig_idx[si];
+        Tok *tok = &toks[cur_sig_idx];
+        int next_sig_idx = (si + 1 < sig_count) ? sig_idx[si + 1] : -1;
+        Tok *next_sig_tok = (next_sig_idx >= 0) ? &toks[next_sig_idx] : 0;
         TT prev_prev_sig = (si >= 2) ? toks[sig_idx[si - 2]].type : TT_EOF;
         TT next_sig_type = next_sig_tok ? next_sig_tok->type : TT_EOF;
+        int paren_depth_after_tok = paren_depth;
+        int same_stmt_next = 0;
+
+        if (tok->type == TT_LPAR) {
+            paren_depth_after_tok++;
+        } else if (tok->type == TT_RPAR && paren_depth_after_tok > 0) {
+            paren_depth_after_tok--;
+        }
+        if (next_sig_tok) {
+            same_stmt_next =
+                next_sig_same_statement(toks, cur_sig_idx, next_sig_idx, paren_depth_after_tok);
+        }
+
         HlGroup group = base_group(tok->type);
         if (group == HL_NONE) {
             prev_sig = tok->type;
+            paren_depth = paren_depth_after_tok;
             continue;
         }
 
@@ -906,7 +911,8 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
                    token_text_equals(src, src_len, next_sig_tok, "ret", 3)) {
             group = HL_KEYWORD;
         } else if (tok->type == TT_IDENT) {
-            group = classify_ident(src, src_len, tok, next_sig_tok, prev_sig, prev_prev_sig);
+            group = classify_ident(src, src_len, tok, next_sig_tok, prev_sig, prev_prev_sig,
+                                   same_stmt_next);
         } else if (tok->type == TT_STRING || tok->type == TT_RAW_STRING ||
                    tok->type == TT_RAW_HASH_STRING || tok->type == TT_SHELL_STRING ||
                    tok->type == TT_SHELL_BANG_STRING || tok->type == TT_ENV_STRING) {
@@ -933,6 +939,7 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
             subject_override && (!next_sig_tok || next_sig_tok->line != tok->line);
         if (tok->type != TT_COMMENT && !standalone_subject)
             prev_sig = tok->type;
+        paren_depth = paren_depth_after_tok;
     }
 
     free(sig_idx);
