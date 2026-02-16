@@ -262,6 +262,141 @@ SCENARIOS = [
     pytest.param(
         dedent(
             """\
+            result := "unset"
+            true: result = "hit" | (false): result = "miss" |: result = "else"
+            result
+        """
+        ),
+        ("string", "hit"),
+        None,
+        id="guard-oneline-grouped-branch-cond",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            x := 1
+            result := "unset"
+            x > 1:
+                result = "bad"
+            | (x > 0):
+                result = "good"
+            |:
+                result = "else"
+            result
+        """
+        ),
+        ("string", "good"),
+        None,
+        id="guard-multiline-grouped-branch-cond",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            arr := [1, 2, 3]
+            x := [2]
+            out := "miss"
+            match x:
+                arr[0:1] | arr[1:2]: out = "hit"
+                else: out = "miss"
+            out
+        """
+        ),
+        ("string", "hit"),
+        None,
+        id="match-slice-patterns-with-pipe",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            x := 1
+            a := true
+            b := 3
+            out := "miss"
+            match x:
+                a ? 1 : 9 | b: out = "hit"
+                else: out = "miss"
+            out
+        """
+        ),
+        ("string", "hit"),
+        None,
+        id="match-ternary-pattern-separator-pipe",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            x := 1
+            c := 2
+            out := "miss"
+            match x:
+                (1 / 0 catch e: 1) | c: out = "hit"
+                else: out = "miss"
+            out
+        """
+        ),
+        ("string", "hit"),
+        None,
+        id="match-catch-pattern-separator-pipe",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            x := 1
+            c := 2
+            out := "miss"
+            match x:
+                1 @@ e: 1 | c: out = "hit"
+                else: out = "miss"
+            out
+        """
+        ),
+        ("string", "hit"),
+        None,
+        id="match-catch-sugar-pattern-separator-pipe",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            x := 1
+            c := 2
+            out := "miss"
+            match x:
+                `0:1` | c: out = "hit"
+                else: out = "miss"
+            out
+        """
+        ),
+        ("string", "hit"),
+        None,
+        id="match-selector-pattern-separator-pipe",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            out := "miss"
+            true: out = (true ? "ok" : "bad") | false: out = "no" |: out = "else"
+            out
+        """
+        ),
+        ("string", "ok"),
+        None,
+        id="guard-inline-ternary-body-before-pipe",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            out := "miss"
+            true: out = (1 / 0 catch e: "ok") | false: out = "no" |: out = "else"
+            out
+        """
+        ),
+        ("string", "ok"),
+        None,
+        id="guard-inline-catch-body-before-pipe",
+    ),
+    pytest.param(
+        dedent(
+            """\
             fn rotate(shape):
               ??(!shape[0]): return []
               return shape

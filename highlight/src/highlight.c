@@ -360,21 +360,157 @@ static int is_slot_head_keyword(TT t) {
     }
 }
 
+/* ---- Bracket / layout predicates ---- */
+
+static int is_open_group(TT t) { return t == TT_LPAR || t == TT_LSQB || t == TT_LBRACE; }
+
+static int is_close_group(TT t) { return t == TT_RPAR || t == TT_RSQB || t == TT_RBRACE; }
+
+/* Tokens that are invisible to statement-level scanning. */
+static int is_scan_layout(TT t) { return t == TT_COMMENT || t == TT_INDENT || t == TT_DEDENT; }
+
 /* Whether the next significant token stays in the same statement as current.
- * NEWLINE only splits statements outside parenthesized grouping.
+ * NEWLINE only splits statements outside bracketed grouping.
  * SEMI always splits statements. */
 static int next_sig_same_statement(const Tok *toks, int cur_sig_idx, int next_sig_idx,
-                                   int paren_depth_after_cur) {
+                                   int group_depth_after_cur) {
     for (int i = cur_sig_idx + 1; i < next_sig_idx; i++) {
         TT t = toks[i].type;
-        if (t == TT_COMMENT || t == TT_INDENT || t == TT_DEDENT)
+        if (is_scan_layout(t))
             continue;
         if (t == TT_SEMI)
             return 0;
-        if (t == TT_NEWLINE && paren_depth_after_cur == 0)
+        if (t == TT_NEWLINE && group_depth_after_cur == 0)
             return 0;
     }
     return 1;
+}
+
+/* ---- Statement-level depth-tracked walker ---- */
+
+/* Visitor callback for walk_stmt_depth0.  Return non-zero to stop. */
+typedef int (*StmtVisitFn)(TT type, int tok_idx, void *ctx);
+
+/* Walk significant tokens within a statement, tracking bracket depth.
+ * Scans from toks[start] in direction dir (+1 forward, -1 backward).
+ * Direction-aware depth: forward => ( opens, ) closes; backward => ) opens, ( closes.
+ * Calls visit (if non-NULL) for each non-bracket, non-layout token at depth 0.
+ * Stops at statement boundary (NEWLINE/SEMI at depth 0), array edge,
+ * or when visit returns non-zero.
+ * If stop_idx is non-NULL, set to the boundary token index (-1 if no boundary hit).
+ * Returns the visitor's non-zero result, or 0. */
+static int walk_stmt_depth0(const Tok *toks, int tc, int start, int dir, int initial_depth,
+                            StmtVisitFn visit, void *ctx, int *stop_idx) {
+    int depth = initial_depth;
+    if (stop_idx)
+        *stop_idx = -1;
+
+    for (int i = start; i >= 0 && i < tc; i += dir) {
+        TT t = toks[i].type;
+        if (is_scan_layout(t))
+            continue;
+
+        if ((dir > 0) ? is_open_group(t) : is_close_group(t)) {
+            depth++;
+            continue;
+        }
+        if ((dir > 0) ? is_close_group(t) : is_open_group(t)) {
+            if (depth > 0)
+                depth--;
+            continue;
+        }
+
+        if (depth == 0 && (t == TT_NEWLINE || t == TT_SEMI)) {
+            if (stop_idx)
+                *stop_idx = i;
+            return 0;
+        }
+
+        if (depth == 0 && visit) {
+            int r = visit(t, i, ctx);
+            if (r)
+                return r;
+        }
+    }
+
+    return 0;
+}
+
+/* ---- Statement scanning helpers (thin wrappers over walk_stmt_depth0) ---- */
+
+/* Find the token index immediately after the previous statement boundary. */
+static int stmt_start_idx(const Tok *toks, int cur_sig_idx, int group_depth_before_cur) {
+    int boundary = -1;
+    walk_stmt_depth0(toks, cur_sig_idx, cur_sig_idx - 1, -1, group_depth_before_cur, NULL, NULL,
+                     &boundary);
+
+    return (boundary >= 0) ? boundary + 1 : 0;
+}
+
+/* Visitor: stop on first colon. */
+static int visit_is_colon(TT type, int idx, void *ctx) {
+    (void)idx;
+    (void)ctx;
+    return type == TT_COLON;
+}
+
+/* Is there a statement-level colon after cur_sig_idx within this statement? */
+static int stmt_has_next_colon(const Tok *toks, int tc, int cur_sig_idx, int group_depth_after) {
+    return walk_stmt_depth0(toks, tc, cur_sig_idx + 1, +1, group_depth_after, visit_is_colon, NULL,
+                            NULL);
+}
+
+/* Context for scanning previous colons, excluding ternary/catch/selector colons. */
+typedef struct {
+    int ternary_qmarks;
+    int catch_pending_colon;
+    int in_selector_literal;
+    TT last_depth0_sig;
+} PrevColonCtx;
+
+static int visit_prev_colon(TT type, int idx, void *ctx) {
+    PrevColonCtx *c = ctx;
+    (void)idx;
+
+    /* Selector literals: everything between backquotes is opaque. */
+    if (type == TT_BACKQUOTE) {
+        c->in_selector_literal = !c->in_selector_literal;
+        c->last_depth0_sig = type;
+        return 0;
+    }
+    if (c->in_selector_literal)
+        return 0;
+
+    if (type == TT_QMARK) {
+        c->ternary_qmarks++;
+    } else if (type == TT_CATCH) {
+        c->catch_pending_colon = 1;
+    } else if (type == TT_AT && c->last_depth0_sig == TT_AT) {
+        c->catch_pending_colon = 1;
+    } else if (type == TT_COLON) {
+        if (c->ternary_qmarks > 0) {
+            c->ternary_qmarks--;
+        } else if (c->catch_pending_colon) {
+            c->catch_pending_colon = 0;
+        } else {
+            return 1; /* found a statement-level colon */
+        }
+    }
+
+    c->last_depth0_sig = type;
+    return 0;
+}
+
+/* Is there a non-expression statement-level colon before cur_sig_idx
+ * within this statement?  Ternary, catch, and selector-literal colons
+ * are excluded. */
+static int stmt_has_prev_colon(const Tok *toks, int cur_sig_idx, int group_depth_before_cur) {
+    int start = stmt_start_idx(toks, cur_sig_idx, group_depth_before_cur);
+    PrevColonCtx ctx = {0, 0, 0, TT_EOF};
+
+    /* Forward scan from statement start to cur_sig_idx (exclusive).
+     * Depth starts at 0 since start is after a statement boundary. */
+    return walk_stmt_depth0(toks, cur_sig_idx, start, +1, 0, visit_prev_colon, &ctx, NULL);
 }
 
 /* Classify identifier based on prev/next significant token. */
@@ -816,6 +952,58 @@ void structural_highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *h
 }
 
 /* ======================================================================== */
+/* Line-prefix cache                                                         */
+/* ======================================================================== */
+
+/* Cached line-prefix state to avoid rescanning the same line for every token. */
+typedef struct {
+    int line;
+    int line_start;
+    int indent;
+    int first_non_ws;
+} LinePrefixCache;
+
+static void lpc_update(LinePrefixCache *c, const char *src, int src_len, const Tok *tok) {
+    int line = tok->line - 1;
+    if (line != c->line) {
+        c->line = line;
+        line_prefix_info_for_pos(src, src_len, tok->start, &c->line_start, &c->indent,
+                                 &c->first_non_ws);
+    }
+}
+
+static int lpc_at_line_start(const LinePrefixCache *c, const Tok *tok) {
+    return tok->start <= c->first_non_ws;
+}
+
+/* ======================================================================== */
+/* Guard-pipe classification                                                 */
+/* ======================================================================== */
+
+/* Classify whether a depth-0 pipe token is a guard-branch keyword.
+ * Guard pipes: `cond: body | cond: body |: else`. */
+static int is_guard_pipe(const char *src, int src_len, const Tok *toks, int tc, Tok *tok,
+                         int cur_sig_idx, int group_depth, int group_depth_after, TT next_sig_type,
+                         LinePrefixCache *lpc) {
+    /* |: is always a guard else */
+    if (next_sig_type == TT_COLON)
+        return 1;
+
+    /* No following colon in this statement => not a guard pipe */
+    if (!stmt_has_next_colon(toks, tc, cur_sig_idx, group_depth_after))
+        return 0;
+
+    lpc_update(lpc, src, src_len, tok);
+
+    /* Multi-line guard branch: pipe at line start with following colon */
+    if (lpc_at_line_start(lpc, tok))
+        return 1;
+
+    /* Inline guard continuation: prior colon exists in same statement */
+    return stmt_has_prev_colon(toks, cur_sig_idx, group_depth);
+}
+
+/* ======================================================================== */
 /* Main highlight function                                                   */
 /* ======================================================================== */
 
@@ -826,11 +1014,8 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
 
     /* We iterate only over significant (non-layout) tokens. */
     TT prev_sig = TT_EOF;
-    int paren_depth = 0;
-    int cached_line = -1;
-    int cached_line_start = 0;
-    int cached_indent = -1;
-    int cached_first_non_ws = 0;
+    int group_depth = 0;
+    LinePrefixCache lpc = {-1, 0, -1, 0};
 
     /* Pre-scan: build array of sig token indices for next-lookahead. */
     int *sig_idx = malloc(tc * sizeof(int));
@@ -856,41 +1041,31 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
         Tok *next_sig_tok = (next_sig_idx >= 0) ? &toks[next_sig_idx] : 0;
         TT prev_prev_sig = (si >= 2) ? toks[sig_idx[si - 2]].type : TT_EOF;
         TT next_sig_type = next_sig_tok ? next_sig_tok->type : TT_EOF;
-        int paren_depth_after_tok = paren_depth;
+        int group_depth_after_tok = group_depth;
         int same_stmt_next = 0;
 
-        if (tok->type == TT_LPAR) {
-            paren_depth_after_tok++;
-        } else if (tok->type == TT_RPAR && paren_depth_after_tok > 0) {
-            paren_depth_after_tok--;
-        }
+        if (is_open_group(tok->type))
+            group_depth_after_tok++;
+        else if (is_close_group(tok->type) && group_depth_after_tok > 0)
+            group_depth_after_tok--;
         if (next_sig_tok) {
             same_stmt_next =
-                next_sig_same_statement(toks, cur_sig_idx, next_sig_idx, paren_depth_after_tok);
+                next_sig_same_statement(toks, cur_sig_idx, next_sig_idx, group_depth_after_tok);
         }
 
         HlGroup group = base_group(tok->type);
         if (group == HL_NONE) {
             prev_sig = tok->type;
-            paren_depth = paren_depth_after_tok;
+            group_depth = group_depth_after_tok;
             continue;
         }
 
         int subject_override = 0;
         if (tok->type == TT_DOT) {
-            int line = tok->line - 1;
-            int line_start;
-            int at_line_start;
-            int cur_indent;
-
-            if (line != cached_line) {
-                cached_line = line;
-                line_prefix_info_for_pos(src, src_len, tok->start, &cached_line_start,
-                                         &cached_indent, &cached_first_non_ws);
-            }
-            line_start = cached_line_start;
-            at_line_start = tok->start <= cached_first_non_ws;
-            cur_indent = cached_indent;
+            lpc_update(&lpc, src, src_len, tok);
+            int line_start = lpc.line_start;
+            int at_line_start = lpc_at_line_start(&lpc, tok);
+            int cur_indent = lpc.indent;
 
             if (!at_line_start) {
                 if (!is_expr_end(prev_sig))
@@ -919,9 +1094,11 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
                    tok->type == TT_RAW_HASH_STRING || tok->type == TT_SHELL_STRING ||
                    tok->type == TT_SHELL_BANG_STRING || tok->type == TT_ENV_STRING) {
             group = classify_string(prev_sig);
-        } else if (tok->type == TT_PIPE && next_sig_type == TT_COLON) {
-            group = HL_KEYWORD; /* guard else: |: */
-        } else if (tok->type == TT_COLON && prev_sig == TT_PIPE) {
+        } else if (tok->type == TT_PIPE && group_depth == 0) {
+            if (is_guard_pipe(src, src_len, toks, tc, tok, cur_sig_idx, group_depth,
+                              group_depth_after_tok, next_sig_type, &lpc))
+                group = HL_KEYWORD;
+        } else if (tok->type == TT_COLON && prev_sig == TT_PIPE && group_depth == 0) {
             group = HL_KEYWORD; /* guard else: |: */
         }
 
@@ -941,7 +1118,7 @@ void highlight(const char *src, int src_len, TokBuf *tokens, HlBuf *out) {
             subject_override && (!next_sig_tok || next_sig_tok->line != tok->line);
         if (tok->type != TT_COMMENT && !standalone_subject)
             prev_sig = tok->type;
-        paren_depth = paren_depth_after_tok;
+        group_depth = group_depth_after_tok;
     }
 
     free(sig_idx);

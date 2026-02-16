@@ -56,6 +56,48 @@ static void check_span(const char *test, const char *src, int line, int col, HlG
     lexer_free(&lex);
 }
 
+/* Find the line/col of the nth occurrence of a character in src.
+ * nth is zero-based. Returns 1 on success, 0 if not found. */
+static int find_nth_char_pos(const char *src, char ch, int nth, int *line_out, int *col_out) {
+    int line = 0;
+    int col = 0;
+    int seen = 0;
+
+    for (int i = 0; src[i] != '\0'; i++) {
+        char cur = src[i];
+        if (cur == ch) {
+            if (seen == nth) {
+                *line_out = line;
+                *col_out = col;
+                return 1;
+            }
+            seen++;
+        }
+
+        if (cur == '\n') {
+            line++;
+            col = 0;
+        } else {
+            col++;
+        }
+    }
+
+    return 0;
+}
+
+/* Resolve nth character position then check the highlight group at that span. */
+static void check_nth_char_span(const char *test, const char *src, char ch, int nth,
+                                HlGroup expected) {
+    int line = 0;
+    int col = 0;
+    if (!find_nth_char_pos(src, ch, nth, &line, &col)) {
+        printf("FAIL %s: could not find %d occurrence(s) of '%c'\n", test, nth + 1, ch);
+        g_fail++;
+        return;
+    }
+    check_span(test, src, line, col, expected);
+}
+
 /* ================================================================ */
 /* Tests                                                             */
 /* ================================================================ */
@@ -150,6 +192,133 @@ static void test_multiline_chain(void) {
     check_span("multiline: 'd' is function", src, 3, 5, HL_FUNCTION);
 }
 
+/* Guard branch pipes should be keywords in both multiline and inline forms. */
+static void test_guard_pipe_keywords(void) {
+    const char *multiline = "fn temp_status(t):\n"
+                            "    t > 100:\n"
+                            "        return \"boiling\"\n"
+                            "    | t > 50:\n"
+                            "        return \"hot\"\n"
+                            "    |:\n"
+                            "        return \"cold\"";
+
+    check_span("guard_pipe: branch '|' is keyword", multiline, 3, 4, HL_KEYWORD);
+    check_span("guard_pipe: else '|' is keyword", multiline, 5, 4, HL_KEYWORD);
+    check_span("guard_pipe: else ':' is keyword", multiline, 5, 5, HL_KEYWORD);
+
+    check_span("guard_pipe: inline branch '|' is keyword", "a: b | c: d", 0, 5, HL_KEYWORD);
+}
+
+/* Match pattern separators use operator-style pipes, not guard keywords. */
+static void test_match_pipe_not_guard_keyword(void) {
+    check_span("match_pipe: '|' stays operator", "\"a\" | \"b\": x", 0, 4, HL_OPERATOR);
+}
+
+/* Colons nested inside [] must not trigger guard-pipe keywording. */
+static void test_pipe_with_nested_colons_not_guard_keyword(void) {
+    const char *src = "arr := [1, 2, 3]\n"
+                      "x := [1]\n"
+                      "match x:\n"
+                      "    arr[0:1] | arr[1:2]: 1\n"
+                      "    else: 0";
+    check_span("nested_colon_slice_match: '|' stays operator", src, 3, 13, HL_OPERATOR);
+}
+
+/* Guard pipe keywording must never apply inside grouping depth > 0. */
+static void test_grouped_pipe_not_guard_keyword(void) {
+    check_span("grouped_paren_pipe: '|' stays operator", "head: (a | b): c", 0, 9, HL_OPERATOR);
+    check_span("grouped_paren_colon: ':' stays punctuation", "head: (a | b): c", 0, 13,
+               HL_PUNCTUATION);
+
+    check_span("grouped_bracket_pipe: '|' stays operator", "head: [a | b: c]: d", 0, 9,
+               HL_OPERATOR);
+    check_span("grouped_bracket_colon: ':' stays punctuation", "head: [a | b: c]: d", 0, 12,
+               HL_PUNCTUATION);
+
+    check_span("grouped_brace_pipe: '|' stays operator", "head: {k: a | b: c}: d", 0, 12,
+               HL_OPERATOR);
+    check_span("grouped_brace_colon: ':' stays punctuation", "head: {k: a | b: c}: d", 0, 15,
+               HL_PUNCTUATION);
+
+    check_span("grouped_pipe_colon_pair: '|' stays operator", "head: (a |: b): c", 0, 9,
+               HL_OPERATOR);
+    check_span("grouped_pipe_colon_pair: ':' stays punctuation", "head: (a |: b): c", 0, 10,
+               HL_PUNCTUATION);
+}
+
+/* Exhaustive matrix for grouped pipes: all grouped variants stay operator. */
+static void test_grouped_pipe_matrix_not_guard_keyword(void) {
+    const char *case_paren = "head: (a | b): c";
+    const char *case_bracket = "head: [a | b: c]: d";
+    const char *case_brace = "head: {k: a | b: c}: d";
+    const char *case_paren_pipe_colon = "head: (a |: b): c";
+    const char *case_bracket_pipe_colon = "head: [a |: b]: c";
+    const char *case_brace_pipe_colon = "head: {k: a |: b}: c";
+    const char *case_nested = "head: ((a | b)): c";
+    const char *case_mixed_inline = "head: left | (a | b): right";
+    const char *case_mixed_multiline = "head:\n    left\n| (a | b):\n    right";
+
+    check_nth_char_span("matrix: paren '|'", case_paren, '|', 0, HL_OPERATOR);
+    check_nth_char_span("matrix: bracket '|'", case_bracket, '|', 0, HL_OPERATOR);
+    check_nth_char_span("matrix: brace '|'", case_brace, '|', 0, HL_OPERATOR);
+
+    check_nth_char_span("matrix: paren '|:' pipe", case_paren_pipe_colon, '|', 0, HL_OPERATOR);
+    check_nth_char_span("matrix: paren '|:' colon", case_paren_pipe_colon, ':', 2, HL_PUNCTUATION);
+    check_nth_char_span("matrix: bracket '|:' pipe", case_bracket_pipe_colon, '|', 0, HL_OPERATOR);
+    check_nth_char_span("matrix: bracket '|:' colon", case_bracket_pipe_colon, ':', 2,
+                        HL_PUNCTUATION);
+    check_nth_char_span("matrix: brace '|:' pipe", case_brace_pipe_colon, '|', 0, HL_OPERATOR);
+    check_nth_char_span("matrix: brace '|:' colon", case_brace_pipe_colon, ':', 3, HL_PUNCTUATION);
+
+    check_nth_char_span("matrix: nested '|'", case_nested, '|', 0, HL_OPERATOR);
+
+    /* Mixed inline: first pipe is a guard continuation at depth 0, inner pipe is grouped. */
+    check_nth_char_span("matrix: mixed inline outer '|'", case_mixed_inline, '|', 0, HL_KEYWORD);
+    check_nth_char_span("matrix: mixed inline inner '|'", case_mixed_inline, '|', 1, HL_OPERATOR);
+
+    /* Mixed multiline: same expectation as inline form. */
+    check_nth_char_span("matrix: mixed multiline outer '|'", case_mixed_multiline, '|', 0,
+                        HL_KEYWORD);
+    check_nth_char_span("matrix: mixed multiline inner '|'", case_mixed_multiline, '|', 1,
+                        HL_OPERATOR);
+}
+
+/* Match separators must stay operator even when prior patterns include ':' expressions. */
+static void test_match_separator_with_prior_colon_expr_not_guard_keyword(void) {
+    const char *ternary_case = "match x:\n"
+                               "    a ? 1 : 2 | b: y\n"
+                               "    else: z";
+    const char *catch_case = "match x:\n"
+                             "    a catch e: b | c: y\n"
+                             "    else: z";
+    const char *catch_sugar_case = "match x:\n"
+                                   "    a @@ e: b | c: y\n"
+                                   "    else: z";
+    const char *selector_case = "match x:\n"
+                                "    `0:1` | c: y\n"
+                                "    else: z";
+
+    check_nth_char_span("match_ternary: '|' stays operator", ternary_case, '|', 0, HL_OPERATOR);
+    check_nth_char_span("match_catch: '|' stays operator", catch_case, '|', 0, HL_OPERATOR);
+    check_nth_char_span("match_catch_sugar: '|' stays operator", catch_sugar_case, '|', 0,
+                        HL_OPERATOR);
+    check_nth_char_span("match_selector: '|' stays operator", selector_case, '|', 0, HL_OPERATOR);
+}
+
+/* Inline guard continuation remains keyword when prior branch body has ':' expressions. */
+static void test_inline_guard_with_colon_expr_in_body_stays_keyword(void) {
+    const char *ternary_body = "true: x ? 1 : 2 | false: y";
+    const char *catch_body = "true: a catch e: b | false: y";
+    const char *catch_sugar_body = "true: a @@ e: b | false: y";
+    const char *selector_body = "true: `0:1` | false: y";
+
+    check_nth_char_span("guard_body_ternary: '|' is keyword", ternary_body, '|', 0, HL_KEYWORD);
+    check_nth_char_span("guard_body_catch: '|' is keyword", catch_body, '|', 0, HL_KEYWORD);
+    check_nth_char_span("guard_body_catch_sugar: '|' is keyword", catch_sugar_body, '|', 0,
+                        HL_KEYWORD);
+    check_nth_char_span("guard_body_selector: '|' is keyword", selector_body, '|', 0, HL_KEYWORD);
+}
+
 int main(void) {
     test_standalone_dot_no_leak();
     test_dot_method_call();
@@ -162,6 +331,13 @@ int main(void) {
     test_dot_after_colon_is_subject();
     test_assign_then_dot();
     test_multiline_chain();
+    test_guard_pipe_keywords();
+    test_match_pipe_not_guard_keyword();
+    test_pipe_with_nested_colons_not_guard_keyword();
+    test_grouped_pipe_not_guard_keyword();
+    test_grouped_pipe_matrix_not_guard_keyword();
+    test_match_separator_with_prior_colon_expr_not_guard_keyword();
+    test_inline_guard_with_colon_expr_in_body_stays_keyword();
 
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

@@ -155,6 +155,46 @@ PARSER_GRAMMAR_CASES = [
         "indented",
     ),
     (
+        "guard-0",
+        dedent(
+            """\
+            true:
+              one()
+            | (false):
+              two()
+            |:
+              three()
+            
+        """
+        ),
+        "indented",
+    ),
+    (
+        "guard-1",
+        "true: one() | (false): two() |: three()",
+        "both",
+    ),
+    (
+        "guard-2",
+        "true: (x ? 1 : 2) | false: y |: z",
+        "both",
+    ),
+    (
+        "guard-3",
+        "true: (a catch e: b) | false: y |: z",
+        "both",
+    ),
+    (
+        "guard-4",
+        "true: (a @@ e: b) | false: y |: z",
+        "both",
+    ),
+    (
+        "guard-5",
+        "true: `0:1` | false: y |: z",
+        "both",
+    ),
+    (
         "match-0",
         dedent(
             """\
@@ -173,6 +213,68 @@ PARSER_GRAMMAR_CASES = [
             match key:
               "a" | "b": 1
               "c": 2
+            
+        """
+        ),
+        "indented",
+    ),
+    (
+        "match-1b",
+        dedent(
+            """\
+            arr := [1, 2, 3]
+            x := [2]
+            match x:
+              arr[0:1] | arr[1:2]: 1
+              else: 0
+            
+        """
+        ),
+        "indented",
+    ),
+    (
+        "match-1c",
+        dedent(
+            """\
+            match x:
+              a ? 1 : 2 | b: y
+              else: z
+            
+        """
+        ),
+        "indented",
+    ),
+    (
+        "match-1d",
+        dedent(
+            """\
+            match x:
+              a catch e: b | c: y
+              else: z
+            
+        """
+        ),
+        "indented",
+    ),
+    (
+        "match-1e",
+        dedent(
+            """\
+            match x:
+              a @@ e: b | c: y
+              else: z
+            
+        """
+        ),
+        "indented",
+    ),
+    (
+        "match-1f",
+        dedent(
+            """\
+            match x:
+              `0:1` | c: y
+              else: z
             
         """
         ),
