@@ -382,6 +382,19 @@ function getReplInputText() {
     return normalizeReplInputText(replInput.value || '');
 }
 
+function shouldAllowReplManualMultiline() {
+    const text = getReplInputText();
+    if (text.includes('\n')) {
+        return true;
+    }
+
+    if (replHistoryIndex >= 0 && replHistoryValue.includes('\n')) {
+        return true;
+    }
+
+    return false;
+}
+
 function getLineIndent(text) {
     const match = text.match(/^[ \t]*/);
     return match ? match[0] : '';
@@ -1667,13 +1680,14 @@ replInput.addEventListener('keydown', (e) => {
         }
     }
 
-    if (e.key === 'Enter' && e.shiftKey) {
+    if (e.key === 'Enter' && e.shiftKey && shouldAllowReplManualMultiline()) {
         e.preventDefault();
         const start = replInput.selectionStart;
         const end = replInput.selectionEnd;
         const value = replInput.value;
         replInput.value = value.slice(0, start) + '\n' + value.slice(end);
         replInput.selectionStart = replInput.selectionEnd = start + 1;
+        updateReplSuggestions();
         setReplInputHighlight(escapeHtml(getReplInputText()));
         scheduleReplLiveHighlight();
         syncReplInputHeight();
