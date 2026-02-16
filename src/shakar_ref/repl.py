@@ -139,6 +139,25 @@ def _normalize(text: str) -> str:
     return _INVISIBLE_RE.sub("", text)
 
 
+def _awaits_catch(text: str) -> bool:
+    """Return True if *text* starts with ``try:`` but has no ``catch`` clause yet."""
+    lines = text.split("\n")
+    first = lines[0] if lines else ""
+    # Measure the indentation of the opening try:.
+    try_indent = len(first) - len(first.lstrip())
+    if first.strip() != "try:":
+        return False
+
+    # Look for a catch token at the same indentation level.
+    for line in lines[1:]:
+        indent = len(line) - len(line.lstrip())
+        stripped = line.lstrip()
+        if indent == try_indent and stripped.startswith("catch"):
+            return False
+
+    return True
+
+
 def _compute_indent(text: str) -> str:
     """Compute the auto-indent prefix for the next continuation line."""
     lines = text.split("\n")
@@ -190,11 +209,20 @@ def repl() -> None:
             buf.validate_and_handle()
             return
 
-        # Multiline: if the current (last) line is empty => accept.
+        # Multiline: if the current (last) line is empty => accept,
+        # unless a try: block still needs its catch clause.
         lines = text.split("\n")
         if lines[-1].strip() == "":
+            content = "\n".join(lines[:-1])
+            if _awaits_catch(content):
+                # Dedent to the try: level so the user can type catch:.
+                first = lines[0]
+                base = " " * (len(first) - len(first.lstrip()))
+                buf.insert_text("\n" + base)
+                return
+
             # Remove trailing empty line before accepting.
-            buf.text = "\n".join(lines[:-1])
+            buf.text = content
             buf.cursor_position = len(buf.text)
             buf.validate_and_handle()
             return
