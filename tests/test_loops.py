@@ -62,6 +62,30 @@ SCENARIOS = [
     pytest.param(
         dedent(
             """\
+            board := [[0, 0, 0], [1, 1, 1], [1, 0, 1]]
+            keep := [row over board if row.len and !all(row)]
+            keep.len
+        """
+        ),
+        ("number", 2),
+        None,
+        id="listcomp-guard-builtin-name",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            xs := ["1", "2", "3"]
+            nums := [int(x) over xs]
+            nums[2]
+        """
+        ),
+        ("number", 3),
+        None,
+        id="listcomp-head-builtin-name",
+    ),
+    pytest.param(
+        dedent(
+            """\
             fn make():
               a := 10
               [a over [1, 2]][0]

@@ -533,11 +533,17 @@ def infer_implicit_binders(
     boundary = find_frozen_scope_frame(frame)
     local_names = collect_scope_names(frame, boundary)
     frozen_names = boundary.frozen_scope_names if boundary else None
+    root = frame
+    while root.parent:
+        root = root.parent
 
     def consider(name: str) -> None:
         if name in seen:
             return
         if name in local_names:
+            return
+        # Builtins live on the root frame; treat them as already-resolved names.
+        if name in root.builtins:
             return
         if frozen_names and name in frozen_names:
             return
