@@ -98,7 +98,7 @@ const keyBuffer = supportsSharedArrayBuffer
 const keyBufView = keyBuffer ? new Int32Array(keyBuffer) : null;
 
 const KEY_CODES = {
-    'left': 1, 'right': 2, 'down': 3, 'up': 4, ' ': 5, 'q': 6
+    'left': 1, 'right': 2, 'down': 3, 'up': 4, ' ': 5, 'q': 6, 'x': 7, 'z': 8
 };
 
 function pushKey(key) {
@@ -1922,7 +1922,11 @@ document.addEventListener('keydown', (e) => {
         'ArrowUp': 'up',
         ' ': ' ',
         'q': 'q',
-        'Q': 'q'
+        'Q': 'q',
+        'x': 'x',
+        'X': 'x',
+        'z': 'z',
+        'Z': 'z'
     };
 
     if (keyMap[e.key]) {

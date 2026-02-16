@@ -41,7 +41,11 @@ fn reverse(xs ~ Array):
 
 fn rotate(shape ~ Array):
   ??(!shape[0]): return []
-  return rotate([row[1:] over shape]) + [ reverse([row[0] over shape]) ]
+  return [ reverse([row[0] over shape]) ] + rotate([row[1:] over shape])
+
+fn rotate_ccw(shape ~ Array):
+  ??(!shape[0]): return []
+  return rotate_ccw([row[1:] over shape]) + [[row[0] over shape]]
 
 fn lcg(seed ~ Int):
   a, c, m := 1664525, 1013904223, 2**32
@@ -122,8 +126,8 @@ fn move_h(state ~ GameState, dx ~ Int):
     !collision(state.{board, cur}, nx, state.y):
       state.x = nx
 
-fn rotate_cur(state ~ GameState):
-  ns := rotate(state.cur)
+fn rotate_cur(state ~ GameState, dir ~ Str):
+  ns := dir == "cw" ? rotate(state.cur) : rotate_ccw(state.cur)
 
   !collision(state.board, ns, state.{x,y}):
     state.cur = ns
@@ -175,7 +179,8 @@ fn handle_key(state ~ GameState, key ~ Str):
     "left": move_h(state, -1)
     "right": move_h(state, 1)
     "down": tick_down(state)
-    "up": rotate_cur(state)
+    "up" | "x": rotate_cur(state, "cw")
+    "z": rotate_cur(state, "ccw")
     " ": hard_drop(state)
     else: nil
 
@@ -198,7 +203,7 @@ fn render(state ~ GameState):
   frame += nl + "Next:" + nl
   for row in state.next:
     frame += "  " + row_str(row) + nl
-  frame += nl + "Controls: Arrow keys to move/rotate, Space to drop, Q to quit"
+  frame += nl + "Controls: Arrows move, Up/X rotate CW, Z rotate CCW, Space drop, Q quit"
 
   io.clear()
   io.write(frame)

@@ -429,8 +429,17 @@ def _detect_platform() -> str:
 
 
 # Browser key input via SharedArrayBuffer.
-# Key codes: left=1, right=2, down=3, up=4, space=5, q=6
-_IO_KEY_NAMES = {1: "left", 2: "right", 3: "down", 4: "up", 5: " ", 6: "q"}
+# Key codes: left=1, right=2, down=3, up=4, space=5, q=6, x=7, z=8
+_IO_KEY_NAMES = {
+    1: "left",
+    2: "right",
+    3: "down",
+    4: "up",
+    5: " ",
+    6: "q",
+    7: "x",
+    8: "z",
+}
 
 # Mutable read index (list so it's writable from inline runPython)
 _io_key_read_idx: List[int] = [0]
