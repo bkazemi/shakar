@@ -308,6 +308,7 @@ button:disabled {
     background: var(--bg);
     color: var(--text);
     pointer-events: none;
+    user-select: none;
     z-index: 1;
 }
 
@@ -427,6 +428,7 @@ button:disabled {
 .repl-input-hl {
     color: var(--text);
     pointer-events: none;
+    user-select: none;
     min-height: 1.5em;
     width: 100%;
     line-height: 1.5;

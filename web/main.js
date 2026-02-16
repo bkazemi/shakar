@@ -140,6 +140,20 @@ const editorPane = document.querySelector('.editor-pane');
 const outputPane = document.querySelector('.output-pane');
 const mainEl = document.querySelector('main');
 
+function pruneWhitespaceTextNodes(root) {
+    if (!root) return;
+    const nodes = Array.from(root.childNodes);
+    for (const node of nodes) {
+        if (node.nodeType === Node.TEXT_NODE && !node.nodeValue.trim()) {
+            root.removeChild(node);
+        }
+    }
+}
+
+/* Prevent template indentation nodes from becoming selectable blank lines in REPL UI. */
+pruneWhitespaceTextNodes(replLiveLine);
+pruneWhitespaceTextNodes(replInputWrap);
+
 const DEBUG_IO = localStorage.getItem('shakar_debug_io') === '1';
 let DEBUG_PY_TRACE = localStorage.getItem('shakar_debug_py_trace') === '1';
 
@@ -694,10 +708,13 @@ function setReplInputHighlight(html) {
 
 function syncReplInputHeight() {
     if (!replInput || !replInputWrap) return;
-    replInput.style.height = 'auto';
+    /* Measure from zero height to avoid browser default textarea row inflation. */
+    replInput.style.height = '0px';
     const computed = getComputedStyle(replInput);
     const lineHeight = parseFloat(computed.lineHeight) || 20;
-    const height = Math.max(replInput.scrollHeight, lineHeight);
+    const hasText = !!replInput.value;
+    const measuredHeight = replInput.scrollHeight;
+    const height = hasText ? Math.max(measuredHeight, lineHeight) : lineHeight;
     replInput.style.height = `${height}px`;
     replInputWrap.style.height = `${height}px`;
     if (replInputHl) {
@@ -994,6 +1011,15 @@ function handleReplEnter() {
 
     if (!line.trim()) {
         setReplInputText('');
+        return;
+    }
+
+    /* Edited recalled multiline input should keep block-style transcript/rendering. */
+    if (line.includes('\n')) {
+        const lines = line.split('\n');
+        setReplInputText('');
+        replLineEls = appendReplInputBlock(lines);
+        submitReplBlock(lines);
         return;
     }
 
