@@ -74,6 +74,7 @@ const REPL_HISTORY_LIMIT = 200;
 
 const REPL_COMMANDS = [
     {cmd: '/clear', desc: 'Clear screen'},
+    {cmd: '/reset', desc: 'Reset REPL environment'},
     {
         cmd: '/py-traceback',
         display: '/py-traceback [on|off]',
@@ -923,6 +924,12 @@ function handleReplEnter() {
         setReplInputText('');
         replInput.focus();
         replLineEls = [];
+        return;
+    }
+
+    if (!replContinuation && line.trim() === '/reset') {
+        resetRepl();
+        replInput.focus();
         return;
     }
 
