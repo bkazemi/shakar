@@ -82,8 +82,8 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue
     if body_node is None:
         body_node = Tree("body", [], attrs={"inline": True})
 
-    params, varargs, defaults, contracts, spread_contracts = extract_function_signature(
-        params_node, context="function definition"
+    params, varargs, defaults, contracts, spread_contracts, destruct_fields = (
+        extract_function_signature(params_node, context="function definition")
     )
 
     # Extract return contract expression if present
@@ -105,6 +105,7 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue
         return_contract=return_contract_expr,
         vararg_indices=varargs,
         param_defaults=defaults,
+        destruct_fields=destruct_fields,
         name=name,
     )
 
@@ -214,9 +215,11 @@ def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
     if body_node is None:
         body_node = Tree("body", [], attrs={"inline": True})
 
-    params, varargs, defaults, _contracts, _spread_contracts = (
+    params, varargs, defaults, _contracts, _spread_contracts, destruct_fields = (
         extract_function_signature(params_node, context="decorator definition")
     )
+    if any(field_set is not None for field_set in destruct_fields):
+        raise ShakarRuntimeError("Decorator parameters do not support destructuring")
     for param_name in params:
         if param_name in _DECORATOR_RESERVED_BINDINGS:
             raise ShakarRuntimeError(
@@ -251,8 +254,8 @@ def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
     if body_node is None:
         body_node = Tree("body", [], attrs={"inline": True})
 
-    params, varargs, defaults, contracts, spread_contracts = extract_function_signature(
-        params_node, context="anonymous function"
+    params, varargs, defaults, contracts, spread_contracts, destruct_fields = (
+        extract_function_signature(params_node, context="anonymous function")
     )
 
     # Extract return contract expression if present
@@ -275,6 +278,7 @@ def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
         return_contract=return_contract_expr,
         vararg_indices=varargs,
         param_defaults=defaults,
+        destruct_fields=destruct_fields,
         name=None,
     )
 
@@ -291,7 +295,7 @@ def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
 
     if len(n.children) == 2:
         params_node, body = n.children
-        params, varargs, defaults, contracts, spread_contracts = (
+        params, varargs, defaults, contracts, spread_contracts, destruct_fields = (
             extract_function_signature(params_node, context="amp_lambda")
         )
         if contracts or spread_contracts:
@@ -304,6 +308,7 @@ def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
             kind="amp",
             vararg_indices=varargs,
             param_defaults=defaults,
+            destruct_fields=destruct_fields,
             name=None,
         )
 

@@ -992,6 +992,53 @@ def _bind_decorator_params(
     )
 
 
+def _apply_destruct_bindings(
+    fn: ShkFn,
+    callee_frame: "Frame",
+    eval_expr: Callable[[Node], ShkValue],
+) -> None:
+    if not fn.params or not fn.destruct_fields:
+        return
+
+    from .eval.common import assert_contract_match
+
+    for idx, destruct_spec in enumerate(fn.destruct_fields):
+        if destruct_spec is None:
+            continue
+        if idx >= len(fn.params):
+            break
+
+        destruct_param = fn.params[idx]
+        source_value = callee_frame.get(destruct_param)
+        if not isinstance(source_value, ShkObject):
+            raise ShakarTypeError("Destructuring parameter expects an object argument")
+
+        for field in destruct_spec.fields:
+            value: ShkValue
+            # Field defaults are evaluated in callee scope after positional/named
+            # argument binding, matching normal param default evaluation timing.
+            if field.name in source_value.slots:
+                value = source_value.slots[field.name]
+            elif field.default is not None:
+                value = eval_expr(field.default)
+            else:
+                raise ShakarRuntimeError(
+                    f"Missing required field '{field.name}' in destructuring parameter"
+                )
+
+            if field.contract is not None:
+                assert_contract_match(
+                    field.name,
+                    value,
+                    field.contract,
+                    callee_frame,
+                    lambda node, _frm: eval_expr(node),
+                    message_prefix="Destructuring parameter contract failed",
+                )
+
+            callee_frame.define(field.name, value)
+
+
 _UNFILLED = object()
 
 
@@ -1119,6 +1166,7 @@ def _call_shkfn_raw(
         call_stack=caller_frame.call_stack,
     )
     callee_frame.frozen_scope_names = fn.frame.frozen_scope_names
+    eval_default = lambda node: _ensure_shk_value(eval_node(node, callee_frame))
 
     if named:
         _merge_named_args(
@@ -1127,7 +1175,7 @@ def _call_shkfn_raw(
             named,
             vararg_indices=fn.vararg_indices or [],
             defaults=fn.param_defaults,
-            eval_default=lambda node: _ensure_shk_value(eval_node(node, callee_frame)),
+            eval_default=eval_default,
             on_bind=callee_frame.define,
         )
     else:
@@ -1137,10 +1185,11 @@ def _call_shkfn_raw(
             positional=positional,
             defaults=fn.param_defaults,
             label="Function",
-            eval_default=lambda node: _ensure_shk_value(eval_node(node, callee_frame)),
+            eval_default=eval_default,
             on_bind=callee_frame.define,
         )
 
+    _apply_destruct_bindings(fn, callee_frame, eval_default)
     callee_frame.mark_function_frame()
 
     try:

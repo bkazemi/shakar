@@ -859,6 +859,7 @@ u := makeUser() and .isValid()
 - Expression bodies execute on call, not on literal creation. Lambdas with `&` covered below.
 - **Type contracts**: Parameters may specify schemas using `param ~ Schema` syntax. Return values may specify schemas using `fn(params) ~ ReturnSchema:` syntax. Both desugar to runtime assertions. See the Structural Match section for details.
   - **Grouped + implicit param contracts**: In function parameter lists only, a trailing contract applies to **all preceding uncontracted params** since the last contract: `fn clamp(val, lo, hi ~ Int): ...`. To opt out, wrap a param in parens: `(name)` (isolated, no contract) or `(name ~ Contract)` (isolated with its own contract). Explicit groups are also valid: `fn clamp((val, lo, hi) ~ Int): ...` (group requires **2+ identifiers** and **no `~` inside**). For `...rest ~ Contract`, checks are **per element** of the varargs array.
+  - **Destructuring params**: Function parameters support shallow object destructuring: `fn connect({host, port = 5432}): ...`. Contracts on destruct params apply to the **whole object argument** (`{host, port} ~ Config`), then fields are extracted. Fields may also carry contracts (`{host ~ Str, port = 5432 ~ Int}`), checked per field after value/default resolution. Bare destruct params participate in trailing-contract propagation (`fn f({a}, b ~ T): ...` applies `T` to both); parenthesized destruct params are isolated (`fn f(({a}), b ~ T): ...` applies `T` only to `b`). Grouped contract sugar also allows destruct items: `fn f(({a}, b) ~ T): ...` (group items must remain bare, without inner defaults/contracts). Outer defaults on destruct params are invalid; use field defaults instead (`{port = 5432}`).
   - **Order**: defaults must precede contracts (`name = default ~ Contract`). `name ~ Contract = default` is invalid.
   - **Dependent defaults**: default expressions are evaluated left-to-right at call time and may reference earlier parameters: `fn range(start, end, step = end - start)`. This works for both positional and named-arg calls.
 
@@ -1502,6 +1503,7 @@ match[lt] score:
 - **Structural match JIT**: compile schema literals for `~` into cached bytecode validators.
 - **Type contracts**: ✅ Implemented.
   - **Parameter contracts**: Use `fn name(arg ~ Schema, ...)` syntax. Desugars to runtime asserts injected at function entry.
+  - **Destructuring parameter contracts**: ✅ Implemented. `fn f({a, b} ~ Schema): ...` validates the object argument against `Schema` before field extraction, and field-level contracts are supported (`{a ~ Int, b = 0 ~ Int}`). Trailing/grouped contract propagation semantics match regular params, with parenthesized params as isolation boundaries.
   - **Return contracts**: Use `fn name(args...) ~ ReturnSchema:` syntax. Validates return value matches schema at runtime.
   ```shakar
   # Parameter contracts

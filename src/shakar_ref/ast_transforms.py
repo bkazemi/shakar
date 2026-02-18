@@ -1137,6 +1137,9 @@ def _expand_param_entry(node: Node) -> List[_ParamEntry]:
         if label == "param_group":
             return _expand_param_group(node)
 
+        if label == "param_destruct":
+            return [_entry_from_node(node, isolated=False)]
+
     return [_entry_from_node(node, isolated=False)]
 
 
@@ -1210,6 +1213,15 @@ def _validate_param_entries(entries: List[_ParamEntry]) -> None:
     spread_indices: List[int] = []
 
     for idx, entry in enumerate(entries):
+        if _param_is_destruct(entry.node):
+            # Destruct fields bind identifiers into function scope; treat them as
+            # parameter names for duplicate detection to prevent silent overrides.
+            for field_name in _param_destruct_field_names(entry.node):
+                if field_name in seen:
+                    raise SyntaxError(f"Duplicate parameter name '{field_name}'")
+                seen.add(field_name)
+            continue
+
         name = _param_name(entry.node)
         if name is None:
             raise SyntaxError("Parameter name missing")
@@ -1231,7 +1243,7 @@ def _param_contract_expr(node: Node) -> Optional[Node]:
     if not is_tree(node):
         return None
 
-    if tree_label(node) not in {"param", "param_spread"}:
+    if tree_label(node) not in {"param", "param_spread", "param_destruct"}:
         return None
 
     for child in tree_children(node):
@@ -1244,6 +1256,28 @@ def _param_contract_expr(node: Node) -> Optional[Node]:
 
 def _param_is_spread(node: Node) -> bool:
     return is_tree(node) and tree_label(node) == "param_spread"
+
+
+def _param_is_destruct(node: Node) -> bool:
+    return is_tree(node) and tree_label(node) == "param_destruct"
+
+
+def _param_destruct_field_names(node: Node) -> List[str]:
+    if not is_tree(node) or tree_label(node) != "param_destruct":
+        return []
+
+    names: List[str] = []
+    for child in tree_children(node):
+        if not is_tree(child) or tree_label(child) != "destruct_field":
+            continue
+        field_children = tree_children(child)
+        if not field_children:
+            continue
+        first = field_children[0]
+        if is_token(first) and first.type == TT.IDENT:
+            names.append(str(first.value))
+
+    return names
 
 
 def _param_name(node: Node) -> Optional[str]:
@@ -1267,7 +1301,13 @@ def _add_param_contract(node: Node, contract_expr: Node) -> Node:
     if is_token(node):
         return Tree("param", [node, contract_node])
 
-    if is_tree(node) and tree_label(node) in {"param", "param_spread"}:
+    if is_tree(node) and tree_label(node) in {
+        "param",
+        "param_spread",
+        "param_destruct",
+    }:
+        # Group/trailing-contract normalization attaches contracts in-place for
+        # all concrete parameter node shapes, including destructured params.
         node.children.append(contract_node)
         return node
 

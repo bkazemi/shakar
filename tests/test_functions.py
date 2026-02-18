@@ -38,6 +38,217 @@ SCENARIOS = [
     pytest.param(
         dedent(
             """\
+            fn f({a, b}): a + b
+            f({a: 1, b: 2})
+        """
+        ),
+        ("number", 3),
+        None,
+        id="param-destruct-basic",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f({host, port = 5432}): port
+            f({host: "x"})
+        """
+        ),
+        ("number", 5432),
+        None,
+        id="param-destruct-default",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f({host, port = 5432}): port
+            f({host: "x", port: 3000})
+        """
+        ),
+        ("number", 3000),
+        None,
+        id="param-destruct-default-override",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f({a ~ Int}): a
+            f({a: 3})
+        """
+        ),
+        ("number", 3),
+        None,
+        id="param-destruct-field-contract-ok",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f({a ~ Int}): a
+            f({a: "x"})
+        """
+        ),
+        None,
+        ShakarAssertionError,
+        id="param-destruct-field-contract-fail",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f({a = 1 ~ Int}): a
+            f({})
+        """
+        ),
+        ("number", 1),
+        None,
+        id="param-destruct-field-default-contract-ok",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f(mode, {host, port}): mode + host
+            f("tcp-", {host: "db", port: 5432})
+        """
+        ),
+        ("string", "tcp-db"),
+        None,
+        id="param-destruct-mixed-positional",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f({host, port} ~ {host: Str, port: Int}): port
+            f({host: "db", port: 5432})
+        """
+        ),
+        ("number", 5432),
+        None,
+        id="param-destruct-contract-ok",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f({host, port} ~ {host: Str, port: Int}): port
+            f({host: "db", port: "bad"})
+        """
+        ),
+        None,
+        ShakarAssertionError,
+        id="param-destruct-contract-fail",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f({host, port}): host
+            f({host: "db"})
+        """
+        ),
+        None,
+        ShakarRuntimeError,
+        id="param-destruct-missing-required",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f({a}): a
+            f(1)
+        """
+        ),
+        None,
+        ShakarTypeError,
+        id="param-destruct-non-object",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            mul := fn({x, y}): x * y
+            mul({x: 3, y: 4})
+        """
+        ),
+        ("number", 12),
+        None,
+        id="param-destruct-anon",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f({a}, {b}): a + b
+            f({a: 1}, {b: 2})
+        """
+        ),
+        ("number", 3),
+        None,
+        id="param-destruct-multiple",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            Schema := {a: Int, b: Int, c: Array}
+            fn f(({a}, obj) ~ Schema): a + obj.b
+            f({a: 1, b: 2, c: []}, {a: 3, b: 4, c: [0]})
+        """
+        ),
+        ("number", 5),
+        None,
+        id="param-group-destruct-contract-propagate",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            Schema := {a: Int, b: Int, c: Array}
+            fn f(({a}, obj) ~ Schema): a + obj.b
+            f({a: 1, b: 2}, {a: 3, b: 4, c: [0]})
+        """
+        ),
+        None,
+        ShakarAssertionError,
+        id="param-group-destruct-contract-fail",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f({a}, b ~ {a: Int}): a
+            f({a: "x"}, {a: 1})
+        """
+        ),
+        None,
+        ShakarAssertionError,
+        id="param-destruct-trailing-contract-propagates",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f(({a}), b ~ {a: Int}): a
+            f({a: "x"}, {a: 1})
+        """
+        ),
+        ("string", "x"),
+        None,
+        id="param-destruct-isolated-no-trailing-contract",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f(a, {a}): a
+            f(1, {a: 2})
+        """
+        ),
+        None,
+        SyntaxError,
+        id="param-destruct-collision-regular",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f({a, b}, {b, c}): b
+            f({a: 1, b: 2}, {b: 3, c: 4})
+        """
+        ),
+        None,
+        SyntaxError,
+        id="param-destruct-collision-between-destructs",
+    ),
+    pytest.param(
+        dedent(
+            """\
             f := &[a, b ~ Int](a + b)
             f(1, 2)
         """

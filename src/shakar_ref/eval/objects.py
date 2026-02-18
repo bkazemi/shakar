@@ -223,7 +223,7 @@ def _handle_obj_method(item: Tree, slots: dict[str, ShkValue], frame: Frame) -> 
         raise ShakarRuntimeError("Method missing name")
 
     method_name = _expect_ident_token(name_tok, "Method name")
-    param_names, varargs, defaults, contracts, spread_contracts = (
+    param_names, varargs, defaults, contracts, spread_contracts, destruct_fields = (
         extract_function_signature(params_node, context="method definition")
     )
     final_body = (
@@ -237,6 +237,7 @@ def _handle_obj_method(item: Tree, slots: dict[str, ShkValue], frame: Frame) -> 
         frame=closure_frame(frame),
         vararg_indices=varargs,
         param_defaults=defaults,
+        destruct_fields=destruct_fields,
         name=method_name,
     )
 

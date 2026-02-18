@@ -411,12 +411,16 @@ anonymous_function = "fn" , [ "(" , [ param_list ] , ")" ] , [ "~" , expression 
 anonymous_function_auto = "fn" , "(" , "(" , ")" , ")" , [ "~" , expression ] , ":" , ( inline_body | indent_block ) ;
 
 param_list = param , { "," , param } ;
-param = param_item , [ "=" , expression ] , [ "~" , compare_expression ] ;
+param = param_destruct
+      | param_item , [ "=" , expression ] , [ "~" , compare_expression ] ;
 param_item = ( SPREAD , IDENT )
            | IDENT
            | "(" , IDENT , ")"                                  (* isolation *)
            | "(" , IDENT , [ "=" , expression ] , [ "~" , compare_expression ] , ")"
-           | "(" , IDENT , "," , IDENT , { "," , IDENT } , ")" , "~" , compare_expression ;
+           | "(" , group_param_item , "," , group_param_item , { "," , group_param_item } , ")" , "~" , compare_expression ;
+group_param_item = IDENT | "{" , destruct_field , { "," , destruct_field } , "}" ;
+param_destruct = "{" , destruct_field , { "," , destruct_field } , "}" , [ "~" , compare_expression ] ;
+destruct_field = IDENT , [ "=" , expression ] , [ "~" , compare_expression ] ;
 
 (* ===== STATEMENTS ===== *)
 

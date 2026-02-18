@@ -3162,8 +3162,22 @@ class Parser:
         return Tree("paramlist", params)
 
     def _parse_param_entry(self) -> Node:
+        if self.check(TT.LBRACE):
+            return self._parse_param_destruct()
+
         if self.match(TT.LPAR):
-            inner_node, has_default, has_contract, is_spread = self._parse_param_atom()
+            # Parenthesized parameter entry has two modes:
+            # 1) isolated single param: (x), (x ~ T), ({a})
+            # 2) grouped contract sugar: (a, b) ~ T, ({a}, b) ~ T
+            if self.check(TT.LBRACE):
+                inner_node = self._parse_param_destruct()
+                has_default = False
+                has_contract = self._param_destruct_has_contract(inner_node)
+                is_spread = False
+            else:
+                inner_node, has_default, has_contract, is_spread = (
+                    self._parse_param_atom()
+                )
 
             if self.match(TT.COMMA):
                 if has_default or has_contract or is_spread:
@@ -3171,6 +3185,12 @@ class Parser:
                         "Grouped parameters cannot include defaults, contracts, or spread",
                         self.current,
                     )
+                if is_tree(inner_node) and tree_label(inner_node) == "param_destruct":
+                    if not self._param_destruct_is_bare(inner_node):
+                        raise ParseError(
+                            "Grouped parameters cannot include defaults or contracts",
+                            self.current,
+                        )
 
                 group_items: List[Node] = [inner_node]
 
@@ -3187,8 +3207,20 @@ class Parser:
                             self.current,
                         )
 
-                    ident = self.expect(TT.IDENT)
-                    group_items.append(ident)
+                    if self.check(TT.LBRACE):
+                        # Grouped entries may include destruct items, but those
+                        # items must be "bare" so the trailing group contract is
+                        # the only contract source for the group.
+                        group_item = self._parse_param_destruct()
+                        if not self._param_destruct_is_bare(group_item):
+                            raise ParseError(
+                                "Grouped parameters cannot include defaults or contracts",
+                                self.current,
+                            )
+                        group_items.append(group_item)
+                    else:
+                        ident = self.expect(TT.IDENT)
+                        group_items.append(ident)
 
                     if self.check(TT.ASSIGN, TT.TILDE):
                         raise ParseError(
@@ -3240,6 +3272,23 @@ class Parser:
                         self.current,
                     )
 
+            if is_tree(inner_node) and tree_label(inner_node) == "param_destruct":
+                if outer_default is not None:
+                    raise ParseError(
+                        "Destructuring parameter cannot have an outer default",
+                        self.current,
+                    )
+                if outer_contract is not None:
+                    # Keep destruct params in native shape by attaching outer
+                    # contract directly onto param_destruct rather than forcing
+                    # them through _merge_param_metadata (which is IDENT-centric).
+                    if self._param_destruct_has_contract(inner_node):
+                        raise ParseError(
+                            "Parameter cannot have multiple contracts", self.current
+                        )
+                    inner_node.children.append(Tree("contract", [outer_contract]))
+                return Tree("param_isolated", [inner_node])
+
             merged = self._merge_param_metadata(
                 inner_node, outer_default, outer_contract
             )
@@ -3247,6 +3296,91 @@ class Parser:
 
         node, _, _, _ = self._parse_param_atom()
         return node
+
+    def _parse_param_destruct(self) -> Tree:
+        self.expect(TT.LBRACE)
+
+        fields: List[Node] = []
+        seen: set[str] = set()
+
+        if self.check(TT.RBRACE):
+            raise ParseError(
+                "Destructuring parameter requires at least one field", self.current
+            )
+
+        while True:
+            ident = self.expect(TT.IDENT)
+            field_name = str(ident.value)
+
+            if field_name in seen:
+                raise ParseError(f"Duplicate destructuring field '{field_name}'", ident)
+            seen.add(field_name)
+
+            field_children: List[Node] = [ident]
+            if self.match(TT.ASSIGN):
+                # Preserve top-level '~' as field-contract metadata rather than
+                # consuming it as a compare operator inside the default expr.
+                field_children.append(self._parse_pattern_default_expr())
+
+            if self.match(TT.TILDE):
+                contract = self.parse_expr()
+                field_children.append(Tree("contract", [contract]))
+                if self.check(TT.ASSIGN):
+                    raise ParseError(
+                        "Default must precede contract in destructuring field metadata",
+                        self.current,
+                    )
+
+            fields.append(Tree("destruct_field", field_children))
+
+            if not self.match(TT.COMMA):
+                break
+            if self.check(TT.RBRACE):
+                break
+
+        self.expect(TT.RBRACE)
+
+        if self.match(TT.ASSIGN):
+            raise ParseError(
+                "Destructuring parameter cannot have an outer default", self.current
+            )
+
+        if self.match(TT.TILDE):
+            contract = self.parse_expr()
+            fields.append(Tree("contract", [contract]))
+            if self.check(TT.ASSIGN):
+                raise ParseError(
+                    "Destructuring parameter cannot have an outer default",
+                    self.current,
+                )
+
+        return Tree("param_destruct", fields)
+
+    def _param_destruct_has_contract(self, node: Node) -> bool:
+        if not is_tree(node) or tree_label(node) != "param_destruct":
+            return False
+
+        for child in tree_children(node):
+            if is_tree(child) and tree_label(child) == "contract":
+                return True
+
+        return False
+
+    def _param_destruct_is_bare(self, node: Node) -> bool:
+        if not is_tree(node) or tree_label(node) != "param_destruct":
+            return False
+
+        if self._param_destruct_has_contract(node):
+            return False
+
+        for child in tree_children(node):
+            if not is_tree(child) or tree_label(child) != "destruct_field":
+                continue
+            field_children = tree_children(child)
+            if len(field_children) > 1:
+                return False
+
+        return True
 
     def _parse_param_atom(self) -> tuple[Node, bool, bool, bool]:
         is_spread = self.match(TT.SPREAD)

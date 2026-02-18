@@ -53,6 +53,13 @@ AST_CASES = [
     ),
     ("emit-outside-call", "> 1", None, "ParseError"),
     ("reserved-fan-field", "obj.fan", None, "ParseError"),
+    ("param-destruct-outer-default", "fn f({a} = {}): a", None, "ParseError"),
+    (
+        "param-group-destruct-inner-contract",
+        "fn f(({a ~ Int}, b) ~ {a: Int}): a",
+        None,
+        "ParseError",
+    ),
     (
         "match-empty-body",
         dedent(

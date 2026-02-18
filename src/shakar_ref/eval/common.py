@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import difflib
 import re
+from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, TypeAlias
 
@@ -22,6 +23,7 @@ from ..types import (
     ShkDuration,
     ShkSize,
     ShakarRuntimeError,
+    ShakarAssertionError,
     ShakarTypeError,
     ShkValue,
     ShkNil,
@@ -109,10 +111,40 @@ def ident_token_value(node: Node) -> Optional[str]:
     return None
 
 
+def assert_contract_match(
+    name: str,
+    value: ShkValue,
+    contract_expr: Node,
+    frame: Frame,
+    eval_fn: Callable[[Node, Frame], ShkValue],
+    *,
+    message_prefix: str,
+) -> None:
+    from .match import match_structure
+
+    contract_value = eval_fn(contract_expr, frame)
+    if not match_structure(value, contract_value):
+        raise ShakarAssertionError(
+            f"{message_prefix}: {name} ~ {contract_value}, got {value}"
+        )
+
+
+@dataclass
+class DestructField:
+    name: str
+    default: Optional[Node]
+    contract: Optional[Node]
+
+
+@dataclass
+class DestructFields:
+    fields: List[DestructField]
+
+
 def extract_param_names(
     params_node: Optional[Node], context: str = "parameter list"
 ) -> Tuple[List[str], List[int]]:
-    names, varargs, _defaults, _contracts, _spread_contracts = (
+    names, varargs, _defaults, _contracts, _spread_contracts, _destruct_fields = (
         extract_function_signature(params_node, context=context)
     )
     return names, varargs
@@ -121,7 +153,7 @@ def extract_param_names(
 def extract_param_defaults(
     params_node: Optional[Node], context: str = "parameter list"
 ) -> List[Optional[Node]]:
-    _names, _varargs, defaults, _contracts, _spread_contracts = (
+    _names, _varargs, defaults, _contracts, _spread_contracts, _destruct_fields = (
         extract_function_signature(params_node, context=context)
     )
     return defaults
@@ -135,15 +167,17 @@ def extract_function_signature(
     List[Optional[Node]],
     Dict[str, Node],
     Dict[str, Node],
+    List[Optional[DestructFields]],
 ]:
     if params_node is None:
-        return [], [], [], {}, {}
+        return [], [], [], {}, {}, []
 
     names: List[str] = []
     varargs: List[int] = []
     defaults: List[Optional[Node]] = []
     contracts: Dict[str, Node] = {}
     spread_contracts: Dict[str, Node] = {}
+    destruct_fields: List[Optional[DestructFields]] = []
     param_index = 0
 
     def fail(message: str) -> None:
@@ -167,6 +201,7 @@ def extract_function_signature(
             names.append(param_name)
             varargs.append(param_index)
             defaults.append(None)
+            destruct_fields.append(None)
             contract_expr = _param_contract_expr(p)
             if contract_expr:
                 spread_contracts[param_name] = contract_expr
@@ -177,6 +212,7 @@ def extract_function_signature(
         if name:
             names.append(name)
             defaults.append(None)
+            destruct_fields.append(None)
             param_index += 1
             continue
 
@@ -193,18 +229,115 @@ def extract_function_signature(
                 )
             names.append(param_name)
             defaults.append(param_default_expr(p, on_error=fail))
+            destruct_fields.append(None)
             contract_expr = _param_contract_expr(p)
             if contract_expr:
                 contracts[param_name] = contract_expr
             param_index += 1
             continue
 
+        if is_tree(p) and tree_label(p) == "param_destruct":
+            synthetic_name = f"0__destruct{param_index}"
+            names.append(synthetic_name)
+            defaults.append(None)
+            destruct_fields.append(_extract_param_destruct_fields(p, context=context))
+            contract_expr = _param_contract_expr(p)
+            if contract_expr:
+                contracts[synthetic_name] = contract_expr
+            param_index += 1
+            continue
+
         raise ShakarRuntimeError(f"Unsupported parameter node in {context}: {p}")
 
-    return names, varargs, defaults, contracts, spread_contracts
+    return names, varargs, defaults, contracts, spread_contracts, destruct_fields
+
+
+def _extract_param_destruct_fields(node: Node, *, context: str) -> DestructFields:
+    if not is_tree(node) or tree_label(node) != "param_destruct":
+        raise ShakarRuntimeError(f"Unsupported parameter node in {context}: {node}")
+
+    fields: List[DestructField] = []
+    seen: set[str] = set()
+
+    for child in tree_children(node):
+        # Contract metadata belongs to the whole destructured object argument.
+        # Field extraction metadata only comes from destruct_field children.
+        if is_tree(child) and tree_label(child) == "contract":
+            continue
+
+        if not is_tree(child) or tree_label(child) != "destruct_field":
+            child_desc = tree_label(child) if is_tree(child) else repr(child)
+            raise ShakarRuntimeError(
+                f"Unsupported child node {child_desc!r} in destructuring parameter in {context}"
+            )
+
+        field_children = tree_children(child)
+        if not field_children:
+            raise ShakarRuntimeError(
+                f"Unsupported child node 'destruct_field' in destructuring parameter in {context}"
+            )
+
+        field_name = ident_token_value(field_children[0])
+        if field_name is None:
+            head_desc = (
+                tree_label(field_children[0])
+                if is_tree(field_children[0])
+                else repr(field_children[0])
+            )
+            raise ShakarRuntimeError(
+                f"Unsupported destructuring field name node {head_desc!r} in {context}"
+            )
+        if field_name in seen:
+            raise ShakarRuntimeError(
+                f"Duplicate destructuring field '{field_name}' in {context}"
+            )
+        seen.add(field_name)
+
+        default_expr, contract_expr = _extract_destruct_field_metadata(
+            field_children[1:], context=context
+        )
+        fields.append(
+            DestructField(name=field_name, default=default_expr, contract=contract_expr)
+        )
+
+    if not fields:
+        raise ShakarRuntimeError(
+            f"Destructuring parameter requires at least one field in {context}"
+        )
+
+    return DestructFields(fields=fields)
+
+
+def _extract_destruct_field_metadata(
+    metadata_nodes: List[Node], *, context: str
+) -> tuple[Optional[Node], Optional[Node]]:
+    default_expr: Optional[Node] = None
+    contract_expr: Optional[Node] = None
+
+    for node in metadata_nodes:
+        if is_tree(node) and tree_label(node) == "contract":
+            contract_children = tree_children(node)
+            expr = contract_children[0] if contract_children else None
+            if contract_expr is not None:
+                raise ShakarRuntimeError(
+                    f"Duplicate destructuring field contract in {context}"
+                )
+            contract_expr = expr
+            continue
+
+        if default_expr is not None:
+            raise ShakarRuntimeError(
+                f"Duplicate destructuring field default in {context}"
+            )
+        default_expr = node
+
+    return default_expr, contract_expr
 
 
 def _param_contract_expr(node: Tree) -> Optional[Node]:
+    if tree_label(node) not in {"param", "param_spread", "param_destruct"}:
+        return None
+
     for child in tree_children(node):
         if is_tree(child) and tree_label(child) == "contract":
             contract_children = tree_children(child)

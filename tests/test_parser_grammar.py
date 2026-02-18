@@ -402,6 +402,13 @@ PARSER_GRAMMAR_CASES = [
     ("param-contract-4", "fn f((a, b) ~ Int, c ~ Str): a", "both"),
     ("param-contract-5", "fn f(a, b, ...rest ~ Int): rest", "both"),
     ("param-contract-6", "&[a, b ~ Int](a + b)", "both"),
+    ("param-contract-7", "fn f(({a}, b) ~ {a: Int}): a", "both"),
+    (
+        "param-destruct-0",
+        "fn f({host, port = 5432} ~ {host: Str, port: Int}): port",
+        "both",
+    ),
+    ("param-destruct-1", "fn f({a ~ Int, b = 1 ~ Int}): a + b", "both"),
     ("power-0", "2 ** 3", "both"),
     ("power-1", "x ** 2 + y ** 2", "both"),
     ("power-2", "a ** b ** c", "both"),

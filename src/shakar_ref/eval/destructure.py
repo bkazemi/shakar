@@ -17,7 +17,6 @@ from ..runtime import (
     ShkValue,
     ShakarKeyError,
     ShakarRuntimeError,
-    ShakarAssertionError,
 )
 from ..utils import (
     is_sequence_value,
@@ -27,6 +26,7 @@ from ..utils import (
 )
 from ..tree import Node, Tree, child_by_label, tree_label, tree_children
 from .helpers import collect_scope_names, find_frozen_scope_frame
+from .common import assert_contract_match
 
 EvalFn = Callable[[Node, Frame], ShkValue]
 
@@ -457,16 +457,17 @@ def assign_pattern(
 
         # Validate contract before binding
         if contract_node:
-            from .match import match_structure
-
             contract_children = tree_children(contract_node)
             if contract_children:
                 contract_expr = contract_children[0]
-                contract_value = eval_fn(contract_expr, frame)
-                if not match_structure(value, contract_value):
-                    raise ShakarAssertionError(
-                        f"Destructure contract failed: {ident} ~ {contract_value}, got {value}"
-                    )
+                assert_contract_match(
+                    ident,
+                    value,
+                    contract_expr,
+                    frame,
+                    eval_fn,
+                    message_prefix="Destructure contract failed",
+                )
 
         # Bind the value
         assign_ident(ident, value, frame, create)

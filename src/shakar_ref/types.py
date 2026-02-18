@@ -28,6 +28,7 @@ from .tree import Node
 
 if TYPE_CHECKING:
     from .eval.bind import RebindContext, FanContext
+    from .eval.common import DestructFields
 
 # ---------- Value Model (only Sh* => Shk*) ----------
 
@@ -891,6 +892,7 @@ class ShkFn:
     return_contract: Optional[Node] = None  # AST node for return type contract
     vararg_indices: Optional[List[int]] = None
     param_defaults: Optional[List[Optional[Node]]] = None
+    destruct_fields: Optional[List[Optional["DestructFields"]]] = None
 
     def __repr__(self) -> str:
         body_label = getattr(self.body, "data", type(self.body).__name__)
