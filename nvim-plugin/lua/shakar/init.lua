@@ -17,21 +17,29 @@ local function ensure_filetype()
   end
 end
 
-local function start_semantic_tokens(bufnr, client_id)
-  if not client_id or type(client_id) ~= "number" then
-    local clients = vim.lsp.get_clients({ bufnr = bufnr })
-    for _, client in ipairs(clients) do
-      if vim.tbl_get(client.server_capabilities, "semanticTokensProvider", "full") then
-        client_id = client.id
-        break
-      end
+-- Resolve a numeric client_id that supports semantic tokens for the buffer.
+-- If client_id is already a valid number, use it directly; otherwise scan attached clients.
+local function resolve_semantic_client(bufnr, client_id)
+  if type(client_id) == "number" then
+    return client_id
+  end
+
+  for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
+    if vim.tbl_get(client.server_capabilities, "semanticTokensProvider", "full") then
+      return client.id
     end
   end
 
-  if not client_id or type(client_id) ~= "number" then
+  return nil
+end
+
+local function start_semantic_tokens(bufnr, client_id)
+  client_id = resolve_semantic_client(bufnr, client_id)
+  if not client_id then
     return
   end
 
+  -- Prefer the modern API when available, fall back to legacy
   if vim.lsp.semantic_tokens and vim.lsp.semantic_tokens.start then
     vim.lsp.semantic_tokens.start(bufnr, client_id)
     return
@@ -46,23 +54,36 @@ local function normalize_cmd(cmd)
   if type(cmd) == "string" then
     return { cmd }
   end
+
   return cmd
 end
 
 local function resolve_root(bufnr)
   local name = vim.api.nvim_buf_get_name(bufnr)
-  if name and name ~= "" then
+  if name ~= "" then
     local dir = vim.fs.dirname(name)
-    if dir and dir ~= "" then
+    if dir ~= "" then
       return dir
     end
   end
+
   return vim.fn.getcwd()
+end
+
+local function has_shakar_client(bufnr)
+  for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
+    if client.name == "shakar-lsp" then
+      return true
+    end
+  end
+
+  return false
 end
 
 function M.start(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local cmd = normalize_cmd(state.cmd)
+
   local root_dir = state.root_dir
   if type(root_dir) == "function" then
     root_dir = root_dir(bufnr)
@@ -76,8 +97,8 @@ function M.start(bufnr)
     cmd = cmd,
     root_dir = root_dir,
     filetypes = { "shakar" },
-    reuse_client = function(client, config)
-      return client.name == config.name and client.config.root_dir == config.root_dir
+    reuse_client = function(client, cfg)
+      return client.name == cfg.name and client.config.root_dir == cfg.root_dir
     end,
     on_attach = function(client, attached_bufnr)
       if client.name == "shakar-lsp" then
@@ -93,18 +114,7 @@ function M.start(bufnr)
   end
   if not client_id then
     vim.notify("[shakar] failed to start shakar-lsp", vim.log.levels.WARN)
-    return
   end
-end
-
-local function has_shakar_client(bufnr)
-  local clients = vim.lsp.get_clients({ bufnr = bufnr })
-  for _, client in ipairs(clients) do
-    if client.name == "shakar-lsp" then
-      return true
-    end
-  end
-  return false
 end
 
 function M.ensure_started(bufnr)
@@ -117,32 +127,26 @@ function M.ensure_started(bufnr)
   end
 end
 
-function M.setup(opts)
-  opts = opts or {}
-  if opts.cmd then
-    state.cmd = opts.cmd
-  elseif vim.env.SHAKAR_LSP_CMD and vim.env.SHAKAR_LSP_CMD ~= "" then
-    state.cmd = { vim.env.SHAKAR_LSP_CMD }
+-- Check whether a highlight group has any attributes or a link target defined.
+local function hl_defined(name)
+  local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = name, link = false })
+  if ok and next(hl) then
+    return true
   end
-  state.pattern = opts.pattern or state.pattern
-  state.root_dir = opts.root_dir
 
-  ensure_filetype()
+  local ok_link, hl_link = pcall(vim.api.nvim_get_hl, 0, { name = name, link = true })
 
-  local ok_number, number_hl = pcall(vim.api.nvim_get_hl, 0, { name = "Number", link = false })
-  if not ok_number then
+  return ok_link and hl_link.link and hl_link.link ~= ""
+end
+
+-- Set up highlight groups for semantic tokens and LSP token types.
+local function setup_highlights()
+  local ok, number_hl = pcall(vim.api.nvim_get_hl, 0, { name = "Number", link = false })
+  if not ok then
     number_hl = {}
   end
   number_hl.italic = true
   vim.api.nvim_set_hl(0, "@shakar.unit", number_hl)
-  local function hl_defined(name)
-    local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = name, link = false })
-    if ok and next(hl) ~= nil then
-      return true
-    end
-    local ok_link, hl_link = pcall(vim.api.nvim_get_hl, 0, { name = name, link = true })
-    return ok_link and hl_link.link and hl_link.link ~= ""
-  end
 
   if not hl_defined("@shakar.implicit_subject") then
     vim.api.nvim_set_hl(0, "@shakar.implicit_subject", { link = "@punctuation.delimiter" })
@@ -151,6 +155,7 @@ function M.setup(opts)
     vim.api.nvim_set_hl(0, "@shakar", { link = "@shakar.implicit_subject" })
   end
 
+  -- LSP semantic token => treesitter highlight group links
   local links = {
     ["@lsp.type.keyword.shakar"] = "@keyword",
     ["@lsp.type.variable.shakar"] = "@variable",
@@ -174,19 +179,22 @@ function M.setup(opts)
   for hl, link in pairs(links) do
     vim.api.nvim_set_hl(0, hl, { link = link })
   end
+end
+
+-- Set up autocmds to auto-start the LSP for shakar buffers.
+local function setup_autocmds()
+  local function on_shakar_buf(args)
+    M.ensure_started(args.buf)
+  end
 
   vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile" }, {
     pattern = state.pattern,
-    callback = function(args)
-      M.ensure_started(args.buf)
-    end,
+    callback = on_shakar_buf,
   })
 
   vim.api.nvim_create_autocmd("FileType", {
     pattern = "shakar",
-    callback = function(args)
-      M.ensure_started(args.buf)
-    end,
+    callback = on_shakar_buf,
   })
 
   vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter" }, {
@@ -197,7 +205,24 @@ function M.setup(opts)
       end
     end,
   })
+end
 
+function M.setup(opts)
+  opts = opts or {}
+
+  if opts.cmd then
+    state.cmd = opts.cmd
+  elseif vim.env.SHAKAR_LSP_CMD and vim.env.SHAKAR_LSP_CMD ~= "" then
+    state.cmd = { vim.env.SHAKAR_LSP_CMD }
+  end
+  state.pattern = opts.pattern or state.pattern
+  state.root_dir = opts.root_dir
+
+  ensure_filetype()
+  setup_highlights()
+  setup_autocmds()
+
+  -- Start immediately if the current buffer is already a shakar file
   local bufnr = vim.api.nvim_get_current_buf()
   if vim.bo[bufnr].filetype == "shakar" then
     M.ensure_started(bufnr)
