@@ -174,7 +174,7 @@ void session_open(Session *s, const char *uri, int uri_len, const char *text, in
     }
 
     if (s->doc_count >= s->doc_capacity) {
-        int       cap = s->doc_capacity ? s->doc_capacity * 2 : 16;
+        int cap = s->doc_capacity ? s->doc_capacity * 2 : 16;
         Document *next = realloc(s->docs, (size_t)cap * sizeof(Document));
         if (!next)
             return;
@@ -185,16 +185,6 @@ void session_open(Session *s, const char *uri, int uri_len, const char *text, in
     Document *doc = &s->docs[s->doc_count++];
     memset(doc, 0, sizeof(*doc));
     doc_set(doc, uri, uri_len, text, text_len, version);
-}
-
-void session_change(Session *s, const char *uri, int uri_len, const char *text, int text_len,
-                    int version) {
-    int idx = doc_index(s, uri, uri_len);
-    if (idx < 0) {
-        session_open(s, uri, uri_len, text, text_len, version);
-        return;
-    }
-    doc_set(&s->docs[idx], uri, uri_len, text, text_len, version);
 }
 
 void session_close(Session *s, const char *uri, int uri_len) {
@@ -231,7 +221,7 @@ void lsp_tokens_free(LspTokenBuf *b) {
 
 static void lsp_tokens_push(LspTokenBuf *b, int v) {
     if (b->count >= b->capacity) {
-        int  cap = b->capacity ? b->capacity * 2 : 256;
+        int cap = b->capacity ? b->capacity * 2 : 256;
         int *next = realloc(b->data, (size_t)cap * sizeof(int));
         if (!next)
             return;
@@ -273,9 +263,9 @@ int session_build_semantic_tokens(Session *s, const char *uri, int uri_len, cons
 
     for (int i = 0; i < hl.count; i++) {
         HlSpan *span = &hl.spans[i];
-        int     line = span->line;
-        int     start = span->col_start;
-        int     end = span->col_end;
+        int line = span->line;
+        int start = span->col_start;
+        int end = span->col_end;
 
         if (range) {
             if (line < range->start_line || line > range->end_line)
@@ -322,8 +312,8 @@ int session_structural_diagnostics(Session *s, const char *uri, int uri_len, Dia
     if (!doc || !doc->text)
         return 0;
 
-    Lexer   lex;
-    HlBuf   hl;
+    Lexer lex;
+    HlBuf hl;
     DiagBuf diags;
 
     /* Lex with indent tracking so structural pass can detect missing colons

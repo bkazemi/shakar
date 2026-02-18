@@ -86,6 +86,14 @@ static int read_change_text(const ProtocolMessage *msg, char **out_text, int *ou
     return protocol_token_string_dup(msg, text_tok, out_text, out_len);
 }
 
+/* Read a {line, character} position object into *line and *col. */
+static int read_position(const ProtocolMessage *msg, int pos_tok, int *line, int *col) {
+    int line_tok = protocol_find_key(msg, pos_tok, "line");
+    int col_tok = protocol_find_key(msg, pos_tok, "character");
+
+    return protocol_token_int(msg, line_tok, line) && protocol_token_int(msg, col_tok, col);
+}
+
 static int read_range(const ProtocolMessage *msg, LspRange *out) {
     if (msg->params < 0)
         return 0;
@@ -98,34 +106,27 @@ static int read_range(const ProtocolMessage *msg, LspRange *out) {
     if (start_tok < 0 || end_tok < 0)
         return 0;
 
-    int start_line_tok = protocol_find_key(msg, start_tok, "line");
-    int start_col_tok = protocol_find_key(msg, start_tok, "character");
-    int end_line_tok = protocol_find_key(msg, end_tok, "line");
-    int end_col_tok = protocol_find_key(msg, end_tok, "character");
+    return read_position(msg, start_tok, &out->start_line, &out->start_col) &&
+           read_position(msg, end_tok, &out->end_line, &out->end_col);
+}
 
-    int start_line = 0, start_col = 0, end_line = 0, end_col = 0;
-    if (!protocol_token_int(msg, start_line_tok, &start_line))
-        return 0;
-    if (!protocol_token_int(msg, start_col_tok, &start_col))
-        return 0;
-    if (!protocol_token_int(msg, end_line_tok, &end_line))
-        return 0;
-    if (!protocol_token_int(msg, end_col_tok, &end_col))
-        return 0;
+/* Begin a JSON-RPC response buffer: {"jsonrpc":"2.0","id":<id> */
+static void response_begin(StrBuf *buf, const ProtocolMessage *msg) {
+    strbuf_init(buf);
+    strbuf_append(buf, "{\"jsonrpc\":\"2.0\",\"id\":");
+    protocol_append_id(buf, msg);
+}
 
-    out->start_line = start_line;
-    out->start_col = start_col;
-    out->end_line = end_line;
-    out->end_col = end_col;
-    return 1;
+/* Finalize and send a JSON-RPC message, then free the buffer. */
+static void response_send(FILE *out, StrBuf *buf) {
+    protocol_write_message(out, buf->data, buf->len);
+    strbuf_free(buf);
 }
 
 static void send_initialize_response(FILE *out, const ProtocolMessage *msg) {
     StrBuf buf;
-    strbuf_init(&buf);
+    response_begin(&buf, msg);
 
-    strbuf_append(&buf, "{\"jsonrpc\":\"2.0\",\"id\":");
-    protocol_append_id(&buf, msg);
     strbuf_append(&buf, ",\"result\":{\"capabilities\":{");
     strbuf_append(&buf, "\"textDocumentSync\":1,");
     strbuf_append(&buf, "\"semanticTokensProvider\":{");
@@ -146,26 +147,20 @@ static void send_initialize_response(FILE *out, const ProtocolMessage *msg) {
     strbuf_append(&buf, "]},\"full\":true,\"range\":true}},");
     strbuf_append(&buf, "\"serverInfo\":{\"name\":\"shakar-lsp\"}}}");
 
-    protocol_write_message(out, buf.data, buf.len);
-    strbuf_free(&buf);
+    response_send(out, &buf);
 }
 
 static void send_shutdown_response(FILE *out, const ProtocolMessage *msg) {
     StrBuf buf;
-    strbuf_init(&buf);
-    strbuf_append(&buf, "{\"jsonrpc\":\"2.0\",\"id\":");
-    protocol_append_id(&buf, msg);
+    response_begin(&buf, msg);
     strbuf_append(&buf, ",\"result\":null}");
-    protocol_write_message(out, buf.data, buf.len);
-    strbuf_free(&buf);
+    response_send(out, &buf);
 }
 
 static void send_semantic_tokens(FILE *out, const ProtocolMessage *msg, LspTokenBuf *tokens) {
     StrBuf buf;
-    strbuf_init(&buf);
+    response_begin(&buf, msg);
 
-    strbuf_append(&buf, "{\"jsonrpc\":\"2.0\",\"id\":");
-    protocol_append_id(&buf, msg);
     strbuf_append(&buf, ",\"result\":{\"data\":[");
     for (int i = 0; i < tokens->count; i++) {
         if (i > 0)
@@ -174,8 +169,7 @@ static void send_semantic_tokens(FILE *out, const ProtocolMessage *msg, LspToken
     }
     strbuf_append(&buf, "]}}");
 
-    protocol_write_message(out, buf.data, buf.len);
-    strbuf_free(&buf);
+    response_send(out, &buf);
 }
 
 static void emit_diag_json(StrBuf *buf, Diagnostic *d, const char *source, int severity) {
@@ -251,36 +245,25 @@ int main(void) {
             protocol_message_free(&msg);
             free(json);
             break;
-        } else if (protocol_method_is(&msg, "textDocument/didOpen")) {
+        } else if (protocol_method_is(&msg, "textDocument/didOpen") ||
+                   protocol_method_is(&msg, "textDocument/didChange")) {
+            int is_change = protocol_method_is(&msg, "textDocument/didChange");
             int doc_tok = 0;
             char *uri = 0;
             int uri_len = 0;
             char *text = 0;
             int text_len = 0;
             int version = 0;
+            int got_text = 0;
 
-            if (read_text_document(&msg, &doc_tok) && read_uri(&msg, doc_tok, &uri, &uri_len) &&
-                read_text(&msg, doc_tok, &text, &text_len)) {
-                read_version(&msg, doc_tok, &version);
-                session_open(&session, uri, uri_len, text, text_len, version);
-                gather_and_send_diagnostics(stdout, &session, uri, uri_len);
-            }
-
-            free(uri);
-            free(text);
-        } else if (protocol_method_is(&msg, "textDocument/didChange")) {
-            int doc_tok = 0;
-            char *uri = 0;
-            int uri_len = 0;
-            char *text = 0;
-            int text_len = 0;
-            int version = 0;
-
-            if (read_text_document(&msg, &doc_tok) && read_uri(&msg, doc_tok, &uri, &uri_len) &&
-                read_change_text(&msg, &text, &text_len)) {
-                read_version(&msg, doc_tok, &version);
-                session_change(&session, uri, uri_len, text, text_len, version);
-                gather_and_send_diagnostics(stdout, &session, uri, uri_len);
+            if (read_text_document(&msg, &doc_tok) && read_uri(&msg, doc_tok, &uri, &uri_len)) {
+                got_text = is_change ? read_change_text(&msg, &text, &text_len)
+                                     : read_text(&msg, doc_tok, &text, &text_len);
+                if (got_text) {
+                    read_version(&msg, doc_tok, &version);
+                    session_open(&session, uri, uri_len, text, text_len, version);
+                    gather_and_send_diagnostics(stdout, &session, uri, uri_len);
+                }
             }
 
             free(uri);
@@ -294,19 +277,8 @@ int main(void) {
                 send_diagnostics(stdout, uri, uri_len, NULL, 0);
             }
             free(uri);
-        } else if (protocol_method_is(&msg, "textDocument/semanticTokens/full")) {
-            int doc_tok = 0;
-            char *uri = 0;
-            int uri_len = 0;
-            if (read_text_document(&msg, &doc_tok) && read_uri(&msg, doc_tok, &uri, &uri_len)) {
-                LspTokenBuf tokens;
-                lsp_tokens_init(&tokens);
-                session_build_semantic_tokens(&session, uri, uri_len, 0, &tokens);
-                send_semantic_tokens(stdout, &msg, &tokens);
-                lsp_tokens_free(&tokens);
-            }
-            free(uri);
-        } else if (protocol_method_is(&msg, "textDocument/semanticTokens/range")) {
+        } else if (protocol_method_is(&msg, "textDocument/semanticTokens/full") ||
+                   protocol_method_is(&msg, "textDocument/semanticTokens/range")) {
             int doc_tok = 0;
             char *uri = 0;
             int uri_len = 0;

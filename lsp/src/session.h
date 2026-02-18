@@ -6,14 +6,14 @@
 typedef struct {
     char *uri;
     char *text;
-    int   text_len;
-    int   version;
+    int text_len;
+    int version;
 } Document;
 
 typedef struct {
     Document *docs;
-    int       doc_count;
-    int       doc_capacity;
+    int doc_count;
+    int doc_capacity;
 } Session;
 
 typedef struct {
@@ -25,30 +25,28 @@ typedef struct {
 
 typedef struct {
     int *data;
-    int  count;
-    int  capacity;
+    int count;
+    int capacity;
 } LspTokenBuf;
 
 typedef struct {
-    int  line;
-    int  col_start;
-    int  col_end;
-    int  severity; /* 1=error, 2=warning, 3=info, 4=hint */
+    int line;
+    int col_start;
+    int col_end;
+    int severity; /* 1=error, 2=warning, 3=info, 4=hint */
     char message[256];
 } Diagnostic;
 
 extern const char *LSP_TOKEN_TYPES[];
-extern const int   LSP_TOKEN_TYPE_COUNT;
+extern const int LSP_TOKEN_TYPE_COUNT;
 extern const char *LSP_TOKEN_MODIFIERS[];
-extern const int   LSP_TOKEN_MOD_COUNT;
+extern const int LSP_TOKEN_MOD_COUNT;
 
-void      session_init(Session *s);
-void      session_free(Session *s);
-void      session_open(Session *s, const char *uri, int uri_len, const char *text, int text_len,
-                       int version);
-void      session_change(Session *s, const char *uri, int uri_len, const char *text, int text_len,
-                         int version);
-void      session_close(Session *s, const char *uri, int uri_len);
+void session_init(Session *s);
+void session_free(Session *s);
+void session_open(Session *s, const char *uri, int uri_len, const char *text, int text_len,
+                  int version);
+void session_close(Session *s, const char *uri, int uri_len);
 Document *session_get(Session *s, const char *uri, int uri_len);
 
 void lsp_tokens_init(LspTokenBuf *b);
