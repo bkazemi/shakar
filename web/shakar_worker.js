@@ -451,11 +451,7 @@ finally:
         let text = (stdout + stderr).replace(/\n+$/, '');
 
         if (error) {
-            if (text) {
-                text = text + '\n' + error;
-            } else {
-                text = error;
-            }
+            text = text ? text + '\n' + error : error;
             self.postMessage({type: 'repl_output', text: text, isError: true, traceback: tracebackText || ''});
         } else {
             self.postMessage({type: 'repl_output', text: text || '', isError: false});
@@ -490,22 +486,9 @@ _shk_repl_frame = Frame(source="", source_path="<web-repl>")
 }
 
 function handleHighlight(code, target, requestId) {
-    // Try WASM path first
-    const wasmResult = wasmHighlight(code);
-    if (wasmResult !== null) {
-        self.postMessage({
-            type: 'highlight_result',
-            highlights: wasmResult,
-            target: target,
-            requestId: requestId
-        });
-        return;
-    }
-
-    // WASM unavailable or source too large — return empty
     self.postMessage({
         type: 'highlight_result',
-        highlights: [],
+        highlights: wasmHighlight(code) || [],
         target: target,
         requestId: requestId
     });
@@ -571,27 +554,15 @@ json.dumps({"is_block_header": _is_block_header(_shk_line)})
 }
 
 function handleHighlightRange(code, startLine, requestId) {
-    // Try WASM path first (full highlight + filter)
     const wasmResult = wasmHighlight(code);
-    if (wasmResult !== null) {
-        // Offset lines and filter to range
-        const highlights = wasmResult.map(s => ({
-            ...s,
-            line: s.line + startLine
-        }));
-        self.postMessage({
-            type: 'highlight_result',
-            highlights: highlights,
-            startLine: startLine,
-            requestId: requestId
-        });
-        return;
-    }
+    // Offset span lines to match the document position within the visible range.
+    const highlights = wasmResult
+        ? wasmResult.map(s => ({...s, line: s.line + startLine}))
+        : [];
 
-    // WASM highlight unavailable — return empty
     self.postMessage({
         type: 'highlight_result',
-        highlights: [],
+        highlights: highlights,
         startLine: startLine,
         requestId: requestId
     });

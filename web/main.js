@@ -185,26 +185,17 @@ let writeRafId = 0;
 
 function flushWrite() {
     if (pendingClear) {
-        if (pendingWrite !== null) {
-            outputEl.textContent = pendingWrite;
-            pendingWrite = null;
-        } else {
-            outputEl.textContent = '';
-        }
+        outputEl.textContent = pendingWrite !== null ? pendingWrite : '';
         pendingClear = false;
     } else if (pendingWrite !== null) {
         outputEl.textContent += pendingWrite;
-        pendingWrite = null;
     }
+    pendingWrite = null;
     writeRafId = 0;
 }
 
 function scheduleWrite(text) {
-    if (pendingWrite === null) {
-        pendingWrite = text;
-    } else {
-        pendingWrite += text;
-    }
+    pendingWrite = pendingWrite === null ? text : pendingWrite + text;
     if (!writeRafId) {
         writeRafId = requestAnimationFrame(flushWrite);
     }
@@ -309,11 +300,7 @@ function setOutput(text, isError = false, traceback = '', errorRange = null) {
         updateHighlights();
     }
 
-    if (isError && traceback) {
-        setTraceback(traceback);
-    } else {
-        setTraceback('');
-    }
+    setTraceback(isError && traceback ? traceback : '');
 }
 
 function scrollReplToBottom() {
@@ -401,20 +388,14 @@ function getReplInputText() {
 
 function shouldAllowReplManualMultiline() {
     const text = getReplInputText();
-    if (text.includes('\n')) {
-        return true;
-    }
 
-    if (replHistoryIndex >= 0 && replHistoryValue.includes('\n')) {
-        return true;
-    }
-
-    return false;
+    return text.includes('\n') ||
+        (replHistoryIndex >= 0 && replHistoryValue.includes('\n'));
 }
 
 function getLineIndent(text) {
-    const match = text.match(/^[ \t]*/);
-    return match ? match[0] : '';
+    // /^[ \t]*/ always matches (even empty string), so [0] is safe.
+    return text.match(/^[ \t]*/)[0];
 }
 
 function isBlockHeaderLine(text) {
@@ -487,17 +468,26 @@ function isBlockHeaderLine(text) {
 }
 
 function applyReplContinuationIndent(line) {
-    if (!replContinuationAutoIndent || line === '') {
+    if (!replContinuationAutoIndent || line === '' || /^[ \t]/.test(line)) {
         return line;
     }
-    if (/^[ \t]/.test(line)) {
-        return line;
-    }
+
     return replContinuationIndent + line;
 }
 
 function isLargeEditorDoc(code) {
     return code.length >= EDITOR_LARGE_DOC_CHARS;
+}
+
+/* Reset editor highlight tracking after a user edit (keystroke, indent, tab). */
+function resetEditorHighlightState() {
+    editorLastInputAt = performance.now();
+    if (editorErrorRevealTimer) {
+        clearTimeout(editorErrorRevealTimer);
+        editorErrorRevealTimer = 0;
+    }
+    editorLastHighlightCode = '';
+    editorHighlightRequestLines = null;
 }
 
 function shouldSuppressEditorErrors() {
@@ -1038,16 +1028,12 @@ function handleReplEnter() {
 
     if (isBlockHeaderLine(line)) {
         replContinuation = true;
-        replContinuationAutoIndent = isBlockHeaderLine(line);
+        replContinuationAutoIndent = true;
         const baseIndent = getLineIndent(line);
-        replContinuationIndent = replContinuationAutoIndent
-            ? baseIndent + '    '
-            : '';
+        replContinuationIndent = baseIndent + '    ';
         replPrompt.textContent = '... ';
-        setReplInputText(replContinuationAutoIndent ? replContinuationIndent : '');
-        if (replContinuationAutoIndent) {
-            requestReplIndentProbe(line, replContinuationIndent, baseIndent, true);
-        }
+        setReplInputText(replContinuationIndent);
+        requestReplIndentProbe(line, replContinuationIndent, baseIndent, true);
         const blockCode = replLines.join('\n');
         const blockHighlightId = requestReplHighlight(blockCode, {
             kind: 'block_partial',
@@ -1394,30 +1380,29 @@ function syncScroll() {
 
 // --- Tetris ---
 
-async function loadTetrisCode() {
-    if (tetrisCode) return tetrisCode;
+async function loadExampleFile(filename) {
     try {
-        const response = await fetch('tetris.sk?v=' + SHAKAR_VERSION);
-        if (!response.ok) throw new Error('Failed to load tetris.sk');
-        tetrisCode = await response.text();
-        return tetrisCode;
+        const response = await fetch(filename + '?v=' + SHAKAR_VERSION);
+        if (!response.ok) throw new Error('Failed to load ' + filename);
+
+        return await response.text();
     } catch (err) {
-        console.error('Failed to load tetris:', err);
+        console.error('Failed to load ' + filename + ':', err);
+
         return null;
     }
 }
 
+async function loadTetrisCode() {
+    if (!tetrisCode) tetrisCode = await loadExampleFile('tetris.sk');
+
+    return tetrisCode;
+}
+
 async function loadExhaustiveCode() {
-    if (exhaustiveCode) return exhaustiveCode;
-    try {
-        const response = await fetch('exhaustive.sk?v=' + SHAKAR_VERSION);
-        if (!response.ok) throw new Error('Failed to load exhaustive.sk');
-        exhaustiveCode = await response.text();
-        return exhaustiveCode;
-    } catch (err) {
-        console.error('Failed to load exhaustive:', err);
-        return null;
-    }
+    if (!exhaustiveCode) exhaustiveCode = await loadExampleFile('exhaustive.sk');
+
+    return exhaustiveCode;
 }
 
 function isTetrisExample() {
@@ -1780,39 +1765,25 @@ replInput.addEventListener('input', () => {
 examplesEl.addEventListener('change', async (e) => {
     stopTetris();
 
+    let code = null;
     if (e.target.value === 'tetris') {
-        const code = await loadTetrisCode();
-        if (code) {
-            codeEl.value = code;
-            _armUnloadConfirm();
-            scheduleHighlight();
-        }
+        code = await loadTetrisCode();
     } else if (e.target.value === 'exhaustive') {
-        const code = await loadExhaustiveCode();
-        if (code) {
-            codeEl.value = code;
-            _armUnloadConfirm();
-            scheduleHighlight();
-        }
+        code = await loadExhaustiveCode();
     } else {
-        const example = EXAMPLES[e.target.value];
-        if (example) {
-            codeEl.value = example;
-            _armUnloadConfirm();
-            scheduleHighlight();
-        }
+        code = EXAMPLES[e.target.value] || null;
+    }
+
+    if (code) {
+        codeEl.value = code;
+        _armUnloadConfirm();
+        scheduleHighlight();
     }
 });
 
 codeEl.addEventListener('input', () => {
     _armUnloadConfirm();
-    editorLastInputAt = performance.now();
-    if (editorErrorRevealTimer) {
-        clearTimeout(editorErrorRevealTimer);
-        editorErrorRevealTimer = 0;
-    }
-    editorLastHighlightCode = '';
-    editorHighlightRequestLines = null;
+    resetEditorHighlightState();
     if (editorIndentAdjusting) {
         scheduleHighlight();
         return;
@@ -1887,13 +1858,7 @@ codeEl.addEventListener('keydown', (e) => {
         codeEl.selectionEnd = newPos;
         editorIndentAdjusting = false;
         editorOutdentLineStart = -1;
-        editorLastInputAt = performance.now();
-        if (editorErrorRevealTimer) {
-            clearTimeout(editorErrorRevealTimer);
-            editorErrorRevealTimer = 0;
-        }
-        editorLastHighlightCode = '';
-        editorHighlightRequestLines = null;
+        resetEditorHighlightState();
         if (!wasmHighlightActive) applyEditorLightUpdate(codeEl.value, newPos);
         scheduleHighlight();
         return;
@@ -1905,13 +1870,7 @@ codeEl.addEventListener('keydown', (e) => {
         const end = codeEl.selectionEnd;
         codeEl.value = codeEl.value.substring(0, start) + '    ' + codeEl.value.substring(end);
         codeEl.selectionStart = codeEl.selectionEnd = start + 4;
-        editorLastInputAt = performance.now();
-        if (editorErrorRevealTimer) {
-            clearTimeout(editorErrorRevealTimer);
-            editorErrorRevealTimer = 0;
-        }
-        editorLastHighlightCode = '';
-        editorHighlightRequestLines = null;
+        resetEditorHighlightState();
         if (!wasmHighlightActive) applyEditorLightUpdate(codeEl.value, codeEl.selectionStart);
         scheduleHighlight();
         return;
