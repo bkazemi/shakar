@@ -42,9 +42,17 @@ print("  HELLO  ".trim().lower(),
     "foobar".hasPrefix("foo"), "foobar".hasSuffix("baz")
 )
 
+# --- String .high ---
+print("--- String High ---")
+print("hello".high, "".high)
+
+# --- Hex Escapes ---
+hex_text := "hex: \x41\x42"
+print("--- Hex Escapes ---", hex_text)
+
 # --- Env Strings ---
 print("--- Env Strings ---")
-fn(()):
+try:
     home := env"HOME"
     print("env name:", home.name, "exists:", home.exists,
         "env value:", home.value
@@ -58,7 +66,7 @@ catch err:
 
 # --- Path Strings ---
 print("--- Path Strings ---")
-fn(()):
+try:
     fname := "exhaustive.txt"
     path := p"/tmp/{fname}"
     print("path name:", path.name, "exists:", path.exists)
@@ -111,6 +119,11 @@ print("--- Objects Advanced ---")
 print(advanced["a-b"], advanced[3], advanced.size)
 advanced.size = 999
 
+# --- Object Punning ---
+punning_x := 42
+print("--- Object Punning ---")
+print({punning_x}.punning_x)
+
 # --- Sets ---
 s := set{1, 2, 3, 2, 1}
 print("--- Sets ---")
@@ -118,7 +131,7 @@ print(s)
 
 # --- Algebra (Preview) ---
 print("--- Algebra ---")
-fn(()):
+try:
     set_a := set{1, 2, 3}
     set_b := set{3, 4}
     print("set +:", set_a + set_b,
@@ -155,6 +168,7 @@ x := 10
 x += 5
 x -= 2
 x *= 3
+x **= 2
 x //= 4
 x %= 7
 print(sep: "\n", "--- Compound Assign ---", "x:", x)
@@ -180,6 +194,11 @@ print("--- Null-safe ---")
 maybe_user := nil
 safe_name := ??(maybe_user.profile.name)
 print(safe_name ?? "no user")
+
+# --- No-anchor segment ($) ---
+anchor_user := {name: "Ada"}
+print("--- No-Anchor ---")
+print(anchor_user and $"skip" and .name)
 
 # --- Named functions ---
 fn add(a, b):
@@ -210,6 +229,16 @@ print(greet(name: "Shakar", prefix: "Hey"))
 print(greet(prefix: "Yo", name: "World"))
 print(add(b: 10, a: 5))
 
+# --- tap() passthrough ---
+tap_log := []
+fn needs_sep(v, sep):
+    tap_log.push("{v}{sep}{v}")
+    return "ignored"
+
+print("--- tap() ---")
+tap_out := "abc".tap(needs_sep, sep: "-").upper()
+print("result:", tap_out, "side effect:", tap_log[0])
+
 # --- Dependent Defaults ---
 fn take(arr, start, end = arr.len):
     return arr[start:end]
@@ -218,12 +247,28 @@ print("--- Dependent Defaults ---")
 print(take([10, 20, 30, 40], 1))
 print(take([10, 20, 30, 40], 1, 3))
 
+# --- Grouped Param Contracts ---
+fn add3_grouped(a, b, c ~ Int):
+    return a + b + c
+
+print("--- Grouped Param Contracts ---")
+print(add3_grouped(1, 2, 3))
+
 # --- Function Contracts ---
 fn add_ints(a ~ Int, b ~ Int) ~ Int:
     return a + b
 
 print("--- Contracts ---")
 print(add_ints(2, 3))
+
+# --- Destructured Function Params ---
+ConnSchema := {host: Str, port: Int}
+
+fn connect({host, port = 5432} ~ ConnSchema):
+    return "{host}:{port}"
+
+print("--- Param Destructure ---")
+print(connect({host: "db", port: 5432}))
 
 # --- Varargs ---
 fn collect(head, ...rest):
@@ -243,6 +288,28 @@ print("factorial(6):", factorial(6))
 double := fn(x): x * 2
 print("--- Anonymous Fn ---")
 print(double(21))
+
+# --- Placeholder Partials (?) ---
+fn blend(a, b, ratio):
+    return a + (b - a) * ratio
+
+mix25 := blend(?, ?, 0.25)
+_hole0 := 100
+fn add2(a, b):
+    return a + b
+plus100 := add2(?, _hole0)
+print("--- Placeholder Partials ---")
+print(mix25(0, 16), plus100(1))
+
+# --- IIFE (immediately invoked fn) ---
+# Useful for one-shot initialization with isolated locals.
+iife_outer := "outer"
+iife_value := fn(()):
+    iife_outer := "inner"
+    tmp := [2, 4, 6]
+    return "{iife_outer}:{tmp[1]}"
+print("--- IIFE ---")
+print("value:", iife_value, "outer:", iife_outer)
 
 # --- Amp-lambda (implicit subject) ---
 triple := &(. * 3)
@@ -316,22 +383,30 @@ print("--- For [idx, val] ---")
 for[i, v] [10, 20, 30]:
     print(i, ":", v)
 
+# --- for range(n) sugar ---
+print("--- For Count Sugar ---")
+count_sum := 0
+for 5:
+    count_sum += .
+print("sum(0..4):", count_sum)
+print("count comp:", [count_n for 5])
+
 # --- List comprehension ---
-squares := [x ** 2 over x in [1, 2, 3, 4, 5]]
+squares := [sq_n ** 2 over [1, 2, 3, 4, 5]]
 print("--- Comprehension ---")
 print(squares)
 
 # --- Filtered comprehension ---
-evens := [x over x in [1, 2, 3, 4, 5, 6] if x % 2 == 0]
+evens := [even_n over [1, 2, 3, 4, 5, 6] if even_n % 2 == 0]
 print("evens:", evens)
 
 # --- Set comprehension ---
-unique := set{x % 3 over x in [1, 2, 3, 4, 5, 6]}
+unique := set{mod_n % 3 over [1, 2, 3, 4, 5, 6]}
 print("--- Set Comp ---")
 print(unique)
 
 # --- Dict comprehension ---
-index_map := {x: x ** 2 over x in [1, 2, 3]}
+index_map := {map_n: map_n ** 2 over [1, 2, 3]}
 print("--- Dict Comp ---")
 print(index_map)
 
@@ -345,6 +420,19 @@ fn describe(val):
 
 print("--- Match ---")
 print(describe(1), describe(2), describe(5))
+
+# --- Match comparator binder ---
+grade_cmp := match[lt] 85:
+    90: "A"
+    80: "B"
+    else: "F"
+
+kind_cmp := match[!in] "b":
+    "aeiou": "consonant"
+    else: "vowel"
+
+print("--- Match[cmp] ---")
+print(grade_cmp, kind_cmp)
 
 # --- Structural Match ---
 print("--- Structural Match ---")
@@ -386,6 +474,15 @@ print("typed:", typed)
 (typed_risky() catch err: throw) catch err:
     print("rethrow ok:", err.message)
 
+# --- Try/Catch block ---
+try_msg := ""
+try:
+    throw "boom-try"
+catch:
+    try_msg = .message
+print("--- Try ---")
+print(try_msg)
+
 # --- Assert ---
 assert 1 + 1 == 2
 print("--- Assert ---")
@@ -408,6 +505,17 @@ dx ~ Int, dy ~ Str := pair
 print("--- Destructure Contracts ---")
 print(dx, dy)
 
+# --- Object-keyed destructuring ---
+obj_a, obj_b := {obj_a: 10, obj_b: 20}
+print("--- Object-keyed Destructure ---")
+print(obj_a + obj_b)
+
+# --- Destructure defaults + rest ---
+d_a, d_b = 0, ...d_rest := [1]
+host = "localhost", ...cfg_rest := {port: 5432, tls: true}
+print("--- Destructure Defaults/Rest ---")
+print(d_a, d_b, d_rest.len, host, cfg_rest.port, cfg_rest.tls)
+
 # --- Spread operator ---
 first := [1, 2]
 second := [3, 4]
@@ -421,7 +529,7 @@ extended := {...base, z: 3}
 print(extended)
 
 # --- Deep Merge (Preview) ---
-fn(()):
+try:
     config := {ui: {theme: "dark", scale: 1.0}}
     override := {ui: {theme: "light"}}
     full_config := config +> override
@@ -466,7 +574,7 @@ print(sum3(state.{cur, x}, 2))
 
 # --- Fanout Updates (Preview) ---
 user_f := {name: " Ada ", email: " ADA@EXAMPLE.COM "}
-fn(()):
+try:
     =user_f.{name, email}.trim()
     user_f.{name, email} .= .lower()
     print(user_f)
@@ -566,6 +674,20 @@ print("--- all/any ---")
 print("all positive:", all(1, 2, 3))
 print("any zero:", any(0, 0, 5))
 
+# --- Conversion helpers ---
+print("--- Conversions ---")
+print(int("42"), float("3.5"), bool(""), str(123))
+print(duration("1min30sec").sec, size("1gb512mb").mb)
+
+# --- In-place update/keep ---
+print("--- update&/keep& ---")
+upd_arr := [1, 2, 3, 4]
+upd_arr.update&(. + 10)
+upd_arr.keep&(. > 12)
+upd_obj := {timeout: 5, retries: 3}
+upd_obj.update&(. * 2)
+print(upd_arr, upd_obj)
+
 # --- Object field access ---
 point := {x: 10, y: 20}
 print("--- Object Access ---")
@@ -597,7 +719,7 @@ print(multi)
 
 # --- Shell Commands ---
 print("--- Shell ---")
-fn(()):
+try:
     # Use echo for safety in exhaustive
     echo_cmd := sh"echo 'Hello from Shell'"
     print(echo_cmd.run())
@@ -608,7 +730,7 @@ catch err:
     print("shell unavailable:", err)
 
 # --- Concurrency (Channels & Spawn) ---
-fn(()):
+try:
     print("--- Concurrency ---")
     ch := channel() # Unbuffered by default
 
@@ -681,8 +803,19 @@ bots := fan{
 pings := bots.ping()
 print(pings)
 
+# --- Fan Lvalue Assignment ---
+print("--- Fan Lvalue ---")
+fa := 1
+fb := 2
+fan {fa, fb} = 10, 20
+fan {fa, fb} += 1, 2
+fo1 := {x: 1}
+fo2 := {x: 2}
+fan {fo1, fo2}.x += 5
+print([fa, fb], [fo1.x, fo2.x])
+
 # --- Hook / Debug (Preview) ---
-fn(()):
+try:
     hook "demo": print("hook handler")
     dbg 1, 2
 catch err:
@@ -703,6 +836,26 @@ resource := {
 
 using resource bind handle:
     print("using:", handle)
+
+# --- Using Inline Body ---
+print("--- Using Inline ---")
+inline_resource := {enter: fn(): 5}
+using inline_resource: print("inline using value:", inline_resource + 1)
+
+# --- io extras ---
+print("--- io extras ---")
+try:
+    io.overwrite("io.overwrite demo")
+    print("")
+catch err:
+    print("io.overwrite unavailable:", err)
+
+try:
+    print("interactive:", io.is_interactive(), "platform:", io.platform)
+    print("read_key timeout:", io.read_key(1msec))
+    io.raw(false)
+catch err:
+    print("io term ops unavailable:", err)
 
 # --- Known Gaps (Syntax Only) ---
 # Computed object key ("a-b"): 7
