@@ -44,15 +44,13 @@ int strbuf_append_n(StrBuf *b, const char *s, int len) {
     return 1;
 }
 
-int strbuf_append(StrBuf *b, const char *s) {
-    return strbuf_append_n(b, s, (int)strlen(s));
-}
+int strbuf_append(StrBuf *b, const char *s) { return strbuf_append_n(b, s, (int)strlen(s)); }
 
 int strbuf_appendf(StrBuf *b, const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
     char tmp[256];
-    int  n = vsnprintf(tmp, sizeof(tmp), fmt, args);
+    int n = vsnprintf(tmp, sizeof(tmp), fmt, args);
     va_end(args);
 
     if (n < 0)
@@ -203,15 +201,15 @@ int protocol_token_int(const ProtocolMessage *msg, int tok_idx, int *out_value) 
         return 0;
 
     const char *s = msg->json + tok->start;
-    int         len = tok->end - tok->start;
-    char        tmp[32];
+    int len = tok->end - tok->start;
+    char tmp[32];
     if (len <= 0 || len >= (int)sizeof(tmp))
         return 0;
     memcpy(tmp, s, (size_t)len);
     tmp[len] = '\0';
 
     char *end = 0;
-    long  v = strtol(tmp, &end, 10);
+    long v = strtol(tmp, &end, 10);
     if (!end || *end != '\0')
         return 0;
     *out_value = (int)v;
@@ -230,7 +228,7 @@ static int hex_val(char c) {
 
 static int utf8_append(StrBuf *b, unsigned int cp) {
     char out[4];
-    int  n = 0;
+    int n = 0;
     if (cp <= 0x7F) {
         out[0] = (char)cp;
         n = 1;
@@ -352,7 +350,7 @@ int protocol_token_string_dup(const ProtocolMessage *msg, int tok_idx, char **ou
         return 0;
 
     const char *src = msg->json + tok->start;
-    int         len = tok->end - tok->start;
+    int len = tok->end - tok->start;
 
     StrBuf buf;
     strbuf_init(&buf);
@@ -377,8 +375,6 @@ int protocol_parse_message(const char *json, int len, ProtocolMessage *msg, char
     memset(msg, 0, sizeof(*msg));
     msg->json = json;
     msg->len = len;
-    msg->tokens = 0;
-    msg->token_count = 0;
     msg->root = -1;
     msg->method = -1;
     msg->id = -1;

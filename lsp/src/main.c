@@ -7,7 +7,7 @@
 
 static int read_message(FILE *in, char **out, int *out_len) {
     char line[512];
-    int  content_len = -1;
+    int content_len = -1;
 
     while (fgets(line, sizeof(line), in)) {
         if (strcmp(line, "\n") == 0 || strcmp(line, "\r\n") == 0)
@@ -179,17 +179,11 @@ static void send_semantic_tokens(FILE *out, const ProtocolMessage *msg, LspToken
 }
 
 static void emit_diag_json(StrBuf *buf, Diagnostic *d, const char *source, int severity) {
-    strbuf_append(buf, "{\"range\":{\"start\":{\"line\":");
-    strbuf_appendf(buf, "%d", d->line);
-    strbuf_append(buf, ",\"character\":");
-    strbuf_appendf(buf, "%d", d->col_start);
-    strbuf_append(buf, "},\"end\":{\"line\":");
-    strbuf_appendf(buf, "%d", d->line);
-    strbuf_append(buf, ",\"character\":");
-    strbuf_appendf(buf, "%d", d->col_end);
-    strbuf_append(buf, "}},\"severity\":");
-    strbuf_appendf(buf, "%d", severity);
-    strbuf_append(buf, ",\"source\":");
+    strbuf_appendf(buf,
+                   "{\"range\":{\"start\":{\"line\":%d,\"character\":%d},"
+                   "\"end\":{\"line\":%d,\"character\":%d}},"
+                   "\"severity\":%d,\"source\":",
+                   d->line, d->col_start, d->line, d->col_end, severity);
     strbuf_append_json_string(buf, source, (int)strlen(source));
     strbuf_append(buf, ",\"message\":");
     strbuf_append_json_string(buf, d->message, (int)strlen(d->message));
@@ -218,18 +212,29 @@ static void send_diagnostics(FILE *out, const char *uri, int uri_len, Diagnostic
     strbuf_free(&buf);
 }
 
+static void gather_and_send_diagnostics(FILE *out, Session *session, const char *uri, int uri_len) {
+    Diagnostic all_diags[33];
+    int count = 0;
+    Diagnostic lex_diag;
+
+    if (session_lex_diagnostics(session, uri, uri_len, &lex_diag))
+        all_diags[count++] = lex_diag;
+    count += session_structural_diagnostics(session, uri, uri_len, all_diags + count, 32 - count);
+    send_diagnostics(out, uri, uri_len, all_diags, count);
+}
+
 int main(void) {
     Session session;
     session_init(&session);
 
     for (;;) {
         char *json = 0;
-        int   json_len = 0;
+        int json_len = 0;
         if (!read_message(stdin, &json, &json_len))
             break;
 
         ProtocolMessage msg;
-        char            err[64] = {0};
+        char err[64] = {0};
         if (!protocol_parse_message(json, json_len, &msg, err, (int)sizeof(err))) {
             free(json);
             protocol_message_free(&msg);
@@ -247,68 +252,52 @@ int main(void) {
             free(json);
             break;
         } else if (protocol_method_is(&msg, "textDocument/didOpen")) {
-            int   doc_tok = 0;
+            int doc_tok = 0;
             char *uri = 0;
-            int   uri_len = 0;
+            int uri_len = 0;
             char *text = 0;
-            int   text_len = 0;
-            int   version = 0;
+            int text_len = 0;
+            int version = 0;
 
             if (read_text_document(&msg, &doc_tok) && read_uri(&msg, doc_tok, &uri, &uri_len) &&
                 read_text(&msg, doc_tok, &text, &text_len)) {
                 read_version(&msg, doc_tok, &version);
                 session_open(&session, uri, uri_len, text, text_len, version);
-
-                Diagnostic all_diags[33];
-                int        count = 0;
-                Diagnostic lex_diag;
-                if (session_lex_diagnostics(&session, uri, uri_len, &lex_diag))
-                    all_diags[count++] = lex_diag;
-                count += session_structural_diagnostics(&session, uri, uri_len, all_diags + count,
-                                                        32 - count);
-                send_diagnostics(stdout, uri, uri_len, all_diags, count);
+                gather_and_send_diagnostics(stdout, &session, uri, uri_len);
             }
 
             free(uri);
             free(text);
         } else if (protocol_method_is(&msg, "textDocument/didChange")) {
-            int   doc_tok = 0;
+            int doc_tok = 0;
             char *uri = 0;
-            int   uri_len = 0;
+            int uri_len = 0;
             char *text = 0;
-            int   text_len = 0;
-            int   version = 0;
+            int text_len = 0;
+            int version = 0;
 
             if (read_text_document(&msg, &doc_tok) && read_uri(&msg, doc_tok, &uri, &uri_len) &&
                 read_change_text(&msg, &text, &text_len)) {
                 read_version(&msg, doc_tok, &version);
                 session_change(&session, uri, uri_len, text, text_len, version);
-
-                Diagnostic all_diags[33];
-                int        count = 0;
-                Diagnostic lex_diag;
-                if (session_lex_diagnostics(&session, uri, uri_len, &lex_diag))
-                    all_diags[count++] = lex_diag;
-                count += session_structural_diagnostics(&session, uri, uri_len, all_diags + count,
-                                                        32 - count);
-                send_diagnostics(stdout, uri, uri_len, all_diags, count);
+                gather_and_send_diagnostics(stdout, &session, uri, uri_len);
             }
 
             free(uri);
             free(text);
         } else if (protocol_method_is(&msg, "textDocument/didClose")) {
-            int   doc_tok = 0;
+            int doc_tok = 0;
             char *uri = 0;
-            int   uri_len = 0;
+            int uri_len = 0;
             if (read_text_document(&msg, &doc_tok) && read_uri(&msg, doc_tok, &uri, &uri_len)) {
                 session_close(&session, uri, uri_len);
                 send_diagnostics(stdout, uri, uri_len, NULL, 0);
             }
             free(uri);
         } else if (protocol_method_is(&msg, "textDocument/semanticTokens/full")) {
-            int   doc_tok = 0;
+            int doc_tok = 0;
             char *uri = 0;
-            int   uri_len = 0;
+            int uri_len = 0;
             if (read_text_document(&msg, &doc_tok) && read_uri(&msg, doc_tok, &uri, &uri_len)) {
                 LspTokenBuf tokens;
                 lsp_tokens_init(&tokens);
@@ -318,11 +307,11 @@ int main(void) {
             }
             free(uri);
         } else if (protocol_method_is(&msg, "textDocument/semanticTokens/range")) {
-            int      doc_tok = 0;
-            char    *uri = 0;
-            int      uri_len = 0;
+            int doc_tok = 0;
+            char *uri = 0;
+            int uri_len = 0;
             LspRange range;
-            int      has_range = read_range(&msg, &range);
+            int has_range = read_range(&msg, &range);
             if (read_text_document(&msg, &doc_tok) && read_uri(&msg, doc_tok, &uri, &uri_len)) {
                 LspTokenBuf tokens;
                 lsp_tokens_init(&tokens);
