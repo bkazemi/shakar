@@ -95,8 +95,14 @@ def _chain_to_lambda_if_holes(chain: Tree) -> Optional[Tree]:
             holes.append(name)
             return Tok(TT.IDENT, name, 0, 0)
 
-        cloned = Tree(label, [clone(child) for child in tree_children(node)])
-        cloned._meta = getattr(node, "meta", None)
+        attrs = dict(node.attrs) if node.attrs else None
+        cloned = Tree(
+            label,
+            [clone(child) for child in tree_children(node)],
+            meta=getattr(node, "meta", None),
+            attrs=attrs,
+        )
+        cloned._meta = getattr(node, "_meta", None)
         return cloned
 
     cloned_chain = clone(chain)

@@ -297,12 +297,21 @@ static void test_match_separator_with_prior_colon_expr_not_guard_keyword(void) {
     const char *selector_case = "match x:\n"
                                 "    `0:1` | c: y\n"
                                 "    else: z";
+    const char *once_case = "match x:\n"
+                            "    once: a | c: y\n"
+                            "    else: z";
+    const char *nested_once_case = "match x:\n"
+                                   "    once: once: a | c: y\n"
+                                   "    else: z";
 
     check_nth_char_span("match_ternary: '|' stays operator", ternary_case, '|', 0, HL_OPERATOR);
     check_nth_char_span("match_catch: '|' stays operator", catch_case, '|', 0, HL_OPERATOR);
     check_nth_char_span("match_catch_sugar: '|' stays operator", catch_sugar_case, '|', 0,
                         HL_OPERATOR);
     check_nth_char_span("match_selector: '|' stays operator", selector_case, '|', 0, HL_OPERATOR);
+    check_nth_char_span("match_once: '|' stays operator", once_case, '|', 0, HL_OPERATOR);
+    check_nth_char_span("match_nested_once: '|' stays operator", nested_once_case, '|', 0,
+                        HL_OPERATOR);
 }
 
 /* Inline guard continuation remains keyword when prior branch body has ':' expressions. */
@@ -311,12 +320,17 @@ static void test_inline_guard_with_colon_expr_in_body_stays_keyword(void) {
     const char *catch_body = "true: a catch e: b | false: y";
     const char *catch_sugar_body = "true: a @@ e: b | false: y";
     const char *selector_body = "true: `0:1` | false: y";
+    const char *once_body = "true: once: a | false: y";
+    const char *nested_once_body = "true: once: once: a | false: y";
 
     check_nth_char_span("guard_body_ternary: '|' is keyword", ternary_body, '|', 0, HL_KEYWORD);
     check_nth_char_span("guard_body_catch: '|' is keyword", catch_body, '|', 0, HL_KEYWORD);
     check_nth_char_span("guard_body_catch_sugar: '|' is keyword", catch_sugar_body, '|', 0,
                         HL_KEYWORD);
     check_nth_char_span("guard_body_selector: '|' is keyword", selector_body, '|', 0, HL_KEYWORD);
+    check_nth_char_span("guard_body_once: '|' is keyword", once_body, '|', 0, HL_KEYWORD);
+    check_nth_char_span("guard_body_nested_once: '|' is keyword", nested_once_body, '|', 0,
+                        HL_KEYWORD);
 }
 
 int main(void) {

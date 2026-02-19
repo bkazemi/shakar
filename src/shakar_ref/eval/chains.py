@@ -43,9 +43,9 @@ from ..tree import (
     tree_children,
     tree_label,
 )
+from .helpers import eval_anchor_scoped
 from .bind import FanContext, RebindContext, apply_fan_op
 from .common import callsite_from_node, expect_ident_token as _expect_ident_token
-from .helpers import eval_anchor_scoped
 from .mutation import get_field_value, index_value, slice_value
 from .selector import evaluate_selectorlist, apply_selectors_to_value
 from .valuefan import eval_valuefan, build_valuefan_context
@@ -88,7 +88,7 @@ def _with_call_site(
     frame: Frame, site: Optional["CallSite"], thunk: Callable[[], ShkValue]
 ) -> ShkValue:
     # Thunks are always called immediately; lambda captures are safe.
-    if site is None:
+    if not site:
         return thunk()
     frame.call_stack.append(site)
     try:
@@ -427,9 +427,11 @@ def _call_method(recv: ShkValue, op: Tree, frame: Frame, eval_fn: EvalFn) -> Shk
         )
 
     try:
-        target = frame.get(method_name)
-    except ShakarRuntimeError:
-        raise ShakarMethodNotFound(recv, method_name) from None
+        target = frame._raw_get(method_name)
+    except ShakarRuntimeError as err:
+        if str(err) == f"Name '{method_name}' not found":
+            raise ShakarMethodNotFound(recv, method_name) from None
+        raise
 
     if not isinstance(
         target,
@@ -478,7 +480,7 @@ def _call_stdlib(
     named: Optional[Dict[str, ShkValue]],
     interleaved: bool,
 ) -> ShkValue:
-    call_arg_count = len(args) + (1 if subject is not None else 0)
+    call_arg_count = len(args) + (1 if subject else 0)
     if cal.accepts_named:
         if interleaved:
             raise ShakarTypeError(

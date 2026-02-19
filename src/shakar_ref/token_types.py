@@ -40,6 +40,7 @@ class TT(Enum):
     RETURN = auto()
     FN = auto()
     LET = auto()
+    ONCE = auto()
     WAIT = auto()
     SPAWN = auto()
     USING = auto()

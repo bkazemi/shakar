@@ -76,6 +76,7 @@ KEYWORD_CASES: List[Case] = [
     Case("for", "for", expected_types=(TT.FOR,)),
     Case("fn", "fn", expected_types=(TT.FN,)),
     Case("return", "return", expected_types=(TT.RETURN,)),
+    Case("once", "once", expected_types=(TT.ONCE,)),
     Case("wait", "wait", expected_types=(TT.WAIT,)),
     Case("spawn", "spawn", expected_types=(TT.SPAWN,)),
     Case("and", "and", expected_types=(TT.AND,)),

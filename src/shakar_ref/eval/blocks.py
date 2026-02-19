@@ -58,9 +58,22 @@ def eval_program(
 
     try:
         try:
+            # Identify the last non-skip child for discard tagging.
+            real_children = [c for c in children if _token_kind(c) not in skip_tokens]
+            last_real = real_children[-1] if real_children else None
+
             for child in children:
                 if _token_kind(child) in skip_tokens:
                     continue
+
+                # Tag non-final once expressions so lazy registration
+                # knows this is a true statement-discard position.
+                is_final = child is last_real
+                if not is_final and is_tree(child) and tree_label(child) == "once_expr":
+                    if child.attrs is None:
+                        child.attrs = {}
+                    child.attrs["discard"] = True
+
                 result = eval_fn(child, frame)
                 frame.pending_anchor_override = None  # clear stale override
         except ShakarBreakSignal:
@@ -305,30 +318,25 @@ def temporary_subject(frame: Frame, dot: DotValue) -> Iterator[None]:
 
 @contextmanager
 def temporary_bindings(frame: Frame, bindings: dict[str, ShkValue]) -> Iterator[None]:
-    records: list[tuple[Frame, str, ShkValue, bool]] = []
+    records: list[tuple[dict[str, ShkValue], str, ShkValue, bool]] = []
+    target_scope = frame._let_scopes[-1] if frame._let_scopes else frame.vars
 
     for name, value in bindings.items():
-        target: Optional[Frame] = frame
-
-        while target and name not in target.vars:
-            target = getattr(target, "parent", None)
-
-        if target is None:
-            frame.define(name, value)
-            records.append((frame, name, ShkNil(), False))
+        if name in target_scope:
+            records.append((target_scope, name, target_scope[name], True))
         else:
-            prev = target.vars[name]
-            target.vars[name] = value
-            records.append((target, name, prev, True))
+            records.append((target_scope, name, ShkNil(), False))
+
+        target_scope[name] = value
 
     try:
         yield
     finally:
-        for target, name, prev, existed in reversed(records):
+        for scope, name, prev, existed in reversed(records):
             if existed:
-                target.vars[name] = prev
+                scope[name] = prev
             else:
-                target.vars.pop(name, None)
+                scope.pop(name, None)
 
 
 @contextmanager

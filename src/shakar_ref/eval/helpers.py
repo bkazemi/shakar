@@ -166,6 +166,7 @@ def collect_scope_names(frame: Frame, stop_at: Optional[Frame]) -> set[str]:
         for scope in cur.all_let_scopes():
             names.update(scope.keys())
         names.update(cur.vars.keys())
+        names.update(cur.lazy_once.keys())
         if stop_at and cur is stop_at:
             break
         cur = cur.parent

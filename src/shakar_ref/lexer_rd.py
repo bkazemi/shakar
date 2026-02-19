@@ -46,6 +46,7 @@ class Lexer:
         "return": TT.RETURN,
         "fn": TT.FN,
         "let": TT.LET,
+        "once": TT.ONCE,
         "wait": TT.WAIT,
         "spawn": TT.SPAWN,
         "using": TT.USING,

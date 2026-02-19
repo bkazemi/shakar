@@ -11,6 +11,7 @@ Structure:
 - AST: Tree structure expected by the evaluator
 """
 
+import threading
 from typing import Optional, List, Any
 from types import SimpleNamespace
 from enum import Enum
@@ -18,6 +19,12 @@ from .tree import Tree, Node, is_tree, is_token, tree_label, tree_children
 
 from .token_types import TT, Tok
 from .lexer_rd import LexError
+
+# Process-global monotonic allocator for parser-assigned once site IDs.
+# Each Parser instance draws from this counter so IDs are unique across
+# repeated parse calls in persistent environments (REPL, test harness).
+_NEXT_ONCE_ID = 1
+_NEXT_ONCE_ID_LOCK = threading.Lock()
 
 
 class ParseContext(Enum):
@@ -129,6 +136,8 @@ class Parser:
         # at which the default expression began so that ~ / ~~ are suppressed at
         # that depth but allowed inside user-written parentheses.
         self._pattern_default_paren_depth: int = -1
+        # Monotonic once-site ID allocator seeded from process-global counter.
+        self._next_once_id: int = 0
 
     def _tok(
         self,
@@ -803,6 +812,7 @@ class Parser:
         self.expect(TT.LET)
 
         pattern_snapshot = self._snapshot()
+        _let_destructure: Optional[Tree] = None
         if self.check(TT.IDENT, TT.LPAR, TT.SPREAD):
             try:
                 pattern = self.parse_pattern()
@@ -825,17 +835,15 @@ class Parser:
                     label = (
                         "destructure_walrus" if op.type == TT.WALRUS else "destructure"
                     )
-                    return Tree(
+                    _let_destructure = Tree(
                         "let",
-                        [
-                            Tree(
-                                label,
-                                [Tree("pattern_list", patterns), rhs],
-                            )
-                        ],
+                        [Tree(label, [Tree("pattern_list", patterns), rhs])],
                     )
             except ParseError:
                 pass
+
+            if _let_destructure is not None:
+                return _let_destructure
 
             self._restore(pattern_snapshot)
 
@@ -1864,6 +1872,85 @@ class Parser:
             expr = self.parse_unary_expr()
         return Tree("spawn", [expr])
 
+    def _alloc_once_id(self) -> int:
+        """Allocate a unique once-site ID from the process-global counter."""
+        global _NEXT_ONCE_ID
+        with _NEXT_ONCE_ID_LOCK:
+            once_id = _NEXT_ONCE_ID
+            _NEXT_ONCE_ID += 1
+
+        return once_id
+
+    def parse_once_expr(self) -> Tree:
+        """Parse once expression: once [static, lazy]? : body"""
+        self.expect(TT.ONCE)
+
+        modifiers_node: Optional[Tree] = None
+        seen_modifiers: set[str] = set()
+        if self.match(TT.LSQB):
+            modifier_tokens: List[Tok] = []
+
+            while True:
+                tok = self.expect(TT.IDENT)
+                name = str(tok.value)
+                if name not in {"static", "lazy"}:
+                    raise ParseError(f"unknown once modifier '{name}'", tok)
+                if name in seen_modifiers:
+                    raise ParseError(f"duplicate once modifier '{name}'", tok)
+                seen_modifiers.add(name)
+                modifier_tokens.append(tok)
+                if not self.match(TT.COMMA):
+                    break
+
+            self.expect(TT.RSQB)
+
+            modifiers_node = Tree("once_modifiers", modifier_tokens)
+
+        self.expect(TT.COLON)
+
+        # Decide inline vs block: immediate `{...}` should remain available for
+        # object-literal expressions. Treat `{...}` as a block only in
+        # newline-prefixed body form (`once:\n{ ... }`).
+        is_block_body = self.check(TT.INDENT)
+        if not is_block_body and self.check(TT.NEWLINE):
+            k = 1
+            while self.peek(k).type == TT.NEWLINE:
+                k += 1
+            is_block_body = self.peek(k).type in (TT.INDENT, TT.LBRACE)
+
+        if is_block_body:
+            body = self.parse_body()
+        else:
+            body = self.parse_expr()
+
+        # lazy requires a walrus binding (prefix form); lazy + block is not allowed
+        if "lazy" in seen_modifiers:
+            from .tree import is_tree, tree_label
+
+            # Unwrap expr/stmt wrappers to find the walrus node
+            inner = body
+            while (
+                is_tree(inner)
+                and tree_label(inner) in {"expr", "stmt"}
+                and inner.children
+            ):
+                inner = inner.children[0]
+            is_walrus = is_tree(inner) and tree_label(inner) == "walrus"
+            if not is_walrus:
+                raise ParseError(
+                    "lazy requires prefix walrus binding (once[lazy]: x := expr)",
+                    self.current,
+                )
+
+        children: List[Node] = []
+        if modifiers_node:
+            children.append(modifiers_node)
+        children.append(body)
+        attrs: dict[str, object] = {"once_id": self._alloc_once_id()}
+        if is_block_body:
+            attrs["block_body"] = True
+        return Tree("once_expr", children, attrs=attrs)
+
     def _parse_wait_any_block(self, modifier_tok: Tok) -> Tree:
         self._expect_indented_block("wait[any]", require_arm=True)
 
@@ -2416,6 +2503,18 @@ class Parser:
         finally:
             self._pop_parse_context(saved_context)
 
+    @staticmethod
+    def _unwrap_to_canonical(node: Node) -> Node:
+        """Strip wrapper nodes to find the canonical inner node."""
+        current = node
+        while (
+            is_tree(current)
+            and tree_label(current) in {"expr", "group", "group_expr", "primary"}
+            and current.children
+        ):
+            current = current.children[0]
+        return current
+
     def parse_walrus_expr(self) -> Node:
         """Parse walrus: x := expr"""
         # Check for walrus pattern: IDENT :=
@@ -2761,6 +2860,16 @@ class Parser:
 
         # Explicit chain: primary + postfix ops
         primary = self.parse_primary_expr()
+
+        # Block-body once expressions terminate the expression — no chaining.
+        if (
+            is_tree(primary)
+            and tree_label(primary) == "once_expr"
+            and getattr(primary, "attrs", None)
+            and primary.attrs.get("block_body")
+        ):
+            return primary
+
         postfix_ops: List[Node] = []
         seen_noanchor = [False]
         self._collect_postfix_ops(postfix_ops, seen_noanchor, allow_amp=True)
@@ -2967,6 +3076,10 @@ class Parser:
         # Import expression
         if self.match(TT.IMPORT):
             return Tree("import_expr", [self._parse_import_string_literal()])
+
+        # Once expression
+        if self.check(TT.ONCE):
+            return self.parse_once_expr()
 
         # Numeric / duration / size literals
         if self.check(TT.NUMBER, TT.DURATION, TT.SIZE):

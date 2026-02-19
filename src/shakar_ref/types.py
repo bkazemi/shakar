@@ -973,6 +973,30 @@ class StdlibFunction:
     name: Optional[str] = None
 
 
+@dataclass
+class OnceCellState:
+    initialized: bool = False
+    evaluating: bool = False
+    value: Optional["ShkValue"] = None
+    error: Optional["ShakarRuntimeError"] = None
+    # Re-entrant so recursive self-reads can report circular initialization.
+    lock: threading.RLock = field(default_factory=threading.RLock)
+
+
+@dataclass
+class OnceBinding:
+    node_id: int
+    body: Node
+    def_frame: "Frame"
+    fn_frame: "Frame"
+    is_static: bool
+    is_block: bool = False
+
+
+_STATIC_ONCE_CELLS: Dict[int, OnceCellState] = {}
+_STATIC_ONCE_CELLS_LOCK = threading.Lock()
+
+
 ShkValue: TypeAlias = Union[
     ShkNil,
     ShkNumber,
@@ -1010,6 +1034,34 @@ EvalResult: TypeAlias = Union[ShkValue, "RebindContext", "FanContext"]
 DotValue: TypeAlias = Optional[ShkValue]
 
 
+@dataclass
+class LazyOnceThunk:
+    """Lazy once-walrus binding: body is deferred until the name is first read."""
+
+    resolve: Callable[[], ShkValue]
+
+
+class MissingBindingLookup(NamedTuple):
+    pass
+
+
+class ValueBindingLookup(NamedTuple):
+    value: ShkValue
+
+
+class LazyOnceLookup(NamedTuple):
+    thunk: LazyOnceThunk
+
+
+LocalBindingLookup: TypeAlias = Union[
+    MissingBindingLookup,
+    ValueBindingLookup,
+    LazyOnceLookup,
+]
+
+_MISSING_BINDING_LOOKUP = MissingBindingLookup()
+
+
 class CallSite(NamedTuple):
     name: str
     line: int
@@ -1031,6 +1083,10 @@ class Frame:
         self.parent = parent
         self.vars: Dict[str, ShkValue] = {}
         self.builtins: Dict[str, ShkValue] = {}
+        self.lazy_once: Dict[str, LazyOnceThunk] = {}
+        self.lazy_once_site_ids: Dict[str, int] = {}
+        self.once_cells: Dict[int, OnceCellState] = {}
+        self.once_cells_lock = threading.Lock()
         self._let_scopes: List[Dict[str, ShkValue]] = []
         self._captured_let_scopes: List[Dict[str, ShkValue]] = []
         self.dot: DotValue = dot
@@ -1084,6 +1140,31 @@ class Frame:
         self.frozen_scope_names: Optional[FrozenSet[str]] = None
 
     def define(self, name: str, val: ShkValue) -> None:
+        # define() is used by import/mixin-style flows that may intentionally
+        # overwrite existing bindings; if a lazy once placeholder exists,
+        # clear it so the concrete value wins on subsequent reads.
+        if name in self.lazy_once:
+            self.lazy_once.pop(name, None)
+        self.vars[name] = val
+
+    def ensure_name_available_in_current_scope(self, name: str) -> None:
+        """Enforce duplicate-definition rules shared by walrus bindings.
+
+        Invariant: vars-level definitions cannot collide with any visible let
+        name in this frame, nor with existing vars or lazy once bindings.
+        """
+        if self.has_let_name(name):
+            raise ShakarRuntimeError(f"Name '{name}' already defined in a let scope")
+
+        if name in self.vars:
+            raise ShakarRuntimeError(f"Name '{name}' already defined in this scope")
+
+        if name in self.lazy_once:
+            raise ShakarRuntimeError(f"Name '{name}' already defined in this scope")
+
+    def define_new_ident(self, name: str, val: ShkValue) -> None:
+        """Define a new vars-level identifier after duplicate checks."""
+        self.ensure_name_available_in_current_scope(name)
         self.vars[name] = val
 
     def push_let_scope(self) -> None:
@@ -1092,6 +1173,7 @@ class Frame:
     def pop_let_scope(self) -> Dict[str, ShkValue]:
         if not self._let_scopes:
             return {}
+
         return self._let_scopes.pop()
 
     def capture_let_scopes(self, scopes: List[Dict[str, ShkValue]]) -> None:
@@ -1107,7 +1189,7 @@ class Frame:
         return bool(self._let_scopes and name in self._let_scopes[-1])
 
     def name_exists(self, name: str) -> bool:
-        if self.has_let_name(name) or name in self.vars:
+        if self.has_let_name(name) or name in self.vars or name in self.lazy_once:
             return True
         if self.parent:
             return self.parent.name_exists(name)
@@ -1131,7 +1213,35 @@ class Frame:
 
         return None
 
-    def get(self, name: str) -> ShkValue:
+    def _lookup_scoped_binding(self, name: str) -> LocalBindingLookup:
+        """Lookup nearest let-scoped binding in this frame."""
+        for scope in reversed(self._let_scopes):
+            if name in scope:
+                return ValueBindingLookup(scope[name])
+
+        for scope in reversed(self._captured_let_scopes):
+            if name in scope:
+                return ValueBindingLookup(scope[name])
+
+        return _MISSING_BINDING_LOOKUP
+
+    def _lookup_local_binding(self, name: str) -> LocalBindingLookup:
+        """Lookup nearest local binding in this frame with explicit precedence."""
+        scoped = self._lookup_scoped_binding(name)
+        if not isinstance(scoped, MissingBindingLookup):
+            return scoped
+
+        if name in self.vars:
+            return ValueBindingLookup(self.vars[name])
+        if name in self.lazy_once:
+            return LazyOnceLookup(self.lazy_once[name])
+        if name in self.builtins:
+            return ValueBindingLookup(self.builtins[name])
+
+        return _MISSING_BINDING_LOOKUP
+
+    def _raw_get(self, name: str) -> ShkValue:
+        """Lookup a visible binding, resolving lazy once bindings as needed."""
         scope = self._find_let_scope(name)
         if scope:
             return scope[name]
@@ -1139,8 +1249,34 @@ class Frame:
         if name in self.vars:
             return self.vars[name]
 
+        if name in self.lazy_once:
+            thunk = self.lazy_once[name]
+            value = thunk.resolve()
+            self.lazy_once.pop(name, None)
+            self.vars[name] = value
+
+            return value
+
         if name in self.builtins:
             return self.builtins[name]
+
+        if self.parent:
+            return self.parent._raw_get(name)
+
+        raise ShakarRuntimeError(f"Name '{name}' not found")
+
+    def get(self, name: str) -> ShkValue:
+        local = self._lookup_local_binding(name)
+        if isinstance(local, ValueBindingLookup):
+            return local.value
+
+        if isinstance(local, LazyOnceLookup):
+            # Resolve the lazy once thunk: evaluate body, materialize in vars.
+            value = local.thunk.resolve()
+            self.lazy_once.pop(name, None)
+            self.vars[name] = value
+
+            return value
 
         if self.parent:
             return self.parent.get(name)
@@ -1148,9 +1284,19 @@ class Frame:
         raise ShakarRuntimeError(f"Name '{name}' not found")
 
     def set(self, name: str, val: ShkValue) -> None:
-        scope = self._find_let_scope(name)
-        if scope:
-            scope[name] = val
+        scoped = self._lookup_scoped_binding(name)
+        if isinstance(scoped, ValueBindingLookup):
+            target_scope = self._find_let_scope(name)
+            if not target_scope:
+                raise ShakarRuntimeError("let scope lookup mismatch")
+            target_scope[name] = val
+            return
+
+        if name in self.lazy_once:
+            # Assignment before first read should materialize a normal vars
+            # binding and suppress deferred once resolution.
+            self.lazy_once.pop(name, None)
+            self.vars[name] = val
             return
 
         if name in self.vars:
@@ -1191,6 +1337,15 @@ class Frame:
 
     def is_function_frame(self) -> bool:
         return self._is_function_frame
+
+    def get_function_frame(self) -> "Frame":
+        """Walk up to the nearest function frame; root falls back to self."""
+        current = self
+
+        while current.parent and not current._is_function_frame:
+            current = current.parent
+
+        return current
 
     def get_emit_target(self) -> ShkValue:
         if self.emit_target:

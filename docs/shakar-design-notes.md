@@ -48,8 +48,8 @@ This is a living technical spec. The language grows in two ways: new runtime pri
     dangling dot into a continuation marker rather than a hard error.
 - **Semicolons**: hard statement delimiters at top level and inside braced inline suites `{ ... }`. Multiple statements may share a line. Grammar shape: `stmtlist := stmt (SEMI stmt)* SEMI?`.
 - **Inline suites after `:`**: exactly one simple statement. Wrap a braced inline suite on the right of the colon for multiple statements.
-- **Reserved keywords**: `and, or, not, if, elif, else, unless, for, in, break, continue, return, assert, using, call, defer, after, try, catch, decorator, decorate, hook, fn, get, set, bind, import, over, fan, true, false, nil`.
-- **Contextual keywords**: `for` (in comprehensions), `get`/`set` (inside object literals).
+- **Reserved keywords**: `and, or, not, if, elif, else, unless, for, in, break, continue, return, assert, using, call, defer, after, try, catch, decorator, decorate, hook, fn, get, set, bind, import, over, fan, once, true, false, nil`.
+- **Contextual keywords**: `for` (in comprehensions), `get`/`set` (inside object literals), `static`/`lazy` (inside `once[...]` modifiers), `default`/`timeout` (inside specific expression forms).
 - **Punctuation tokens**: `.=` (apply-assign), `|`/`|:` (guards), `?ret` (statement head), `??(expr)` (nil-safe chain), `:=` (walrus).
 
 ## The Anchor Model (`.`)
@@ -416,7 +416,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
   a[-1:2]        # ERROR: negative start with positive stop disallowed
   ```
   Negative indices allowed; no auto-reverse when `i > j`. Indexing `a[i]` throws OOB; slices clamp; inverted positive-step yields `[]`. Slice restriction: negative start with positive stop is an error (ambiguous semantics). Positive start with negative stop is valid (e.g., `arr[0:-1]` for "all but last"). Strict slicing: `slice!(a, i, j, step?)` throws on any OOB.
-- **Selector lists** (multiple selectors inside `[]`): concatenation of each selector’s result, in order. Index selectors throw on OOB; slice selectors clamp. LHS restriction: selector lists and slices are expression-only in v0.1 (no LHS assignment).
+- **Selector lists** (multiple selectors inside `[]`): concatenation of each selector’s result, in order. Index selectors throw on OOB; slice selectors clamp. Selector lists are valid as LHS targets for assignment and compound assignment.
 - **Selector literals in comparisons**: see Comparison & Identity for CCC handling.
 - **Examples**:
   ```shakar
@@ -590,6 +590,22 @@ Typed literals representing byte quantities. Distinct from integers and duration
   - `let` does not accept compound assignments or apply-assign (`+=`, `-=`, `.=`); use plain `=`/`:=` instead.
   - Destructuring and contracts are supported: `let a ~ Int, b := get_pair()`; `let (a, b) = pair`.
   - Let bindings do not leak out of the block, but closures created inside the block capture them.
+- **Once initialization (`once`)**:
+  - `once: expr` is an expression form with optional modifiers `once[static]`, `once[lazy]`, or `once[lazy, static]`.
+  - Only `static` and `lazy` are valid modifiers; unknown or duplicate modifiers are parse errors.
+  - `once` controls evaluation count: the body evaluates at most once per lexical site per scope, and the result is cached. Evaluation is eager by default.
+  - Assignments inside `once` follow normal assignment rules: `once: x := expensive()` evaluates the walrus eagerly and defines `x` in the surrounding scope.
+  - RHS binding form is supported: `x := once: expr` caches and binds to `x`.
+  - Block bodies are supported: `once:\n  stmts` evaluates the block in a child frame (internal bindings don't leak) and caches the last value.
+  - `lazy` defers evaluation of a walrus binding until the name is first read: `once[lazy]: x := expr`. Requires a walrus body (bare `once[lazy]: expr` is a parse error). In value-producing contexts (for example `y := once[lazy]: x := 1`), that read happens immediately, so it resolves right away.
+  - Non-static `once` cells are scoped to the nearest enclosing function call frame: loop iterations in one call share the same cell, while separate calls get separate cells.
+  - Parameter-default nuance: in `fn f(x = once: expr): ...`, non-static `once` is still per-call, not process-global. Default evaluation captures the current call frame (`_build_once_binding` captures the current `fn_frame`), so each invocation gets a fresh `once` cell.
+  - Practical implication: non-static `once` in a default is effectively eager per-call evaluation. Use `once[static]` when you want a single program-lifetime cached value.
+  - `static` shares one cell per lexical site for the program run.
+  - Modifiers compose: `once[lazy, static]` is lazy and shared.
+  - If initialization raises a `ShakarRuntimeError`, that error is cached in the once cell and re-raised on subsequent hits of that same cell. For non-static cells this is per call; static cells share the cached error across calls in the same run.
+  - Recursive self-read while the initializer is still evaluating raises `circular once initialization`.
+  - `static` and `lazy` remain ordinary identifiers outside `once[...]`.
 - **Walrus `:=` anchor**: assigns `RHS` to `LHS`, yields the value, and anchors `.` to `LHS` for the remainder of the containing expression at that level and within `RHS` after its head value is computed. Precedence tighter than `and`/`or`, lower than postfix. Example/desugar:
   ```shakar
   u := makeUser() and .isValid()
@@ -1174,284 +1190,9 @@ wait[any]:
 
 ---
 
-## Appendix: Grammar Sketch
+## Grammar Source
 
-```shakar
-(* Shakar grammar — proper EBNF. Lexical tokens: IDENT, STRING, NUMBER, NEWLINE, INDENT, DEDENT. *)
-
-(* ===== Core expressions ===== *)
-
-Expr            ::= TernaryExpr ;
-TernaryExpr     ::= OrExpr ( "?" Expr ":" TernaryExpr )? ;
-
-OrExpr          ::= AndExpr ( "or" AndExpr )* ;
-AndExpr         ::= BindExpr ( "and" BindExpr )* ;
-NullishExpr     ::= CompareExpr ( "??" CompareExpr )* ;
-WalrusExpr      ::= NullishExpr | IDENT ":=" Expr ;
-BindExpr       ::= WalrusExpr | LValue ".=" BindExpr ;  (* right-assoc; expression form of .= *)
-
-CompareExpr     ::= AddExpr ( CmpOp AddExpr | "," ( ("and" | "or")? (CmpOp)? AddExpr ) )* ;
-
-CmpOp           ::= "==" | "!=" | "<" | "<=" | ">" | ">=" | "is" | "is not" | "!is" | "in" | "!in" | "not in" ;
-
-AddExpr         ::= MulExpr ( AddOp MulExpr )* ;
-AddOp           ::= "+" | "-" | "^" | DeepMergeOp ;
-MulExpr         ::= PowExpr ( MulOp PowExpr )* ;
-MulOp           ::= "*" | "/" | "%" ;
-
-UnaryExpr       ::= WaitAnyBlock
-                  | WaitAllBlock
-                  | WaitGroupBlock
-                  | WaitAllCall
-                  | WaitGroupCall
-                  | WaitExpr
-                  | RecvExpr
-                  | SpawnExpr
-                  | UnaryPrefixOp UnaryExpr
-                  | PostfixExpr ;
-PowExpr         ::= UnaryExpr ( "**" PowExpr )? ;
-UnaryPrefixOp   ::= "-" | "not" | "!" | "$" | "++" | "--" ;
-
-PostfixExpr     ::= Primary ( Postfix )* ( PostfixIncr )?
-                  | "." PostfixLead ( Postfix )* ( PostfixIncr )? ;
-PostfixLead     ::= LeadCall | LeadField | LeadIndex | "(" ArgList? ")" ;
-LeadField       ::= [ "$" ] IDENT ;
-LeadIndex       ::= [ "$" ] "[" SelectorList ("," "default" ":" Expr)? "]" ;
-LeadCall        ::= [ "$" ] IDENT "(" ArgList? ")" ;
-Postfix         ::= PostfixCall | PostfixField | PostfixIndex | "(" ArgList? ")" ;
-PostfixField    ::= "." [ "$" ] IDENT ;
-PostfixIndex    ::= [ "$" ] "[" SelectorList ("," "default" ":" Expr)? "]" ;
-PostfixCall     ::= "." [ "$" ] IDENT "(" ArgList? ")" ;
-PostfixIncr     ::= "++" | "--" ;
-
-SelectorList    ::= Selector ("," Selector)* ;
-Selector        ::= IndexSel | SliceSel ;
-IndexSel        ::= Expr ;  (* evaluates to int/key; OOB on arrays throws *)
-SliceSel        ::= OptExpr ":" OptExpr (":" Expr)? ;
-
-OptExpr         ::= Expr? ;
-OptStop         ::= "<" Expr | Expr? ;
-Primary         ::= IDENT
-                  | Literal
-                  | "(" Expr ")"
-                  | SelectorLiteral
-                  | EmitExpr
-                  | NullSafe
-
-                  ;
-
-Literal         ::= STRING | NUMBER | DURATION | SIZE | "nil" | "true" | "false" ;
-DURATION        ::= NUMBER DURATION_UNIT ( INTEGER DURATION_UNIT )* ;
-SIZE            ::= NUMBER SIZE_UNIT ( INTEGER SIZE_UNIT )* ;
-DURATION_UNIT   ::= "nsec" | "usec" | "msec" | "sec" | "min" | "hr" | "day" | "wk" ;
-SIZE_UNIT       ::= "b" | "kb" | "mb" | "gb" | "tb" | "kib" | "mib" | "gib" | "tib" ;
-SelectorLiteral ::= "`" SelList "`" ;  (* backtick selector literal; first-class value with {expr} interpolation *)
-SelList         ::= SelItem ("," SelItem)* ;
-SelItem         ::= SliceItem | IndexItem ;
-SliceItem       ::= SelAtom? ":" SelOptStop (":" SelAtom)? ;
-SelOptStop      ::= "<" SelAtom | SelAtom? ;
-IndexItem       ::= SelAtom ;
-SelAtom         ::= Interp | IDENT | NUMBER ;
-Interp          ::= "{" Expr "}" ;
-
-(* SubjectExpr removed; covered by PostfixExpr *)
-(* ImplicitUse is contextual via anchor stack; not a nonterminal here. *)
-
-NullSafe        ::= "??" "(" Expr ")" ;
-EmitExpr        ::= ">" CallArgList? ;   (* only valid inside a lexical call block *)
-CallArgList     ::= ArgListNamedMixed | ArgList ;  (* same argument grammar as calls *)
-
-(* ===== Assignment forms ===== *)
-
-(* ApplyAssign     ::= LValue ".=" Expr ; //redundant, in BindExpr  *)
-StmtSubjectAssign ::= "=" LValue StmtTail ;  (* '.' = old LHS; writes back to same LHS path *)
-DeepMergeOp     ::= "+>" ;
-DeepMergeAssign ::= LValue "+>=" Expr ;
-AssignOr        ::= LValue "or=" Expr ;
-
-StmtTail        ::= Expr ;
-
-LValuePostfix ::= "." IDENT | "[" SelectorList "]" ;
-PrimaryLHS ::= IDENT | "(" LValue ")" ;
-LValue ::= PrimaryLHS ( LValuePostfix )* ( FieldFan )? ;
-FieldList       ::= IDENT ("," IDENT)* ;
-FieldFan        ::= "." "{" FieldList "}" ;
-
-RebindStmt ::= "=" Expr ;
-
-(* ===== Statements & blocks ===== *)
-BaseSimpleStmt  ::= RebindStmt
-                  | Expr
-
-                  | AssignOr
-                  | Destructure
-                  | ReturnIf
-                  | Dbg
-                  | Assert
-                  | UsingStmt
-                  | CallStmt
-                  | DeferStmt
-                  | Hook
-                  | CatchStmt
-                  | TryStmt
-                  | AwaitStmt
-                  | AwaitAnyCall
-                  | AwaitAllCall
-                  | IfStmt ;
-
-SimpleStmt      ::= BaseSimpleStmt
-                  | PostfixIf
-                  | PostfixUnless ;
-
-PostfixIf       ::= BaseSimpleStmt "if" Expr ;
-PostfixUnless   ::= BaseSimpleStmt "unless" Expr ;
-
-IndentBlock     ::= NEWLINE INDENT Stmt+ DEDENT ;
-InlineStmt      ::= SimpleStmt ;
-
-Stmt            ::= SimpleStmt
-                  | ForIn | ForSubject | ForIndexed | ForMap1 | ForMap2
-                  | AwaitAnyCall | AwaitAllCall ;
-
-(* ===== Control flow ===== *)
-
-IfStmt        ::= "if" Expr ":" (InlineBody | IndentBlock) ElifClause* ElseClause? ;
-ElifClause    ::= "elif" Expr ":" (InlineBody | IndentBlock) ;
-ElseClause    ::= "else" ":" (InlineBody | IndentBlock) ;
-
-ReturnIf      ::= "?ret" Expr ;
-
-GuardChain     ::= GuardHead GuardOr* GuardElse? ;
-GuardHead      ::= Expr ":" IndentBlock ;
-GuardOr        ::= ("|" | "||") Expr ":" IndentBlock ;
-GuardElse      ::= ("|:" | "||:") IndentBlock ;
-OneLineGuard   ::= GuardBranch ("|" GuardBranch)* ("|:" InlineBody)? ;
-GuardBranch    ::= Expr ":" InlineBody ;
-InlineBody     ::= SimpleStmt | "{" InlineStmt* "}" ;
-
-(* ===== Loops ===== *)
-
-ForIn           ::= "for" IDENT "in" Expr ":" (InlineBody | IndentBlock) ;
-ForSubject      ::= "for" Expr ":" (InlineBody | IndentBlock) ;
-ForIndexed      ::= "for" "[" IDENT "]" Expr ":" (InlineBody | IndentBlock) ;
-ForMap1         ::= ForIndexed ;  (* alias; '.' = value; IDENT = key *)
-ForMap2         ::= "for" "[" IDENT "," IDENT "]" Expr ":" (InlineBody | IndentBlock) ;  (* '.' = value; key,value bound *)
-WhileStmt       ::= "while" Expr ":" (InlineBody | IndentBlock) ;
-
-(* ===== Selectors (per-selector step allowed) ===== *)
-
-Indexing        ::= PostfixExpr "[" SelectorList "]" ;  (* kept for reference; covered by Postfix *)
-
-(* ===== Calls & lambdas ===== *)
-
-Callee          ::= PostfixExpr ;
-Call            ::= Callee "(" ArgList? ")"
-                  | Callee ArgListNamedMixed ;
-
-ArgList         ::= Arg ("," Arg)* ;
-Arg             ::= Expr | HoleExpr ;
-ArgListNamedMixed ::= (Arg ("," Arg)*)? ("," NamedArg ("," NamedArg)*)? ;
-NamedArg        ::= IDENT ":" Expr ;
-(* Placeholder partials in calls *)
-HoleExpr       ::= "?" ;
-(* If any HoleExpr appears among the immediate arguments of a Call, the Call desugars to a lambda with positional holes left-to-right. Each hole becomes a distinct parameter. *)
-
-
-LambdaCall1     ::= Callee "&" "(" Expr ")" ;
-LambdaCallN     ::= Callee "&" "[" ParamList "]" "(" Expr ")" ;
-ParamList       ::= IDENT ("," IDENT)* ;
-
-(* ===== Comprehensions ===== *)
-
-CompHead        ::= ("over" | "for") OverSpec ;
-OverSpec        ::= "[" PatternList "]" Expr | Expr ("bind" PatternHead)? ;
-IfClause        ::= "if" Expr ;
-
-ListComp        ::= "[" Expr CompHead IfClause? "]" ;
-SetComp         ::= "{" Expr CompHead IfClause? "}" ;
-DictComp        ::= "{" Expr ":" Expr CompHead IfClause? "}" ;
-
-Pattern         ::= IDENT | "(" Pattern ("," Pattern)* ")" ;
-PatternList     ::= Pattern "," Pattern ("," Pattern)* ;
-PatternHead     ::= PatternList | Pattern ;   (* use at heads that allow a,b *)
-
-DestrRHS        ::= Expr ( "," Expr )+ ; (* site-local pack, not a value *)
-Destructure     ::= PatternList "=" ( DestrRHS | Expr )
-                  | Pattern "=" Expr
-                  | PatternList ":=" ( DestrRHS | Expr )
-                  | Pattern ":=" Expr ;
-
-
-(* ===== Concurrency ===== *)
-WaitExpr        ::= "wait" ( "(" Expr ")" | UnaryExpr ) ;
-RecvExpr        ::= "<-" UnaryExpr ;
-SpawnExpr       ::= "spawn" ( ":" (InlineBody | IndentBlock)
-                            | "(" Expr ")"
-                            | UnaryExpr ) ;
-
-WaitAnyBlock    ::= "wait" "[" "any" "]" ":" WaitAnyArm+ ;
-WaitAnyArm      ::= ( [ IDENT ":=" ] RecvExpr ":" (InlineBody | IndentBlock) )
-                  | ( Expr "->" Expr ":" (InlineBody | IndentBlock) )
-                  | ( "timeout" Expr ":" (InlineBody | IndentBlock) )
-                  | ( "default" ":" (InlineBody | IndentBlock) ) ;
-
-WaitAllBlock    ::= "wait" "[" "all" "]" ":" WaitAllArm+ ;
-WaitAllArm      ::= IDENT ":" Expr ;
-
-WaitGroupBlock  ::= "wait" "[" "group" "]" ":" WaitGroupArm+ ;
-WaitGroupArm    ::= Expr ;
-
-WaitAllCall     ::= "wait" "[" "all" "]" UnaryExpr ;
-WaitGroupCall   ::= "wait" "[" "group" "]" UnaryExpr ;
-
-(* ===== Error handling / hooks ===== *)
-
-CatchExpr       ::= Expr ("catch" | "@@") CatchBinder? CatchTypes? ":" Expr ;
-CatchStmt       ::= Expr "catch" CatchBinder? CatchTypes? ":" (InlineBody | IndentBlock) ;
-TryStmt         ::= "try" ":" IndentBlock "catch" CatchBinder? CatchTypes? ":" IndentBlock ;
-CatchBinder     ::= IDENT | "bind" IDENT ;
-CatchTypes      ::= "(" IDENT ("," IDENT)* ")" ;
-
-Hook            ::= "hook" STRING ":" Body ;
-LambdaExpr      ::= "(" ParamList? ")" "=>" (Expr | IndentBlock) ;
-
-(* ===== Objects ===== *)
-
-ObjectItem      ::= IDENT ":" Expr
-                  | "get" IDENT "(" ")" ":" IndentBlock
-                  | "set" IDENT "(" IDENT ")" ":" IndentBlock ;
-
-(* ===== Using / Defer / Assert / Debug ===== *)
-
-DeferStmt       ::= "defer" ( SimpleCall DeferAfter? | DeferLabel? DeferAfter? DeferBody ) ;
-DeferLabel      ::= IDENT ;
-DeferBody       ::= ":" (InlineBody | IndentBlock) ;
-DeferAfter      ::= "after" ( IDENT | "(" (IDENT ("," IDENT)*)? ")" ) ;
-SimpleCall      ::= Callee "(" ArgList? ")" ;
-CallStmt        ::= "call" CallBinder? Expr ("bind" IDENT)? ":" (InlineBody | IndentBlock) ;
-CallBinder      ::= "[" IDENT "]" ;
-UsingStmt       ::= "using" ( "[" IDENT "]" )? Expr ("bind" IDENT)? ":" IndentBlock ;
-Assert          ::= "assert" Expr ("," Expr)? ;
-Dbg             ::= "dbg" (Expr ("," Expr)?) ;
-```
-
-#### Anchor semantics notes
-
-```shakar
-# Bare parentheses never start an implicit-chain. Use " .(...) " to call the ambient anchor.
-Primary      := Ident | Literal | "(" Expr ")"
-Call         := "(" ArgList? ")"
-Selector     := "[" SelectorList "]"
-MemberExpr   := Primary ( "." Ident | Call | Selector )*
-
-# AnchorScopes: ParenthesizedExpression, LambdaBody, CompHead, CompBody, AwaitBody
-# push/pop the current anchor.
-# The first MemberExpr evaluated in an AnchorScope retargets the anchor for that scope.
-# Lead-dot chains ( "." (Ident | Call | Selector) ) use the current anchor as receiver;
-# chain steps advance the receiver, not the anchor.
-# $-marked segments retarget the anchor to their receiver (one per chain; illegal inside $expr).
-# Inside Selector expressions, '.' denotes the base (the MemberExpr before '[').
-```
+The canonical grammar lives in `grammar.ebnf`.
 
 ---
 

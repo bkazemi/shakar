@@ -6,6 +6,7 @@ from ..runtime import (
     Frame,
     ShkArray,
     ShkFan,
+    ShkNil,
     ShkNumber,
     ShkValue,
     EvalResult,

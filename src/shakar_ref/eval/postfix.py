@@ -12,15 +12,7 @@ TruthyFunc = Callable[[ShkValue], bool]
 
 def define_new_ident(name: str, value: ShkValue, frame: Frame) -> ShkValue:
     """Introduce a new binding in the current scope; error if it already exists."""
-    vars_dict = getattr(frame, "vars", None)
-
-    if frame.has_let_name(name):
-        raise ShakarRuntimeError(f"Name '{name}' already defined in a let scope")
-
-    if vars_dict and name in vars_dict:
-        raise ShakarRuntimeError(f"Name '{name}' already defined in this scope")
-
-    frame.define(name, value)
+    frame.define_new_ident(name, value)
 
     return value
 

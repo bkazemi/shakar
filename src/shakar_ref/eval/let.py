@@ -1,9 +1,18 @@
 from __future__ import annotations
 
-from typing import Callable, List
+from typing import Callable, List, Optional
 
+from ..token_types import TT
 from ..runtime import Frame, ShkNil, ShkValue, ShakarRuntimeError
-from ..tree import Node, Tree, is_tree, tree_label
+from ..tree import (
+    Node,
+    Tree,
+    child_by_label,
+    is_token,
+    is_tree,
+    tree_children,
+    tree_label,
+)
 from .bind import assign_ident, eval_assign_stmt
 from .common import expect_ident_token
 from .destructure import assign_pattern as destructure_assign_pattern
@@ -23,6 +32,49 @@ def define_let_ident(name: str, value: ShkValue, frame: Frame) -> ShkValue:
     return value
 
 
+def _plain_single_pattern_name(node: Tree) -> Optional[str]:
+    """Return target name for `let x := ...` shape, else None."""
+    if tree_label(node) != "destructure_walrus" or len(node.children) != 2:
+        return None
+
+    pattern_list = node.children[0]
+    patterns = [
+        child
+        for child in tree_children(pattern_list)
+        if tree_label(child) in {"pattern", "pattern_rest"}
+    ]
+    if len(patterns) != 1:
+        return None
+
+    pattern = patterns[0]
+    if tree_label(pattern) != "pattern":
+        return None
+    if child_by_label(pattern, "contract"):
+        return None
+    if child_by_label(pattern, "default"):
+        return None
+
+    targets = tree_children(pattern)
+    if len(targets) != 1:
+        return None
+
+    target = targets[0]
+    if not is_token(target) or target.type != TT.IDENT:
+        return None
+    return str(target.value)
+
+
+def _rhs_is_pack(rhs_node: Node) -> bool:
+    rhs = rhs_node
+    while (
+        is_tree(rhs)
+        and tree_label(rhs) in {"expr", "group", "group_expr", "primary"}
+        and rhs.children
+    ):
+        rhs = rhs.children[0]
+    return is_tree(rhs) and tree_label(rhs) == "pack"
+
+
 def eval_let_walrus(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if len(children) != 2:
         raise ShakarRuntimeError("Malformed let walrus")
@@ -30,6 +82,7 @@ def eval_let_walrus(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkV
     name_node, value_node = children
     name = expect_ident_token(name_node, "Let walrus target")
     value = eval_fn(value_node, frame)
+
     return define_let_ident(name, value, frame)
 
 
@@ -63,6 +116,19 @@ def eval_let_destructure(
     create: bool,
     allow_broadcast: bool,
 ) -> ShkValue:
+    # Fast path for plain single-ident walrus targets (no contract/default).
+    # Still routes packed RHS through prepare_destructure_bindings so
+    # comma-arity checks stay consistent (`let x := 1, 2` must error).
+    if create and is_tree(node) and tree_label(node) == "destructure_walrus":
+        plain_name = _plain_single_pattern_name(node)
+        if plain_name:
+            rhs_node = node.children[1]
+            if not _rhs_is_pack(rhs_node):
+                value = eval_fn(rhs_node, frame)
+                define_let_ident(plain_name, value, frame)
+
+                return value
+
     patterns, values, result = prepare_destructure_bindings(
         node,
         frame,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Callable, List, Optional
 import pathlib
 from types import SimpleNamespace
@@ -14,6 +15,8 @@ from .runtime import (
     ShkFan,
     ShkBool,
     ShkNil,
+    LazyOnceThunk,
+    OnceBinding,
     ShkString,
     ShkValue,
     ShakarBreakSignal,
@@ -21,6 +24,9 @@ from .runtime import (
     ShakarImportError,
     ShakarRuntimeError,
     ShakarTypeError,
+    OnceCellState,
+    _STATIC_ONCE_CELLS,
+    _STATIC_ONCE_CELLS_LOCK,
     import_module,
     init_stdlib,
 )
@@ -147,6 +153,64 @@ from .eval.let import eval_let_stmt
 EvalFn = Callable[[Node, Frame], ShkValue]
 
 
+def _append_once_fingerprint(node: Node, parts: List[str]) -> None:
+    if is_token(node):
+        tok_type = node.type.name if hasattr(node.type, "name") else str(node.type)
+        parts.append(f"T:{tok_type}:{node.value!r}:{node.line}:{node.column};")
+        return
+
+    if not is_tree(node):
+        parts.append("N:unknown;")
+        return
+
+    parts.append(f"N:{node.data}:{len(node.children)}:")
+    meta = getattr(node, "meta", None)
+    if meta:
+        line = getattr(meta, "line", None)
+        column = getattr(meta, "column", None)
+        end_line = getattr(meta, "end_line", None)
+        end_column = getattr(meta, "end_column", None)
+        parts.append(f"M:{line}:{column}:{end_line}:{end_column}:")
+
+    attrs = node.attrs
+    if attrs:
+        for key in sorted(attrs.keys()):
+            if key == "once_id":
+                continue
+            parts.append(f"A:{key}={attrs[key]!r}:")
+
+    for child in node.children:
+        _append_once_fingerprint(child, parts)
+
+    parts.append(");")
+
+
+def _deterministic_once_id(node: Tree) -> int:
+    """Compute a stable fallback id for lowered once_expr nodes missing attrs."""
+    parts: List[str] = []
+    _append_once_fingerprint(node, parts)
+    digest = hashlib.sha256("".join(parts).encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") & ((1 << 63) - 1)
+
+
+def once_node_id(node: Tree) -> int:
+    """Read once-site id, materializing deterministic fallback if attrs are absent."""
+    attrs = node.attrs
+    if attrs and "once_id" in attrs:
+        once_id = attrs["once_id"]
+        if isinstance(once_id, int):
+            return once_id
+        raise ShakarRuntimeError("once_expr node has invalid once_id metadata")
+
+    once_id = _deterministic_once_id(node)
+    if attrs:
+        attrs["once_id"] = once_id
+    else:
+        node.attrs = {"once_id": once_id}
+
+    return once_id
+
+
 def _maybe_attach_location(exc: ShakarRuntimeError, node: Node, frame: Frame) -> None:
     if getattr(exc, "_augmented", False):
         return
@@ -201,7 +265,9 @@ def eval_expr(
             frame.source = None
 
     try:
-        return eval_node(ast, frame)
+        result = eval_node(ast, frame)
+
+        return result
     except ShakarRuntimeError as e:
         _maybe_attach_call_stack(e, frame)
         _maybe_attach_py_trace(e)
@@ -252,6 +318,228 @@ def _eval_token(t: Tok, frame: Frame) -> ShkValue:
     raise ShakarRuntimeError(f"Unhandled token {t.type}:{t.value}")
 
 
+def _once_flags(node: Tree) -> tuple[bool, bool]:
+    """Extract `static` and `lazy` modifier flags from a once expression."""
+    is_static = False
+    is_lazy = False
+
+    for child in node.children:
+        if not is_tree(child) or tree_label(child) != "once_modifiers":
+            continue
+        for modifier in child.children:
+            if not is_token(modifier):
+                continue
+            if modifier.value == "static":
+                is_static = True
+            elif modifier.value == "lazy":
+                is_lazy = True
+
+    return is_static, is_lazy
+
+
+def _once_body(node: Tree) -> Node:
+    """Return the expression body from a once expression node."""
+    if not node.children:
+        raise ShakarRuntimeError("Malformed once expression")
+    return node.children[-1]
+
+
+def _build_once_binding(node: Tree, frame: Frame) -> OnceBinding:
+    """Build once binding from an once_expr AST node.
+
+    Uses the caller's frame directly so side effects (walrus bindings,
+    assignments) are visible in the surrounding scope.
+    """
+    is_static, _ = _once_flags(node)
+    body = _once_body(node)
+
+    # Detect multi-statement block body (indented or braced with stmtlist).
+    # Inline single-expression bodies (body with inline=True and no stmtlist)
+    # are NOT blocks — they evaluate in the current frame.
+    body_is_block = False
+    if is_tree(body) and tree_label(body) == "body":
+        attrs = getattr(body, "attrs", None)
+        if attrs and not attrs.get("inline", True):
+            # Indented block => always a block body
+            body_is_block = True
+        elif body.children:
+            # Inline brace block: has stmtlist child
+            for ch in body.children:
+                if is_tree(ch) and tree_label(ch) == "stmtlist":
+                    body_is_block = True
+                    break
+
+    return OnceBinding(
+        node_id=once_node_id(node),
+        body=body,
+        def_frame=frame,
+        fn_frame=frame.get_function_frame(),
+        is_static=is_static,
+        is_block=body_is_block,
+    )
+
+
+def eval_once_binding(node: Tree, frame: Frame) -> OnceBinding:
+    """Build once binding metadata without resolving the once body."""
+    return _build_once_binding(node, frame)
+
+
+def _read_initialized_cell(cell: OnceCellState) -> ShkValue:
+    if cell.error is not None:
+        raise cell.error
+    if cell.value is None:
+        raise ShakarRuntimeError("once initializer did not produce a value")
+    return cell.value
+
+
+def _once_cell_for_binding(binding: OnceBinding) -> OnceCellState:
+    if binding.is_static:
+        cells = _STATIC_ONCE_CELLS
+        map_lock = _STATIC_ONCE_CELLS_LOCK
+    else:
+        cells = binding.fn_frame.once_cells
+        map_lock = binding.fn_frame.once_cells_lock
+
+    # Get-or-create under explicit lock (GIL-independent).
+    cell = cells.get(binding.node_id)
+    if cell is None:
+        with map_lock:
+            cell = cells.get(binding.node_id)
+            if cell is None:
+                cell = OnceCellState()
+                cells[binding.node_id] = cell
+
+    return cell
+
+
+def _resolve_once(binding: OnceBinding) -> ShkValue:
+    cell = _once_cell_for_binding(binding)
+
+    with cell.lock:
+        if cell.initialized:
+            return _read_initialized_cell(cell)
+
+        if cell.evaluating:
+            raise ShakarRuntimeError("circular once initialization")
+        cell.evaluating = True
+
+        try:
+            if binding.is_block:
+                # Preserve subject anchor for block once bodies while isolating
+                # local bindings in a child frame.
+                child = Frame(parent=binding.def_frame, dot=binding.def_frame.dot)
+                value = eval_body_node(binding.body, child, eval_node)
+            else:
+                value = eval_node(binding.body, binding.def_frame)
+            cell.value = value
+            cell.initialized = True
+
+            return value
+        except ShakarRuntimeError as exc:
+            cell.error = exc
+            cell.initialized = True
+            raise
+        finally:
+            cell.evaluating = False
+
+
+def _register_lazy_once(
+    once_node: Tree,
+    walrus_node: Tree,
+    frame: Frame,
+    *,
+    resolve: bool,
+) -> ShkValue:
+    """Register a lazy once-walrus binding, deferring evaluation to first read.
+
+    Extracts the name and value expression from the walrus body, builds an
+    OnceBinding with body = value_expr (not the full walrus), and stores a
+    LazyOnceThunk in frame.lazy_once.  When the name is first read via
+    frame.get(), the thunk resolves through the normal once-cell machinery.
+    """
+    from .eval.common import expect_ident_token
+
+    if len(walrus_node.children) != 2:
+        raise ShakarRuntimeError("Malformed once walrus expression")
+
+    name_node, value_node = walrus_node.children
+    name = expect_ident_token(name_node, "once walrus target")
+
+    # Build binding with body = value expression (skip the walrus wrapper
+    # so resolution produces the value directly without re-defining the name).
+    binding = _build_once_binding(once_node, frame)
+    binding.body = value_node
+
+    site_id = binding.node_id
+    existing_site_id = frame.lazy_once_site_ids.get(name)
+
+    # Repeated execution of the same lexical site (for example in loops)
+    # must reuse prior registration. Conflicting declarations must keep
+    # normal duplicate-name errors.
+    if existing_site_id == site_id:
+        if name not in frame.lazy_once and name not in frame.vars:
+            frame.lazy_once[name] = LazyOnceThunk(
+                resolve=lambda: _resolve_once(binding)
+            )
+    else:
+        frame.ensure_name_available_in_current_scope(name)
+        frame.lazy_once[name] = LazyOnceThunk(resolve=lambda: _resolve_once(binding))
+        frame.lazy_once_site_ids[name] = site_id
+
+    # In value contexts, produce the bound value (which resolves lazily on read).
+    # In discard contexts, keep registration-only behavior.
+    if resolve:
+        return frame.get(name)
+
+    return ShkNil()
+
+
+def _eval_once_expr(n: Tree, frame: Frame) -> ShkValue:
+    """Evaluate once expression: eager by default, lazy only with [lazy] modifier.
+
+    All forms are eager unless ``[lazy]`` is specified.  ``once[lazy]: x := expr``
+    defers evaluation until ``x`` is first read.  Block bodies
+    (``once:\\n  stmts``) evaluate in a child frame for scoping.  Statement-discard
+    mode is carried on ``n.attrs['discard']`` for lazy once walrus registration.
+    """
+    _, is_lazy = _once_flags(n)
+    body = _once_body(n)
+    discard = bool(n.attrs and n.attrs.get("discard"))
+
+    # Lazy path: defer walrus body until first read of the name.
+    # Parser validates that lazy always has a walrus body (inline, not block).
+    if is_lazy:
+        # Unwrap expr/stmt wrappers to find the walrus node
+        walrus_node = body
+        while (
+            is_tree(walrus_node)
+            and tree_label(walrus_node) in {"expr", "stmt"}
+            and walrus_node.children
+        ):
+            walrus_node = walrus_node.children[0]
+
+        return _register_lazy_once(n, walrus_node, frame, resolve=not discard)
+
+    # Eager path: bare expr, eager walrus, or block body.
+    binding = _build_once_binding(n, frame)
+    value = _resolve_once(binding)
+
+    # For eager walrus (once: x := expr), the walrus body only runs on
+    # first evaluation. On subsequent hits (cached), re-define the name
+    # so the binding is visible in the current frame.
+    inner = body
+    while is_tree(inner) and tree_label(inner) in {"expr", "stmt"} and inner.children:
+        inner = inner.children[0]
+    if is_tree(inner) and tree_label(inner) == "walrus":
+        from .eval.common import expect_ident_token
+
+        name = expect_ident_token(inner.children[0], "once walrus target")
+        if name not in frame.vars:
+            frame.define_new_ident(name, value)
+
+    return value
+
+
 def _eval_implicit_chain(ops: List[Tree], frame: Frame) -> ShkValue:
     """Evaluate `.foo().bar` style chains using the current subject anchor."""
     val = get_subject(frame)
@@ -287,12 +575,12 @@ def _eval_group(n: Tree, frame: Frame) -> ShkValue:
     if child is None:
         return ShkNil()
 
-    saved = frame.dot
+    saved_dot = frame.dot
 
     try:
         return eval_node(child, frame)
     finally:
-        frame.dot = saved
+        frame.dot = saved_dot
 
 
 def _eval_wrapper_node(n: Tree, frame: Frame) -> ShkValue:
@@ -866,6 +1154,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "recv": _eval_recv,
     "send": _eval_send,
     "spawn": _eval_spawn,
+    "once_expr": _eval_once_expr,
     "subject": _eval_subject,
     "keyexpr": _eval_optional_child,
     "slicearm_expr": _eval_optional_child,

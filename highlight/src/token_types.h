@@ -32,6 +32,7 @@ typedef enum {
     TT_RETURN,
     TT_FN,
     TT_LET,
+    TT_ONCE,
     TT_WAIT,
     TT_SPAWN,
     TT_USING,

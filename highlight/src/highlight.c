@@ -80,6 +80,7 @@ static HlGroup base_group(TT t) {
     case TT_RETURN:
     case TT_FN:
     case TT_LET:
+    case TT_ONCE:
     case TT_WAIT:
     case TT_SPAWN:
     case TT_USING:
@@ -346,6 +347,7 @@ static int is_slot_head_keyword(TT t) {
     case TT_USING:
     case TT_CALL:
     case TT_FAN:
+    case TT_ONCE:
         return 1;
     default:
         return 0;
@@ -456,6 +458,7 @@ static int stmt_has_next_colon(const Tok *toks, int tc, int cur_sig_idx, int gro
 typedef struct {
     int ternary_qmarks;
     int catch_pending_colon;
+    int once_pending_colons;
     int in_selector_literal;
     TT last_depth0_sig;
 } PrevColonCtx;
@@ -475,6 +478,8 @@ static int visit_prev_colon(TT type, int idx, void *ctx) {
 
     if (type == TT_QMARK) {
         c->ternary_qmarks++;
+    } else if (type == TT_ONCE) {
+        c->once_pending_colons++;
     } else if (type == TT_CATCH) {
         c->catch_pending_colon = 1;
     } else if (type == TT_AT && c->last_depth0_sig == TT_AT) {
@@ -484,6 +489,8 @@ static int visit_prev_colon(TT type, int idx, void *ctx) {
             c->ternary_qmarks--;
         } else if (c->catch_pending_colon) {
             c->catch_pending_colon = 0;
+        } else if (c->once_pending_colons > 0) {
+            c->once_pending_colons--;
         } else {
             return 1; /* found a statement-level colon */
         }
@@ -498,7 +505,13 @@ static int visit_prev_colon(TT type, int idx, void *ctx) {
  * are excluded. */
 static int stmt_has_prev_colon(const Tok *toks, int cur_sig_idx, int group_depth_before_cur) {
     int start = stmt_start_idx(toks, cur_sig_idx, group_depth_before_cur);
-    PrevColonCtx ctx = {0, 0, 0, TT_EOF};
+    PrevColonCtx ctx = {
+        .ternary_qmarks = 0,
+        .catch_pending_colon = 0,
+        .once_pending_colons = 0,
+        .in_selector_literal = 0,
+        .last_depth0_sig = TT_EOF,
+    };
 
     /* Forward scan from statement start to cur_sig_idx (exclusive).
      * Depth starts at 0 since start is after a statement boundary. */
@@ -511,7 +524,7 @@ static HlGroup classify_ident(const char *src, int src_len, Tok *tok, Tok *next_
     if (prev_sig == TT_QMARK && token_text_equals(src, src_len, tok, "ret", 3))
         return HL_KEYWORD;
 
-    /* Modifier/binder bracket slot: wait[mod], using[name], call[name], fan[mod]. */
+    /* Modifier/binder bracket slot: wait[mod], using[name], call[name], fan[mod], once[mod]. */
     if (prev_sig == TT_LSQB && next_sig && next_sig->type == TT_RSQB) {
         if (is_slot_head_keyword(prev_prev_sig)) {
             return HL_KEYWORD;

@@ -12,10 +12,10 @@ digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
 (* Reserved keywords *)
 (* and, or, not, if, elif, else, unless, for, match, in, break, continue, return, assert, *)
 (* using, call, defer, after, try, catch, decorator, decorate, hook, fn, get, set, bind, import, over, *)
-(* true, false, nil, wait, spawn, any, all, group, while, throw, dbg, is, ?ret *)
+(* true, false, nil, once, wait, spawn, any, all, group, while, throw, dbg, is, ?ret *)
 
 (* Contextual keywords - valid as identifiers in most contexts *)
-(* default, timeout, ret *)
+(* static, lazy, default, timeout, ret *)
 (* These are only keywords in specific grammatical positions and can be *)
 (* used as regular identifiers elsewhere. *)
 
@@ -306,6 +306,7 @@ primary = rebind_primary
         | selector_literal
         | nullsafe_expression
         | emit_expression
+        | once_expression
         | hole_expression ;
 
 fan_literal = "fan" , [ fan_modifiers ] , "{" , [ fan_list ] , "}" ;
@@ -330,6 +331,10 @@ interp = "{" , expression , "}" ;
 nullsafe_expression = NULLISH , "(" , expression , ")" ;
 emit_expression = GT , [ arglist_named_mixed ] ;
 import_expression = "import" , import_string ;
+once_expression = "once" , [ once_modifiers ] , ":" , ( once_body | expression ) ;
+once_body = NEWLINE , INDENT , { statement , NEWLINE }* , [ statement ] , DEDENT ;
+once_modifiers = "[" , once_modifier , { "," , once_modifier } , "]" ;
+once_modifier = "lazy" | "static" ;
 
 (* Rebind expressions *)
 rebind_primary = ( "=" , IDENT ) | ( "=" , "(" , rebind_lvalue , ")" ) ;

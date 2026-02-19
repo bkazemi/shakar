@@ -24,7 +24,7 @@ from ..utils import (
     coerce_sequence,
     replicate_empty_sequence,
 )
-from ..tree import Node, Tree, child_by_label, tree_label, tree_children
+from ..tree import Node, Tree, child_by_label, is_tree, tree_label, tree_children
 from .helpers import collect_scope_names, find_frozen_scope_frame
 from .common import assert_contract_match
 
@@ -39,6 +39,31 @@ def _ident_token_value(node: Node) -> Optional[str]:
         return str(node.value)
 
     return None
+
+
+def _collect_pattern_target_names(pattern: Tree, out: list[str]) -> None:
+    label = tree_label(pattern)
+    if label == "pattern_rest":
+        children = tree_children(pattern)
+        if children:
+            name = _ident_token_value(children[0])
+            if name:
+                out.append(name)
+        return
+
+    if label != "pattern" or not tree_children(pattern):
+        return
+
+    target = tree_children(pattern)[0]
+    ident = _ident_token_value(target)
+    if ident:
+        out.append(ident)
+        return
+
+    if is_tree(target) and tree_label(target) == "pattern_list":
+        for child in tree_children(target):
+            if tree_label(child) in {"pattern", "pattern_rest"}:
+                _collect_pattern_target_names(child, out)
 
 
 def _extract_pattern_info(
@@ -354,7 +379,7 @@ def _pattern_binding_metadata(
             names.append(None)
             defaults.append(False)
 
-    if all(n is not None for i, n in enumerate(names) if i != rest_index):
+    if all(n for i, n in enumerate(names) if i != rest_index):
         ident_names = names  # type: ignore[assignment]
     has_defaults = defaults if any(defaults) else None
     return ident_names, has_defaults

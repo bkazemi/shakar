@@ -125,7 +125,10 @@ def _handle_slash(line: str, frame_box: list[Frame]) -> bool:
         return True
 
     if cmd == "/reset":
+        from .runtime import _STATIC_ONCE_CELLS
+
         init_stdlib()
+        _STATIC_ONCE_CELLS.clear()
         frame_box[0] = Frame(source="", source_path="<repl>")
         print("Environment reset.")
         return True

@@ -10,7 +10,7 @@ from .lexer_rd import LexError
 from .ast_transforms import Prune, looks_like_offside
 from .lower import lower
 from .evaluator import eval_expr
-from .runtime import Frame, ShkValue, init_stdlib
+from .runtime import Frame, ShkValue, _STATIC_ONCE_CELLS, init_stdlib
 from .types import ShkNil, ShakarRuntimeError
 from .utils import debug_py_trace_enabled
 from .tree import Tree
@@ -142,6 +142,7 @@ def run(
     source_path: Optional[str] = None,
 ) -> ShkValue:  # grammar_path/variant accepted but ignored
     init_stdlib()
+    _STATIC_ONCE_CELLS.clear()
     ast2 = _parse_and_lower(src, use_indenter=use_indenter)
     return eval_expr(ast2, Frame(source=src, source_path=source_path), source=src)
 

@@ -281,6 +281,10 @@ def _iter_channel_values(channel: ShkChannel, frame: Frame) -> Iterable[ShkValue
         yield value
 
 
+def _resolve_iter_source(value: ShkValue) -> ShkValue:
+    return value
+
+
 def _apply_comp_binders_wrapper(
     binders: list[dict[str, ShkValue]],
     element: ShkValue,
@@ -306,7 +310,7 @@ def _apply_comp_binders_wrapper(
 
 def _prepare_comprehension(
     n: Tree, frame: Frame, head_nodes: list[Tree], eval_fn: EvalFn
-) -> tuple[Tree, list[dict[str, ShkValue]], Optional[Tree]]:
+) -> tuple[ShkValue, list[dict[str, ShkValue]], Optional[Tree]]:
     comphead = child_by_label(n, "comphead")
     if comphead is None:
         raise ShakarRuntimeError("Malformed comprehension")
@@ -326,7 +330,7 @@ def _prepare_comprehension(
             pattern = Tree("pattern", [Tok(TT.IDENT, name, 0, 0)])
             binders.append({"pattern": pattern, "hoist": False})
 
-    iter_val = eval_fn(iter_expr_node, frame)
+    iter_val = _resolve_iter_source(eval_fn(iter_expr_node, frame))
 
     return iter_val, binders, ifclause
 
@@ -431,7 +435,7 @@ def eval_for_in(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if pattern_node is None:
         raise ShakarRuntimeError("For-in loop missing pattern")
 
-    iter_source = eval_fn(iter_expr, frame)
+    iter_source = _resolve_iter_source(eval_fn(iter_expr, frame))
     if isinstance(iter_source, ShkChannel):
         iterable = _iter_channel_values(iter_source, frame)
     else:
@@ -491,7 +495,7 @@ def eval_for_subject(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     if iter_expr is None or body_node is None:
         raise ShakarRuntimeError("Malformed subjectful for loop")
 
-    iter_source = eval_fn(iter_expr, frame)
+    iter_source = _resolve_iter_source(eval_fn(iter_expr, frame))
     if isinstance(iter_source, ShkChannel):
         iterable = _iter_channel_values(iter_source, frame)
     else:
@@ -537,7 +541,7 @@ def eval_for_indexed(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
         raise ShakarRuntimeError("Malformed indexed loop")
 
     binders = [_coerce_loop_binder(node) for node in binder_nodes]
-    iterable = eval_fn(iter_expr, frame)
+    iterable = _resolve_iter_source(eval_fn(iter_expr, frame))
     entries = _iter_indexed_entries(iterable, len(binders))
     outer_dot = frame.dot
 

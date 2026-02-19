@@ -38,6 +38,11 @@ from .types import (
     BuiltinMethod,
     Descriptor,
     StdlibFunction,
+    OnceCellState,
+    OnceBinding,
+    LazyOnceThunk,
+    _STATIC_ONCE_CELLS,
+    _STATIC_ONCE_CELLS_LOCK,
     CallSite,
     DeferEntry,
     ShkValue,
@@ -106,6 +111,10 @@ __all__ = [
     "BuiltinMethod",
     "Descriptor",
     "StdlibFunction",
+    "OnceCellState",
+    "OnceBinding",
+    "_STATIC_ONCE_CELLS",
+    "_STATIC_ONCE_CELLS_LOCK",
     "DeferEntry",
     "ShkValue",
     "EvalResult",
@@ -1166,6 +1175,9 @@ def _call_shkfn_raw(
         call_stack=caller_frame.call_stack,
     )
     callee_frame.frozen_scope_names = fn.frame.frozen_scope_names
+    # Mark before evaluating parameter defaults so non-static once cells created
+    # during binding are scoped to this invocation's function frame.
+    callee_frame.mark_function_frame()
     eval_default = lambda node: _ensure_shk_value(eval_node(node, callee_frame))
 
     if named:
@@ -1190,7 +1202,6 @@ def _call_shkfn_raw(
         )
 
     _apply_destruct_bindings(fn, callee_frame, eval_default)
-    callee_frame.mark_function_frame()
 
     try:
         result = _ensure_shk_value(eval_node(fn.body, callee_frame))
