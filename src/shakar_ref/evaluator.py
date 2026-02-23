@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from .token_types import TT
 from .lexer_rd import Lexer
 from .stdlib import std_mixin
-from .tree import Node, Tree, Tok, is_token, is_tree, tree_label
+from .tree import Node, Tree, Tok, is_token, is_tree, tree_label, unwrap_node
 from .runtime import (
     Frame,
     ShkArray,
@@ -164,13 +164,9 @@ def _append_once_fingerprint(node: Node, parts: List[str]) -> None:
         return
 
     parts.append(f"N:{node.data}:{len(node.children)}:")
-    meta = getattr(node, "meta", None)
+    meta = node.meta
     if meta:
-        line = getattr(meta, "line", None)
-        column = getattr(meta, "column", None)
-        end_line = getattr(meta, "end_line", None)
-        end_column = getattr(meta, "end_column", None)
-        parts.append(f"M:{line}:{column}:{end_line}:{end_column}:")
+        parts.append(f"M:{meta.line}:{meta.column}:{meta.end_line}:{meta.end_column}:")
 
     attrs = node.attrs
     if attrs:
@@ -509,15 +505,7 @@ def _eval_once_expr(n: Tree, frame: Frame) -> ShkValue:
     # Lazy path: defer walrus body until first read of the name.
     # Parser validates that lazy always has a walrus body (inline, not block).
     if is_lazy:
-        # Unwrap expr/stmt wrappers to find the walrus node
-        walrus_node = body
-        while (
-            is_tree(walrus_node)
-            and tree_label(walrus_node) in {"expr", "stmt"}
-            and walrus_node.children
-        ):
-            walrus_node = walrus_node.children[0]
-
+        walrus_node = unwrap_node(body, {"expr", "stmt"})
         return _register_lazy_once(n, walrus_node, frame, resolve=not discard)
 
     # Eager path: bare expr, eager walrus, or block body.
@@ -527,9 +515,7 @@ def _eval_once_expr(n: Tree, frame: Frame) -> ShkValue:
     # For eager walrus (once: x := expr), the walrus body only runs on
     # first evaluation. On subsequent hits (cached), re-define the name
     # so the binding is visible in the current frame.
-    inner = body
-    while is_tree(inner) and tree_label(inner) in {"expr", "stmt"} and inner.children:
-        inner = inner.children[0]
+    inner = unwrap_node(body, {"expr", "stmt"})
     if is_tree(inner) and tree_label(inner) == "walrus":
         from .eval.common import expect_ident_token
 

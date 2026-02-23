@@ -975,6 +975,9 @@ class StdlibFunction:
 
 @dataclass
 class OnceCellState:
+    """Mutable cell tracking the evaluation state of a once expression.
+    Guards against circular initialization and caches the result or error."""
+
     initialized: bool = False
     evaluating: bool = False
     value: Optional["ShkValue"] = None
@@ -985,6 +988,9 @@ class OnceCellState:
 
 @dataclass
 class OnceBinding:
+    """Metadata for a once expression: the unevaluated body, its defining
+    frame, and whether it uses static (global) or lazy (per-invocation) caching."""
+
     node_id: int
     body: Node
     def_frame: "Frame"
@@ -1042,14 +1048,20 @@ class LazyOnceThunk:
 
 
 class MissingBindingLookup(NamedTuple):
+    """Binding not found in the current frame."""
+
     pass
 
 
 class ValueBindingLookup(NamedTuple):
+    """Binding resolved to a concrete value."""
+
     value: ShkValue
 
 
 class LazyOnceLookup(NamedTuple):
+    """Binding is a lazy-once thunk that hasn't been evaluated yet."""
+
     thunk: LazyOnceThunk
 
 

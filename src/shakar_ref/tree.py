@@ -40,6 +40,7 @@ __all__ = [
     "ident_value",
     "token_kind",
     "is_inline_body",
+    "unwrap_node",
     "is_optional_field",
     "is_grouped_rebind",
 ]
@@ -169,6 +170,14 @@ def tree_children(node: Node) -> List[Node]:
     if not is_tree(node):
         return []
     return list(node.children)
+
+
+def unwrap_node(node: Node, labels: Set[str]) -> Node:
+    """Strip wrapper tree nodes whose label is in `labels`, returning the inner node."""
+    current = node
+    while is_tree(current) and current.data in labels and current.children:
+        current = current.children[0]
+    return current
 
 
 def node_meta(node: Node) -> Optional[Any]:

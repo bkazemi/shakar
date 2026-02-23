@@ -1925,16 +1925,9 @@ class Parser:
 
         # lazy requires a walrus binding (prefix form); lazy + block is not allowed
         if "lazy" in seen_modifiers:
-            from .tree import is_tree, tree_label
+            from .tree import is_tree, tree_label, unwrap_node
 
-            # Unwrap expr/stmt wrappers to find the walrus node
-            inner = body
-            while (
-                is_tree(inner)
-                and tree_label(inner) in {"expr", "stmt"}
-                and inner.children
-            ):
-                inner = inner.children[0]
+            inner = unwrap_node(body, {"expr", "stmt"})
             is_walrus = is_tree(inner) and tree_label(inner) == "walrus"
             if not is_walrus:
                 raise ParseError(
@@ -2502,18 +2495,6 @@ class Parser:
             return Tree("pack", exprs)
         finally:
             self._pop_parse_context(saved_context)
-
-    @staticmethod
-    def _unwrap_to_canonical(node: Node) -> Node:
-        """Strip wrapper nodes to find the canonical inner node."""
-        current = node
-        while (
-            is_tree(current)
-            and tree_label(current) in {"expr", "group", "group_expr", "primary"}
-            and current.children
-        ):
-            current = current.children[0]
-        return current
 
     def parse_walrus_expr(self) -> Node:
         """Parse walrus: x := expr"""
