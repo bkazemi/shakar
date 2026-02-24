@@ -1050,13 +1050,14 @@ def assign_pattern_value(
     create: bool,
     allow_broadcast: bool,
     eval_fn: EvalFn,
+    strict_create: bool = False,
 ) -> None:
     """Bind a destructuring pattern to a value, including walrus broadcasts."""
 
     def _assign_ident_wrapper(
         name: str, val: ShkValue, target_frame: Frame, create_flag: bool
     ) -> None:
-        if create_flag and allow_broadcast:
+        if create_flag and (strict_create or allow_broadcast):
             define_new_ident(name, val, target_frame)
             return
         assign_ident(name, val, target_frame, create=create_flag)

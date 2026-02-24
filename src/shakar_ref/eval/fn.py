@@ -114,7 +114,7 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue
         if instances:
             fn_value.decorators = tuple(reversed(instances))
 
-    frame.define(name, fn_value)
+    frame.define_new_ident(name, fn_value)
 
     return ShkNil()
 
@@ -233,7 +233,7 @@ def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
         vararg_indices=varargs,
         param_defaults=defaults,
     )
-    frame.define(name, decorator)
+    frame.define_new_ident(name, decorator)
 
     return ShkNil()
 

@@ -282,6 +282,32 @@ SCENARIOS = [
     pytest.param(
         dedent(
             """\
+            x := 99
+            for x in [1, 2]:
+              nil
+            x
+        """
+        ),
+        ("number", 99),
+        None,
+        id="for-in-binder-does-not-rebind-outer",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            x := 99
+            for[x] [10, 20]:
+              nil
+            x
+        """
+        ),
+        ("number", 99),
+        None,
+        id="for-indexed-binder-does-not-rebind-outer",
+    ),
+    pytest.param(
+        dedent(
+            """\
             for[^idx] [10, 20]: idx = idx
             idx
         """
@@ -289,6 +315,18 @@ SCENARIOS = [
         ("number", 1),
         None,
         id="for-hoist-index",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            x := 99
+            [x over[x] [1, 2]][0]
+            x
+        """
+        ),
+        ("number", 99),
+        None,
+        id="listcomp-explicit-binder-does-not-rebind-outer",
     ),
     pytest.param(
         dedent(

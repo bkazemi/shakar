@@ -1935,6 +1935,10 @@ class Parser:
                     self.current,
                 )
 
+        # Reject nested once expressions — every combination is either
+        # redundant or semantically contradictory.
+        self._reject_nested_once(body)
+
         children: List[Node] = []
         if modifiers_node:
             children.append(modifiers_node)
@@ -1943,6 +1947,51 @@ class Parser:
         if is_block_body:
             attrs["block_body"] = True
         return Tree("once_expr", children, attrs=attrs)
+
+    def _reject_nested_once(self, body: Node) -> None:
+        """Raise ParseError if the once body contains nested once expressions.
+
+        Recursively walks the entire body AST. Closure scopes (function
+        bodies, anonymous functions, decorator definitions) are excluded —
+        once inside them is a separate lexical scope, not true nesting.
+        For fnstmt nodes, decorator_list children are still traversed
+        because decorator expressions execute in the enclosing scope.
+        """
+        from .tree import is_tree, tree_label, tree_children
+
+        # Nodes whose entire subtree is a new lexical scope — skip completely.
+        opaque_scopes = {"anonfn", "amp_lambda", "decorator_def"}
+
+        # fnstmt children that form the closure — skip these but still
+        # walk decorator_list (decorators run in the enclosing scope).
+        fn_closure_parts = {"body", "paramlist", "return_contract"}
+
+        stack: list[Node] = [body]
+        while stack:
+            node = stack.pop()
+            if not is_tree(node):
+                continue
+
+            label = tree_label(node)
+
+            if label == "once_expr":
+                raise ParseError(
+                    "nested once expressions are not allowed", self.current
+                )
+
+            # Skip entire opaque scope subtrees.
+            if label in opaque_scopes:
+                continue
+
+            # For fnstmt, only walk decorator_list (skip body/paramlist).
+            if label == "fnstmt":
+                for child in tree_children(node):
+                    if is_tree(child) and tree_label(child) not in fn_closure_parts:
+                        stack.append(child)
+                continue
+
+            for child in tree_children(node):
+                stack.append(child)
 
     def _parse_wait_any_block(self, modifier_tok: Tok) -> Tree:
         self._expect_indented_block("wait[any]", require_arm=True)

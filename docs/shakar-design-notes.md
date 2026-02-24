@@ -596,7 +596,8 @@ Typed literals representing byte quantities. Distinct from integers and duration
   - `once` controls evaluation count: the body evaluates at most once per lexical site per scope, and the result is cached. Evaluation is eager by default.
   - Assignments inside `once` follow normal assignment rules: `once: x := expensive()` evaluates the walrus eagerly and defines `x` in the surrounding scope.
   - RHS binding form is supported: `x := once: expr` caches and binds to `x`.
-  - Block bodies are supported: `once:\n  stmts` evaluates the block in a child frame (internal bindings don't leak) and caches the last value.
+  - Block bodies are supported: `once:\n  stmts` caches the last value and introduces bindings into the surrounding scope, just like any other block. Use an IIFE (`fn(()): stmts`) if isolated scope is needed.
+  - Nested once expressions in the same lexical body are parser errors. `once` inside nested lexical scopes (for example inside `fn`, `&`, or `decorator` bodies) is allowed.
   - `lazy` defers evaluation of a walrus binding until the name is first read: `once[lazy]: x := expr`. Requires a walrus body (bare `once[lazy]: expr` is a parse error). In value-producing contexts (for example `y := once[lazy]: x := 1`), that read happens immediately, so it resolves right away.
   - Non-static `once` cells are scoped to the nearest enclosing function call frame: loop iterations in one call share the same cell, while separate calls get separate cells.
   - Parameter-default nuance: in `fn f(x = once: expr): ...`, non-static `once` is still per-call, not process-global. Default evaluation captures the current call frame (`_build_once_binding` captures the current `fn_frame`), so each invocation gets a fresh `once` cell.
@@ -789,6 +790,7 @@ u := makeUser() and .isValid()
   for[j, ^sum] arr:
     sum = sum + .
   ```
+- Non-hoisted loop binders are iteration-local declarations. They do not rebind same-named outer bindings; only hoisted `^name` binders write through to outer scope.
 - Controls: `break`, `continue`; `return` from functions; resource constructs (`defer`, `using`) allowed inside.
 - **Loop examples**:
   ```shakar
@@ -822,6 +824,7 @@ u := makeUser() and .isValid()
   trimmed := [.trim() over lines]
   ```
 - `bind` introduces names without removing `.`; binder list sugar `over[binders] src` is sugar for `over src bind binders`. Objects: one binder yields key, two yield key/value.
+- Explicit comprehension binders follow loop binder rules: non-hoisted binders are local to the comprehension frame, while hoisted binders write to outer scope.
 - Implicit head binders: free, unqualified identifiers in heads (and optional `if` guards) auto-bind to components of each element, first-use order, capped by arity. Only in heads/guards; names visible at the comprehension site (including earlier locals and same-block function defs) are captures, not binders; nested function defs are not pre-hoisted (they become visible only after execution). Occurrences inside nested lambdas ignored. Later scope injections do not affect binder classification. Error if distinct head-binders exceed element arity.
 - Illegal: `over[...] Expr bind ...` (formatter drops redundant `bind`).
 - Scope: names introduced by `bind`/implicit binders visible throughout the comprehension, not outside.
@@ -870,6 +873,7 @@ u := makeUser() and .isValid()
 ### Function forms
 
 - `fn(params?): body` is an expression producing a callable value. Bodies match named `fn` syntax (inline or indented).
+- Named declarations are strict: `fn name(...): ...` introduces a new binding and errors if `name` already exists in the current scope.
 - **Thunk sugar**: `fn: body` (no parens) desugars to `fn(): body`. Useful for zero-arg callbacks or delayed execution blocks (e.g. `spawn fn: ...`).
 - **Zero-arg IIFE sugar**: `fn(()): body` desugars to `(fn(): body)()`.
 - Expression bodies execute on call, not on literal creation. Lambdas with `&` covered below.
@@ -878,10 +882,12 @@ u := makeUser() and .isValid()
   - **Destructuring params**: Function parameters support shallow object destructuring: `fn connect({host, port = 5432}): ...`. Contracts on destruct params apply to the **whole object argument** (`{host, port} ~ Config`), then fields are extracted. Fields may also carry contracts (`{host ~ Str, port = 5432 ~ Int}`), checked per field after value/default resolution. Bare destruct params participate in trailing-contract propagation (`fn f({a}, b ~ T): ...` applies `T` to both); parenthesized destruct params are isolated (`fn f(({a}), b ~ T): ...` applies `T` only to `b`). Grouped contract sugar also allows destruct items: `fn f(({a}, b) ~ T): ...` (group items must remain bare, without inner defaults/contracts). Outer defaults on destruct params are invalid; use field defaults instead (`{port = 5432}`).
   - **Order**: defaults must precede contracts (`name = default ~ Contract`). `name ~ Contract = default` is invalid.
   - **Dependent defaults**: default expressions are evaluated left-to-right at call time and may reference earlier parameters: `fn range(start, end, step = end - start)`. This works for both positional and named-arg calls.
+  - Parameter and destructured-field binding are strict declarations; defaults that introduce a later parameter/field name cause a duplicate-definition runtime error.
 
 ### Decorators
 
 - Define with `decorator name(params?): body`; inside, `f` is the next callable and `args` is a mutable array of positional arguments. Mutate `args`, reassign it, or `return` to short-circuit; implicit `return f(args)` when body falls through.
+- Decorator declarations are strict: `decorator name(...): ...` errors if `name` already exists in the current scope.
 - Apply with `@decorator` lines above `fn` definitions. Expressions evaluate top=>bottom; the closest decorator wraps first (so outer runs after inner). Parameterized decorators behave the same; bare `@decorator` calls parameterless decorator. Decorator expressions must produce a decorator/instance.
 - `args` is ordinary `Array`; mutate elements or rebind entirely. Helpers allowed before calling `f(args)`.
 

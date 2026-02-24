@@ -684,9 +684,140 @@ RUNTIME_SCENARIOS = [
             [result, leaked]
         """
         ),
-        ("array", [99, True]),
+        ("array", [99, False]),
         None,
-        id="block-once-scoping-no-leak",
+        id="block-once-materializes-bindings",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            hits := 0
+            fn bump():
+              hits += 1
+              hits
+            fn a():
+              once[static]:
+                myVar := bump()
+              myVar
+            [a(), a(), hits]
+        """
+        ),
+        ("array", [1, 1, 1]),
+        None,
+        id="block-static-rematerializes-bindings-across-calls",
+    ),
+    # --- Block once in while loop (P1 regression) ---
+    pytest.param(
+        dedent(
+            """\
+            hits := 0
+            fn bump():
+              hits += 1
+              hits
+            fn f():
+              i := 0
+              while i < 3:
+                i += 1
+                once:
+                  x := bump()
+              [x, hits]
+            f()
+        """
+        ),
+        ("array", [1, 1]),
+        None,
+        id="block-once-in-while-loop-no-duplicate-error",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            hits := 0
+            fn bump():
+              hits += 1
+              hits
+            fn f():
+              i := 0
+              while i < 3:
+                i += 1
+                once[static]:
+                  x := bump()
+              [x, hits]
+            f()
+        """
+        ),
+        ("array", [1, 1]),
+        None,
+        id="block-static-once-in-while-loop-no-duplicate-error",
+    ),
+    # --- Block once closure coherence (P2 regression) ---
+    pytest.param(
+        dedent(
+            """\
+            once:
+              counter := 0
+              fn inc():
+                counter += 1
+                counter
+              fn read_counter(): counter
+            inc()
+            inc()
+            [read_counter(), counter]
+        """
+        ),
+        ("array", [2, 2]),
+        None,
+        id="block-once-closure-shares-outer-binding",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            hits := 0
+            fn bump():
+              hits += 1
+              hits
+            fn a():
+              once[static]:
+                fn inner(): hits
+                myVar := bump()
+              myVar + inner()
+            [a(), a(), hits]
+        """
+        ),
+        ("array", [2, 2, 1]),
+        None,
+        id="block-static-once-closure-sees-outer-mutations",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn a():
+              once[static]:
+                counter := 0
+                fn inc(): counter += 1; counter
+                fn read_counter(): counter
+              inc()
+              counter - read_counter()
+            [a(), a()]
+        """
+        ),
+        ("array", [0, 0]),
+        None,
+        id="block-static-once-mutation-coherence-across-calls",
+    ),
+    # --- Static block-once UFCS on rematerialized call ---
+    pytest.param(
+        dedent(
+            """\
+            fn a():
+              once[static]:
+                fn plus1(x): x + 1
+              1.plus1()
+            [a(), a()]
+        """
+        ),
+        ("array", [2, 2]),
+        None,
+        id="block-static-once-ufcs-across-calls",
     ),
     # --- Hole partial + once ---
     pytest.param(
@@ -761,6 +892,21 @@ def test_once_cache_keys_do_not_collide_across_eval_in_env() -> None:
             "lazy requires prefix walrus binding",
             id="lazy-without-walrus",
         ),
+        pytest.param(
+            "once: once: 1",
+            "nested once expressions are not allowed",
+            id="nested-once-inline",
+        ),
+        pytest.param(
+            "once[static]: once: 1",
+            "nested once expressions are not allowed",
+            id="nested-once-static-inline",
+        ),
+        pytest.param(
+            "once: 1 + once: 2",
+            "nested once expressions are not allowed",
+            id="nested-once-in-subexpr",
+        ),
     ],
 )
 def test_once_parse_errors(source: str, message: str) -> None:
@@ -799,6 +945,178 @@ def test_once_object_literal_parse_shape() -> None:
         labels = _collect_tree_labels(ast)
         assert "once_expr" in labels
         assert "object" in labels
+
+
+def test_nested_once_in_block_rejected() -> None:
+    """Block-body once containing a nested once is rejected (indenter-only)."""
+    source = dedent(
+        """\
+        fn f():
+          once[static]:
+            once: 1
+    """
+    )
+
+    with pytest.raises(ParseError, match="nested once expressions are not allowed"):
+        parse_pipeline(source, use_indenter=True)
+
+
+def test_once_inside_fn_inside_once_allowed() -> None:
+    """Once inside a fn defined within a once block is a separate scope — allowed."""
+    source = dedent(
+        """\
+        once:
+          fn inner(): once: 42
+          inner()
+    """
+    )
+    result = run_program(source)
+    verify_result(result, "number", 42)
+
+
+def test_once_inside_amp_lambda_inside_once_allowed() -> None:
+    """Once inside an amp-lambda within a once block is a separate scope — allowed."""
+    source = dedent(
+        """\
+        f := once: &(once: 1)
+        f(0)
+    """
+    )
+    result = run_program(source)
+    verify_result(result, "number", 1)
+
+
+def test_once_inside_return_contract_inside_once_allowed() -> None:
+    """Once inside a return contract within a once block is a separate scope — allowed."""
+    source = dedent(
+        """\
+        once:
+          fn g() ~ once: 42: 42
+          g()
+    """
+    )
+    result = run_program(source)
+    verify_result(result, "number", 42)
+
+
+def test_static_block_once_let_duplicate_consistent_across_calls() -> None:
+    """let shadowing a static block-once binding must error on every call."""
+    source = dedent(
+        """\
+        fn a():
+          once[static]:
+            x := 1
+          let x := 2
+        a()
+    """
+    )
+
+    # First call (x in vars) and second call (x as alias) must both error.
+    for call_index in range(2):
+        with pytest.raises(ShakarRuntimeError, match="already defined"):
+            run_program(
+                source
+                if call_index == 0
+                else dedent(
+                    """\
+                fn a():
+                  once[static]:
+                    x := 1
+                  let x := 2
+                a() catch err: nil
+                a()
+            """
+                )
+            )
+
+
+def test_static_block_once_duplicate_consistent_regardless_of_call_order() -> None:
+    """Duplicate-definition error must fire on rematerialization too, not just first init."""
+    # f(false) initializes the static cell (no conflict).
+    # f(true) rematerializes — x := 2 already in scope, so alias must conflict.
+    source = dedent(
+        """\
+        fn f(flag):
+          if flag: x := 2
+          once[static]:
+            x := 1
+          x
+        f(false)
+        f(true)
+    """
+    )
+    with pytest.raises(ShakarRuntimeError, match="already defined"):
+        run_program(source)
+
+
+def test_conflicting_static_once_sites_raise_duplicate() -> None:
+    """Two different static once blocks binding the same name must conflict."""
+    source = dedent(
+        """\
+        fn f(flag):
+          if flag:
+            once[static]:
+              x := 1
+          once[static]:
+            x := 2
+          x
+        f(false)
+        f(true)
+    """
+    )
+    with pytest.raises(ShakarRuntimeError, match="already defined"):
+        run_program(source)
+
+
+def test_fn_declaration_conflicts_with_rematerialized_alias() -> None:
+    """fn declarations are strict and cannot overwrite rematerialized aliases."""
+    source = dedent(
+        """\
+        fn f():
+          once[static]:
+            x := 1
+          fn x(): 42
+        f()
+    """
+    )
+    with pytest.raises(ShakarRuntimeError, match="already defined"):
+        run_program(source)
+
+
+def test_static_block_once_rematerialization_failure_is_atomic() -> None:
+    """Duplicate failures must not leave hash-order-dependent partial aliases."""
+    source = dedent(
+        """\
+        fn g(flag):
+          if flag:
+            b := 20
+          once[static]:
+            a := 1
+            b := 2
+          catch err:
+            nil
+          [(a catch err: -1), b]
+        g(false)
+        g(true)
+    """
+    )
+    result = run_program(source)
+    verify_result(result, "array", [-1, 20])
+
+
+def test_static_block_once_alias_visible_to_comprehension_inference() -> None:
+    """Rematerialized static block names must count as existing locals."""
+    source = dedent(
+        """\
+        fn a():
+          once[static]:
+            x := 10
+          [x over [1, 2]][0]
+        [a(), a()]
+    """
+    )
+    result = run_program(source)
+    verify_result(result, "array", [10, 10])
 
 
 def test_lazy_walrus_ufcs_initializer_error_propagates() -> None:

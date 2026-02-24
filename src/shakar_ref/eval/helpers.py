@@ -143,8 +143,10 @@ def current_function_frame(frame: Frame) -> Optional[Frame]:
 
 
 def name_in_current_frame(frame: Frame, name: str) -> bool:
-    """Check only the current frame (vars + let scopes) for a binding."""
-    return frame.has_let_name(name) or name in frame.vars
+    """Check only the current frame for a visible binding."""
+    return (
+        frame.has_let_name(name) or name in frame.vars or name in frame._block_aliases
+    )
 
 
 def find_emit_target(frame: Frame) -> Optional[ShkValue]:
@@ -166,6 +168,9 @@ def collect_scope_names(frame: Frame, stop_at: Optional[Frame]) -> set[str]:
         for scope in cur.all_let_scopes():
             names.update(scope.keys())
         names.update(cur.vars.keys())
+        # Rematerialized static block-once names are aliases, but still
+        # semantically visible locals for scope analysis.
+        names.update(cur._block_aliases.keys())
         names.update(cur.lazy_once.keys())
         if stop_at and cur is stop_at:
             break

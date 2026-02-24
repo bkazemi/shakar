@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 import pathlib
 from types import SimpleNamespace
 
@@ -388,6 +388,51 @@ def _read_initialized_cell(cell: OnceCellState) -> ShkValue:
     return cell.value
 
 
+def _materialize_block_bindings(binding: OnceBinding, cell: OnceCellState) -> None:
+    """Project cached block-local names into the current definition frame.
+
+    When the source frame (where the block body ran) differs from the
+    current def_frame (e.g. static once in a new call), installs aliases
+    that delegate reads and writes to the source frame.  This keeps
+    closures and materialized bindings coherent — both reference the same
+    underlying storage.
+
+    On re-entry in the same scope (e.g. once block in a while loop), the
+    names already exist in def_frame and are skipped.
+    """
+    if not binding.is_block or not cell.block_binding_names:
+        return
+
+    source = cell.block_source_frame
+    target = binding.def_frame
+
+    # Same frame (e.g. while loop re-entry) — bindings are already live.
+    if target is source:
+        return
+
+    if source is None:
+        raise ShakarRuntimeError("once block rematerialization missing source frame")
+
+    pending: list[str] = []
+    for name in cell.block_binding_names:
+        existing_alias = target._block_aliases.get(name)
+        if existing_alias is source:
+            # Same once site re-entry (e.g. while loop) — already installed.
+            continue
+        pending.append(name)
+
+    # Validate all names before installing any alias so rematerialization is
+    # atomic when duplicate-name errors occur.
+    for name in pending:
+        # Enforce the same duplicate-definition check that fires during
+        # first initialization — catches conflicts with vars, let scopes,
+        # lazy once bindings, and aliases from a different static once site.
+        target.ensure_name_available_in_current_scope(name)
+
+    for name in pending:
+        target._block_aliases[name] = source
+
+
 def _once_cell_for_binding(binding: OnceBinding) -> OnceCellState:
     if binding.is_static:
         cells = _STATIC_ONCE_CELLS
@@ -413,7 +458,9 @@ def _resolve_once(binding: OnceBinding) -> ShkValue:
 
     with cell.lock:
         if cell.initialized:
-            return _read_initialized_cell(cell)
+            value = _read_initialized_cell(cell)
+            _materialize_block_bindings(binding, cell)
+            return value
 
         if cell.evaluating:
             raise ShakarRuntimeError("circular once initialization")
@@ -421,10 +468,24 @@ def _resolve_once(binding: OnceBinding) -> ShkValue:
 
         try:
             if binding.is_block:
-                # Preserve subject anchor for block once bodies while isolating
-                # local bindings in a child frame.
-                child = Frame(parent=binding.def_frame, dot=binding.def_frame.dot)
-                value = eval_body_node(binding.body, child, eval_node)
+                # Evaluate directly in def_frame so closures capture the same
+                # scope that receives the materialized bindings.
+                prior_names = set(binding.def_frame.vars)
+                value = eval_body_node(
+                    binding.body,
+                    binding.def_frame,
+                    eval_node,
+                )
+                # Cache the names (not values) introduced by the block, plus
+                # a reference to the source frame.  Rematerialization reads
+                # live values from the source frame so closures and outer
+                # bindings stay coherent across calls.
+                cell.block_binding_names = [
+                    name for name in binding.def_frame.vars if name not in prior_names
+                ]
+                # TODO: retains the full call frame for the process lifetime;
+                # consider snapshoting only the needed bindings in the C port.
+                cell.block_source_frame = binding.def_frame
             else:
                 value = eval_node(binding.body, binding.def_frame)
             cell.value = value

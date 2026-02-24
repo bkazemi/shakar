@@ -982,6 +982,12 @@ class OnceCellState:
     evaluating: bool = False
     value: Optional["ShkValue"] = None
     error: Optional["ShakarRuntimeError"] = None
+    # Names introduced by a block-form once body, in declaration order, plus
+    # the frame where the block actually ran. On rematerialization (e.g.
+    # static once in a new call), live values are read from
+    # block_source_frame so closures and outer bindings stay coherent.
+    block_binding_names: Optional[List[str]] = None
+    block_source_frame: Optional["Frame"] = None
     # Re-entrant so recursive self-reads can report circular initialization.
     lock: threading.RLock = field(default_factory=threading.RLock)
 
@@ -1099,6 +1105,10 @@ class Frame:
         self.lazy_once_site_ids: Dict[str, int] = {}
         self.once_cells: Dict[int, OnceCellState] = {}
         self.once_cells_lock = threading.Lock()
+        # Block aliases: names that delegate reads/writes to another frame.
+        # Used by static block-once to keep materialized names coherent
+        # with closures that captured the original frame.
+        self._block_aliases: Dict[str, "Frame"] = {}
         self._let_scopes: List[Dict[str, ShkValue]] = []
         self._captured_let_scopes: List[Dict[str, ShkValue]] = []
         self.dot: DotValue = dot
@@ -1153,10 +1163,10 @@ class Frame:
 
     def define(self, name: str, val: ShkValue) -> None:
         # define() is used by import/mixin-style flows that may intentionally
-        # overwrite existing bindings; if a lazy once placeholder exists,
-        # clear it so the concrete value wins on subsequent reads.
-        if name in self.lazy_once:
-            self.lazy_once.pop(name, None)
+        # overwrite existing bindings; clear lazy once placeholders and
+        # rematerialized aliases so the concrete value wins on reads.
+        self.lazy_once.pop(name, None)
+        self._block_aliases.pop(name, None)
         self.vars[name] = val
 
     def ensure_name_available_in_current_scope(self, name: str) -> None:
@@ -1169,6 +1179,9 @@ class Frame:
             raise ShakarRuntimeError(f"Name '{name}' already defined in a let scope")
 
         if name in self.vars:
+            raise ShakarRuntimeError(f"Name '{name}' already defined in this scope")
+
+        if name in self._block_aliases:
             raise ShakarRuntimeError(f"Name '{name}' already defined in this scope")
 
         if name in self.lazy_once:
@@ -1201,7 +1214,12 @@ class Frame:
         return bool(self._let_scopes and name in self._let_scopes[-1])
 
     def name_exists(self, name: str) -> bool:
-        if self.has_let_name(name) or name in self.vars or name in self.lazy_once:
+        if (
+            self.has_let_name(name)
+            or name in self.vars
+            or name in self._block_aliases
+            or name in self.lazy_once
+        ):
             return True
         if self.parent:
             return self.parent.name_exists(name)
@@ -1245,6 +1263,8 @@ class Frame:
 
         if name in self.vars:
             return ValueBindingLookup(self.vars[name])
+        if name in self._block_aliases:
+            return self._block_aliases[name]._lookup_local_binding(name)
         if name in self.lazy_once:
             return LazyOnceLookup(self.lazy_once[name])
         if name in self.builtins:
@@ -1260,6 +1280,9 @@ class Frame:
 
         if name in self.vars:
             return self.vars[name]
+
+        if name in self._block_aliases:
+            return self._block_aliases[name]._raw_get(name)
 
         if name in self.lazy_once:
             thunk = self.lazy_once[name]
@@ -1302,6 +1325,10 @@ class Frame:
             if not target_scope:
                 raise ShakarRuntimeError("let scope lookup mismatch")
             target_scope[name] = val
+            return
+
+        if name in self._block_aliases:
+            self._block_aliases[name].set(name, val)
             return
 
         if name in self.lazy_once:

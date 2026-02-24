@@ -118,3 +118,13 @@ SCENARIOS = [
 @pytest.mark.parametrize("source, expectation, expected_exc", SCENARIOS)
 def test_decorators(source: str, expectation, expected_exc) -> None:
     run_runtime_case(source, expectation, expected_exc)
+
+
+def test_decorator_declaration_does_not_overwrite_existing_name() -> None:
+    source = dedent(
+        """\
+        d := 1
+        decorator d(): args
+    """
+    )
+    run_runtime_case(source, None, ShakarRuntimeError)

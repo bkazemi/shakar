@@ -588,7 +588,7 @@ def infer_implicit_binders(
 
 
 def apply_comp_binders(
-    assign_fn: Callable[[Node, ShkValue, Frame], None],
+    assign_fn: Callable[[Node, ShkValue, Frame, bool], None],
     binders: list[dict[str, Any]],
     element: ShkValue,
     iter_frame: Frame,
@@ -610,8 +610,9 @@ def apply_comp_binders(
 
     for binder, val in zip(binders, values):
         # hoisted binders write into the outer scope so closures can reuse them.
-        target_frame = outer_frame if binder.get("hoist") else iter_frame
-        assign_fn(binder["pattern"], val, target_frame)
+        hoist = bool(binder.get("hoist"))
+        target_frame = outer_frame if hoist else iter_frame
+        assign_fn(binder["pattern"], val, target_frame, hoist)
 
 
 def eval_destructure(

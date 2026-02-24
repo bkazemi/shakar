@@ -638,3 +638,23 @@ SCENARIOS = [
 @pytest.mark.parametrize("source, expectation, expected_exc", SCENARIOS)
 def test_functions(source: str, expectation, expected_exc) -> None:
     run_runtime_case(source, expectation, expected_exc)
+
+
+def test_fn_declaration_does_not_overwrite_existing_name() -> None:
+    source = dedent(
+        """\
+        x := 1
+        fn x(): 2
+    """
+    )
+    run_runtime_case(source, None, ShakarRuntimeError)
+
+
+def test_param_binding_rejects_default_side_effect_collision() -> None:
+    source = dedent(
+        """\
+        fn f(a = (x := 1), x = 2): x
+        f()
+    """
+    )
+    run_runtime_case(source, None, ShakarRuntimeError)

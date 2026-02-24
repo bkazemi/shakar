@@ -293,13 +293,14 @@ def _apply_comp_binders_wrapper(
     eval_fn: EvalFn,
 ) -> None:
     apply_comp_binders(
-        lambda pattern, val, target_frame: assign_pattern_value(
+        lambda pattern, val, target_frame, hoist: assign_pattern_value(
             pattern,
             val,
             target_frame,
             create=True,
             allow_broadcast=False,
             eval_fn=eval_fn,
+            strict_create=not hoist,
         ),
         binders,
         element,
@@ -465,6 +466,7 @@ def eval_for_in(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
                 create=True,
                 allow_broadcast=False,
                 eval_fn=eval_fn,
+                strict_create=True,
             )
 
             try:
@@ -558,6 +560,7 @@ def eval_for_indexed(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
                     create=True,
                     allow_broadcast=False,
                     eval_fn=eval_fn,
+                    strict_create=not binder.get("hoist"),
                 )
 
             try:

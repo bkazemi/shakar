@@ -997,7 +997,7 @@ def _bind_decorator_params(
         defaults=defaults,
         label="Decorator",
         eval_default=lambda node: _ensure_shk_value(eval_node(node, temp_frame)),
-        on_bind=temp_frame.define,
+        on_bind=temp_frame.define_new_ident,
     )
 
 
@@ -1045,7 +1045,7 @@ def _apply_destruct_bindings(
                     message_prefix="Destructuring parameter contract failed",
                 )
 
-            callee_frame.define(field.name, value)
+            callee_frame.define_new_ident(field.name, value)
 
 
 _UNFILLED = object()
@@ -1188,7 +1188,7 @@ def _call_shkfn_raw(
             vararg_indices=fn.vararg_indices or [],
             defaults=fn.param_defaults,
             eval_default=eval_default,
-            on_bind=callee_frame.define,
+            on_bind=callee_frame.define_new_ident,
         )
     else:
         _bind_params_with_defaults(
@@ -1198,7 +1198,7 @@ def _call_shkfn_raw(
             defaults=fn.param_defaults,
             label="Function",
             eval_default=eval_default,
-            on_bind=callee_frame.define,
+            on_bind=callee_frame.define_new_ident,
         )
 
     _apply_destruct_bindings(fn, callee_frame, eval_default)
@@ -1267,9 +1267,9 @@ def _execute_decorator_instance(
     params = inst.decorator.params or []
 
     for name, val in zip(params, inst.args):
-        deco_frame.define(name, val)
-    deco_frame.define("f", continuation)
-    deco_frame.define("args", args_value)
+        deco_frame.define_new_ident(name, val)
+    deco_frame.define_new_ident("f", continuation)
+    deco_frame.define_new_ident("args", args_value)
 
     try:
         eval_node(inst.decorator.body, deco_frame)
