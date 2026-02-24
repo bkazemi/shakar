@@ -114,19 +114,19 @@ def _eval_item(base: ShkValue, item: Tree, frame: Frame, eval_fn, apply_op) -> S
 def _iter_items(fan_node: Tree):
     for ch in tree_children(fan_node):
         label = tree_label(ch)
-        if is_tree(ch) and label in {"fieldfan", "valuefan_list", "fieldlist"}:
+        if label in {"fieldfan", "valuefan_list", "fieldlist"}:
             yield from _iter_items(ch)
-        elif is_tree(ch) and label == "valuefan_item":
+        elif label == "valuefan_item":
             for gc in tree_children(ch):
-                if is_tree(gc) and tree_label(gc) in {"valuefan_chain", "identchain"}:
+                if tree_label(gc) in {"valuefan_chain", "identchain"}:
                     yield gc
-                elif is_tree(gc) and tree_label(gc) == "field":
+                elif tree_label(gc) == "field":
                     yield gc
                 elif is_token(gc) and gc.type == TT.IDENT:
                     yield Tree("field", [gc])
-        elif is_tree(ch) and label in {"valuefan_chain", "identchain"}:
+        elif label in {"valuefan_chain", "identchain"}:
             yield ch
-        elif is_tree(ch) and label == "field":
+        elif label == "field":
             yield ch
         elif is_token(ch) and ch.type == TT.IDENT:
             yield Tree("field", [ch])

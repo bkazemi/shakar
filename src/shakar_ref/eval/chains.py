@@ -103,22 +103,22 @@ def _with_call_site(
 
 def _flatten_args(node: Node) -> List[Node]:
     """Recursively flatten arg-list wrapper nodes into a flat list of arg nodes."""
-    if is_tree(node):
-        tag = tree_label(node)
+    tag = tree_label(node)
+    children = tree_children(node)
 
-        if tag in {"args", "arglist", "arglistnamedmixed"}:
-            out: List[Node] = []
+    if tag in {"args", "arglist", "arglistnamedmixed"}:
+        out: List[Node] = []
 
-            for ch in node.children:
-                out.extend(_flatten_args(ch))
-            return out
+        for ch in children:
+            out.extend(_flatten_args(ch))
+        return out
 
-        if tag in {"argitem", "arg"} and node.children:
-            return _flatten_args(node.children[0])
+    if tag in {"argitem", "arg"} and children:
+        return _flatten_args(children[0])
 
-        # Keep namedarg intact; handle spreading logic separately.
-        if tag == "namedarg" and node.children:
-            return [node]
+    # Keep namedarg intact; handle spreading logic separately.
+    if tag == "namedarg" and children:
+        return [node]
 
     return [node]
 
@@ -194,7 +194,8 @@ def _eval_args_with_named(
             _positional_before_named = True
 
         if _is_spread(node):
-            spread_expr = node.children[0] if is_tree(node) and node.children else None
+            spread_children = tree_children(node)
+            spread_expr = spread_children[0] if spread_children else None
             if spread_expr is None:
                 raise ShakarRuntimeError("Malformed spread argument")
             spread_val = eval_anchor_scoped(spread_expr, frame, eval_fn)
@@ -224,16 +225,16 @@ def _eval_args_with_named(
 
 
 def _is_namedarg(node: Node) -> bool:
-    return is_tree(node) and tree_label(node) == "namedarg"
+    return tree_label(node) == "namedarg"
 
 
 def _is_spread(node: Node) -> bool:
-    return is_tree(node) and tree_label(node) == "spread"
+    return tree_label(node) == "spread"
 
 
 def _is_raw_fieldfan(node: Node) -> bool:
     """Detect `Base.{a,b}` with no trailing ops so we can auto-flatten in call args."""
-    if not is_tree(node) or tree_label(node) != "explicit_chain":
+    if tree_label(node) != "explicit_chain":
         return False
 
     ops = node.children[1:]
@@ -688,9 +689,6 @@ def _index_expr_from_children(children: List[Node]) -> Tree:
 
         if is_token(node):
             continue
-
-        if not is_tree(node):
-            return node
 
         tag = tree_label(node)
         if tag in {"selectorlist", "selector", "indexsel"}:

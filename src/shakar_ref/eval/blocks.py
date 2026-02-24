@@ -69,7 +69,7 @@ def eval_program(
                 # Tag non-final once expressions so lazy registration
                 # knows this is a true statement-discard position.
                 is_final = child is last_real
-                if not is_final and is_tree(child) and tree_label(child) == "once_expr":
+                if not is_final and tree_label(child) == "once_expr":
                     if child.attrs is None:
                         child.attrs = {}
                     child.attrs["discard"] = True
@@ -101,11 +101,11 @@ def _collect_hoisted_defs(children: List[Node], skip_tokens: set[str]) -> set[st
         if is_token(child) and _token_kind(child) in skip_tokens:
             continue
         node = child
-        if is_tree(node) and tree_label(node) == "stmt" and node.children:
-            node = node.children[0]
-        if not is_tree(node):
-            continue
+        if tree_label(node) == "stmt" and tree_children(node):
+            node = tree_children(node)[0]
         label = tree_label(node)
+        if label is None:
+            continue
         if label not in {"fndef", "decorator_def"}:
             continue
         first = node.children[0] if node.children else None
@@ -246,10 +246,11 @@ def eval_guard(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
     outer_dot = frame.dot
 
     for branch in branches:
-        if not is_tree(branch) or len(branch.children) != 2:
+        branch_children = tree_children(branch)
+        if len(branch_children) != 2:
             raise ShakarRuntimeError("Malformed guard branch")
 
-        cond_node, body_node = branch.children
+        cond_node, body_node = branch_children
 
         with temporary_subject(frame, outer_dot):
             cond_val = eval_fn(cond_node, frame)
@@ -273,7 +274,7 @@ def eval_body_node(
     eval_fn: EvalFn,
     allow_loop_control: bool = False,
 ) -> ShkValue:
-    label = tree_label(body_node) if is_tree(body_node) else None
+    label = tree_label(body_node)
 
     if label == "body":
         if is_inline_body(body_node):
@@ -371,11 +372,11 @@ def eval_call_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     body_node: Optional[Tree] = None
 
     for child in tree_children(n):
-        if is_tree(child) and tree_label(child) == "call_bind":
-            bind_tok = child.children[0] if child.children else None
+        if tree_label(child) == "call_bind":
+            bind_tok = tree_children(child)[0] if tree_children(child) else None
             continue
 
-        if is_tree(child) and tree_label(child) == "body":
+        if tree_label(child) == "body":
             body_node = child
             continue
 
@@ -426,8 +427,8 @@ def eval_defer_stmt(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkV
     idx = 0
     label = None
 
-    if is_tree(children[0]) and tree_label(children[0]) == "deferlabel":
-        label = _expect_ident_token(children[0].children[0], "Defer label")
+    if tree_label(children[0]) == "deferlabel":
+        label = _expect_ident_token(tree_children(children[0])[0], "Defer label")
         idx += 1
 
     if idx >= len(children):
@@ -440,7 +441,7 @@ def eval_defer_stmt(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkV
     if idx < len(children):
         deps_node = children[idx]
 
-        if is_tree(deps_node) and tree_label(deps_node) == "deferdeps":
+        if tree_label(deps_node) == "deferdeps":
             deps = [
                 _expect_ident_token(tok, "Defer dependency")
                 for tok in tree_children(deps_node)
@@ -451,17 +452,13 @@ def eval_defer_stmt(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkV
     if idx != len(children):
         raise ShakarRuntimeError("Unexpected defer statement shape")
 
-    body_kind = (
-        "block"
-        if is_tree(body_wrapper) and tree_label(body_wrapper) == "deferblock"
-        else "call"
-    )
+    body_kind = "block" if tree_label(body_wrapper) == "deferblock" else "call"
     payload = body_wrapper
 
     if body_kind == "block":
         payload = (
-            body_wrapper.children[0]
-            if is_tree(body_wrapper) and body_wrapper.children
+            tree_children(body_wrapper)[0]
+            if tree_children(body_wrapper)
             else Tree("body", [], attrs={"inline": True})
         )
 

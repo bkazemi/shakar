@@ -66,13 +66,15 @@ def _plain_single_pattern_name(node: Tree) -> Optional[str]:
 
 def _rhs_is_pack(rhs_node: Node) -> bool:
     rhs = rhs_node
-    while (
-        is_tree(rhs)
-        and tree_label(rhs) in {"expr", "group", "group_expr", "primary"}
-        and rhs.children
-    ):
-        rhs = rhs.children[0]
-    return is_tree(rhs) and tree_label(rhs) == "pack"
+    while tree_label(rhs) in {
+        "expr",
+        "group",
+        "group_expr",
+        "primary",
+    } and tree_children(rhs):
+        rhs = tree_children(rhs)[0]
+
+    return tree_label(rhs) == "pack"
 
 
 def eval_let_walrus(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
@@ -119,10 +121,10 @@ def eval_let_destructure(
     # Fast path for plain single-ident walrus targets (no contract/default).
     # Still routes packed RHS through prepare_destructure_bindings so
     # comma-arity checks stay consistent (`let x := 1, 2` must error).
-    if create and is_tree(node) and tree_label(node) == "destructure_walrus":
+    if create and tree_label(node) == "destructure_walrus":
         plain_name = _plain_single_pattern_name(node)
         if plain_name:
-            rhs_node = node.children[1]
+            rhs_node = tree_children(node)[1]
             if not _rhs_is_pack(rhs_node):
                 value = eval_fn(rhs_node, frame)
                 define_let_ident(plain_name, value, frame)
@@ -162,10 +164,10 @@ def eval_let_stmt(
         raise ShakarRuntimeError("Malformed let statement")
 
     inner = node.children[0]
-    if is_tree(inner) and tree_label(inner) == "expr" and inner.children:
-        inner = inner.children[0]
+    if tree_label(inner) == "expr" and tree_children(inner):
+        inner = tree_children(inner)[0]
 
-    label = tree_label(inner) if is_tree(inner) else None
+    label = tree_label(inner)
 
     match label:
         case "walrus":

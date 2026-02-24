@@ -30,7 +30,7 @@ from ..runtime import (
     ShakarTypeError,
     regex_match_value,
 )
-from ..tree import Node, Tree, is_tree, node_meta, tree_children, tree_label
+from ..tree import Node, Tree, node_meta, tree_children, tree_label
 from ..utils import shk_equals, is_nil_like, envvar_value_by_name
 from .bind import FanContext, RebindContext, apply_numeric_delta
 from .chains import apply_op as chain_apply_op, evaluate_index_operand
@@ -75,7 +75,7 @@ def _consume_anchor_override(frame: Frame) -> Optional[ShkValue]:
 
 
 def _is_noanchor_wrapper(node: Node) -> bool:
-    return is_tree(node) and tree_label(node) == "noanchor"
+    return tree_label(node) == "noanchor"
 
 
 def eval_explicit_chain(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
@@ -109,9 +109,9 @@ def eval_explicit_chain(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
         if ops and tree_label(ops[-1]) in {"incr", "decr"}:
             raise ShakarRuntimeError("++/-- not supported on fan broadcasts")
         return eval_fan_chain(val, ops, frame, eval_fn)
-    head_label = tree_label(head) if is_tree(head) else None
+    head_label = tree_label(head)
     head_is_rebind = head_label == "rebind_primary"
-    head_is_grouped_rebind = is_grouped_rebind(head) if is_tree(head) else False
+    head_is_grouped_rebind = is_grouped_rebind(head)
     tail_has_effect = False
 
     for i, op in enumerate(ops):
@@ -414,10 +414,10 @@ def eval_nullish(children: List[Tree], frame: Frame, eval_fn: EvalFn) -> ShkValu
 def eval_nullsafe(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     with isolate_anchor_override(frame):
         target = node
-        if is_tree(node) and tree_label(node) == "nullsafe" and node.children:
-            target = node.children[0]
+        if tree_label(node) == "nullsafe" and tree_children(node):
+            target = tree_children(node)[0]
 
-        if not is_tree(target) or tree_label(target) != "explicit_chain":
+        if tree_label(target) != "explicit_chain":
             try:
                 return eval_fn(target, frame)
             except (ShakarKeyError, ShakarIndexError):
@@ -469,7 +469,7 @@ def as_op(x: Node) -> str:
     if isinstance(x, Tok):
         return str(x.value)
 
-    label = tree_label(x) if is_tree(x) else None
+    label = tree_label(x)
     if label:
         if (
             label in ("addop", "mulop", "powop")

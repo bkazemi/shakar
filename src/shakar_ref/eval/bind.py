@@ -262,49 +262,48 @@ def resolve_assignable_node(
     current = node
 
     while (
-        is_tree(current)
-        and tree_label(current) in {"primary", "group", "group_expr"}
-        and len(current.children) == 1
+        tree_label(current) in {"primary", "group", "group_expr"}
+        and len(tree_children(current)) == 1
     ):
-        current = current.children[0]
+        current = tree_children(current)[0]
 
     if name := ident_value(current):
         return make_ident_context(name, frame)
 
-    if is_tree(current):
-        label = tree_label(current)
+    label = tree_label(current)
+    children = tree_children(current)
 
-        if label == "rebind_primary":
-            ctx = eval_fn(current, frame)
-            if isinstance(ctx, RebindContext):
-                return ctx
+    if label == "rebind_primary":
+        ctx = eval_fn(current, frame)
+        if isinstance(ctx, RebindContext):
+            return ctx
 
-            raise ShakarRuntimeError("Rebind primary did not produce a context")
+        raise ShakarRuntimeError("Rebind primary did not produce a context")
 
-        if label == "explicit_chain":
-            if not current.children:
-                raise ShakarRuntimeError("Malformed explicit chain")
+    if label == "explicit_chain":
+        if not children:
+            raise ShakarRuntimeError("Malformed explicit chain")
 
-            head = current.children[0]
-            ops = list(current.children[1:])
+        head = children[0]
+        ops = list(children[1:])
 
-            return resolve_chain_assignment(
-                head,
-                ops,
-                frame,
-                eval_fn=eval_fn,
-                apply_op=apply_op,
-                evaluate_index_operand=evaluate_index_operand,
-            )
+        return resolve_chain_assignment(
+            head,
+            ops,
+            frame,
+            eval_fn=eval_fn,
+            apply_op=apply_op,
+            evaluate_index_operand=evaluate_index_operand,
+        )
 
-        if label == "expr" and current.children:
-            return resolve_assignable_node(
-                current.children[0],
-                frame,
-                eval_fn=eval_fn,
-                apply_op=apply_op,
-                evaluate_index_operand=evaluate_index_operand,
-            )
+    if label == "expr" and children:
+        return resolve_assignable_node(
+            children[0],
+            frame,
+            eval_fn=eval_fn,
+            apply_op=apply_op,
+            evaluate_index_operand=evaluate_index_operand,
+        )
 
     raise ShakarRuntimeError("Increment target must be assignable")
 
@@ -403,18 +402,17 @@ def _rebind_segment(
 
 
 def _is_fan_literal_node(node: Node) -> bool:
-    return is_tree(node) and tree_label(node) == "fan_literal"
+    return tree_label(node) == "fan_literal"
 
 
 def _unwrap_lvalue_head(node: Node) -> Node:
     current = node
 
     while (
-        is_tree(current)
-        and tree_label(current) in {"group", "group_expr", "expr", "primary"}
-        and len(current.children) == 1
+        tree_label(current) in {"group", "group_expr", "expr", "primary"}
+        and len(tree_children(current)) == 1
     ):
-        current = current.children[0]
+        current = tree_children(current)[0]
 
     return current
 
@@ -565,13 +563,14 @@ def _resolve_lvalue_contexts(
     apply_op: ApplyOpFunc,
     evaluate_index_operand: IndexEvalFn,
 ) -> List[RebindContext]:
-    if not is_tree(node) or tree_label(node) != "lvalue":
+    if tree_label(node) != "lvalue":
         raise ShakarRuntimeError("Invalid lvalue")
 
-    if not node.children:
+    children = tree_children(node)
+    if not children:
         raise ShakarRuntimeError("Empty lvalue")
 
-    head, *ops = node.children
+    head, *ops = children
 
     core_head = _unwrap_lvalue_head(head)
 
@@ -617,22 +616,23 @@ def _resolve_lvalue_contexts(
 
 
 def _lvalue_uses_fan_shape(node: Node) -> bool:
-    if not is_tree(node) or tree_label(node) != "lvalue":
+    if tree_label(node) != "lvalue":
         return False
 
-    if not node.children:
+    children = tree_children(node)
+    if not children:
         return False
 
-    head, *ops = node.children
+    head, *ops = children
     if _is_fan_literal_node(_unwrap_lvalue_head(head)):
         return True
 
     for raw_op in ops:
         op = raw_op
-        if is_tree(op) and tree_label(op) == "noanchor" and op.children:
-            op = op.children[0]
+        if tree_label(op) == "noanchor" and tree_children(op):
+            op = tree_children(op)[0]
 
-        if is_tree(op) and tree_label(op) in {"fieldfan", "valuefan"}:
+        if tree_label(op) in {"fieldfan", "valuefan"}:
             return True
 
     return False
@@ -983,13 +983,14 @@ def assign_lvalue(
     create: bool,
 ) -> ShkValue:
     """Assign to an lvalue, supporting fields, indices, and field fans."""
-    if not is_tree(node) or tree_label(node) != "lvalue":
+    if tree_label(node) != "lvalue":
         raise ShakarRuntimeError("Invalid assignment target")
 
-    if not node.children:
+    children = tree_children(node)
+    if not children:
         raise ShakarRuntimeError("Empty lvalue")
 
-    head, *ops = node.children
+    head, *ops = children
     core_head = _unwrap_lvalue_head(head)
 
     if not ops and (name := ident_value(core_head)):

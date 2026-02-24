@@ -21,7 +21,7 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-from ..tree import Node, Tree, is_token, is_tree, tree_children, tree_label
+from ..tree import Node, Tree, is_token, tree_children, tree_label
 from .blocks import (
     eval_body_node,
     temporary_bindings,
@@ -189,11 +189,7 @@ def _parse_catch_components(
         binder = children[idx]
         idx += 1
 
-    if (
-        idx < len(children)
-        and is_tree(children[idx])
-        and tree_label(children[idx]) == "catchtypes"
-    ):
+    if idx < len(children) and tree_label(children[idx]) == "catchtypes":
         type_names = [
             expect_ident_token(tok, "Catch type")
             for tok in tree_children(children[idx])
@@ -392,7 +388,7 @@ def eval_match_expr(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
 
     idx = 0
     cmp_op = "=="
-    if is_tree(children[0]) and tree_label(children[0]) == "matchcmp":
+    if tree_label(children[0]) == "matchcmp":
         # matchcmp is an optional first child; default comparator is ==.
         cmp_op = _normalize_match_cmp(children[0])
         idx = 1
@@ -407,13 +403,13 @@ def eval_match_expr(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     for child in children[idx + 1 :]:
         label = tree_label(child)
         if label == "matcharm":
-            if not is_tree(child) or len(child.children) != 2:
+            arm_children = tree_children(child)
+            if len(arm_children) != 2:
                 raise ShakarRuntimeError("Malformed match arm")
-            patterns_node, body_node = child.children
+            patterns_node, body_node = arm_children
             patterns = (
                 tree_children(patterns_node)
-                if is_tree(patterns_node)
-                and tree_label(patterns_node) == "matchpatterns"
+                if tree_label(patterns_node) == "matchpatterns"
                 else [patterns_node]
             )
             for pattern in patterns:
@@ -427,9 +423,10 @@ def eval_match_expr(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
                         )
             continue
         if label == "matchelse":
-            if not is_tree(child) or not child.children:
+            else_children = tree_children(child)
+            if not else_children:
                 raise ShakarRuntimeError("Malformed match else")
-            else_body = child.children[0]
+            else_body = else_children[0]
             continue
         if is_token(child):
             continue

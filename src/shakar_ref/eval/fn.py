@@ -68,16 +68,15 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue
     decorators_node = None
 
     for node in children[1:]:
-        if is_tree(node):
-            label = tree_label(node)
-            if params_node is None and label == "paramlist":
-                params_node = node
-            elif body_node is None and label == "body":
-                body_node = node
-            elif return_contract_node is None and label == "return_contract":
-                return_contract_node = node
-            elif decorators_node is None and label == "decorator_list":
-                decorators_node = node
+        label = tree_label(node)
+        if params_node is None and label == "paramlist":
+            params_node = node
+        elif body_node is None and label == "body":
+            body_node = node
+        elif return_contract_node is None and label == "return_contract":
+            return_contract_node = node
+        elif decorators_node is None and label == "decorator_list":
+            decorators_node = node
 
     if body_node is None:
         body_node = Tree("body", [], attrs={"inline": True})
@@ -207,9 +206,9 @@ def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
     body_node = None
 
     for node in children[1:]:
-        if params_node is None and is_tree(node) and tree_label(node) == "paramlist":
+        if params_node is None and tree_label(node) == "paramlist":
             params_node = node
-        elif body_node is None and is_tree(node) and tree_label(node) == "body":
+        elif body_node is None and tree_label(node) == "body":
             body_node = node
 
     if body_node is None:
@@ -244,11 +243,11 @@ def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
     return_contract_node = None
 
     for node in children:
-        if is_tree(node) and tree_label(node) == "paramlist":
+        if tree_label(node) == "paramlist":
             params_node = node
-        elif is_tree(node) and tree_label(node) == "body":
+        elif tree_label(node) == "body":
             body_node = node
-        elif is_tree(node) and tree_label(node) == "return_contract":
+        elif tree_label(node) == "return_contract":
             return_contract_node = node
 
     if body_node is None:

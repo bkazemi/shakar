@@ -15,7 +15,7 @@ import threading
 from typing import Optional, List, Any
 from types import SimpleNamespace
 from enum import Enum
-from .tree import Tree, Node, is_tree, is_token, tree_label, tree_children
+from .tree import Tree, Node, is_token, tree_label, tree_children
 
 from .token_types import TT, Tok
 from .lexer_rd import LexError
@@ -849,9 +849,9 @@ class Parser:
 
         expr = self.parse_expr()
 
-        if is_tree(expr) and tree_label(expr) == "expr" and expr.children:
-            inner = expr.children[0]
-            if is_tree(inner) and tree_label(inner) == "walrus":
+        if tree_label(expr) == "expr" and tree_children(expr):
+            inner = tree_children(expr)[0]
+            if tree_label(inner) == "walrus":
                 return Tree("let", [inner])
 
         if self.check(TT.ASSIGN, TT.WALRUS):
@@ -1197,17 +1197,17 @@ class Parser:
     def _validate_match_pattern(self, pattern: Node) -> None:
         current: Node = pattern
         while True:
-            if is_tree(current):
-                label = tree_label(current)
-                if label == "expr" and current.children:
-                    current = current.children[0]
-                    continue
-                if label == "group_expr" and current.children:
-                    current = current.children[0]
-                    continue
+            label = tree_label(current)
+            children = tree_children(current)
+            if label == "expr" and children:
+                current = children[0]
+                continue
+            if label == "group_expr" and children:
+                current = children[0]
+                continue
             break
 
-        if is_tree(current) and tree_label(current) in {"object", "array"}:
+        if tree_label(current) in {"object", "array"}:
             raise ParseError(
                 "Object/array literals are reserved for v0.2 match patterns",
                 self.current,
@@ -1216,8 +1216,6 @@ class Parser:
         def _first_token(node: Node) -> Optional[Tok]:
             if is_token(node):
                 return node
-            if not is_tree(node):
-                return None
             for child in tree_children(node):
                 tok = _first_token(child)
                 if tok:
@@ -1225,9 +1223,9 @@ class Parser:
             return None
 
         def visit(node: Node) -> None:
-            if not is_tree(node):
-                return
             label = tree_label(node)
+            if label is None:
+                return
             if label in {"subject", "implicit_chain"}:
                 tok = _first_token(node)
                 if tok and label == "implicit_chain":
@@ -1925,10 +1923,10 @@ class Parser:
 
         # lazy requires a walrus binding (prefix form); lazy + block is not allowed
         if "lazy" in seen_modifiers:
-            from .tree import is_tree, tree_label, unwrap_node
+            from .tree import tree_label, unwrap_node
 
             inner = unwrap_node(body, {"expr", "stmt"})
-            is_walrus = is_tree(inner) and tree_label(inner) == "walrus"
+            is_walrus = tree_label(inner) == "walrus"
             if not is_walrus:
                 raise ParseError(
                     "lazy requires prefix walrus binding (once[lazy]: x := expr)",
@@ -1957,7 +1955,7 @@ class Parser:
         For fnstmt nodes, decorator_list children are still traversed
         because decorator expressions execute in the enclosing scope.
         """
-        from .tree import is_tree, tree_label, tree_children
+        from .tree import tree_label, tree_children
 
         # Nodes whose entire subtree is a new lexical scope — skip completely.
         opaque_scopes = {"anonfn", "amp_lambda", "decorator_def"}
@@ -1969,10 +1967,9 @@ class Parser:
         stack: list[Node] = [body]
         while stack:
             node = stack.pop()
-            if not is_tree(node):
-                continue
-
             label = tree_label(node)
+            if label is None:
+                continue
 
             if label == "once_expr":
                 raise ParseError(
@@ -1986,7 +1983,7 @@ class Parser:
             # For fnstmt, only walk decorator_list (skip body/paramlist).
             if label == "fnstmt":
                 for child in tree_children(node):
-                    if is_tree(child) and tree_label(child) not in fn_closure_parts:
+                    if tree_label(child) not in fn_closure_parts:
                         stack.append(child)
                 continue
 
@@ -2893,8 +2890,7 @@ class Parser:
 
         # Block-body once expressions terminate the expression — no chaining.
         if (
-            is_tree(primary)
-            and tree_label(primary) == "once_expr"
+            tree_label(primary) == "once_expr"
             and getattr(primary, "attrs", None)
             and primary.attrs.get("block_body")
         ):
@@ -3328,7 +3324,7 @@ class Parser:
                         "Grouped parameters cannot include defaults, contracts, or spread",
                         self.current,
                     )
-                if is_tree(inner_node) and tree_label(inner_node) == "param_destruct":
+                if tree_label(inner_node) == "param_destruct":
                     if not self._param_destruct_is_bare(inner_node):
                         raise ParseError(
                             "Grouped parameters cannot include defaults or contracts",
@@ -3415,7 +3411,7 @@ class Parser:
                         self.current,
                     )
 
-            if is_tree(inner_node) and tree_label(inner_node) == "param_destruct":
+            if tree_label(inner_node) == "param_destruct":
                 if outer_default is not None:
                     raise ParseError(
                         "Destructuring parameter cannot have an outer default",
@@ -3500,24 +3496,24 @@ class Parser:
         return Tree("param_destruct", fields)
 
     def _param_destruct_has_contract(self, node: Node) -> bool:
-        if not is_tree(node) or tree_label(node) != "param_destruct":
+        if tree_label(node) != "param_destruct":
             return False
 
         for child in tree_children(node):
-            if is_tree(child) and tree_label(child) == "contract":
+            if tree_label(child) == "contract":
                 return True
 
         return False
 
     def _param_destruct_is_bare(self, node: Node) -> bool:
-        if not is_tree(node) or tree_label(node) != "param_destruct":
+        if tree_label(node) != "param_destruct":
             return False
 
         if self._param_destruct_has_contract(node):
             return False
 
         for child in tree_children(node):
-            if not is_tree(child) or tree_label(child) != "destruct_field":
+            if tree_label(child) != "destruct_field":
                 continue
             field_children = tree_children(child)
             if len(field_children) > 1:

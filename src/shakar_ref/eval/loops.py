@@ -402,7 +402,7 @@ def eval_for_in(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     after_in = False
 
     for child in tree_children(n):
-        if is_tree(child) and tree_label(child) == "pattern":
+        if tree_label(child) == "pattern":
             pattern_node = child
             continue
 
@@ -527,7 +527,7 @@ def eval_for_indexed(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     binder_nodes: list[Tree] = []
 
     for child in children:
-        if is_tree(child) and tree_label(child) in {
+        if tree_label(child) in {
             "binderpattern",
             "hoist",
             "pattern",

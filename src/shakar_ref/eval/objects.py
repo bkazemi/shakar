@@ -81,7 +81,7 @@ def _maybe_method_signature(
     target = key_node.children[0] if key_node.children else None
     chain: Optional[Tree] = None
 
-    if target and is_tree(target):
+    if target:
         if tree_label(target) == "explicit_chain":
             chain = target
         else:
@@ -89,7 +89,7 @@ def _maybe_method_signature(
                 (
                     ch
                     for ch in tree_children(target)
-                    if is_tree(ch) and tree_label(ch) == "explicit_chain"
+                    if tree_label(ch) == "explicit_chain"
                 ),
                 None,
             )
@@ -100,7 +100,7 @@ def _maybe_method_signature(
     head, call_node = chain.children
     name = _expect_ident_token(head, "Object method key")
 
-    if not is_tree(call_node) or tree_label(call_node) != "call":
+    if tree_label(call_node) != "call":
         return None
 
     args_node = call_node.children[0] if call_node.children else None
@@ -116,7 +116,7 @@ def _maybe_method_signature(
             if raw_label in {"namedarg", "kwarg"}:
                 return None
 
-            raw_children = tree_children(raw) if is_tree(raw) else None
+            raw_children = tree_children(raw)
             if raw_children and raw_label in {
                 "args",
                 "arglist",

@@ -14,7 +14,7 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
 )
-from ..tree import Node, is_token, is_tree, tree_label
+from ..tree import Node, is_token, is_tree, tree_children, tree_label
 from .blocks import eval_body_node, temporary_bindings
 from .chains import call_value
 from .common import expect_ident_token as _expect_ident_token
@@ -51,15 +51,15 @@ def eval_using_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     for child in n.children:
         label = tree_label(child)
 
-        if is_tree(child) and label == "using_handle":
-            handle_tok = child.children[0] if child.children else None
+        if label == "using_handle":
+            handle_tok = tree_children(child)[0] if tree_children(child) else None
             continue
 
-        if is_tree(child) and label == "using_bind":
-            binder_tok = child.children[0] if child.children else None
+        if label == "using_bind":
+            binder_tok = tree_children(child)[0] if tree_children(child) else None
             continue
 
-        if is_tree(child) and label == "body":
+        if label == "body":
             body_node = child  # type: ignore[assignment]
             continue
 

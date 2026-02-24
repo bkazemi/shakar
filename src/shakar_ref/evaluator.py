@@ -8,7 +8,16 @@ from types import SimpleNamespace
 from .token_types import TT
 from .lexer_rd import Lexer
 from .stdlib import std_mixin
-from .tree import Node, Tree, Tok, is_token, is_tree, tree_label, unwrap_node
+from .tree import (
+    Node,
+    Tree,
+    Tok,
+    is_token,
+    is_tree,
+    tree_children,
+    tree_label,
+    unwrap_node,
+)
 from .runtime import (
     Frame,
     ShkArray,
@@ -320,7 +329,7 @@ def _once_flags(node: Tree) -> tuple[bool, bool]:
     is_lazy = False
 
     for child in node.children:
-        if not is_tree(child) or tree_label(child) != "once_modifiers":
+        if tree_label(child) != "once_modifiers":
             continue
         for modifier in child.children:
             if not is_token(modifier):
@@ -353,15 +362,15 @@ def _build_once_binding(node: Tree, frame: Frame) -> OnceBinding:
     # Inline single-expression bodies (body with inline=True and no stmtlist)
     # are NOT blocks — they evaluate in the current frame.
     body_is_block = False
-    if is_tree(body) and tree_label(body) == "body":
+    if tree_label(body) == "body":
         attrs = getattr(body, "attrs", None)
         if attrs and not attrs.get("inline", True):
             # Indented block => always a block body
             body_is_block = True
-        elif body.children:
+        else:
             # Inline brace block: has stmtlist child
-            for ch in body.children:
-                if is_tree(ch) and tree_label(ch) == "stmtlist":
+            for ch in tree_children(body):
+                if tree_label(ch) == "stmtlist":
                     body_is_block = True
                     break
 
@@ -577,10 +586,11 @@ def _eval_once_expr(n: Tree, frame: Frame) -> ShkValue:
     # first evaluation. On subsequent hits (cached), re-define the name
     # so the binding is visible in the current frame.
     inner = unwrap_node(body, {"expr", "stmt"})
-    if is_tree(inner) and tree_label(inner) == "walrus":
+    if tree_label(inner) == "walrus":
         from .eval.common import expect_ident_token
 
-        name = expect_ident_token(inner.children[0], "once walrus target")
+        inner_children = tree_children(inner)
+        name = expect_ident_token(inner_children[0], "once walrus target")
         if name not in frame.vars:
             frame.define_new_ident(name, value)
 
@@ -665,9 +675,9 @@ def _eval_fan_literal(n: Tree, frame: Frame) -> ShkValue:
     items_node = None
 
     for child in n.children:
-        if is_tree(child) and child.data == "fan_modifiers":
+        if tree_label(child) == "fan_modifiers":
             modifiers = child
-        elif is_tree(child) and child.data == "fan_items":
+        elif tree_label(child) == "fan_items":
             items_node = child
 
     if modifiers:
@@ -1102,11 +1112,11 @@ def _eval_import_destructure(n: Tree, frame: Frame) -> ShkValue:
         )
 
     names_node, module_node = n.children
-    if not is_tree(names_node) or names_node.data != "import_names":
+    if tree_label(names_node) != "import_names":
         raise ShakarRuntimeError("Expected import names in brackets")
 
     names: list[str] = []
-    for child in names_node.children:
+    for child in tree_children(names_node):
         if is_token(child) and child.type == TT.IDENT:
             names.append(str(child.value))
         else:

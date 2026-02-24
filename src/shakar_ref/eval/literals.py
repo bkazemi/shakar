@@ -55,8 +55,9 @@ def eval_array_literal(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkArray:
     items: List[ShkValue] = []
 
     for child in tree_children(node):
-        if is_tree(child) and tree_label(child) == "spread":
-            spread_expr = child.children[0] if child.children else None
+        if tree_label(child) == "spread":
+            spread_children = tree_children(child)
+            spread_expr = spread_children[0] if spread_children else None
             if spread_expr is None:
                 raise ShakarRuntimeError("Malformed spread element")
             spread_val = eval_anchor_scoped(spread_expr, frame, eval_fn)

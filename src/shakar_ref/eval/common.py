@@ -28,7 +28,15 @@ from ..types import (
     ShkValue,
     ShkNil,
 )
-from ..tree import Node, is_token, is_tree, node_meta, tree_children, tree_label
+from ..tree import (
+    Node,
+    is_token,
+    is_tree,
+    node_meta,
+    tree_attr,
+    tree_children,
+    tree_label,
+)
 from ..tree import token_kind
 from ..utils import envvar_value_by_name, stringify
 
@@ -42,11 +50,11 @@ MODIFIER_REGISTRY: Dict[str, Tuple[str, ...]] = {
 
 
 def modifier_from_node(node: Node) -> Tuple[Optional[str], Optional[Tok]]:
-    if not is_tree(node) or not node.attrs:
-        return None, None
+    name = tree_attr(node, "modifier_name")
+    tok = tree_attr(node, "modifier_tok")
 
-    name = node.attrs.get("modifier_name")
-    tok = node.attrs.get("modifier_tok")
+    if name is None and tok is None:
+        return None, None
 
     if not isinstance(name, str):
         name = None
@@ -187,7 +195,7 @@ def extract_function_signature(
         if is_token(p) and token_kind(p) == "COMMA":
             continue
 
-        if is_tree(p) and tree_label(p) == "param_spread":
+        if tree_label(p) == "param_spread":
             children = tree_children(p)
             if not children:
                 raise ShakarRuntimeError(
@@ -216,7 +224,7 @@ def extract_function_signature(
             param_index += 1
             continue
 
-        if is_tree(p) and tree_label(p) == "param":
+        if tree_label(p) == "param":
             children = tree_children(p)
             if not children:
                 raise ShakarRuntimeError(
@@ -236,7 +244,7 @@ def extract_function_signature(
             param_index += 1
             continue
 
-        if is_tree(p) and tree_label(p) == "param_destruct":
+        if tree_label(p) == "param_destruct":
             synthetic_name = f"0__destruct{param_index}"
             names.append(synthetic_name)
             defaults.append(None)
@@ -253,7 +261,7 @@ def extract_function_signature(
 
 
 def _extract_param_destruct_fields(node: Node, *, context: str) -> DestructFields:
-    if not is_tree(node) or tree_label(node) != "param_destruct":
+    if tree_label(node) != "param_destruct":
         raise ShakarRuntimeError(f"Unsupported parameter node in {context}: {node}")
 
     fields: List[DestructField] = []
@@ -262,11 +270,11 @@ def _extract_param_destruct_fields(node: Node, *, context: str) -> DestructField
     for child in tree_children(node):
         # Contract metadata belongs to the whole destructured object argument.
         # Field extraction metadata only comes from destruct_field children.
-        if is_tree(child) and tree_label(child) == "contract":
+        if tree_label(child) == "contract":
             continue
 
-        if not is_tree(child) or tree_label(child) != "destruct_field":
-            child_desc = tree_label(child) if is_tree(child) else repr(child)
+        if tree_label(child) != "destruct_field":
+            child_desc = tree_label(child) or repr(child)
             raise ShakarRuntimeError(
                 f"Unsupported child node {child_desc!r} in destructuring parameter in {context}"
             )
@@ -279,11 +287,7 @@ def _extract_param_destruct_fields(node: Node, *, context: str) -> DestructField
 
         field_name = ident_token_value(field_children[0])
         if field_name is None:
-            head_desc = (
-                tree_label(field_children[0])
-                if is_tree(field_children[0])
-                else repr(field_children[0])
-            )
+            head_desc = tree_label(field_children[0]) or repr(field_children[0])
             raise ShakarRuntimeError(
                 f"Unsupported destructuring field name node {head_desc!r} in {context}"
             )
@@ -315,7 +319,7 @@ def _extract_destruct_field_metadata(
     contract_expr: Optional[Node] = None
 
     for node in metadata_nodes:
-        if is_tree(node) and tree_label(node) == "contract":
+        if tree_label(node) == "contract":
             contract_children = tree_children(node)
             expr = contract_children[0] if contract_children else None
             if contract_expr is not None:
@@ -339,7 +343,7 @@ def _param_contract_expr(node: Tree) -> Optional[Node]:
         return None
 
     for child in tree_children(node):
-        if is_tree(child) and tree_label(child) == "contract":
+        if tree_label(child) == "contract":
             contract_children = tree_children(child)
             if contract_children:
                 return contract_children[0]
@@ -350,7 +354,7 @@ def _param_contract_expr(node: Tree) -> Optional[Node]:
 def param_default_expr(
     node: Node, *, on_error: Optional[Callable[[str], None]] = None
 ) -> Optional[Node]:
-    if not is_tree(node) or tree_label(node) != "param":
+    if tree_label(node) != "param":
         return None
 
     default: Optional[Node] = None
@@ -358,7 +362,7 @@ def param_default_expr(
     for child in tree_children(node):
         if is_token(child) and child.type == TT.IDENT:
             continue
-        if is_tree(child) and tree_label(child) == "contract":
+        if tree_label(child) == "contract":
             continue
         if default is None:
             default = child
@@ -395,9 +399,6 @@ def render_expr(node: Node) -> str:
     if is_token(node):
         return str(node.value)
 
-    if not is_tree(node):
-        return str(node)
-
     parts: List[str] = []
 
     for child in tree_children(node):
@@ -416,8 +417,9 @@ def node_source_span(node: Node) -> SourceSpan:
     if start is not None and end is not None:
         return start, end
 
-    if is_tree(node):
-        child_spans = [node_source_span(child) for child in tree_children(node)]
+    children = tree_children(node)
+    if children:
+        child_spans = [node_source_span(child) for child in children]
         child_starts = [s for s, _ in child_spans if s is not None]
         child_ends = [e for _, e in child_spans if e is not None]
 
@@ -432,11 +434,12 @@ def node_first_token_pos(node: Node) -> tuple[Optional[int], Optional[int]]:
         if node.line > 0:
             return node.line, max(1, node.column)
         return None, None
-    if is_tree(node):
-        for child in tree_children(node):
-            line, col = node_first_token_pos(child)
-            if line is not None and col is not None:
-                return line, col
+
+    for child in tree_children(node):
+        line, col = node_first_token_pos(child)
+        if line is not None and col is not None:
+            return line, col
+
     return None, None
 
 

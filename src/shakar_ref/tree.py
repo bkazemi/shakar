@@ -208,7 +208,7 @@ def first_child(node: Node, predicate: Callable[[Node], bool]) -> Optional[Node]
 
 def find_tree_by_label(node: Node, labels: Iterable[str]) -> Optional[Tree]:
     lookup: Set[str] = set(labels)
-    if is_tree(node) and tree_label(node) in lookup:
+    if tree_label(node) in lookup:
         return node
     for child in tree_children(node):
         found = find_tree_by_label(child, lookup)

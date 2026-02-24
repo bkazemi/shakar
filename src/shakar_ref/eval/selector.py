@@ -316,9 +316,6 @@ def _eval_selector_atom(
         # `` `start:${expr}` `` — evaluate embedded expression on demand.
         return eval_anchor_scoped(expr, frame, eval_fn)
 
-    if is_tree(child):
-        return eval_anchor_scoped(child, frame, eval_fn)
-
     return eval_anchor_scoped(child, frame, eval_fn)
 
 

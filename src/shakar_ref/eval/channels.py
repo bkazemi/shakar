@@ -208,12 +208,12 @@ def eval_spawn_expr(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     spawn_site = callsite_from_node("spawn", n, frame)
 
     def thunk(spawn_frame: Frame) -> ShkValue:
-        if is_tree(expr) and tree_label(expr) == "body":
+        if tree_label(expr) == "body":
             return eval_body_node(expr, spawn_frame, eval_fn)
         return eval_fn(expr, spawn_frame)
 
     expr_node = _unwrap_expr_node(expr)
-    if is_tree(expr_node) and tree_label(expr_node) == "body":
+    if tree_label(expr_node) == "body":
         return _spawn_task(frame, thunk, spawn_site=spawn_site)
     if _explicit_call_in_node(expr):
         return _spawn_task(frame, thunk, spawn_site=spawn_site)
@@ -275,7 +275,7 @@ def eval_wait_any_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
 
         head, body = children
         head = _unwrap_expr_node(head)
-        if is_tree(head) and tree_label(head) == "send":
+        if tree_label(head) == "send":
             value_expr, chan_expr = tree_children(head)
             value = eval_fn(value_expr, frame)
             chan = _coerce_channel(eval_fn(chan_expr, frame))
@@ -284,13 +284,13 @@ def eval_wait_any_block(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
 
         binder = None
         recv_expr = head
-        if is_tree(head) and tree_label(head) == "walrus":
+        if tree_label(head) == "walrus":
             name_node, value_node = tree_children(head)
             binder = expect_ident_token(name_node, "wait[any] walrus target")
             recv_expr = value_node
 
         recv_expr = _unwrap_expr_node(recv_expr)
-        if not (is_tree(recv_expr) and tree_label(recv_expr) == "recv"):
+        if tree_label(recv_expr) != "recv":
             raise ShakarRuntimeError("wait[any] arm must be send or receive")
 
         recv_children = tree_children(recv_expr)
@@ -370,7 +370,7 @@ def _explicit_call_in_node(node: Node) -> bool:
 
 def _unwrap_expr_node(node: Node) -> Node:
     cur = node
-    while is_tree(cur) and tree_label(cur) in {"expr", "group", "group_expr"}:
+    while tree_label(cur) in {"expr", "group", "group_expr"}:
         children = tree_children(cur)
         if len(children) != 1:
             break

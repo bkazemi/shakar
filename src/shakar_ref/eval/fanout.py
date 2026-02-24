@@ -74,7 +74,7 @@ def _fan_key(clause: Tree) -> Optional[Tuple[str, ...]]:
     """Return a hashable key for field/index paths to dedup targets."""
     parts: list[str] = []
     for child in tree_children(clause):
-        if is_tree(child) and _name(tree_label(child)) == "fanpath":
+        if _name(tree_label(child)) == "fanpath":
             for raw_seg in tree_children(child):
                 seg, label = unwrap_noanchor(raw_seg)
                 label = _name(label)
@@ -101,15 +101,11 @@ def _eval_clause(
         raise ShakarRuntimeError("Malformed fanout clause")
 
     fanpath_node = next(
-        (ch for ch in children if is_tree(ch) and _name(tree_label(ch)) == "fanpath"),
+        (ch for ch in children if _name(tree_label(ch)) == "fanpath"),
         None,
     )
     op_node = next(
-        (
-            ch
-            for ch in children
-            if is_tree(ch) and _name(tree_label(ch)).startswith("fanop_")
-        ),
+        (ch for ch in children if _name(tree_label(ch)).startswith("fanop_")),
         None,
     )
     rhs_node = children[-1]
@@ -204,10 +200,7 @@ def _segment_is_multi_selector(seg: Tree) -> bool:
         return False
     # single selector: check if it is a slice selector
     sel = selectors[0]
-    return any(
-        is_tree(grand) and tree_label(grand) == "slicesel"
-        for grand in tree_children(sel)
-    )
+    return any(tree_label(grand) == "slicesel" for grand in tree_children(sel))
 
 
 def _fan_context_from_selector(

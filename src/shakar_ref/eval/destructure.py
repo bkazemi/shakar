@@ -24,7 +24,7 @@ from ..utils import (
     coerce_sequence,
     replicate_empty_sequence,
 )
-from ..tree import Node, Tree, child_by_label, is_tree, tree_label, tree_children
+from ..tree import Node, Tree, child_by_label, tree_label, tree_children
 from .helpers import collect_scope_names, find_frozen_scope_frame
 from .common import assert_contract_match
 
@@ -60,7 +60,7 @@ def _collect_pattern_target_names(pattern: Tree, out: list[str]) -> None:
         out.append(ident)
         return
 
-    if is_tree(target) and tree_label(target) == "pattern_list":
+    if tree_label(target) == "pattern_list":
         for child in tree_children(target):
             if tree_label(child) in {"pattern", "pattern_rest"}:
                 _collect_pattern_target_names(child, out)

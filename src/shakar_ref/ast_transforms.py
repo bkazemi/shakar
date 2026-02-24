@@ -49,10 +49,10 @@ def enforce_subject_scope(tree: Tree) -> None:
     errors: List[str] = []
 
     def visit(node: Node, depth: int) -> None:
-        if not is_tree(node):
+        label = tree_label(node)
+        if label is None:
             return
 
-        label = tree_label(node)
         children = list(tree_children(node))
 
         if label == "subject":
@@ -65,25 +65,21 @@ def enforce_subject_scope(tree: Tree) -> None:
             return
         if label == "hook":
             for ch in children:
-                if is_tree(ch) and tree_label(ch) == "body":
+                if tree_label(ch) == "body":
                     visit(ch, depth + 1)
                 else:
                     visit(ch, depth)
             return
         if label == "waitany_arm":
             for idx, ch in enumerate(children):
-                if idx == 1 and is_tree(ch) and tree_label(ch) == "body":
+                if idx == 1 and tree_label(ch) == "body":
                     visit(ch, depth + 1)
                 else:
                     visit(ch, depth)
             return
         if label in {"waitany_timeout", "waitany_default"}:
             for idx, ch in enumerate(children):
-                if (
-                    idx == len(children) - 1
-                    and is_tree(ch)
-                    and tree_label(ch) == "body"
-                ):
+                if idx == len(children) - 1 and tree_label(ch) == "body":
                     visit(ch, depth + 1)
                 else:
                     visit(ch, depth)
@@ -124,19 +120,13 @@ class ChainNormalize(Transformer):
             node = items[i]
 
             # Check for field (or noanchor-wrapped field) followed by call
-            is_field = is_tree(node) and tree_label(node) == "field"
+            is_field = tree_label(node) == "field"
             is_noanchor_field = (
-                is_tree(node)
-                and tree_label(node) == "noanchor"
-                and is_tree(node.children[0])
+                tree_label(node) == "noanchor"
                 and tree_label(node.children[0]) == "field"
             )
 
-            if (
-                (is_field or is_noanchor_field)
-                and i + 1 < len(items)
-                and is_tree(items[i + 1])
-            ):
+            if (is_field or is_noanchor_field) and i + 1 < len(items):
                 nxt = items[i + 1]
 
                 if tree_label(nxt) == "call":
@@ -541,7 +531,7 @@ class Prune(Transformer):
     def _unwrap_fragment_expr(self, node: Node) -> Node:
         current = node
 
-        while is_tree(current) and tree_label(current) == "expr":
+        while tree_label(current) == "expr":
             children = tree_children(current)
 
             if not children:
@@ -588,7 +578,7 @@ class Prune(Transformer):
             if is_token(part) and part.type == TT.IDENT:
                 if name is None:
                     name = part
-            elif is_tree(part) and tree_label(part) == "paramlist":
+            elif tree_label(part) == "paramlist":
                 params = part
         return Tree("obj_method", [name, params, body])
 
@@ -732,13 +722,13 @@ class Prune(Transformer):
         binder: Optional[str] = None
 
         for node in c:
-            if is_tree(node) and tree_label(node) == "body":
+            if tree_label(node) == "body":
                 body = node
-            elif is_tree(node) and tree_label(node) == "using_handle":
+            elif tree_label(node) == "using_handle":
                 handle = _first_ident(node)
-            elif is_tree(node) and tree_label(node) == "using_bind":
+            elif tree_label(node) == "using_bind":
                 binder = _first_ident(node)
-            elif is_tree(node) and tree_label(node) == "bindexpr":
+            elif tree_label(node) == "bindexpr":
                 expr = node
             elif expr is None and node is not Discard:
                 expr = node
@@ -804,9 +794,9 @@ class Prune(Transformer):
         for node in c:
             if is_token(node) and node.type == TT.IDENT and name is None:
                 name = node
-            elif is_tree(node) and tree_label(node) == "paramlist":
+            elif tree_label(node) == "paramlist":
                 params = node
-            elif is_tree(node) and tree_label(node) == "body":
+            elif tree_label(node) == "body":
                 body = node
 
         children: List[Node] = []
@@ -830,20 +820,19 @@ class Prune(Transformer):
         decorators = None
 
         for node in c:
-            if is_tree(node):
-                label = tree_label(node)
-                if label == "decorator_list":
-                    decorators = node
-                    continue
-                elif label == "paramlist":
-                    params = node
-                    continue
-                elif label == "body":
-                    body = node
-                    continue
-                elif label == "return_contract":
-                    return_contract = node
-                    continue
+            label = tree_label(node)
+            if label == "decorator_list":
+                decorators = node
+                continue
+            elif label == "paramlist":
+                params = node
+                continue
+            elif label == "body":
+                body = node
+                continue
+            elif label == "return_contract":
+                return_contract = node
+                continue
 
             if is_token(node) and node.type == TT.IDENT and name is None:
                 name = node
@@ -869,10 +858,9 @@ class Prune(Transformer):
         body_node = None
 
         for node in c:
-            if is_tree(node):
-                tag = tree_label(node)
-
-                if tag == "deferlabel" and label is None and node.children:
+            tag = tree_label(node)
+            if tag is not None:
+                if tag == "deferlabel" and label is None and tree_children(node):
                     ident = _first_ident(node)
                     if ident:
                         label = ident
@@ -881,7 +869,7 @@ class Prune(Transformer):
                     deps.extend(_collect_defer_after(node))
                     continue
                 if tag == "defer_block":
-                    transformed = self._transform_tree(node.children[0])
+                    transformed = self._transform_tree(tree_children(node)[0])
                     if isinstance(transformed, Discard):
                         continue
                     body_node = Tree("deferblock", [transformed])
@@ -921,11 +909,7 @@ class Prune(Transformer):
         for node in c:
             if is_token(node) and node.type == TT.CATCH:
                 continue
-            if (
-                is_tree(node)
-                and tree_label(node) == "catchtypes"
-                and len(node.children) == 0
-            ):
+            if tree_label(node) == "catchtypes" and len(tree_children(node)) == 0:
                 continue
             children.append(node)
 
@@ -957,19 +941,17 @@ class Prune(Transformer):
 
     def _flatten_ccc_parts(self, items):
         for item in items:
-            if is_tree(item):
-                label = tree_label(item)
-
-                if label in {
-                    "ccc_trailer",
-                    "ccc_chain",
-                    "ccc_leg",
-                    "ccc_or_leg",
-                    "ccc_and_leg",
-                    "ccc_and_payload",
-                }:
-                    yield from self._flatten_ccc_parts(tree_children(item))
-                    continue
+            label = tree_label(item)
+            if label in {
+                "ccc_trailer",
+                "ccc_chain",
+                "ccc_leg",
+                "ccc_or_leg",
+                "ccc_and_leg",
+                "ccc_and_payload",
+            }:
+                yield from self._flatten_ccc_parts(tree_children(item))
+                continue
             yield item
 
 
@@ -989,11 +971,8 @@ class ArgTidy(Transformer):
 
 def validate_named_args(tree: Tree) -> None:
     def is_namedarg(n: Node) -> bool:
-        if is_tree(n) and tree_label(n) == "argnamed":
+        if tree_label(n) == "argnamed":
             return True
-
-        if not is_tree(n):
-            return False
 
         for ch in tree_children(n):
             if is_namedarg(ch):
@@ -1001,16 +980,16 @@ def validate_named_args(tree: Tree) -> None:
         return False
 
     def walk(n: Node) -> None:
-        if not is_tree(n):
+        label = tree_label(n)
+        if label is None:
             return
 
-        label = tree_label(n)
         children = tree_children(n)
 
         if label in {"call", "callnc", "emitexpr"} and children:
             arglist = children[0]
 
-            if not is_tree(arglist) or tree_label(arglist) != "arglistnamedmixed":
+            if tree_label(arglist) != "arglistnamedmixed":
                 return
             seen_named = False
             for ch in tree_children(arglist):
@@ -1029,15 +1008,15 @@ def validate_named_args(tree: Tree) -> None:
 
 def validate_hoisted_binders(tree: Tree) -> None:
     def walk(n: Node) -> None:
-        if not is_tree(n):
-            return
         label = tree_label(n)
+        if label is None:
+            return
 
         if label == "binderlist":
             pairs: list[tuple[str, bool]] = []
 
             for ch in tree_children(n):
-                if is_tree(ch) and tree_label(ch) == "binder":
+                if tree_label(ch) == "binder":
                     name = _first_ident(ch)
                     if name is None:
                         continue
@@ -1097,7 +1076,7 @@ class _ParamEntry:
 
 def normalize_param_contracts(node: Node) -> Node:
     """Normalize grouped/implicit parameter contracts in param lists."""
-    if is_token(node) or not is_tree(node):
+    if not is_tree(node):
         return node
 
     if tree_label(node) == "paramlist":
@@ -1121,24 +1100,24 @@ def _normalize_paramlist(node: Tree) -> Tree:
 
 
 def _expand_param_entry(node: Node) -> List[_ParamEntry]:
-    if is_tree(node):
-        label = tree_label(node)
+    label = tree_label(node)
 
-        if label == "param_isolated":
-            inner = node.children[0] if node.children else None
-            if inner is None:
-                raise SyntaxError("Empty isolated parameter group")
-            entries = _expand_param_entry(inner)
-            for entry in entries:
-                entry.isolated = True
-                entry.trailing_contract = False
-            return entries
+    if label == "param_isolated":
+        children = tree_children(node)
+        inner = children[0] if children else None
+        if inner is None:
+            raise SyntaxError("Empty isolated parameter group")
+        entries = _expand_param_entry(inner)
+        for entry in entries:
+            entry.isolated = True
+            entry.trailing_contract = False
+        return entries
 
-        if label == "param_group":
-            return _expand_param_group(node)
+    if label == "param_group":
+        return _expand_param_group(node)
 
-        if label == "param_destruct":
-            return [_entry_from_node(node, isolated=False)]
+    if label == "param_destruct":
+        return [_entry_from_node(node, isolated=False)]
 
     return [_entry_from_node(node, isolated=False)]
 
@@ -1148,9 +1127,9 @@ def _expand_param_group(node: Tree) -> List[_ParamEntry]:
     contract_expr: Optional[Node] = None
 
     for child in tree_children(node):
-        if is_tree(child) and tree_label(child) == "paramlist":
+        if tree_label(child) == "paramlist":
             group_params = child
-        elif is_tree(child) and tree_label(child) == "contract":
+        elif tree_label(child) == "contract":
             kids = tree_children(child)
             if kids:
                 contract_expr = kids[0]
@@ -1240,14 +1219,11 @@ def _validate_param_entries(entries: List[_ParamEntry]) -> None:
 
 
 def _param_contract_expr(node: Node) -> Optional[Node]:
-    if not is_tree(node):
-        return None
-
     if tree_label(node) not in {"param", "param_spread", "param_destruct"}:
         return None
 
     for child in tree_children(node):
-        if is_tree(child) and tree_label(child) == "contract":
+        if tree_label(child) == "contract":
             kids = tree_children(child)
             if kids:
                 return kids[0]
@@ -1255,20 +1231,20 @@ def _param_contract_expr(node: Node) -> Optional[Node]:
 
 
 def _param_is_spread(node: Node) -> bool:
-    return is_tree(node) and tree_label(node) == "param_spread"
+    return tree_label(node) == "param_spread"
 
 
 def _param_is_destruct(node: Node) -> bool:
-    return is_tree(node) and tree_label(node) == "param_destruct"
+    return tree_label(node) == "param_destruct"
 
 
 def _param_destruct_field_names(node: Node) -> List[str]:
-    if not is_tree(node) or tree_label(node) != "param_destruct":
+    if tree_label(node) != "param_destruct":
         return []
 
     names: List[str] = []
     for child in tree_children(node):
-        if not is_tree(child) or tree_label(child) != "destruct_field":
+        if tree_label(child) != "destruct_field":
             continue
         field_children = tree_children(child)
         if not field_children:
@@ -1284,7 +1260,7 @@ def _param_name(node: Node) -> Optional[str]:
     if is_token(node) and node.type == TT.IDENT:
         return str(node.value)
 
-    if is_tree(node) and tree_label(node) in {"param", "param_spread"}:
+    if tree_label(node) in {"param", "param_spread"}:
         children = tree_children(node)
         if children and is_token(children[0]) and children[0].type == TT.IDENT:
             return str(children[0].value)
@@ -1301,7 +1277,7 @@ def _add_param_contract(node: Node, contract_expr: Node) -> Node:
     if is_token(node):
         return Tree("param", [node, contract_node])
 
-    if is_tree(node) and tree_label(node) in {
+    if tree_label(node) in {
         "param",
         "param_spread",
         "param_destruct",
@@ -1469,11 +1445,7 @@ def canonicalize_root(tree: Tree) -> Tree:
         return tree
     children = [child for child in tree_children(tree) if child is not Discard]
 
-    if (
-        len(children) == 1
-        and is_tree(children[0])
-        and tree_label(children[0]) == "stmtlist"
-    ):
+    if len(children) == 1 and tree_label(children[0]) == "stmtlist":
         stmtlist = _strip_discard(children[0])
     else:
         stmtlist = _strip_discard(Tree("stmtlist", children))
