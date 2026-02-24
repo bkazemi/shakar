@@ -47,6 +47,7 @@ _TT_GROUP = {
     TT.RETURN: "keyword",
     TT.FN: "keyword",
     TT.LET: "keyword",
+    TT.ONCE: "keyword",
     TT.WAIT: "keyword",
     TT.SPAWN: "keyword",
     TT.USING: "keyword",
@@ -141,7 +142,7 @@ _TT_GROUP = {
 _DUR_SIZE_TT = {TT.DURATION, TT.SIZE}
 _LAYOUT = {TT.NEWLINE, TT.INDENT, TT.DEDENT, TT.EOF}
 _SIG_SKIP = _LAYOUT | {TT.COMMENT}
-_SLOT_HEADS = {TT.WAIT, TT.USING, TT.CALL, TT.FAN}
+_SLOT_HEADS = {TT.WAIT, TT.USING, TT.CALL, TT.FAN, TT.ONCE}
 
 
 def _prev_sig_idx(tokens: list[Tok], idx: int) -> int:
@@ -154,34 +155,34 @@ def _prev_sig_idx(tokens: list[Tok], idx: int) -> int:
     return -1
 
 
-def _next_sig_idx(tokens: list[Tok], idx: int) -> int:
-    j = idx + 1
-    while j < len(tokens):
-        tok = tokens[j]
-        if tok.type not in _SIG_SKIP:
-            return j
-        j += 1
-    return -1
-
-
 def _is_bracket_slot_ident(tokens: list[Tok], idx: int) -> bool:
-    prev_idx = _prev_sig_idx(tokens, idx)
-    next_idx = _next_sig_idx(tokens, idx)
-    if prev_idx < 0 or next_idx < 0:
+    if idx < 0 or idx >= len(tokens):
+        return False
+    if tokens[idx].type != TT.IDENT:
         return False
 
-    prev_tok = tokens[prev_idx]
-    next_tok = tokens[next_idx]
-    if prev_tok.type != TT.LSQB:
-        return False
-    if next_tok.type != TT.RSQB:
-        return False
+    # Find the nearest containing `[` while skipping nested bracket pairs.
+    depth = 0
+    j = idx - 1
+    while j >= 0:
+        tok = tokens[j]
+        if tok.type in _SIG_SKIP:
+            j -= 1
+            continue
+        if tok.type == TT.RSQB:
+            depth += 1
+            j -= 1
+            continue
+        if tok.type == TT.LSQB:
+            if depth == 0:
+                head_idx = _prev_sig_idx(tokens, j)
+                if head_idx < 0:
+                    return False
+                return tokens[head_idx].type in _SLOT_HEADS
+            depth -= 1
+        j -= 1
 
-    head_idx = _prev_sig_idx(tokens, prev_idx)
-    if head_idx < 0:
-        return False
-    head_tok = tokens[head_idx]
-    return head_tok.type in _SLOT_HEADS
+    return False
 
 
 def _dur_size_spans(tok_text: str) -> StyleAndTextTuples:
