@@ -223,7 +223,7 @@ SCENARIOS = [
             picked.len
         """
         ),
-        ("number", 0),
+        ("number", 3),
         None,
         id="selector-literal-open-stop-neg-step",
     ),

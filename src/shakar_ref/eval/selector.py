@@ -470,14 +470,18 @@ def _selector_slice_to_slice(part: SelectorSlice, length: int) -> slice:
         if not part.exclusive_stop and stop_adj is not None:
             stop_adj = stop_adj + (1 if step > 0 else -1)
 
-        slice_obj = slice(start, stop_adj, step)
-        normalized = slice_obj.indices(length)
-        return slice(*normalized)
+        start_n, stop_n, step_n = slice(start, stop_adj, step).indices(length)
+        # -1 from .indices() with negative step means "go to beginning";
+        # re-wrapping as slice(-1) would reinterpret as last element.
+        if step_n < 0 and stop_n < 0:
+            stop_n = None
+        return slice(start_n, stop_n, step_n)
 
     if start is None:
         start = 0 if step > 0 else length - 1
 
-    if stop is None:
+    open_stop = stop is None
+    if open_stop:
         stop = length if step > 0 else -1
 
     if not part.exclusive_stop and stop is not None:
@@ -486,7 +490,11 @@ def _selector_slice_to_slice(part: SelectorSlice, length: int) -> slice:
     if start < 0:
         start += length
 
-    if stop is not None and stop < 0:
+    # Open stop with negative step => None (go to beginning);
+    # normalizing -1 via += length would misinterpret the sentinel.
+    if open_stop and step < 0:
+        stop = None
+    elif stop is not None and stop < 0:
         stop += length
 
     return slice(start, stop, step)
