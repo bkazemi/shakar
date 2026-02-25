@@ -12,7 +12,7 @@ print(fib(10))`,
     loop: `# Sum numbers 1-5
 sum := 0
 for x in [1, 2, 3, 4, 5]:
-    sum = sum + x
+    sum += x
 print(sum)`,
     tetris: null,  // Special case - loaded from file
     exhaustive: null  // Special case - loaded from file
