@@ -112,14 +112,18 @@ def eval_assign_stmt(
     eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
     evaluate_index_operand: IndexEvalFn,
-) -> None:
+) -> ShkValue:
     if len(children) < 2:
         raise ShakarRuntimeError("Malformed assignment statement")
 
     lvalue_node = children[0]
     value_node = children[-1]
+
+    # Evaluate RHS before writing targets — consistent order regardless
+    # of whether the lvalue fans out at runtime.
     value = eval_fn(value_node, frame)
-    assign_lvalue(
+
+    return assign_lvalue(
         lvalue_node,
         value,
         frame,
@@ -128,8 +132,6 @@ def eval_assign_stmt(
         evaluate_index_operand=evaluate_index_operand,
         create=False,
     )
-
-    return None
 
 
 _COMPOUND_ASSIGN_OPERATORS: dict[str, str] = {
@@ -149,7 +151,7 @@ def eval_compound_assign(
     eval_fn: EvalFn,
     apply_op: ApplyOpFunc,
     evaluate_index_operand: IndexEvalFn,
-) -> None:
+) -> ShkValue:
     if len(children) < 3:
         raise ShakarRuntimeError("Malformed compound assignment")
 
@@ -177,12 +179,18 @@ def eval_compound_assign(
     rhs_values = fanout_values(rhs_value, len(contexts))
     from .expr import apply_binary_operator
 
+    results: list[ShkValue] = []
     for ctx, rhs_item in zip(contexts, rhs_values):
         new_value = apply_binary_operator(op_symbol, ctx.value, rhs_item)
         ctx.setter(new_value)
         ctx.value = new_value
+        results.append(new_value)
 
-    return None
+    # single target => scalar; multi-target => ShkArray
+    if len(results) != 1:
+        return ShkArray(results)
+
+    return results[0]
 
 
 def eval_apply_assign(
@@ -855,21 +863,26 @@ def _assign_over_fancontext(
     evaluate_index_operand: IndexEvalFn,
     eval_fn: EvalFn,
     create: bool,
-) -> None:
+) -> List[ShkValue]:
     """Assign `value` to each target held in FanContext using final_op."""
     op, label = unwrap_noanchor(final_op)
+    vals = fanout_values(value, len(fan.contexts))
+    results: list[ShkValue] = []
 
-    for ctx in fan.contexts:
+    for ctx, item_value in zip(fan.contexts, vals):
         _write_segment(
             ctx.value,
             op,
             label,
-            value,
+            item_value,
             frame,
             evaluate_index_operand,
             eval_fn,
             create=create,
         )
+        results.append(item_value)
+
+    return results
 
 
 def _complete_chain_assignment(
@@ -881,12 +894,12 @@ def _complete_chain_assignment(
     eval_fn: EvalFn,
     *,
     create: bool,
-) -> ShkValue:
+) -> List[ShkValue]:
     if isinstance(target, RebindContext):
         target = target.value
 
     if isinstance(target, FanContext):
-        _assign_over_fancontext(
+        return _assign_over_fancontext(
             target,
             raw_final_op,
             value,
@@ -895,12 +908,11 @@ def _complete_chain_assignment(
             eval_fn,
             create,
         )
-        return value
 
     final_op, label = unwrap_noanchor(raw_final_op)
 
     if label in {"field", "fieldsel", "lv_index"}:
-        return _write_segment(
+        assigned = _write_segment(
             target,
             final_op,
             label,
@@ -910,6 +922,7 @@ def _complete_chain_assignment(
             eval_fn,
             create=create,
         )
+        return [assigned]
 
     if label == "fieldfan":
         names = _extract_fieldfan_names(
@@ -922,7 +935,7 @@ def _complete_chain_assignment(
         for name, val in zip(names, vals):
             set_field_value(target, name, val, frame, create=create)
 
-        return value
+        return list(vals)
 
     raise ShakarRuntimeError("Unsupported assignment target")
 
@@ -937,15 +950,17 @@ def _assign_over_fan(
     apply_op: ApplyOpFunc,
     evaluate_index_operand: IndexEvalFn,
     create: bool,
-) -> ShkValue:
+) -> List[ShkValue]:
     if not ops:
         raise ShakarRuntimeError("Malformed fan assignment target")
 
+    fan_values = fanout_values(value, len(fan.items))
     saved_dot = frame.dot
     saved_pending = frame.pending_anchor_override
+    results: list[ShkValue] = []
 
     try:
-        for item in fan.items:
+        for item, item_value in zip(fan.items, fan_values):
             current: ShkValue | FanContext | RebindContext = item
             frame.dot = item
             for op in ops[:-1]:
@@ -956,20 +971,28 @@ def _assign_over_fan(
                     current = current.value
 
             frame.pending_anchor_override = None
-            _complete_chain_assignment(
+            assigned = _complete_chain_assignment(
                 current,
                 ops[-1],
-                value,
+                item_value,
                 frame,
                 evaluate_index_operand,
                 eval_fn,
                 create=create,
             )
+            results.extend(assigned)
     finally:
         frame.dot = saved_dot
         frame.pending_anchor_override = saved_pending
 
-    return value
+    return results
+
+
+def _pack_assignment_results(results: List[ShkValue]) -> ShkValue:
+    """Return scalar for one write, array for multi-target writes."""
+    if len(results) == 1:
+        return results[0]
+    return ShkArray(results)
 
 
 def assign_lvalue(
@@ -1005,12 +1028,14 @@ def assign_lvalue(
             evaluate_index_operand=evaluate_index_operand,
         )
         values = fanout_values(value, len(contexts))
+        results: list[ShkValue] = []
 
         for ctx, item_value in zip(contexts, values):
             ctx.setter(item_value)
             ctx.value = item_value
+            results.append(item_value)
 
-        return value
+        return _pack_assignment_results(results)
 
     target = eval_fn(head, frame)
 
@@ -1018,7 +1043,7 @@ def assign_lvalue(
         raise ShakarRuntimeError("Malformed lvalue")
 
     if isinstance(target, ShkFan):
-        return _assign_over_fan(
+        results = _assign_over_fan(
             target,
             ops,
             value,
@@ -1028,11 +1053,12 @@ def assign_lvalue(
             evaluate_index_operand=evaluate_index_operand,
             create=create,
         )
+        return _pack_assignment_results(results)
 
     for op in ops[:-1]:
         target = apply_op(target, op, frame, eval_fn)
 
-    return _complete_chain_assignment(
+    results = _complete_chain_assignment(
         target,
         ops[-1],
         value,
@@ -1041,6 +1067,7 @@ def assign_lvalue(
         eval_fn,
         create=create,
     )
+    return _pack_assignment_results(results)
 
 
 def assign_pattern_value(

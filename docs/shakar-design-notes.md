@@ -517,10 +517,10 @@ Typed literals representing byte quantities. Distinct from integers and duration
   8) Comparison: `<`, `<=`, `>`, `>=`, `==`, `!=`, `is`, `is not`, `!is`, `in`, `!in`, `not in`, `~`
   9) Nil-safe chain: `??(expr)` (prefix primary)
   10) Nil-coalescing: `a ?? b` (right-assoc; tighter than `or`)
-  11) Walrus & apply-assign: `:=`, `.=` (expression-valued; tighter than `and`/`or`, lower than postfix)
+  11) Walrus & bind/assign: `:=`, `.=`, `=`, compounds (`+=`, `-=`, etc.) (expression-valued, right-assoc; tighter than `and`/`or`, lower than postfix)
   12) Boolean: `and`, `or` (short-circuit, value-yielding)
   13) Ternary: `cond ? then : else`
-  14) Assignment statements: `=`, compounds, `or=`, statement-subject `=x or y`
+  14) Statement-only: `or=`, statement-subject `=x or y`
 
 ### Arithmetic & algebra
 
@@ -581,7 +581,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
 
 - **Binding vs update**:
   - `name := expr` introduces a new binding in the current lexical scope, yields the value, and errors if `name` already exists in that scope.
-  - `name = expr` updates an existing binding; statement-only; errors if `name` does not exist.
+  - `name = expr` updates an existing binding; expression-valued (yields the assigned value); right-associative (`a = b = 3` assigns 3 to both); errors if `name` does not exist.
   - Destructuring: arrays `[head, ...rest] := xs`; objects `{id, name} := user`; updates use `=`. Chaining `x := y := 0` is disallowed.
 - **Let-scoped assignment**:
   - `let` prefixes assignment/destructure to make bindings block-local without changing global `:=`/`=` behavior.
@@ -624,7 +624,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
   user.{phone, altPhone} .= .digits() ?? ""
   ```
   After `.=` in a grouping, sibling leading dots anchor to `LHS` and see the updated value.
-- **Compound & defaults**: map compounds `+= -= *= ^=` mutate maps in place with object-algebra semantics; set compounds `+= -= *= ^=` mutate sets in place. Simple compounds `+= -= *= /= //= %= **=` (bitwise variants gated). Defaults: `or=` and statement-subject `=x or y` desugar to `if not …: … = …`.
+- **Compound & defaults**: map compounds `+= -= *= ^=` mutate maps in place with object-algebra semantics; set compounds `+= -= *= ^=` mutate sets in place. Simple compounds `+= -= *= /= //= %= **=` are expression-valued (yield updated value) and right-associative (bitwise variants gated). Defaults: `or=` and statement-subject `=x or y` desugar to `if not …: … = …`.
 - **Increments**: prefix/postfix `++/--` on lvalues (numeric only). Postfix terminal and only at end of member/selector chain; prefix returns updated value, postfix the pre-update value.
 - **Multi-field assign fan-out**:
   - Surface:
@@ -713,7 +713,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
 - **Destructuring & broadcast**: `a, b := 1` broadcasts a single RHS value (evaluated once) to each LHS target when arity requires. LHS requires a pattern list for multiple targets (`a = 1, 2` is an error; use `a, b = 1, 2`). Nested patterns supported via parentheses: `a, (b, c) := [1, [2, 3]]` destructures nested arrays.
   - **Object keyed extraction**: When the RHS is an object and all LHS patterns are simple identifiers, fields are extracted by matching identifier names as keys: `a, b := {a: 10, b: 20}` binds `a=10, b=20`. Extra keys are ignored; missing keys raise `KeyError`. This is contextual at runtime — no grammar-level distinction. Priority: object extraction > sequence positional > scalar broadcast. Arrays remain positional; scalars still broadcast.
   - **Destructure contracts**: Per-identifier contracts supported via `ident ~ Schema` syntax. Example: `a ~ Int, b ~ Str := get_pair()` validates each value before binding. Contracts are optional and can be mixed: `id ~ Int, name, age := data`. Contracts can be combined with nested patterns: `a ~ Int, (b, c) := [10, [20, 30]]`.
-  - **Pattern defaults**: `ident = expr` provides a fallback when a value is missing. For arrays, defaults fill in when the RHS is shorter than the pattern list: `a, b = 0 := [1]` binds `a=1, b=0`. For objects, defaults apply when a key is absent: `host = "localhost", port := {port: 5432}` binds `host="localhost", port=5432`. Defaults can appear in nested patterns: `a, (b, c = 0) := [1, [2]]` binds `c=0`. Defaults are evaluated lazily (only when the value is actually missing). Defaults compose with contracts: `a = 0 ~ Int, b := 1, 2`. **Note:** Default expressions containing top-level `=` (e.g. inline function bodies with assignments) require parenthesization: `a = (fn(): x = 1), b := ...`.
+  - **Pattern defaults**: `ident = expr` provides a fallback when a value is missing. For arrays, defaults fill in when the RHS is shorter than the pattern list: `a, b = 0 := [1]` binds `a=1, b=0`. For objects, defaults apply when a key is absent: `host = "localhost", port := {port: 5432}` binds `host="localhost", port=5432`. Defaults can appear in nested patterns: `a, (b, c = 0) := [1, [2]]` binds `c=0`. Defaults are evaluated lazily (only when the value is actually missing). Defaults compose with contracts: `a = 0 ~ Int, b := 1, 2`. **Note:** Single-pattern destructure-default (`a = default = rhs`) is no longer supported — `=` in expression position is always chained assignment. Use `??` for defaulting: `a = b ?? default`. Multi-pattern defaults with commas or contracts remain supported.
   - **Rest patterns**: `...ident` in the last position of a destructure collects remaining values. For arrays: `a, ...rest := [1, 2, 3]` binds `a=1, rest=[2, 3]`. When the array is exhausted, rest is an empty array: `a, b, ...rest := [1, 2]` binds `rest=[]`. For objects: `host, ...rest := {host: "h", port: 80, tls: true}` binds `host="h"` and `rest={port: 80, tls: true}`. Rest patterns must be last; rest inside nested tuple patterns is rejected. Rest and defaults compose: `a, b = 0, ...rest := [1]` binds `a=1, b=0, rest=[]`.
 
 ### Spread Operator `...`

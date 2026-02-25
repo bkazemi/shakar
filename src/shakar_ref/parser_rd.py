@@ -136,6 +136,10 @@ class Parser:
         # at which the default expression began so that ~ / ~~ are suppressed at
         # that depth but allowed inside user-written parentheses.
         self._pattern_default_paren_depth: int = -1
+        # Token index where current pattern default expression starts.
+        # Used to allow nested assignment expressions inside []/{} while still
+        # suppressing ambiguous top-level `=` in defaults.
+        self._pattern_default_start_pos: int = -1
         # Monotonic once-site ID allocator seeded from process-global counter.
         self._next_once_id: int = 0
 
@@ -830,6 +834,22 @@ class Parser:
                         raise ParseError("Rest pattern must be last", tok)
 
                 if self.check(TT.ASSIGN, TT.WALRUS):
+                    # Single-pattern default-only (`let x = default = rhs`)
+                    # is ambiguous with chained assignment.  Reject when the
+                    # lone pattern has a default but no contract/rest — fall
+                    # through to expression parsing where `=` chains.
+                    if len(patterns) == 1:
+                        pat = patterns[0]
+                        pat_children = tree_children(pat) or []
+                        has_default = any(
+                            tree_label(c) == "default" for c in pat_children
+                        )
+                        has_contract_or_rest = tree_label(pat) == "pattern_rest" or any(
+                            tree_label(c) == "contract" for c in pat_children
+                        )
+                        if has_default and not has_contract_or_rest:
+                            raise ParseError("single-pattern default", self.current)
+
                     op = self.advance()
                     rhs = self.parse_destructure_rhs()
                     label = (
@@ -851,17 +871,8 @@ class Parser:
 
         if tree_label(expr) == "expr" and tree_children(expr):
             inner = tree_children(expr)[0]
-            if tree_label(inner) == "walrus":
+            if tree_label(inner) in {"walrus", "assignstmt"}:
                 return Tree("let", [inner])
-
-        if self.check(TT.ASSIGN, TT.WALRUS):
-            assign_tok = self.advance()  # Capture BEFORE parsing RHS
-            lvalue = self._expr_to_lvalue(expr)
-            rhs = self.parse_nullish_expr()
-            return Tree(
-                "let",
-                [Tree("assignstmt", [lvalue, assign_tok, rhs])],
-            )
 
         raise ParseError("Expected assignment after let", self.current)
 
@@ -2391,18 +2402,92 @@ class Parser:
         """Parse logical AND: expr && expr"""
         return self._parse_flat_binop("and", TT.AND, self.parse_bind_expr)
 
+    _COMPOUND_ASSIGN_EXPR_OPS = (
+        TT.PLUSEQ,
+        TT.MINUSEQ,
+        TT.STAREQ,
+        TT.SLASHEQ,
+        TT.FLOORDIVEQ,
+        TT.MODEQ,
+        TT.POWEQ,
+    )
+
+    def _assign_expr_allowed(self) -> bool:
+        """Whether = and compound assignment are allowed in expression position.
+
+        Suppressed inside pattern-default expressions at the default's paren
+        depth so that `a = default = rhs` is not consumed by the default.
+        """
+        if self._pattern_default_paren_depth < 0:
+            return True
+
+        # User-written parentheses always opt back in.
+        if self.paren_depth > self._pattern_default_paren_depth:
+            return True
+
+        if self.paren_depth < self._pattern_default_paren_depth:
+            return True
+
+        # At the default's base paren depth, allow nested assignments that are
+        # structurally inside [], {}, or () from the default start onward.
+        if self._pattern_default_start_pos >= 0:
+            group_depth = 0
+            for idx in range(self._pattern_default_start_pos, self.pos):
+                tok_type = self.tokens[idx].type
+                if tok_type in {TT.LPAR, TT.LSQB, TT.LBRACE}:
+                    group_depth += 1
+                elif tok_type in {TT.RPAR, TT.RSQB, TT.RBRACE}:
+                    group_depth -= 1
+            if group_depth > 0:
+                return True
+
+        return False
+
     def parse_bind_expr(self) -> Node:
-        """Parse apply bind: lvalue .= expr"""
+        """Parse apply-assign, reassignment, and compound assignment expressions.
+
+        All are right-associative at the same precedence tier:
+          lvalue .= expr
+          lvalue = expr
+          lvalue += expr  (and other compounds)
+        """
         left = self.parse_send_expr()
 
         if self.match(TT.APPLYASSIGN):
             lvalue = self._expr_to_lvalue(left)
-
-            right = self.parse_bind_expr()  # Right associative
+            right = self.parse_bind_expr()  # right-associative
             return Tree("bind", [lvalue, right])
 
-        # No bind, just return walrus level
+        # = and compound ops suppressed inside pattern-default expressions
+        if self._assign_expr_allowed():
+            if self.match(TT.ASSIGN):
+                lvalue = self._expr_to_lvalue(left)
+                right = self._parse_assign_expr_rhs(lvalue)
+                return Tree("assignstmt", [lvalue, right])
+
+            if self.check(*self._COMPOUND_ASSIGN_EXPR_OPS):
+                op = self.advance()
+                lvalue = self._expr_to_lvalue(left)
+                right = self._parse_assign_expr_rhs(lvalue)
+                return Tree("compound_assign", [lvalue, op, right])
+
         return left
+
+    def _parse_assign_expr_rhs(self, lvalue: Tree) -> Node:
+        """Parse RHS for expression-position assignment.
+
+        Fan-shaped lvalues allow comma-separated pack values only in NORMAL
+        expression context. In comma-delimited contexts (args/array elements),
+        commas must remain separators.
+        """
+        allow_pack = (
+            self.parse_context == ParseContext.NORMAL
+            and self._lvalue_allows_rhs_pack(lvalue)
+        )
+        if allow_pack:
+            return self._parse_assignment_rhs(lvalue, allow_pack=True)
+
+        return self.parse_bind_expr()  # right-associative
 
     def parse_send_expr(self) -> Node:
         """Parse channel send: expr -> expr"""
@@ -2522,21 +2607,23 @@ class Parser:
 
         return False
 
-    def _parse_assignment_rhs(self, lvalue: Tree) -> Node:
+    def _parse_assignment_rhs(self, lvalue: Tree, *, allow_pack: bool = True) -> Node:
         """Parse assignment RHS; allow `expr, expr` packs for fan-shaped lvalues."""
-        allow_pack = self._lvalue_allows_rhs_pack(lvalue)
+        allow_pack = allow_pack and self._lvalue_allows_rhs_pack(lvalue)
         if not allow_pack:
-            return self.parse_nullish_expr()
+            return self.parse_bind_expr()
 
+        # Each pack element is parsed at bind level so chained
+        # assignments like `a.{x,y} = b = 3` are consumed correctly.
         saved_context = self._push_parse_context(ParseContext.DESTRUCTURE_PACK)
         try:
-            rhs = self.parse_nullish_expr()
+            rhs = self.parse_bind_expr()
             if not self.check(TT.COMMA):
                 return rhs
 
             exprs: List[Node] = [rhs]
             while self.match(TT.COMMA):
-                exprs.append(self.parse_nullish_expr())
+                exprs.append(self.parse_bind_expr())
 
             return Tree("pack", exprs)
         finally:
@@ -3637,11 +3724,14 @@ class Parser:
         """
         saved_context = self._push_parse_context(ParseContext.DESTRUCTURE_PACK)
         prev_depth = self._pattern_default_paren_depth
+        prev_start = self._pattern_default_start_pos
         self._pattern_default_paren_depth = self.paren_depth
+        self._pattern_default_start_pos = self.pos
         try:
             return self.parse_catch_expr()
         finally:
             self._pattern_default_paren_depth = prev_depth
+            self._pattern_default_start_pos = prev_start
             self._pop_parse_context(saved_context)
 
     def _is_pattern_start_token(self, tok: Tok) -> bool:
@@ -4367,16 +4457,26 @@ class Parser:
         Scans all comma-separated patterns looking for any that has `= default`,
         `~ contract`, or `...rest`. Returns True if at least one special marker
         is found and the sequence ends with `:=` or `=`.
+
+        Single-pattern default-only forms (`a = default = rhs`) are excluded —
+        with expression-position assignment, `a = b = c` is chained assignment.
+        Multi-pattern defaults and defaults with contracts/rest still work.
+
         Uses stateless lookahead helper - does not mutate parser state.
         """
         idx = self.pos
         paren_depth = 0
         has_special = False
+        has_contract_or_rest = False
+        pattern_count = 0
 
         while True:
+            pattern_count += 1
+
             # Spread pattern: ...ident
             if self._lookahead_check(idx, TT.SPREAD):
                 has_special = True
+                has_contract_or_rest = True
                 _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
                 if not self._lookahead_check(idx, TT.IDENT):
                     return False
@@ -4433,6 +4533,7 @@ class Parser:
                 # Optional contract: ~ <expr until comma/assign/walrus>
                 if self._lookahead_check(idx, TT.TILDE):
                     has_special = True
+                    has_contract_or_rest = True
                     _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
 
                     depth = 0
@@ -4457,6 +4558,13 @@ class Parser:
 
             # End of pattern list: check for assignment operator
             if has_special and self._lookahead_check(idx, TT.WALRUS, TT.ASSIGN):
+                # Single-pattern default-only (`a = default = rhs`) is ambiguous
+                # with chained assignment.  Only treat as destructure when there
+                # are multiple patterns, contracts, or rest — otherwise fall
+                # through to expression parsing where `=` is chained assignment.
+                if pattern_count == 1 and not has_contract_or_rest:
+                    return False
+
                 return True
 
             return False

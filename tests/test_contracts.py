@@ -600,7 +600,8 @@ SCENARIOS = [
         None,
         id="destr-default-assign-delim",
     ),
-    # Single-pattern default followed by `=` destructure assignment delimiter.
+    # Single-pattern `a = 1 = 2` is now chained assignment (not destructure
+    # default).  `1` is not a valid lvalue, so this is a runtime error.
     pytest.param(
         dedent(
             """\
@@ -609,9 +610,9 @@ SCENARIOS = [
             a
         """
         ),
-        ("number", 2),
         None,
-        id="destr-default-single-assign-delim",
+        ShakarRuntimeError,
+        id="single-pattern-default-now-chained-assign-error",
     ),
     # --- Destructure defaults ---
     # Default used: key missing from object

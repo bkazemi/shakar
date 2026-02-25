@@ -204,8 +204,12 @@ ternary_expression = or_expression , [ "?" , expression , ":" , ternary_expressi
 or_expression = and_expression , { "or" , and_expression } ;
 and_expression = bind_expression , { "and" , bind_expression } ;
 
-(* Binding expressions *)
-bind_expression = send_expression | ( lvalue , APPLYASSIGN , bind_expression ) ;
+(* Binding / assignment expressions — all right-associative at the same tier *)
+bind_expression = send_expression
+                | ( lvalue , APPLYASSIGN , bind_expression )
+                | ( lvalue , "=" , bind_expression )
+                | ( lvalue , compound_assign_op , bind_expression ) ;
+compound_assign_op = PLUSEQ | MINUSEQ | STAREQ | SLASHEQ | FLOORDIVEQ | MODEQ | POWEQ ;
 walrus_expression = nullish_expression | ( IDENT , WALRUS , walrus_rhs ) ;
 walrus_rhs = expression | catch_expression ;
 
