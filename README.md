@@ -100,6 +100,22 @@ cfg["db", default: {}]["host"] .= .trim() ?? "localhost"
 
 Both forms are built on the same [implicit-subject / anchor model](docs/shakar-design-notes.md#the-anchor-model-) rules, which makes "update this thing based on its old value" cheap to write without making the flow mysterious.
 
+#### Assignment Expressions and Chaining
+
+Assignment operators are expression-valued. `=`, compound assignment (`+=`, `-=`, etc.), and `.=` can be used in expression position and return their assigned result.
+
+```shakar
+a := 0
+b := 0
+a = b = 5      # right-associative chain
+
+x := 1
+y := (x += 2) * 10
+
+obj := {p: 0, q: 0}
+obj.{p, q} = 9 # fan assignment returns [9, 9]
+```
+
 #### Implicit Subject and Anchor Stack
 
 The implicit subject `.` only exists inside constructs that explicitly bind it (`=LHS<tail>`, `.=`, subjectful `for` loops, selectors, amp-lambdas). It never leaks across statements.

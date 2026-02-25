@@ -315,7 +315,6 @@ PHASE2_SCENARIOS = [
             """\
             x := nil
             x = x ?? 42
-            x
         """
         ),
         ("number", 42),

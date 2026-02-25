@@ -60,7 +60,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             for i in 3:
               once: bump()
             hits
@@ -77,7 +76,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn f():
               once: bump()
               once: bump()
@@ -95,7 +93,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn f():
               for i in 3:
                 once: bump()
@@ -114,7 +111,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             total := 0
             for i in 3:
               total += once: bump()
@@ -132,7 +128,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn f():
               once: bump()
             [f(), f(), hits]
@@ -148,7 +143,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn f():
               once[static]: bump()
             [f(), f(), hits]
@@ -164,7 +158,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn f():
               once[static]: bump()
               hits
@@ -219,7 +212,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             once: x := bump()
             hits
         """
@@ -234,7 +226,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             once: x := bump()
             x + x + hits
         """
@@ -250,7 +241,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             total := 0
             for i in 3:
               once: x := bump()
@@ -268,7 +258,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn sink(v):
               nil
             sink(once: x := bump())
@@ -325,7 +314,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             total := 0
             for i in 3:
               v := once: bump()
@@ -344,7 +332,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             once[lazy]: x := bump()
             hits
         """
@@ -359,7 +346,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn sink(v):
               nil
             sink(once[lazy]: x := bump())
@@ -376,7 +362,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             once[lazy]: x := bump()
             x = 2
             [x, hits]
@@ -492,7 +477,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn f():
               once[lazy, static]: x := bump()
               x
@@ -510,7 +494,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             total := 0
             for i in 3:
               once[lazy]: x := bump()
@@ -529,7 +512,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             once[lazy]: x := bump()
             y := x
             [y, hits]
@@ -628,7 +610,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             result := 0
             for i in 3:
               result = once:
@@ -661,7 +642,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             v := once:
               bump()
               42
@@ -694,7 +674,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn a():
               once[static]:
                 myVar := bump()
@@ -713,7 +692,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn f():
               i := 0
               while i < 3:
@@ -734,7 +712,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn f():
               i := 0
               while i < 3:
@@ -757,7 +734,6 @@ RUNTIME_SCENARIOS = [
               counter := 0
               fn inc():
                 counter += 1
-                counter
               fn read_counter(): counter
             inc()
             inc()
@@ -774,7 +750,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn a():
               once[static]:
                 fn inner(): hits
@@ -793,7 +768,7 @@ RUNTIME_SCENARIOS = [
             fn a():
               once[static]:
                 counter := 0
-                fn inc(): counter += 1; counter
+                fn inc(): counter += 1
                 fn read_counter(): counter
               inc()
               counter - read_counter()
@@ -826,7 +801,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn blend(a, b): a + b
             f := blend(once: bump(), ?)
             [f(1), hits]
@@ -842,7 +816,6 @@ RUNTIME_SCENARIOS = [
             hits := 0
             fn bump():
               hits += 1
-              hits
             fn blend(a, b): a + b
             f := blend(once[static]: bump(), ?)
             [f(1), f(2), hits]
