@@ -5,10 +5,10 @@ from ..tree import Tok
 
 from ..runtime import (
     Frame,
+    ShkNumber,
     ShkValue,
     EvalResult,
     ShakarRuntimeError,
-    set_sequence_item,
 )
 from ..tree import Node, Tree, child_by_label, is_tree, tree_children, tree_label
 from .bind import FanContext, RebindContext, _read_segment, _write_segment
@@ -23,6 +23,7 @@ from .selector import (
 from ..runtime import ShkArray
 
 from .expr import apply_binary_operator
+from .write_targets import WriteTarget, apply_write_target
 
 
 # Operators we allow inside fanout blocks map directly to binary symbols.
@@ -240,16 +241,14 @@ def _fan_context_from_selector(
     contexts: list[RebindContext] = []
 
     for i in indices:
-
-        def _setter_factory(pos: int):
-            def setter(new_val: ShkValue) -> None:
-                if pos >= len(arr.items):
-                    raise ShakarRuntimeError("Fanout slice target vanished")
-                set_sequence_item(arr.items, pos, new_val)
-
-            return setter
-
-        contexts.append(RebindContext(arr.items[i], _setter_factory(i)))
+        target = WriteTarget(
+            kind="index",
+            owner=arr,
+            name_or_index=ShkNumber(float(i)),
+            frame=frame,
+            create=False,
+        )
+        contexts.append(RebindContext(arr.items[i], target))
 
     return FanContext(contexts)
 
@@ -263,9 +262,10 @@ def _store_target(
     eval_fn,
 ) -> None:
     if isinstance(target, RebindContext):
-        # Apply store to the underlying value, then write back via setter to keep container in sync.
+        # Apply store to the underlying value, then write back via captured target
+        # so container ownership/update rules remain centralized.
         _store(target.value, final_seg, value, frame, evaluate_index_operand, eval_fn)
-        target.setter(target.value)
+        apply_write_target(target.target, target.value)
         return
     _store(target, final_seg, value, frame, evaluate_index_operand, eval_fn)
 

@@ -7,7 +7,8 @@ from ..runtime import Frame, ShkArray, ShkValue, ShakarRuntimeError
 from ..token_types import TT
 from ..tree import Node, is_tree, is_token, tree_children, tree_label
 from .bind import FanContext, RebindContext
-from .mutation import get_field_value, set_field_value
+from .mutation import get_field_value
+from .write_targets import WriteTarget
 
 
 def eval_valuefan(
@@ -46,18 +47,17 @@ def build_valuefan_context(
         label = tree_label(item)
 
         if label == "field":
-            # Simple field: create a context with a setter
+            # Simple field: capture a concrete write target.
             name = item.children[0].value
             value = get_field_value(base, name, frame)
-
-            def make_setter(owner: ShkValue, field_name: str):
-                def setter(new_value: ShkValue) -> None:
-                    set_field_value(owner, field_name, new_value, frame, create=False)
-                    frame.dot = new_value
-
-                return setter
-
-            contexts.append(RebindContext(value, make_setter(base, name)))
+            target = WriteTarget(
+                kind="field",
+                owner=base,
+                name_or_index=name,
+                frame=frame,
+                create=False,
+            )
+            contexts.append(RebindContext(value, target))
 
         elif label in {"valuefan_chain", "identchain"}:
             # Chained access like {a.b}: evaluate but no writeback supported
@@ -73,14 +73,27 @@ def build_valuefan_context(
                 if isinstance(val, RebindContext):
                     val = val.value
 
-            # No-op setter for chained access (writeback not supported)
-            contexts.append(RebindContext(val, lambda v: None))
+            target = WriteTarget(
+                kind="noop",
+                owner=None,
+                name_or_index=None,
+                frame=frame,
+                create=False,
+            )
+            contexts.append(RebindContext(val, target))
 
         else:
-            # Fallback: evaluate with no writeback
+            # Fallback: evaluate with explicit no-op write target.
             val_frame = Frame(parent=frame, dot=base)
             val = eval_fn(item, val_frame)
-            contexts.append(RebindContext(val, lambda v: None))
+            target = WriteTarget(
+                kind="noop",
+                owner=None,
+                name_or_index=None,
+                frame=frame,
+                create=False,
+            )
+            contexts.append(RebindContext(val, target))
 
     return FanContext(contexts)
 

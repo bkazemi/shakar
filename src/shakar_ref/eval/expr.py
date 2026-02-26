@@ -42,6 +42,7 @@ from .helpers import (
     retargets_anchor,
 )
 from .selector import selector_iter_values
+from .write_targets import apply_write_target
 
 EvalFn = Callable[[Node, Frame], ShkValue]
 
@@ -133,7 +134,7 @@ def eval_explicit_chain(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
 
     if isinstance(val, RebindContext):
         final = val.value
-        val.setter(final)
+        apply_write_target(val.target, final)
         return final
 
     if isinstance(val, FanContext):
@@ -164,7 +165,7 @@ def eval_fan_chain(
 
             if isinstance(current, RebindContext):
                 final = current.value
-                current.setter(final)
+                apply_write_target(current.target, final)
                 current = final
 
             if isinstance(current, FanContext):

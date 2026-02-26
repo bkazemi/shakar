@@ -952,11 +952,23 @@ class DecoratorContinuation:
 
 @dataclass
 class DeferEntry:
-    """Scheduled defer thunk plus optional metadata for dependency ordering."""
+    """Scheduled deferred action plus optional metadata for dependency ordering."""
 
-    thunk: Callable[[], None]
-    label: Optional[str] = None
+    action: "DeferredAction"
+
+
+@dataclass
+class DeferredAction:
+    """Deferred call/block payload with schedule-time execution context."""
+
+    kind: Literal["call", "block"]
+    payload_node: Node
+    origin_frame: "Frame"
+    saved_dot: "DotValue"
+    saved_source: Optional[str]
+    saved_source_path: Optional[str]
     deps: List[str] = field(default_factory=list)
+    label: Optional[str] = None
 
 
 StdlibFn: TypeAlias = Callable[

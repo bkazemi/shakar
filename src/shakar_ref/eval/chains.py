@@ -49,6 +49,7 @@ from .common import callsite_from_node, expect_ident_token as _expect_ident_toke
 from .mutation import get_field_value, index_value, slice_value
 from .selector import evaluate_selectorlist, apply_selectors_to_value
 from .valuefan import eval_valuefan, build_valuefan_context
+from .write_targets import apply_write_target
 
 # Tokens valid as method names.
 METHOD_NAME_TOKENS = frozenset({TT.IDENT})
@@ -355,7 +356,7 @@ def apply_op(recv: EvalResult, op: Tree, frame: Frame, eval_fn: EvalFn) -> EvalR
         context.value = result
 
         if not isinstance(result, (BuiltinMethod, BoundMethod, BoundCallable, ShkFn)):
-            context.setter(result)
+            apply_write_target(context.target, result)
         return context
 
     return result

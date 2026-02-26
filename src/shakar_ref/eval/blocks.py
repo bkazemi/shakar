@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext
-from typing import Callable, Iterator, List, Optional
+from typing import Callable, Iterator, List, Literal, Optional
 
 from ..tree import Tree
 
@@ -10,6 +10,7 @@ from ..runtime import (
     BoundCallable,
     BuiltinMethod,
     DeferEntry,
+    DeferredAction,
     DotValue,
     Frame,
     ShkDecorator,
@@ -86,7 +87,7 @@ def eval_program(
             raise ShakarRuntimeError("continue outside of a loop") from None
     finally:
         try:
-            pop_defer_scope(frame)
+            pop_defer_scope(frame, eval_fn)
         finally:
             pop_let_scope(frame)
         frame.hoisted_names = prev_hoisted
@@ -125,10 +126,10 @@ def push_defer_scope(frame: Frame) -> None:
     frame.push_defer_frame()
 
 
-def pop_defer_scope(frame: Frame) -> None:
+def pop_defer_scope(frame: Frame, eval_fn: EvalFn) -> None:
     entries = frame.pop_defer_frame()
     if entries:
-        _run_defer_entries(entries)
+        _run_defer_entries(frame, entries, eval_fn)
 
 
 def push_let_scope(frame: Frame) -> None:
@@ -144,15 +145,17 @@ _DEFER_VISITING = 1
 _DEFER_DONE = 2
 
 
-def _run_defer_entries(entries: List[DeferEntry]) -> None:
+def _run_defer_entries(
+    frame: Frame, entries: List[DeferEntry], eval_fn: EvalFn
+) -> None:
     if not entries:
         return
 
     label_map: dict[str, int] = {}
 
     for idx, entry in enumerate(entries):
-        if entry.label:
-            label_map[entry.label] = idx
+        if entry.action.label:
+            label_map[entry.action.label] = idx
     state = [_DEFER_UNVISITED] * len(entries)
 
     def run_index(idx: int) -> None:
@@ -165,7 +168,7 @@ def _run_defer_entries(entries: List[DeferEntry]) -> None:
         state[idx] = _DEFER_VISITING
         entry = entries[idx]
 
-        for dep in entry.deps:
+        for dep in entry.action.deps:
             dep_idx = label_map.get(dep)
 
             if dep_idx is None:
@@ -173,7 +176,7 @@ def _run_defer_entries(entries: List[DeferEntry]) -> None:
             run_index(dep_idx)
 
         state[idx] = _DEFER_DONE
-        entry.thunk()
+        run_deferred_action(frame, entry.action, eval_fn)
 
     for idx in reversed(range(len(entries))):
         run_index(idx)
@@ -181,22 +184,42 @@ def _run_defer_entries(entries: List[DeferEntry]) -> None:
 
 def schedule_defer(
     frame: Frame,
-    thunk: Callable[[], None],
-    label: Optional[str] = None,
-    deps: Optional[List[str]] = None,
+    action: DeferredAction,
 ) -> None:
     if not frame.has_defer_frame():
         raise ShakarRuntimeError("Cannot use defer outside of a block")
 
     defer_frame = frame.current_defer_frame()
-    entry = DeferEntry(thunk=thunk, label=label, deps=list(deps or []))
+    entry = DeferEntry(action=action)
 
-    if label:
+    if action.label:
         for existing in defer_frame:
-            if existing.label == label:
-                raise ShakarRuntimeError(f"Duplicate defer handle '{label}'")
+            if existing.action.label == action.label:
+                raise ShakarRuntimeError(f"Duplicate defer handle '{action.label}'")
 
     defer_frame.append(entry)
+
+
+def run_deferred_action(frame: Frame, action: DeferredAction, eval_fn: EvalFn) -> None:
+    """Execute one deferred action in a child frame with preserved schedule-time context."""
+    child_frame = Frame(
+        parent=action.origin_frame,
+        dot=action.saved_dot,
+        source=action.saved_source,
+        source_path=action.saved_source_path,
+    )
+    push_defer_scope(child_frame)
+
+    try:
+        if action.kind == "block":
+            eval_body_node(action.payload_node, child_frame, eval_fn)
+            return
+        if action.kind == "call":
+            eval_fn(action.payload_node, child_frame)
+            return
+        raise ShakarRuntimeError(f"Unknown deferred action kind '{action.kind}'")
+    finally:
+        pop_defer_scope(child_frame, eval_fn)
 
 
 def _eval_inline_body(
@@ -439,7 +462,9 @@ def eval_defer_stmt(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkV
     if idx != len(children):
         raise ShakarRuntimeError("Unexpected defer statement shape")
 
-    body_kind = "block" if tree_label(body_wrapper) == "deferblock" else "call"
+    body_kind: Literal["block", "call"] = (
+        "block" if tree_label(body_wrapper) == "deferblock" else "call"
+    )
     payload = body_wrapper
 
     if body_kind == "block":
@@ -449,21 +474,16 @@ def eval_defer_stmt(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkV
             else Tree("body", [], attrs={"inline": True})
         )
 
-    saved_dot = frame.dot
-    source = getattr(frame, "source", None)
-
-    def thunk() -> None:
-        child_frame = Frame(parent=frame, dot=saved_dot, source=source)
-        push_defer_scope(child_frame)
-
-        try:
-            if body_kind == "block":
-                eval_body_node(payload, child_frame, eval_fn)
-            else:
-                eval_fn(payload, child_frame)
-        finally:
-            pop_defer_scope(child_frame)
-
-    schedule_defer(frame, thunk, label=label, deps=deps)
+    action = DeferredAction(
+        kind=body_kind,
+        payload_node=payload,
+        origin_frame=frame,
+        saved_dot=frame.dot,
+        saved_source=frame.source,
+        saved_source_path=frame.source_path,
+        deps=list(deps),
+        label=label,
+    )
+    schedule_defer(frame, action)
 
     return ShkNil()

@@ -8,6 +8,7 @@ from ..runtime import (
     ShkFan,
     ShkNil,
     ShkNumber,
+    ShkSelector,
     ShkValue,
     EvalResult,
     ShakarRuntimeError,
@@ -27,6 +28,7 @@ from .common import expect_ident_token, require_number, unwrap_noanchor
 from .destructure import assign_pattern as destructure_assign_pattern
 from .mutation import get_field_value, set_field_value, index_value, set_index_value
 from .postfix import define_new_ident
+from .write_targets import WriteTarget, WriteTargetKind, apply_write_target
 from ..utils import fanout_values
 
 
@@ -55,11 +57,11 @@ __all__ = [
 class RebindContext:
     """Tracks an assignable slot (identifier or field) so tail ops can write back."""
 
-    __slots__ = ("value", "setter")
+    __slots__ = ("value", "target")
 
-    def __init__(self, value: ShkValue, setter: Callable[[ShkValue], None]) -> None:
+    def __init__(self, value: ShkValue, target: WriteTarget) -> None:
         self.value = value
-        self.setter = setter
+        self.target = target
 
 
 class FanContext:
@@ -182,7 +184,7 @@ def eval_compound_assign(
     results: list[ShkValue] = []
     for ctx, rhs_item in zip(contexts, rhs_values):
         new_value = apply_binary_operator(op_symbol, ctx.value, rhs_item)
-        ctx.setter(new_value)
+        apply_write_target(ctx.target, new_value)
         ctx.value = new_value
         results.append(new_value)
 
@@ -250,12 +252,14 @@ def eval_rebind_primary(
 def make_ident_context(name: str, frame: Frame) -> RebindContext:
     """Produce a `RebindContext` for identifier assignments so tail ops can persist."""
     value = frame.get(name)
-
-    def setter(new_value: ShkValue) -> None:
-        assign_ident(name, new_value, frame, create=False)
-        frame.dot = new_value
-
-    return RebindContext(value, setter)
+    target = WriteTarget(
+        kind="ident",
+        owner=None,
+        name_or_index=name,
+        frame=frame,
+        create=False,
+    )
+    return RebindContext(value, target)
 
 
 def resolve_assignable_node(
@@ -381,30 +385,29 @@ def _rebind_segment(
         case "field" | "fieldsel":
             name = expect_ident_token(op.children[0], "Field access")
             value = get_field_value(owner, name, frame)
-
-            def field_setter(
-                new_value: ShkValue,
-                owner: ShkValue = owner,
-                field_name: str = name,
-            ) -> None:
-                set_field_value(owner, field_name, new_value, frame, create=False)
-                frame.dot = new_value
-
-            return RebindContext(value, field_setter)
+            target = WriteTarget(
+                kind="field",
+                owner=owner,
+                name_or_index=name,
+                frame=frame,
+                create=False,
+            )
+            return RebindContext(value, target)
 
         case "index" | "lv_index":
             idx_val = evaluate_index_operand(op, frame, eval_fn)
             value = index_value(owner, idx_val, frame)
-
-            def index_setter(
-                new_value: ShkValue,
-                owner: ShkValue = owner,
-                idx_value: ShkValue = idx_val,
-            ) -> None:
-                set_index_value(owner, idx_value, new_value, frame)
-                frame.dot = new_value
-
-            return RebindContext(value, index_setter)
+            target_kind: WriteTargetKind = "index"
+            if isinstance(idx_val, ShkSelector):
+                target_kind = "selector"
+            target = WriteTarget(
+                kind=target_kind,
+                owner=owner,
+                name_or_index=idx_val,
+                frame=frame,
+                create=False,
+            )
+            return RebindContext(value, target)
 
     raise ShakarRuntimeError("Target must be a field or index")
 
@@ -706,7 +709,7 @@ def apply_numeric_delta(ref: RebindContext, delta: int) -> tuple[ShkValue, ShkVa
 
     new_val = ShkNumber(num.value + delta)
 
-    ref.setter(new_val)
+    apply_write_target(ref.target, new_val)
     ref.value = new_val
 
     return current, new_val
@@ -753,14 +756,14 @@ def build_fieldfan_context(owner: ShkValue, fan_node: Tree, frame: Frame) -> Fan
 
     for name in names:
         value = get_field_value(owner, name, frame)
-
-        def setter(
-            new_value: ShkValue, owner: ShkValue = owner, field_name: str = name
-        ) -> None:
-            set_field_value(owner, field_name, new_value, frame, create=False)
-            frame.dot = new_value
-
-        contexts.append(RebindContext(value, setter))
+        target = WriteTarget(
+            kind="field",
+            owner=owner,
+            name_or_index=name,
+            frame=frame,
+            create=False,
+        )
+        contexts.append(RebindContext(value, target))
 
     return FanContext(contexts)
 
@@ -845,7 +848,7 @@ def apply_assign(
     for ctx in contexts:
         rhs_frame = Frame(parent=frame, dot=ctx.value)
         new_val = eval_fn(rhs_node, rhs_frame)
-        ctx.setter(new_val)
+        apply_write_target(ctx.target, new_val)
         ctx.value = new_val
         results.append(new_val)
 
@@ -1031,7 +1034,7 @@ def assign_lvalue(
         results: list[ShkValue] = []
 
         for ctx, item_value in zip(contexts, values):
-            ctx.setter(item_value)
+            apply_write_target(ctx.target, item_value)
             ctx.value = item_value
             results.append(item_value)
 
