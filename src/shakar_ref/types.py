@@ -973,15 +973,24 @@ class StdlibFunction:
     name: Optional[str] = None
 
 
-@dataclass
-class OnceCellState:
-    """Mutable cell tracking the evaluation state of a once expression.
-    Guards against circular initialization and caches the result or error."""
+OnceSiteStatus = Literal["uninitialized", "evaluating", "initialized", "failed"]
 
-    initialized: bool = False
-    evaluating: bool = False
+
+@dataclass
+class OnceSiteState:
+    """Explicit state machine for a once expression site.
+
+    Status transitions:
+        uninitialized => evaluating => initialized  (success)
+        uninitialized => evaluating => failed        (error cached)
+    Re-entry while evaluating raises circular initialization error.
+    Both 'initialized' and 'failed' are terminal — subsequent access
+    replays the cached value or error without re-evaluation."""
+
+    status: OnceSiteStatus = "uninitialized"
     value: Optional["ShkValue"] = None
     error: Optional["ShakarRuntimeError"] = None
+    is_block: bool = False
     # Names introduced by a block-form once body, in declaration order, plus
     # the frame where the block actually ran. On rematerialization (e.g.
     # static once in a new call), live values are read from
@@ -1005,7 +1014,7 @@ class OnceBinding:
     is_block: bool = False
 
 
-_STATIC_ONCE_CELLS: Dict[int, OnceCellState] = {}
+_STATIC_ONCE_CELLS: Dict[int, OnceSiteState] = {}
 _STATIC_ONCE_CELLS_LOCK = threading.Lock()
 
 
@@ -1103,7 +1112,7 @@ class Frame:
         self.builtins: Dict[str, ShkValue] = {}
         self.lazy_once: Dict[str, LazyOnceThunk] = {}
         self.lazy_once_site_ids: Dict[str, int] = {}
-        self.once_cells: Dict[int, OnceCellState] = {}
+        self.once_cells: Dict[int, OnceSiteState] = {}
         self.once_cells_lock = threading.Lock()
         # Block aliases: names that delegate reads/writes to another frame.
         # Used by static block-once to keep materialized names coherent

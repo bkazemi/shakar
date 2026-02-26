@@ -1092,6 +1092,147 @@ def test_static_block_once_alias_visible_to_comprehension_inference() -> None:
     verify_result(result, "array", [10, 10])
 
 
+# state machine invariants ---------------------------
+
+
+def test_circular_once_initialization_raises() -> None:
+    """Lazy once that references itself triggers circular initialization error."""
+    source = dedent(
+        """\
+        once[lazy]: x := x + 1
+        x
+    """
+    )
+    with pytest.raises(ShakarRuntimeError, match="circular once initialization"):
+        run_program(source)
+
+
+def test_circular_once_via_mutual_reference() -> None:
+    """Two lazy once bindings that reference each other circularly."""
+    source = dedent(
+        """\
+        once[lazy]: a := b + 1
+        once[lazy]: b := a + 1
+        a
+    """
+    )
+    with pytest.raises(ShakarRuntimeError, match="circular once initialization"):
+        run_program(source)
+
+
+def test_failed_static_once_replays_same_error() -> None:
+    """A failed static once replays the cached error on subsequent access."""
+    source = dedent(
+        """\
+        hits := 0
+        fn fail():
+          hits += 1
+          throw "boom"
+        fn f():
+          once[static]: fail()
+        f() catch err: nil
+        f() catch err: err
+    """
+    )
+    result = run_program(source)
+    # Error is replayed (hits stays at 1 because body only ran once).
+    assert "boom" in str(result)
+
+
+def test_failed_static_once_body_runs_only_once() -> None:
+    """Static once body that throws only runs once even with multiple calls."""
+    source = dedent(
+        """\
+        hits := 0
+        fn fail():
+          hits += 1
+          throw "boom"
+        fn f():
+          once[static]: fail()
+        f() catch err: nil
+        f() catch err: nil
+        f() catch err: nil
+        hits
+    """
+    )
+    result = run_program(source)
+    verify_result(result, "number", 1)
+
+
+def test_failed_nonstatic_once_reruns_per_call() -> None:
+    """Non-static once reruns (and re-fails) on each call."""
+    source = dedent(
+        """\
+        hits := 0
+        fn fail():
+          hits += 1
+          throw "boom"
+        fn f():
+          once: fail()
+        f() catch err: nil
+        f() catch err: nil
+        hits
+    """
+    )
+    result = run_program(source)
+    verify_result(result, "number", 2)
+
+
+def test_return_inside_once_does_not_cache() -> None:
+    """A return signal inside once prevents caching — body re-runs next call."""
+    source = dedent(
+        """\
+        hits := 0
+        fn f():
+          once[static]:
+            hits += 1
+            return 42
+          99
+        [f(), f(), hits]
+    """
+    )
+    result = run_program(source)
+    # return escapes before commit, so once re-evaluates each call.
+    verify_result(result, "array", [42, 42, 2])
+
+
+def test_return_inside_nonstatic_once_does_not_cache() -> None:
+    """A return signal inside non-static once prevents caching per call."""
+    source = dedent(
+        """\
+        hits := 0
+        fn f():
+          once:
+            hits += 1
+            return 42
+          99
+        [f(), f(), hits]
+    """
+    )
+    result = run_program(source)
+    # return escapes before commit each call; once re-evaluates.
+    verify_result(result, "array", [42, 42, 2])
+
+
+def test_concurrent_static_once_single_evaluation() -> None:
+    """Static once evaluated concurrently from the same site runs body once."""
+    source = dedent(
+        """\
+        hits := 0
+        fn bump():
+          hits += 1
+        fn f():
+          once[static]: bump()
+        tasks := spawn [f, f]
+        for t in tasks:
+          wait t
+        hits
+    """
+    )
+    result = run_program(source)
+    verify_result(result, "number", 1)
+
+
 def test_lazy_walrus_ufcs_initializer_error_propagates() -> None:
     source = dedent(
         """\

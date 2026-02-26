@@ -33,7 +33,7 @@ from .runtime import (
     ShakarImportError,
     ShakarRuntimeError,
     ShakarTypeError,
-    OnceCellState,
+    OnceSiteState,
     _STATIC_ONCE_CELLS,
     _STATIC_ONCE_CELLS_LOCK,
     import_module,
@@ -389,60 +389,12 @@ def eval_once_binding(node: Tree, frame: Frame) -> OnceBinding:
     return _build_once_binding(node, frame)
 
 
-def _read_initialized_cell(cell: OnceCellState) -> ShkValue:
-    if cell.error is not None:
-        raise cell.error
-    if cell.value is None:
-        raise ShakarRuntimeError("once initializer did not produce a value")
-    return cell.value
+def _once_site_for_binding(binding: OnceBinding) -> OnceSiteState:
+    """Locate or create the OnceSiteState for a binding.
 
+    Uses double-checked locking on the owning cell map (static global or
+    per-function-frame) to safely get-or-create the site state."""
 
-def _materialize_block_bindings(binding: OnceBinding, cell: OnceCellState) -> None:
-    """Project cached block-local names into the current definition frame.
-
-    When the source frame (where the block body ran) differs from the
-    current def_frame (e.g. static once in a new call), installs aliases
-    that delegate reads and writes to the source frame.  This keeps
-    closures and materialized bindings coherent — both reference the same
-    underlying storage.
-
-    On re-entry in the same scope (e.g. once block in a while loop), the
-    names already exist in def_frame and are skipped.
-    """
-    if not binding.is_block or not cell.block_binding_names:
-        return
-
-    source = cell.block_source_frame
-    target = binding.def_frame
-
-    # Same frame (e.g. while loop re-entry) — bindings are already live.
-    if target is source:
-        return
-
-    if source is None:
-        raise ShakarRuntimeError("once block rematerialization missing source frame")
-
-    pending: list[str] = []
-    for name in cell.block_binding_names:
-        existing_alias = target._block_aliases.get(name)
-        if existing_alias is source:
-            # Same once site re-entry (e.g. while loop) — already installed.
-            continue
-        pending.append(name)
-
-    # Validate all names before installing any alias so rematerialization is
-    # atomic when duplicate-name errors occur.
-    for name in pending:
-        # Enforce the same duplicate-definition check that fires during
-        # first initialization — catches conflicts with vars, let scopes,
-        # lazy once bindings, and aliases from a different static once site.
-        target.ensure_name_available_in_current_scope(name)
-
-    for name in pending:
-        target._block_aliases[name] = source
-
-
-def _once_cell_for_binding(binding: OnceBinding) -> OnceCellState:
     if binding.is_static:
         cells = _STATIC_ONCE_CELLS
         map_lock = _STATIC_ONCE_CELLS_LOCK
@@ -451,62 +403,170 @@ def _once_cell_for_binding(binding: OnceBinding) -> OnceCellState:
         map_lock = binding.fn_frame.once_cells_lock
 
     # Get-or-create under explicit lock (GIL-independent).
-    cell = cells.get(binding.node_id)
-    if cell is None:
+    site = cells.get(binding.node_id)
+    if site is None:
         with map_lock:
-            cell = cells.get(binding.node_id)
-            if cell is None:
-                cell = OnceCellState()
-                cells[binding.node_id] = cell
+            site = cells.get(binding.node_id)
+            if site is None:
+                site = OnceSiteState(is_block=binding.is_block)
+                cells[binding.node_id] = site
 
-    return cell
+    return site
+
+
+# -- State transition helpers ------------------------------------------------
+# All once-site state mutations flow through these four functions.
+# No code outside this group may write to OnceSiteState fields directly.
+
+
+def _once_enter_eval(site: OnceSiteState, binding: OnceBinding) -> None:
+    """Transition: uninitialized => evaluating.
+
+    Must be called under site.lock. Raises on circular re-entry."""
+
+    if site.status == "evaluating":
+        raise ShakarRuntimeError("circular once initialization")
+
+    site.status = "evaluating"
+
+
+def _once_commit_success(
+    site: OnceSiteState,
+    value: ShkValue,
+    binding: OnceBinding,
+    block_binding_names: Optional[List[str]] = None,
+) -> None:
+    """Transition: evaluating => initialized.
+
+    Stores the cached value. For block-form bodies, also records the
+    names introduced by the block and the source frame for future
+    rematerialization."""
+
+    site.value = value
+    site.status = "initialized"
+
+    if binding.is_block and block_binding_names is not None:
+        site.block_binding_names = block_binding_names
+        # TODO: retains the full call frame for the process lifetime;
+        # consider snapshotting only the needed bindings in the C port.
+        site.block_source_frame = binding.def_frame
+
+
+def _once_commit_error(site: OnceSiteState, exc: ShakarRuntimeError) -> None:
+    """Transition: evaluating => failed.
+
+    Stores the error for replay on subsequent access."""
+
+    site.error = exc
+    site.status = "failed"
+
+
+def _once_materialize_into_frame(site: OnceSiteState, binding: OnceBinding) -> None:
+    """Project cached block-local names into the current definition frame.
+
+    When the source frame (where the block body ran) differs from the
+    current def_frame (e.g. static once in a new call), installs aliases
+    that delegate reads and writes to the source frame. This keeps
+    closures and materialized bindings coherent -- both reference the same
+    underlying storage.
+
+    On re-entry in the same scope (e.g. once block in a while loop), the
+    names already exist in def_frame and are skipped."""
+
+    if not site.is_block or not site.block_binding_names:
+        return
+
+    source = site.block_source_frame
+    target = binding.def_frame
+
+    # Same frame (e.g. while loop re-entry) -- bindings are already live.
+    if target is source:
+        return
+
+    if source is None:
+        raise ShakarRuntimeError("once block rematerialization missing source frame")
+
+    pending: list[str] = []
+    for name in site.block_binding_names:
+        existing_alias = target._block_aliases.get(name)
+        if existing_alias is source:
+            # Same once site re-entry (e.g. while loop) -- already installed.
+            continue
+        pending.append(name)
+
+    # Validate all names before installing any alias so rematerialization is
+    # atomic when duplicate-name errors occur.
+    for name in pending:
+        # Enforce the same duplicate-definition check that fires during
+        # first initialization -- catches conflicts with vars, let scopes,
+        # lazy once bindings, and aliases from a different static once site.
+        target.ensure_name_available_in_current_scope(name)
+
+    for name in pending:
+        target._block_aliases[name] = source
+
+
+def _read_initialized_site(site: OnceSiteState) -> ShkValue:
+    """Return cached value or re-raise cached error for a terminal site."""
+
+    if site.status == "failed":
+        assert site.error is not None
+        raise site.error
+
+    if site.value is None:
+        raise ShakarRuntimeError("once initializer did not produce a value")
+
+    return site.value
 
 
 def _resolve_once(binding: OnceBinding) -> ShkValue:
-    cell = _once_cell_for_binding(binding)
+    """Resolve a once binding, evaluating at most once per cell key.
 
-    with cell.lock:
-        if cell.initialized:
-            value = _read_initialized_cell(cell)
-            _materialize_block_bindings(binding, cell)
+    Acquires the site lock for the full initialization or cache-hit path."""
+
+    site = _once_site_for_binding(binding)
+
+    with site.lock:
+        # Cache hit: replay value/error and rematerialize block names.
+        if site.status in ("initialized", "failed"):
+            value = _read_initialized_site(site)
+            _once_materialize_into_frame(site, binding)
+
             return value
 
-        if cell.evaluating:
-            raise ShakarRuntimeError("circular once initialization")
-        cell.evaluating = True
+        _once_enter_eval(site, binding)
 
         try:
+            block_names: Optional[List[str]] = None
+
             if binding.is_block:
+                # Snapshot names before block eval to diff new bindings.
+                prior_names = set(binding.def_frame.vars)
                 # Evaluate directly in def_frame so closures capture the same
                 # scope that receives the materialized bindings.
-                prior_names = set(binding.def_frame.vars)
                 value = eval_body_node(
                     binding.body,
                     binding.def_frame,
                     eval_node,
                 )
-                # Cache the names (not values) introduced by the block, plus
-                # a reference to the source frame.  Rematerialization reads
-                # live values from the source frame so closures and outer
-                # bindings stay coherent across calls.
-                cell.block_binding_names = [
+                # Cache the names (not values) introduced by the block.
+                # Rematerialization reads live values from the source frame
+                # so closures and outer bindings stay coherent across calls.
+                block_names = [
                     name for name in binding.def_frame.vars if name not in prior_names
                 ]
-                # TODO: retains the full call frame for the process lifetime;
-                # consider snapshoting only the needed bindings in the C port.
-                cell.block_source_frame = binding.def_frame
             else:
                 value = eval_node(binding.body, binding.def_frame)
-            cell.value = value
-            cell.initialized = True
+
+            _once_commit_success(site, value, binding, block_names)
 
             return value
         except ShakarRuntimeError as exc:
-            cell.error = exc
-            cell.initialized = True
+            _once_commit_error(site, exc)
             raise
         finally:
-            cell.evaluating = False
+            if site.status == "evaluating":
+                site.status = "uninitialized"
 
 
 def _register_lazy_once(
