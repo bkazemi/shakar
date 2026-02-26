@@ -145,7 +145,9 @@ def current_function_frame(frame: Frame) -> Optional[Frame]:
 def name_in_current_frame(frame: Frame, name: str) -> bool:
     """Check only the current frame for a visible binding."""
     return (
-        frame.has_let_name(name) or name in frame.vars or name in frame._block_aliases
+        frame.has_let_name(name)
+        or frame.has_local_var(name)
+        or bool(frame.get_block_alias(name))
     )
 
 
@@ -167,11 +169,11 @@ def collect_scope_names(frame: Frame, stop_at: Optional[Frame]) -> set[str]:
             names.update(cur.hoisted_names)
         for scope in cur.all_let_scopes():
             names.update(scope.keys())
-        names.update(cur.vars.keys())
+        names.update(cur.local_var_names())
         # Rematerialized static block-once names are aliases, but still
         # semantically visible locals for scope analysis.
-        names.update(cur._block_aliases.keys())
-        names.update(cur.lazy_once.keys())
+        names.update(cur.block_alias_names())
+        names.update(cur.local_lazy_once_names())
         if stop_at and cur is stop_at:
             break
         cur = cur.parent

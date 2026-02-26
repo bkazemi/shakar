@@ -319,25 +319,12 @@ def temporary_subject(frame: Frame, dot: DotValue) -> Iterator[None]:
 
 @contextmanager
 def temporary_bindings(frame: Frame, bindings: dict[str, ShkValue]) -> Iterator[None]:
-    records: list[tuple[dict[str, ShkValue], str, ShkValue, bool]] = []
-    target_scope = frame._let_scopes[-1] if frame._let_scopes else frame.vars
-
-    for name, value in bindings.items():
-        if name in target_scope:
-            records.append((target_scope, name, target_scope[name], True))
-        else:
-            records.append((target_scope, name, ShkNil(), False))
-
-        target_scope[name] = value
+    records = frame.apply_temporary_bindings(bindings)
 
     try:
         yield
     finally:
-        for scope, name, prev, existed in reversed(records):
-            if existed:
-                scope[name] = prev
-            else:
-                scope.pop(name, None)
+        frame.restore_temporary_bindings(records)
 
 
 @contextmanager

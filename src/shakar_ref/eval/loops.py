@@ -23,6 +23,7 @@ from ..runtime import (
     ShakarContinueSignal,
     ShakarRuntimeError,
     ShakarTypeError,
+    set_mapping_item,
 )
 from ..tree import Node, child_by_label, is_token, is_tree, tree_children, tree_label
 from ..utils import normalize_object_key, value_in_list
@@ -631,6 +632,6 @@ def eval_dictcomp(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkObject:
         key_val = eval_fn(key_node, iter_frame)
         value_val = eval_fn(value_node, iter_frame)
         key_str = normalize_object_key(key_val)
-        slots[key_str] = value_val
+        set_mapping_item(slots, key_str, value_val)
 
     return ShkObject(slots)

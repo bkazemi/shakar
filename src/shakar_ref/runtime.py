@@ -45,10 +45,20 @@ from .types import (
     _STATIC_ONCE_CELLS_LOCK,
     CallSite,
     DeferEntry,
+    FrameLexicalState,
+    FrameExecState,
+    FrameControlState,
+    TempBindingRecord,
     ShkValue,
     EvalResult,
     DotValue,
     Frame,
+    retain_value,
+    release_value,
+    set_mapping_item,
+    delete_mapping_item,
+    set_sequence_item,
+    replace_sequence,
     ShkType,
     ShkOptional,
     ShkUnion,
@@ -116,9 +126,19 @@ __all__ = [
     "_STATIC_ONCE_CELLS",
     "_STATIC_ONCE_CELLS_LOCK",
     "DeferEntry",
+    "FrameLexicalState",
+    "FrameExecState",
+    "FrameControlState",
+    "TempBindingRecord",
     "ShkValue",
     "EvalResult",
     "DotValue",
+    "retain_value",
+    "release_value",
+    "set_mapping_item",
+    "delete_mapping_item",
+    "set_sequence_item",
+    "replace_sequence",
     "ShkType",
     "ShkOptional",
     "ShkUnion",
@@ -267,11 +287,11 @@ def _load_module_from_file(
                 ast2 = children[0]
 
         module_frame = Frame(source=source, source_path=str(path))
-        builtin_snapshot = dict(module_frame.vars)
+        builtin_snapshot = dict(module_frame.local_var_items())
         eval_expr(ast2, module_frame, source=source)
 
         exports: Dict[str, ShkValue] = {}
-        for name, value in module_frame.vars.items():
+        for name, value in module_frame.local_var_items():
             if name not in builtin_snapshot or value is not builtin_snapshot[name]:
                 exports[name] = value
 
@@ -501,7 +521,11 @@ def _array_update(frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArra
     from .evaluator import eval_node
 
     for i in range(len(recv.items)):
-        recv.items[i] = call_value(callback, [recv.items[i]], frame, eval_fn=eval_node)
+        set_sequence_item(
+            recv.items,
+            i,
+            call_value(callback, [recv.items[i]], frame, eval_fn=eval_node),
+        )
 
     return recv
 
@@ -517,11 +541,12 @@ def _array_keep(frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArray:
     from .evaluator import eval_node
 
     # In-place filter using slice assignment
-    recv.items[:] = [
+    filtered = [
         item
         for item in recv.items
         if is_truthy(call_value(predicate, [item], frame, eval_fn=eval_node))
     ]
+    replace_sequence(recv.items, filtered)
 
     return recv
 
@@ -632,7 +657,11 @@ def _object_update(frame: Frame, recv: ShkObject, args: List[ShkValue]) -> ShkOb
 
     for key, value in recv.slots.items():
         # Update values in-place. We don't touch keys to avoid iteration issues.
-        recv.slots[key] = call_value(callback, [value], frame, eval_fn=eval_node)
+        set_mapping_item(
+            recv.slots,
+            key,
+            call_value(callback, [value], frame, eval_fn=eval_node),
+        )
 
     return recv
 
@@ -871,7 +900,7 @@ def call_shkfn(
     """
 
     if call_site:
-        caller_frame.call_stack.append(call_site)
+        caller_frame.push_call_site(call_site)
     try:
         if fn.decorators:
             if named:
@@ -883,11 +912,11 @@ def call_shkfn(
         return _call_shkfn_raw(fn, positional, subject, caller_frame, named=named)
     except ShakarRuntimeError as exc:
         if getattr(exc, "shk_call_stack", None) is None and call_site:
-            exc.shk_call_stack = list(caller_frame.call_stack)
+            exc.shk_call_stack = caller_frame.call_stack_snapshot()
         raise
     finally:
         if call_site:
-            caller_frame.call_stack.pop()
+            caller_frame.pop_call_site()
 
 
 def _bind_params_with_defaults(

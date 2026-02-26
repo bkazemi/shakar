@@ -398,20 +398,18 @@ def _once_site_for_binding(binding: OnceBinding) -> OnceSiteState:
     if binding.is_static:
         cells = _STATIC_ONCE_CELLS
         map_lock = _STATIC_ONCE_CELLS_LOCK
-    else:
-        cells = binding.fn_frame.once_cells
-        map_lock = binding.fn_frame.once_cells_lock
+        site = cells.get(binding.node_id)
+        if site is None:
+            with map_lock:
+                site = cells.get(binding.node_id)
+                if site is None:
+                    site = OnceSiteState(is_block=binding.is_block)
+                    cells[binding.node_id] = site
+        return site
 
-    # Get-or-create under explicit lock (GIL-independent).
-    site = cells.get(binding.node_id)
-    if site is None:
-        with map_lock:
-            site = cells.get(binding.node_id)
-            if site is None:
-                site = OnceSiteState(is_block=binding.is_block)
-                cells[binding.node_id] = site
-
-    return site
+    return binding.fn_frame.get_or_create_once_site(
+        binding.node_id, is_block=binding.is_block
+    )
 
 
 # -- State transition helpers ------------------------------------------------
@@ -488,7 +486,7 @@ def _once_materialize_into_frame(site: OnceSiteState, binding: OnceBinding) -> N
 
     pending: list[str] = []
     for name in site.block_binding_names:
-        existing_alias = target._block_aliases.get(name)
+        existing_alias = target.get_block_alias(name)
         if existing_alias is source:
             # Same once site re-entry (e.g. while loop) -- already installed.
             continue
@@ -503,7 +501,7 @@ def _once_materialize_into_frame(site: OnceSiteState, binding: OnceBinding) -> N
         target.ensure_name_available_in_current_scope(name)
 
     for name in pending:
-        target._block_aliases[name] = source
+        target.set_block_alias(name, source)
 
 
 def _read_initialized_site(site: OnceSiteState) -> ShkValue:
@@ -541,7 +539,7 @@ def _resolve_once(binding: OnceBinding) -> ShkValue:
 
             if binding.is_block:
                 # Snapshot names before block eval to diff new bindings.
-                prior_names = set(binding.def_frame.vars)
+                prior_names = set(binding.def_frame.local_var_names())
                 # Evaluate directly in def_frame so closures capture the same
                 # scope that receives the materialized bindings.
                 value = eval_body_node(
@@ -553,7 +551,9 @@ def _resolve_once(binding: OnceBinding) -> ShkValue:
                 # Rematerialization reads live values from the source frame
                 # so closures and outer bindings stay coherent across calls.
                 block_names = [
-                    name for name in binding.def_frame.vars if name not in prior_names
+                    name
+                    for name in binding.def_frame.local_var_names()
+                    if name not in prior_names
                 ]
             else:
                 value = eval_node(binding.body, binding.def_frame)
@@ -597,20 +597,24 @@ def _register_lazy_once(
     binding.body = value_node
 
     site_id = binding.node_id
-    existing_site_id = frame.lazy_once_site_ids.get(name)
+    existing_site_id = frame.local_lazy_once_site_id(name)
 
     # Repeated execution of the same lexical site (for example in loops)
     # must reuse prior registration. Conflicting declarations must keep
     # normal duplicate-name errors.
     if existing_site_id == site_id:
-        if name not in frame.lazy_once and name not in frame.vars:
-            frame.lazy_once[name] = LazyOnceThunk(
-                resolve=lambda: _resolve_once(binding)
+        if not frame.has_local_lazy_once(name) and not frame.has_local_var(name):
+            frame.register_lazy_once(
+                name,
+                LazyOnceThunk(resolve=lambda: _resolve_once(binding)),
             )
     else:
         frame.ensure_name_available_in_current_scope(name)
-        frame.lazy_once[name] = LazyOnceThunk(resolve=lambda: _resolve_once(binding))
-        frame.lazy_once_site_ids[name] = site_id
+        frame.register_lazy_once(
+            name,
+            LazyOnceThunk(resolve=lambda: _resolve_once(binding)),
+        )
+        frame.register_lazy_once_site(name, site_id)
 
     # In value contexts, produce the bound value (which resolves lazily on read).
     # In discard contexts, keep registration-only behavior.
@@ -651,7 +655,7 @@ def _eval_once_expr(n: Tree, frame: Frame) -> ShkValue:
 
         inner_children = tree_children(inner)
         name = expect_ident_token(inner_children[0], "once walrus target")
-        if name not in frame.vars:
+        if not frame.has_local_var(name):
             frame.define_new_ident(name, value)
 
     return value

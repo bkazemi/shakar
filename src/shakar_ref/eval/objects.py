@@ -15,6 +15,7 @@ from ..runtime import (
     ShkValue,
     ShakarRuntimeError,
     ShakarTypeError,
+    set_mapping_item,
 )
 from ..types import Builtins
 from ..tree import Tree, is_token, is_tree, tree_children, tree_label
@@ -48,10 +49,10 @@ def _install_descriptor(
             existing.getter = getter
         if setter:
             existing.setter = setter
-        slots[name] = existing
+        set_mapping_item(slots, name, existing)
         return
 
-    slots[name] = Descriptor(getter=getter, setter=setter)
+    set_mapping_item(slots, name, Descriptor(getter=getter, setter=setter))
 
 
 def _unwrap_ident(node: Optional[Node]) -> Optional[str]:
@@ -154,17 +155,21 @@ def _handle_obj_field(
 
     if method_sig:
         name, params = method_sig
-        slots[name] = ShkFn(
-            params=params,
-            body=val_node,
-            frame=closure_frame(frame),
-            name=name,
+        set_mapping_item(
+            slots,
+            name,
+            ShkFn(
+                params=params,
+                body=val_node,
+                frame=closure_frame(frame),
+                name=name,
+            ),
         )
         return
 
     key = eval_key(key_node, frame, eval_fn)
     val = eval_anchor_scoped(val_node, frame, eval_fn)
-    slots[_normalize_literal_key(key)] = val
+    set_mapping_item(slots, _normalize_literal_key(key), val)
 
 
 def _handle_obj_field_optional(
@@ -183,7 +188,11 @@ def _handle_obj_field_optional(
     optional_fn = Builtins.stdlib_functions.get("Optional")
     if optional_fn is None:
         raise ShakarRuntimeError("Builtin 'Optional' not found")
-    slots[_normalize_literal_key(key)] = optional_fn.fn(frame, None, [val], None)
+    set_mapping_item(
+        slots,
+        _normalize_literal_key(key),
+        optional_fn.fn(frame, None, [val], None),
+    )
 
 
 def _handle_obj_get(item: Tree, slots: dict[str, ShkValue], frame: Frame) -> None:
@@ -231,14 +240,18 @@ def _handle_obj_method(item: Tree, slots: dict[str, ShkValue], frame: Frame) -> 
         if contracts or spread_contracts
         else body
     )
-    slots[method_name] = ShkFn(
-        params=param_names,
-        body=final_body,
-        frame=closure_frame(frame),
-        vararg_indices=varargs,
-        param_defaults=defaults,
-        destruct_fields=destruct_fields,
-        name=method_name,
+    set_mapping_item(
+        slots,
+        method_name,
+        ShkFn(
+            params=param_names,
+            body=final_body,
+            frame=closure_frame(frame),
+            vararg_indices=varargs,
+            param_defaults=defaults,
+            destruct_fields=destruct_fields,
+            name=method_name,
+        ),
     )
 
 
@@ -257,7 +270,7 @@ def _handle_obj_spread(
         raise ShakarTypeError("Object spread expects an object value")
 
     for key, val in spread_val.slots.items():
-        slots[key] = val
+        set_mapping_item(slots, key, val)
 
 
 def _handle_object_item(

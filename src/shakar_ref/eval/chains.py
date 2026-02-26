@@ -90,15 +90,15 @@ def _with_call_site(
     # Thunks are always called immediately; lambda captures are safe.
     if not site:
         return thunk()
-    frame.call_stack.append(site)
+    frame.push_call_site(site)
     try:
         return thunk()
     except ShakarRuntimeError as exc:
         if getattr(exc, "shk_call_stack", None) is None:
-            exc.shk_call_stack = list(frame.call_stack)
+            exc.shk_call_stack = frame.call_stack_snapshot()
         raise
     finally:
-        frame.call_stack.pop()
+        frame.pop_call_site()
 
 
 def _flatten_args(node: Node) -> List[Node]:

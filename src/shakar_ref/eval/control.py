@@ -20,6 +20,7 @@ from ..runtime import (
     ShakarReturnSignal,
     ShakarRuntimeError,
     ShakarTypeError,
+    set_mapping_item,
 )
 from ..tree import Node, Tree, is_token, tree_children, tree_label
 from .blocks import (
@@ -73,7 +74,7 @@ def eval_throw_stmt(children: list[Node], frame: Frame, eval_fn: EvalFn) -> ShkV
     if children:
         value = eval_fn(children[0], frame)
         raise coerce_throw_value(value)
-    current = getattr(frame, "_active_error", None)
+    current = frame.active_error()
     if current is None:
         raise ShakarRuntimeError("throw outside of catch")
     raise current
@@ -153,21 +154,23 @@ def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
     }
 
     if isinstance(exc, ShakarKeyError):
-        slots["key"] = ShkString(str(exc.key))
+        set_mapping_item(slots, "key", ShkString(str(exc.key)))
 
     if isinstance(exc, ShakarMethodNotFound):
-        slots["method"] = ShkString(exc.name)
+        set_mapping_item(slots, "method", ShkString(exc.name))
 
     data = getattr(exc, "shk_data", None)
     if data:
-        slots["data"] = data
+        set_mapping_item(slots, "data", data)
 
     if debug_py_trace_enabled():
         import traceback
 
         tb = getattr(exc, "shk_py_trace", None)
         if tb:
-            slots["py_trace"] = ShkString("".join(traceback.format_tb(tb)))
+            set_mapping_item(
+                slots, "py_trace", ShkString("".join(traceback.format_tb(tb)))
+            )
 
     return ShkObject(slots)
 
@@ -238,8 +241,8 @@ def _run_catch_handler(
         )
 
     # track the currently handled exception so a bare `throw` can rethrow it later
-    prev_error = getattr(frame, "_active_error", None)
-    frame._active_error = original_exc
+    prev_error = frame.active_error()
+    frame.set_active_error(original_exc)
 
     try:
         with temporary_subject(frame, payload):
@@ -248,7 +251,7 @@ def _run_catch_handler(
                     return _exec_handler()
             return _exec_handler()
     finally:
-        frame._active_error = prev_error
+        frame.set_active_error(prev_error)
 
 
 def eval_catch_expr(children: list[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:

@@ -34,6 +34,8 @@ from ..runtime import (
     ShakarTypeError,
     ShakarFieldNotFoundError,
     call_shkfn,
+    set_mapping_item,
+    set_sequence_item,
 )
 from ..utils import envvar_value_by_name
 from .selector import (
@@ -69,7 +71,7 @@ def set_field_value(
                     f"Field '{name}' is undefined; use ':=' to create it"
                 )
 
-            slots[name] = value
+            set_mapping_item(slots, name, value)
             return value
         case _:
             raise ShakarTypeError(f"Cannot set field '{name}' on {type(recv).__name__}")
@@ -83,7 +85,7 @@ def set_index_value(
         case ShkArray(items=items):
             if isinstance(index, ShkNumber):
                 idx = int(index.value)
-                items[idx] = value
+                set_sequence_item(items, idx, value)
                 return value
 
             if isinstance(index, ShkSelector):
@@ -107,7 +109,7 @@ def set_index_value(
                 call_shkfn(setter, [value], subject=recv, caller_frame=frame)
                 return value
 
-            slots[key] = value
+            set_mapping_item(slots, key, value)
             return value
         case _:
             raise ShakarTypeError("Unsupported index assignment target")
@@ -127,13 +129,13 @@ def _assign_selector_into_array(
             if pos < 0 or pos >= length:
                 raise ShakarIndexError("Array index out of bounds")
 
-            items[pos] = value
+            set_sequence_item(items, pos, value)
             continue
 
         if isinstance(part, SelectorSlice):
             slice_obj = _selector_slice_to_slice(part, length)
             for pos in range(*slice_obj.indices(length)):
-                items[pos] = value
+                set_sequence_item(items, pos, value)
             continue
 
         raise ShakarTypeError("Unsupported selector component for array assignment")

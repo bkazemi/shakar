@@ -3,7 +3,13 @@ from __future__ import annotations
 from typing import List, Optional, Tuple, Union
 from ..tree import Tok
 
-from ..runtime import Frame, ShkValue, EvalResult, ShakarRuntimeError
+from ..runtime import (
+    Frame,
+    ShkValue,
+    EvalResult,
+    ShakarRuntimeError,
+    set_sequence_item,
+)
 from ..tree import Node, Tree, child_by_label, is_tree, tree_children, tree_label
 from .bind import FanContext, RebindContext, _read_segment, _write_segment
 from .common import unwrap_noanchor
@@ -239,7 +245,7 @@ def _fan_context_from_selector(
             def setter(new_val: ShkValue) -> None:
                 if pos >= len(arr.items):
                     raise ShakarRuntimeError("Fanout slice target vanished")
-                arr.items[pos] = new_val
+                set_sequence_item(arr.items, pos, new_val)
 
             return setter
 
