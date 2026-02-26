@@ -289,7 +289,7 @@ def repl() -> None:
         except (ParseError, LexError, ShakarRuntimeError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             if debug_py_trace_enabled() and isinstance(exc, ShakarRuntimeError):
-                tb = getattr(exc, "shk_py_trace", None)
+                tb = exc.context.py_trace
                 if tb:
                     print("\nPython traceback:", file=sys.stderr)
                     print(

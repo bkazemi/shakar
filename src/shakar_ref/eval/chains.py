@@ -94,8 +94,8 @@ def _with_call_site(
     try:
         return thunk()
     except ShakarRuntimeError as exc:
-        if getattr(exc, "shk_call_stack", None) is None:
-            exc.shk_call_stack = frame.call_stack_snapshot()
+        if exc.context.call_stack is None:
+            exc.context.call_stack = frame.call_stack_snapshot()
         raise
     finally:
         frame.pop_call_site()

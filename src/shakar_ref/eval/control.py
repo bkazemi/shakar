@@ -166,7 +166,7 @@ def _build_error_payload(exc: ShakarRuntimeError) -> ShkObject:
     if debug_py_trace_enabled():
         import traceback
 
-        tb = getattr(exc, "shk_py_trace", None)
+        tb = exc.context.py_trace
         if tb:
             set_mapping_item(
                 slots, "py_trace", ShkString("".join(traceback.format_tb(tb)))

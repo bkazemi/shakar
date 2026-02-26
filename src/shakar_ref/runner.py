@@ -255,7 +255,7 @@ def main() -> None:
         if debug_py_trace_enabled():
             import traceback
 
-            tb = getattr(exc, "shk_py_trace", None)
+            tb = exc.context.py_trace
             if tb:
                 print("\nPython traceback:", file=sys.stderr)
                 print("".join(traceback.format_tb(tb)), file=sys.stderr, end="")

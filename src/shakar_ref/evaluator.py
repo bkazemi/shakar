@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 from typing import Callable, Dict, List, Optional
 import pathlib
-from types import SimpleNamespace
 
 from .token_types import TT
 from .lexer_rd import Lexer
@@ -158,6 +157,7 @@ from .eval.bind import (
     eval_rebind_primary,
 )
 from .eval.let import eval_let_stmt
+from .types import SourceSpanInfo
 
 EvalFn = Callable[[Node, Frame], ShkValue]
 
@@ -216,41 +216,28 @@ def once_node_id(node: Tree) -> int:
     return once_id
 
 
-def _maybe_attach_location(exc: ShakarRuntimeError, node: Node, frame: Frame) -> None:
-    if getattr(exc, "_augmented", False):
-        return
+def enrich_error_context(exc: ShakarRuntimeError, node: Node, frame: Frame) -> None:
+    context = exc.context
 
-    line, col, end_line, end_col = _resolve_error_span(node, frame)
+    if context.call_stack is None:
+        call_stack = frame.call_stack_snapshot()
+        if call_stack:
+            context.call_stack = call_stack
 
-    if line is None:
-        return
+    if context.py_trace is None and debug_py_trace_enabled() and exc.__traceback__:
+        context.py_trace = exc.__traceback__
 
-    meta = SimpleNamespace(line=line, column=col)
-    if end_line is not None:
-        meta.end_line = end_line
-    if end_col is not None:
-        meta.end_column = end_col
-    exc.shk_meta = meta
-    exc._augmented = True  # type: ignore[attr-defined]
+    if context.span is None:
+        line, col, end_line, end_col = _resolve_error_span(node, frame)
+        if line is not None and col is not None:
+            context.span = SourceSpanInfo(
+                line=line,
+                column=col,
+                end_line=end_line,
+                end_column=end_col,
+            )
 
-
-def _maybe_attach_call_stack(exc: ShakarRuntimeError, frame: Frame) -> None:
-    if getattr(exc, "shk_call_stack", None) is not None:
-        return
-    call_stack = getattr(frame, "call_stack", None)
-    if not call_stack:
-        return
-    exc.shk_call_stack = list(call_stack)
-
-
-def _maybe_attach_py_trace(exc: ShakarRuntimeError) -> None:
-    if getattr(exc, "shk_py_trace", None) is not None:
-        return
-    if not debug_py_trace_enabled():
-        return
-    if exc.__traceback__ is None:
-        return
-    exc.shk_py_trace = exc.__traceback__
+    context.enriched = True
 
 
 # ---------------- Public API ----------------
@@ -274,9 +261,7 @@ def eval_expr(
 
         return result
     except ShakarRuntimeError as e:
-        _maybe_attach_call_stack(e, frame)
-        _maybe_attach_py_trace(e)
-        _maybe_attach_location(e, ast, frame)
+        enrich_error_context(e, ast, frame)
         raise
 
 
@@ -288,9 +273,7 @@ def eval_node(n: Node, frame: Frame) -> ShkValue:
     try:
         return _eval_node_inner(n, frame)
     except ShakarRuntimeError as e:
-        _maybe_attach_call_stack(e, frame)
-        _maybe_attach_py_trace(e)
-        _maybe_attach_location(e, n, frame)
+        enrich_error_context(e, n, frame)
         raise
 
 

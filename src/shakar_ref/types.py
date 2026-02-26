@@ -8,6 +8,7 @@ import re
 import threading
 import types as _pytypes
 from typing import (
+    Any,
     Callable,
     Deque,
     Dict,
@@ -1096,6 +1097,22 @@ class CallSite(NamedTuple):
     path: Optional[str]
 
 
+@dataclass(frozen=True)
+class SourceSpanInfo:
+    line: int
+    column: int
+    end_line: Optional[int]
+    end_column: Optional[int]
+
+
+@dataclass
+class ErrorContext:
+    span: Optional[SourceSpanInfo] = None
+    call_stack: Optional[List[CallSite]] = None
+    py_trace: Optional[Any] = None
+    enriched: bool = False
+
+
 def retain_value(value: "ShkValue") -> "ShkValue":
     """Ownership hook: retain one reference when storing a value."""
     return value
@@ -1729,37 +1746,59 @@ class ShakarRuntimeError(Exception):
     shk_type: Optional[str]
     shk_data: Optional[ShkValue]
     shk_payload: Optional[ShkValue]
-    shk_meta: Optional[object]
-    shk_py_trace: Optional[_pytypes.TracebackType]
-    shk_call_stack: Optional[List["CallSite"]]
+    context: ErrorContext
 
     def __init__(self, message: str):
         super().__init__(message)
         self.shk_type = None
         self.shk_data = None
         self.shk_payload = None
-        self.shk_meta = None
-        self.shk_py_trace = None
-        self.shk_call_stack = None
+        self.context = ErrorContext()
+
+    @property
+    def _augmented(self) -> bool:
+        return self.context.enriched
+
+    @_augmented.setter
+    def _augmented(self, value: bool) -> None:
+        self.context.enriched = bool(value)
+
+    @property
+    def shk_meta(self) -> Optional[SourceSpanInfo]:
+        return self.context.span
+
+    @shk_meta.setter
+    def shk_meta(self, value: Optional[SourceSpanInfo]) -> None:
+        self.context.span = value
+
+    @property
+    def shk_py_trace(self) -> Optional[_pytypes.TracebackType]:
+        trace = self.context.py_trace
+        if trace is None or isinstance(trace, _pytypes.TracebackType):
+            return trace
+        return None
+
+    @shk_py_trace.setter
+    def shk_py_trace(self, value: Optional[_pytypes.TracebackType]) -> None:
+        self.context.py_trace = value
+
+    @property
+    def shk_call_stack(self) -> Optional[List["CallSite"]]:
+        return self.context.call_stack
+
+    @shk_call_stack.setter
+    def shk_call_stack(self, value: Optional[List["CallSite"]]) -> None:
+        self.context.call_stack = value
 
     def __str__(self) -> str:  # pragma: no cover - trivial formatting
         msg = super().__str__()
-
-        meta = getattr(self, "shk_meta", None)
+        meta = self.context.span
         if meta is None:
             rendered = msg
         else:
-            line = getattr(meta, "line", None)
-            col = getattr(meta, "column", None)
+            rendered = f"{msg} (line {meta.line}, col {meta.column})"
 
-            if line is None:
-                rendered = msg
-            elif col is None:
-                rendered = f"{msg} (line {line})"
-            else:
-                rendered = f"{msg} (line {line}, col {col})"
-
-        stack = getattr(self, "shk_call_stack", None)
+        stack = self.context.call_stack
         if not stack:
             return rendered
 

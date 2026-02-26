@@ -3,7 +3,6 @@ from __future__ import annotations
 import difflib
 import re
 from dataclasses import dataclass
-from types import SimpleNamespace
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, TypeAlias
 
 from ..tree import Tree, Tok
@@ -22,6 +21,7 @@ from ..types import (
     ShkRegex,
     ShkDuration,
     ShkSize,
+    SourceSpanInfo,
     ShakarRuntimeError,
     ShakarAssertionError,
     ShakarTypeError,
@@ -88,13 +88,13 @@ def validate_modifier(construct: str, name: str, tok: Optional[Tok]) -> None:
     if tok and tok.line > 0:
         tok_text = "" if tok.value is None else str(tok.value)
         col = max(1, tok.column)
-        error.shk_meta = SimpleNamespace(
+        error.context.span = SourceSpanInfo(
             line=tok.line,
             column=col,
             end_line=tok.line,
             end_column=col + max(1, len(tok_text)),
         )
-        error._augmented = True  # type: ignore[attr-defined]
+        error.context.enriched = True
 
     raise error
 

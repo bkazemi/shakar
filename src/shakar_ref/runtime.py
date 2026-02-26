@@ -44,6 +44,8 @@ from .types import (
     _STATIC_ONCE_CELLS,
     _STATIC_ONCE_CELLS_LOCK,
     CallSite,
+    SourceSpanInfo,
+    ErrorContext,
     DeferEntry,
     FrameLexicalState,
     FrameExecState,
@@ -125,6 +127,8 @@ __all__ = [
     "OnceBinding",
     "_STATIC_ONCE_CELLS",
     "_STATIC_ONCE_CELLS_LOCK",
+    "SourceSpanInfo",
+    "ErrorContext",
     "DeferEntry",
     "FrameLexicalState",
     "FrameExecState",
@@ -911,8 +915,8 @@ def call_shkfn(
 
         return _call_shkfn_raw(fn, positional, subject, caller_frame, named=named)
     except ShakarRuntimeError as exc:
-        if getattr(exc, "shk_call_stack", None) is None and call_site:
-            exc.shk_call_stack = caller_frame.call_stack_snapshot()
+        if exc.context.call_stack is None and call_site:
+            exc.context.call_stack = caller_frame.call_stack_snapshot()
         raise
     finally:
         if call_site:
