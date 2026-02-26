@@ -7,6 +7,7 @@ import pytest
 from tests.support.harness import (
     ParseError,
     ShakarRuntimeError,
+    ShakarTypeError,
     run_runtime_case,
 )
 from shakar_ref.runner import run as run_program
@@ -86,6 +87,24 @@ SCENARIOS = [
         ("number", 1),
         None,
         id="fanout-block-slice-selector",
+    ),
+    pytest.param(
+        "state := {arr: [[0, 0], [0, 0]], idx: 1, x: 0}; state{ .x += 0; .arr[0][.idx] = 9 }",
+        None,
+        ShakarTypeError,
+        id="fanout-selector-local-dot-single-target-error",
+    ),
+    pytest.param(
+        "state := {arr: [[0, 0], [0, 0]], idx: 1, x: 0}; state{ .x += 0; .arr[0:2][.idx] = 9 }",
+        None,
+        ShakarTypeError,
+        id="fanout-selector-local-dot-multi-target-error",
+    ),
+    pytest.param(
+        "state := {arr: [[0, 0], [0, 0]], idx: 1, x: 0}; state{ .x += 0; .arr[0:2][state.idx] = 9 }; state.arr[0][1] + state.arr[1][1]",
+        ("number", 18),
+        None,
+        id="fanout-selector-explicit-outer-reference",
     ),
     pytest.param(
         "state := {rows: [{v: 1}, {v: 3}, {v: 5}]}; state{ .rows[1].v += 4; .rows[0] = {v: state.rows[0].v + 2} }; state.rows[0].v + state.rows[1].v",

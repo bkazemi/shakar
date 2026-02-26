@@ -165,6 +165,29 @@ SCENARIOS = [
     pytest.param(
         dedent(
             """\
+            myObj := {myArr: [10, 20, 30]}
+            myObj and .myArr[.len-1]
+        """
+        ),
+        ("number", 30),
+        None,
+        id="selector-local-dot-in-chain",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            state := {arr: [10, 20, 30], out: 0}
+            state.out .= state.arr[.len-1]
+            state.out
+        """
+        ),
+        ("number", 30),
+        None,
+        id="selector-local-dot-apply-assign-rhs",
+    ),
+    pytest.param(
+        dedent(
+            """\
             v1 := 1 == `1, 2`
             v2 := 1 != `2, 3`
             v3 := 1 != `1, 2`

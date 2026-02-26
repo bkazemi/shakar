@@ -20,7 +20,7 @@ from .destructure import prepare_destructure_bindings
 
 EvalFn = Callable[[Node, Frame], ShkValue]
 ApplyOpFunc = Callable[[ShkValue, Tree, Frame, EvalFn], ShkValue]
-IndexEvalFn = Callable[[Tree, Frame, EvalFn], ShkValue]
+IndexEvalFn = Callable[[Tree, Frame, EvalFn, Optional[ShkValue]], ShkValue]
 
 
 def define_let_ident(name: str, value: ShkValue, frame: Frame) -> ShkValue:

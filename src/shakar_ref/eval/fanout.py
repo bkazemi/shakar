@@ -218,7 +218,9 @@ def _fan_context_from_selector(
     if selectorlist is None:
         raise ShakarRuntimeError("Malformed selector in fanout path")
 
-    parts = evaluate_selectorlist(selectorlist, frame, eval_fn, clamp=True)
+    parts = evaluate_selectorlist(
+        selectorlist, frame, eval_fn, clamp=True, selector_base=arr
+    )
     indices: list[int] = []
     length = len(arr.items)
 

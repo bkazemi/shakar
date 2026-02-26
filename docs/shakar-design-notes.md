@@ -406,6 +406,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
 - **Selector values in collections**: backtick literals are ordinary values in arrays/objects/sets; no flattening there.
 - **Type checks**: each selector list item must be int index or selector value; otherwise a type error. Per-selector steps allowed.
 - **Inside selectors**: `.` = base (e.g., `xs`) for that selector only.
+  Outer context references inside selectors must be explicit (for example, `state.arr[state.idx]`).
 - **Slices (arrays & strings)**:
   ```shakar
   a[i:j]         # half-open i <= k < j
@@ -422,6 +423,8 @@ Typed literals representing byte quantities. Distinct from integers and duration
   ```shakar
   xs[:5, 10:15:-2]
   xs[1 : .len-1]
+  state := {idx: 1, arr: [[0,0], [0,0]]}
+  state{ .arr[0:2][state.idx] = 9 }
   xs[5:2:-1]
   customSelector := `1:10, someIdx`; xs[customSelector]
   ```

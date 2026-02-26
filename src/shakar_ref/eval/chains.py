@@ -245,12 +245,17 @@ def _is_raw_fieldfan(node: Node) -> bool:
 
 
 def evaluate_index_operand(
-    index_node: Tree, frame: Frame, eval_fn: EvalFn
+    index_node: Tree,
+    frame: Frame,
+    eval_fn: EvalFn,
+    selector_base: Optional[ShkValue] = None,
 ) -> ShkSelector | ShkValue:
     selectorlist = child_by_label(index_node, "selectorlist")
 
     if selectorlist:
-        selectors = evaluate_selectorlist(selectorlist, frame, eval_fn)
+        selectors = evaluate_selectorlist(
+            selectorlist, frame, eval_fn, selector_base=selector_base
+        )
 
         if len(selectors) == 1 and isinstance(selectors[0], SelectorIndex):
             return selectors[0].value
@@ -290,7 +295,7 @@ def apply_index_operation(
         idx_val = eval_fn(expr_node, frame)
         return index_value(recv, idx_val, frame, default_thunk=default_thunk)
 
-    selectors = evaluate_selectorlist(selectorlist, frame, eval_fn)
+    selectors = evaluate_selectorlist(selectorlist, frame, eval_fn, selector_base=recv)
 
     if default_thunk and not _is_single_index_selector(selectors):
         raise ShakarTypeError("Default index requires a single key selector")

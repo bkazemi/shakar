@@ -59,6 +59,10 @@ for xs: do(.)
 ```shakar
 xs[ 1 : .len-1,  10:0:-2 ]
 # expect: inside each selector, '.' == xs (the base); indices OOB clamp only for slices
+
+state := {idx: 1, arr: [[0,0], [0,0]]}
+state{ .arr[0:2][state.idx] = 9 }
+# expect: outer lookup is explicit; `state.idx` remains valid inside selectors
 ```
 
 ## I. Hoisted loop binders (`^name`)

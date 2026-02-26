@@ -41,7 +41,7 @@ def test_index_target_is_captured_once_at_context_build_time() -> None:
     arr = ShkArray([ShkNumber(10.0), ShkNumber(20.0)])
     index_evals = 0
 
-    def fake_eval_index(_op, _frame, _eval_fn):
+    def fake_eval_index(_op, _frame, _eval_fn, _selector_base=None):
         nonlocal index_evals
         index_evals += 1
         return ShkNumber(1.0)

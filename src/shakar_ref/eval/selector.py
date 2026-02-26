@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional, TypeVar
 
 from ..runtime import (
     Frame,
@@ -36,6 +36,7 @@ from ..token_types import TT
 from .helpers import eval_anchor_scoped
 
 EvalFn = Callable[[Node, Frame], ShkValue]
+SelectorEvalT = TypeVar("SelectorEvalT")
 
 
 def eval_selectorliteral(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkSelector:
@@ -61,7 +62,11 @@ def eval_selectorliteral(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkSelect
 
 
 def evaluate_selectorlist(
-    node: Tree, frame: Frame, eval_fn: EvalFn, clamp: bool = True
+    node: Tree,
+    frame: Frame,
+    eval_fn: EvalFn,
+    clamp: bool = True,
+    selector_base: Optional[ShkValue] = None,
 ) -> List[SelectorPart]:
     """Evaluate runtime selector expressions like `xs[sel1, sel2]` into parts."""
     selectors: List[SelectorPart] = []
@@ -74,7 +79,13 @@ def evaluate_selectorlist(
         if label == "slicesel":
             # slicesel already encodes explicit start/stop/step nodes.
             selectors.append(
-                _selector_slice_from_slicesel(target, frame, eval_fn, clamp)
+                _evaluate_selector_with_base(
+                    lambda: _selector_slice_from_slicesel(
+                        target, frame, eval_fn, clamp
+                    ),
+                    frame,
+                    selector_base,
+                )
             )
             continue
 
@@ -86,15 +97,40 @@ def evaluate_selectorlist(
 
                 if children:
                     expr_node = children[0]
-            idx_value: ShkValue = eval_fn(expr_node, frame)
+            idx_value: ShkValue = _evaluate_selector_with_base(
+                lambda: eval_anchor_scoped(expr_node, frame, eval_fn),
+                frame,
+                selector_base,
+            )
             # indexsel can evaluate to either a single index or another selector literal.
             selectors.extend(_expand_selector_value(idx_value, clamp))
             continue
 
-        tail_value: ShkValue = eval_fn(target, frame)
+        tail_value: ShkValue = _evaluate_selector_with_base(
+            lambda: eval_anchor_scoped(target, frame, eval_fn),
+            frame,
+            selector_base,
+        )
         selectors.extend(_expand_selector_value(tail_value, clamp))
 
     return selectors
+
+
+def _evaluate_selector_with_base(
+    thunk: Callable[[], SelectorEvalT],
+    frame: Frame,
+    selector_base: Optional[ShkValue],
+) -> SelectorEvalT:
+    """Run selector arm evaluation with selector-local `.` without changing scope."""
+    if selector_base is None:
+        return thunk()
+
+    saved_dot = frame.dot
+    frame.dot = selector_base
+    try:
+        return thunk()
+    finally:
+        frame.dot = saved_dot
 
 
 def clone_selector_parts(
@@ -282,9 +318,9 @@ def _eval_optional_expr(
 
     if label == "slicearm_expr":
         ch = tree_children(node)
-        return eval_fn(ch[0], frame) if ch else None
+        return eval_anchor_scoped(ch[0], frame, eval_fn) if ch else None
 
-    return eval_fn(node, frame)
+    return eval_anchor_scoped(node, frame, eval_fn)
 
 
 def _eval_selector_atom(

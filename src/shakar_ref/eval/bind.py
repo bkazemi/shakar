@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from ..runtime import (
     Frame,
@@ -82,7 +82,7 @@ class FanContext:
 
 EvalFn = Callable[[Node, Frame], ShkValue]
 ApplyOpFunc = Callable[[EvalResult, Tree, Frame, EvalFn], EvalResult]
-IndexEvalFn = Callable[[Tree, Frame, EvalFn], ShkValue]
+IndexEvalFn = Callable[[Tree, Frame, EvalFn, Optional[ShkValue]], ShkValue]
 
 
 def assign_ident(name: str, value: ShkValue, frame: Frame, *, create: bool) -> ShkValue:
@@ -343,7 +343,7 @@ def _read_segment(
             name = expect_ident_token(op.children[0], "Field access")
             return get_field_value(target, name, frame)
         case "index" | "lv_index":
-            idx_val = evaluate_index_operand(op, frame, eval_fn)
+            idx_val = evaluate_index_operand(op, frame, eval_fn, target)
             return index_value(target, idx_val, frame)
 
     raise ShakarRuntimeError("Unsupported read target")
@@ -366,7 +366,7 @@ def _write_segment(
             name = expect_ident_token(op.children[0], "Field assignment")
             return set_field_value(target, name, value, frame, create=create)
         case "index" | "lv_index":
-            idx_val = evaluate_index_operand(op, frame, eval_fn)
+            idx_val = evaluate_index_operand(op, frame, eval_fn, target)
             return set_index_value(target, idx_val, value, frame)
 
     raise ShakarRuntimeError("Unsupported assignment target")
@@ -395,7 +395,7 @@ def _rebind_segment(
             return RebindContext(value, target)
 
         case "index" | "lv_index":
-            idx_val = evaluate_index_operand(op, frame, eval_fn)
+            idx_val = evaluate_index_operand(op, frame, eval_fn, owner)
             value = index_value(owner, idx_val, frame)
             target_kind: WriteTargetKind = "index"
             if isinstance(idx_val, ShkSelector):
