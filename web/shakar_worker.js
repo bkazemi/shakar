@@ -340,7 +340,8 @@ except Exception as e:
         )
 
     if _shk_error_range is None:
-        meta = getattr(e, "shk_meta", None)
+        context = getattr(e, "context", None)
+        meta = getattr(context, "span", None) if context is not None else None
         _shk_error_range = _range_from_coords(
             getattr(meta, "line", None) if meta is not None else None,
             getattr(meta, "column", None) if meta is not None else None,

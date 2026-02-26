@@ -6,7 +6,6 @@ import math
 import pathlib
 import re
 import threading
-import types as _pytypes
 from typing import (
     Any,
     Callable,
@@ -1754,41 +1753,6 @@ class ShakarRuntimeError(Exception):
         self.shk_data = None
         self.shk_payload = None
         self.context = ErrorContext()
-
-    @property
-    def _augmented(self) -> bool:
-        return self.context.enriched
-
-    @_augmented.setter
-    def _augmented(self, value: bool) -> None:
-        self.context.enriched = bool(value)
-
-    @property
-    def shk_meta(self) -> Optional[SourceSpanInfo]:
-        return self.context.span
-
-    @shk_meta.setter
-    def shk_meta(self, value: Optional[SourceSpanInfo]) -> None:
-        self.context.span = value
-
-    @property
-    def shk_py_trace(self) -> Optional[_pytypes.TracebackType]:
-        trace = self.context.py_trace
-        if trace is None or isinstance(trace, _pytypes.TracebackType):
-            return trace
-        return None
-
-    @shk_py_trace.setter
-    def shk_py_trace(self, value: Optional[_pytypes.TracebackType]) -> None:
-        self.context.py_trace = value
-
-    @property
-    def shk_call_stack(self) -> Optional[List["CallSite"]]:
-        return self.context.call_stack
-
-    @shk_call_stack.setter
-    def shk_call_stack(self, value: Optional[List["CallSite"]]) -> None:
-        self.context.call_stack = value
 
     def __str__(self) -> str:  # pragma: no cover - trivial formatting
         msg = super().__str__()
