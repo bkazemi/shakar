@@ -203,6 +203,12 @@ def _eval_args_with_named(
             if isinstance(spread_val, (ShkArray, ShkFan)):
                 positional.extend(spread_val.items)
                 continue
+            # Import ShkSet locally to avoid heavy import at module scope
+            from ..types import ShkSet
+
+            if isinstance(spread_val, ShkSet):
+                positional.extend(spread_val.items)
+                continue
             if isinstance(spread_val, ShkObject):
                 positional.extend(spread_val.slots.values())
                 continue

@@ -6,6 +6,7 @@ from typing import Callable, FrozenSet, Iterator, Optional
 from ..runtime import (
     Frame,
     ShkArray,
+    ShkSet,
     ShkFan,
     ShkBool,
     ShkCommand,
@@ -56,7 +57,7 @@ def is_truthy(val: ShkValue) -> bool:
             return byte_count != 0
         case ShkString(value=s):
             return bool(s)
-        case ShkArray(items=items) | ShkFan(items=items):
+        case ShkArray(items=items) | ShkSet(items=items) | ShkFan(items=items):
             return bool(items)
         case ShkModule(slots=slots) | ShkObject(slots=slots):
             return bool(slots)

@@ -15,6 +15,7 @@ from .types import (
     ShkRegex,
     ShkBool,
     ShkArray,
+    ShkSet,
     ShkFan,
     ShkObject,
     ShkModule,
@@ -89,7 +90,7 @@ from .types import (
     _ensure_shk_value,
     StdlibFn,
 )
-from .utils import envvar_value_by_name, stringify
+from .utils import envvar_value_by_name, stringify, normalize_set_items
 
 __all__ = [
     "Frame",
@@ -101,6 +102,7 @@ __all__ = [
     "ShkRegex",
     "ShkBool",
     "ShkArray",
+    "ShkSet",
     "ShkFan",
     "ShkObject",
     "ShkModule",
@@ -365,6 +367,10 @@ def register_array(name: str):
     return register_method(Builtins.array_methods, name)
 
 
+def register_set(name: str):
+    return register_method(Builtins.set_methods, name)
+
+
 def register_string(name: str):
     return register_method(Builtins.string_methods, name)
 
@@ -553,6 +559,140 @@ def _array_keep(frame: Frame, recv: ShkArray, args: List[ShkValue]) -> ShkArray:
         if is_truthy(call_value(predicate, [item], frame, eval_fn=eval_node))
     ]
     replace_sequence(recv.items, filtered)
+
+    return recv
+
+
+# ---------- Set methods ----------
+
+
+def _normalize_set_in_place(recv: ShkSet) -> None:
+    """Keep in-place set mutations deduped and sorted."""
+    replace_sequence(recv.items, normalize_set_items(recv.items))
+
+
+@register_set("add")
+def _set_add(_frame: Frame, recv: ShkSet, args: List[ShkValue]) -> ShkNil:
+    if len(args) != 1:
+        raise ShakarArityError(f"set.add expects 1 argument; got {len(args)}")
+
+    from .utils import value_in_list
+
+    if not value_in_list(recv.items, args[0]):
+        recv.items.append(args[0])
+        _normalize_set_in_place(recv)
+
+    return ShkNil()
+
+
+@register_set("remove")
+def _set_remove(_frame: Frame, recv: ShkSet, args: List[ShkValue]) -> ShkNil:
+    if len(args) != 1:
+        raise ShakarArityError(f"set.remove expects 1 argument; got {len(args)}")
+
+    from .utils import shk_equals
+
+    for i, item in enumerate(recv.items):
+        if shk_equals(item, args[0]):
+            recv.items.pop(i)
+            _normalize_set_in_place(recv)
+
+            return ShkNil()
+
+    raise ShakarRuntimeError("set.remove: value not found")
+
+
+@register_set("has")
+def _set_has(_frame: Frame, recv: ShkSet, args: List[ShkValue]) -> ShkBool:
+    if len(args) != 1:
+        raise ShakarArityError(f"set.has expects 1 argument; got {len(args)}")
+
+    from .utils import value_in_list
+
+    return ShkBool(value_in_list(recv.items, args[0]))
+
+
+@register_set("map")
+def _set_map(frame: Frame, recv: ShkSet, args: List[ShkValue]) -> ShkSet:
+    if len(args) != 1:
+        raise ShakarArityError(f"set.map expects 1 argument; got {len(args)}")
+
+    callback = args[0]
+    from .eval.chains import call_value
+    from .evaluator import eval_node
+    from .utils import value_in_list
+
+    results: List[ShkValue] = []
+    for item in recv.items:
+        result = call_value(callback, [item], frame, eval_fn=eval_node)
+
+        if not value_in_list(results, result):
+            results.append(result)
+
+    return ShkSet(results)
+
+
+@register_set("filter")
+def _set_filter(frame: Frame, recv: ShkSet, args: List[ShkValue]) -> ShkSet:
+    if len(args) != 1:
+        raise ShakarArityError(f"set.filter expects 1 argument; got {len(args)}")
+
+    predicate = args[0]
+    from .eval.chains import call_value
+    from .evaluator import eval_node
+    from .eval.helpers import is_truthy
+
+    results: List[ShkValue] = []
+    for item in recv.items:
+        res = call_value(predicate, [item], frame, eval_fn=eval_node)
+
+        if is_truthy(res):
+            results.append(item)
+
+    return ShkSet(results)
+
+
+@register_set("keep")
+def _set_keep(frame: Frame, recv: ShkSet, args: List[ShkValue]) -> ShkSet:
+    if len(args) != 1:
+        raise ShakarArityError(f"set.keep expects 1 argument; got {len(args)}")
+
+    predicate = args[0]
+    from .eval.chains import call_value
+    from .eval.helpers import is_truthy
+    from .evaluator import eval_node
+
+    filtered = [
+        item
+        for item in recv.items
+        if is_truthy(call_value(predicate, [item], frame, eval_fn=eval_node))
+    ]
+    replace_sequence(recv.items, filtered)
+    _normalize_set_in_place(recv)
+
+    return recv
+
+
+@register_set("update")
+def _set_update(frame: Frame, recv: ShkSet, args: List[ShkValue]) -> ShkSet:
+    if len(args) != 1:
+        raise ShakarArityError(f"set.update expects 1 argument; got {len(args)}")
+
+    callback = args[0]
+    from .eval.chains import call_value
+    from .evaluator import eval_node
+    from .utils import value_in_list
+
+    # Map in-place, then re-deduplicate
+    mapped: List[ShkValue] = []
+    for item in recv.items:
+        result = call_value(callback, [item], frame, eval_fn=eval_node)
+
+        if not value_in_list(mapped, result):
+            mapped.append(result)
+
+    replace_sequence(recv.items, mapped)
+    _normalize_set_in_place(recv)
 
     return recv
 
@@ -833,6 +973,7 @@ def _envvar_unset(_frame: Frame, recv: ShkEnvVar, args: List[ShkValue]) -> ShkNi
 
 _BUILTIN_METHOD_REGISTRY: Dict[type, MethodRegistry] = {
     ShkArray: Builtins.array_methods,
+    ShkSet: Builtins.set_methods,
     ShkString: Builtins.string_methods,
     ShkRegex: Builtins.regex_methods,
     ShkObject: Builtins.object_methods,
@@ -1331,6 +1472,7 @@ TYPE_SIZE = ShkType("Size", ShkSize)
 TYPE_STR = ShkType("Str", ShkString)
 TYPE_BOOL = ShkType("Bool", ShkBool)
 TYPE_ARRAY = ShkType("Array", ShkArray)
+TYPE_SET = ShkType("Set", ShkSet)
 TYPE_OBJECT = ShkType("Object", ShkObject)
 TYPE_NIL = ShkType("Nil", ShkNil)
 TYPE_PATH = ShkType("Path", ShkPath)
@@ -1343,6 +1485,7 @@ Builtins.type_constants = {
     "Str": TYPE_STR,
     "Bool": TYPE_BOOL,
     "Array": TYPE_ARRAY,
+    "Set": TYPE_SET,
     "Object": TYPE_OBJECT,
     "Nil": TYPE_NIL,
     "Path": TYPE_PATH,

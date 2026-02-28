@@ -22,6 +22,7 @@ from .runtime import (
     ShakarImportError,
     ShakarTypeError,
     ShkArray,
+    ShkSet,
     ShkFan,
     ShkObject,
     ShkOptional,
@@ -115,6 +116,36 @@ def std_str(
         raise ShakarTypeError("str() expects exactly one argument")
 
     return ShkString(stringify(args[0]))
+
+
+@register_stdlib("toSet")
+def std_to_set(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkSet:
+    """Convert an array to a set (deduplicating elements)."""
+    args = _with_subject(subject, args)
+    if len(args) != 1:
+        raise ShakarTypeError("set() expects exactly one argument")
+
+    val = args[0]
+
+    if isinstance(val, ShkSet):
+        return val
+
+    if isinstance(val, (ShkArray, ShkFan)):
+        from .utils import value_in_list
+
+        items: List[ShkValue] = []
+        for item in val.items:
+            if not value_in_list(items, item):
+                items.append(item)
+
+        return ShkSet(items)
+
+    raise ShakarTypeError("set() expects an array or set")
 
 
 @register_stdlib("duration")
@@ -377,7 +408,7 @@ def _iter_coerce(value: ShkValue):
     elif isinstance(value, ShkObject):
         for key in value.slots:
             yield ShkString(key)
-    elif isinstance(value, (ShkArray, ShkFan)):
+    elif isinstance(value, (ShkArray, ShkSet, ShkFan)):
         for v in value.items:
             yield v
     else:

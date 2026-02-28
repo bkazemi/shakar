@@ -5,6 +5,7 @@ from typing import Callable, Iterable, List, Optional, TypeVar
 from ..runtime import (
     Frame,
     ShkArray,
+    ShkSet,
     ShkEnvVar,
     ShkString,
     ShkNumber,
@@ -19,7 +20,7 @@ from ..runtime import (
     ShakarIndexError,
 )
 
-from ..utils import sequence_items, envvar_value_by_name
+from ..utils import sequence_items, envvar_value_by_name, normalize_set_items
 from ..tree import (
     Node,
     Tree,
@@ -157,7 +158,13 @@ def clone_selector_parts(
 
 
 def apply_selectors_to_value(recv: ShkValue, selectors: List[SelectorPart]) -> ShkValue:
-    """Apply a list of selector parts to an array/string receiver."""
+    """Apply a list of selector parts to an array/string/set receiver."""
+    if isinstance(recv, ShkSet):
+        # Delegate to array logic operating on .items, return ShkSet
+        proxy = ShkArray(recv.items)
+        result = _apply_selectors_to_array(proxy, selectors)
+        return ShkSet(normalize_set_items(result.items))
+
     if isinstance(recv, ShkArray):
         return _apply_selectors_to_array(recv, selectors)
 
@@ -170,7 +177,9 @@ def apply_selectors_to_value(recv: ShkValue, selectors: List[SelectorPart]) -> S
             raise ShakarTypeError(f"Env var '{recv.name}' has no value for selector")
         return _apply_selectors_to_string(ShkString(env_val), selectors)
 
-    raise ShakarTypeError("Complex selectors only supported on arrays or strings")
+    raise ShakarTypeError(
+        "Complex selectors only supported on arrays, sets, or strings"
+    )
 
 
 def selector_iter_values(selector: ShkSelector) -> List[ShkValue]:

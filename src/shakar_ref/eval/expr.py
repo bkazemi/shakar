@@ -10,6 +10,7 @@ from ..types import DURATION_NANOS, SIZE_BYTES, merge_units
 from ..runtime import (
     Frame,
     ShkArray,
+    ShkSet,
     ShkBool,
     ShkEnvVar,
     ShkFan,
@@ -566,6 +567,16 @@ def _div_size(lhs: ShkValue, rhs: ShkValue) -> ShkSize | ShkNumber:
 def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
     match op:
         case "+":
+            if isinstance(lhs, ShkSet) and isinstance(rhs, ShkSet):
+                # Union: deduplicate
+                from ..utils import value_in_list
+
+                merged: List[ShkValue] = list(lhs.items)
+                for item in rhs.items:
+                    if not value_in_list(merged, item):
+                        merged.append(item)
+
+                return ShkSet(merged)
             if isinstance(lhs, ShkArray) and isinstance(rhs, ShkArray):
                 return ShkArray(lhs.items + rhs.items)
             if isinstance(lhs, (ShkString, ShkEnvVar)) or isinstance(
@@ -590,6 +601,15 @@ def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
             rhs_num = require_number(rhs)
             return ShkNumber(lhs_num.value + rhs_num.value)
         case "-":
+            if isinstance(lhs, ShkSet) and isinstance(rhs, ShkSet):
+                # Difference: items in lhs not in rhs
+                from ..utils import value_in_list
+
+                diff: List[ShkValue] = [
+                    item for item in lhs.items if not value_in_list(rhs.items, item)
+                ]
+
+                return ShkSet(diff)
             if isinstance(lhs, ShkDuration) or isinstance(rhs, ShkDuration):
                 if not (isinstance(lhs, ShkDuration) and isinstance(rhs, ShkDuration)):
                     raise ShakarTypeError("Duration arithmetic expects durations")
@@ -774,6 +794,8 @@ def _compare_with_selector(op: str, lhs: ShkValue, selector: ShkSelector) -> boo
 
 def _contains(container: ShkValue, item: ShkValue) -> bool:
     match container:
+        case ShkSet(items=items):
+            return any(shk_equals(element, item) for element in items)
         case ShkArray(items=items):
             return any(shk_equals(element, item) for element in items)
         case ShkString(value=text):

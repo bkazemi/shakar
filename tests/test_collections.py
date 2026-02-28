@@ -137,6 +137,24 @@ SCENARIOS = [
         id="slice-both-negative",
     ),
     pytest.param(
+        "set{1, 2, 1}",
+        ("set", [1, 2]),
+        None,
+        id="setliteral-dedup",
+    ),
+    pytest.param(
+        "set{3, 1, 2}",
+        ("set", [1, 2, 3]),
+        None,
+        id="setliteral-sorted",
+    ),
+    pytest.param(
+        "set{}",
+        ("set", []),
+        None,
+        id="setliteral-empty",
+    ),
+    pytest.param(
         dedent(
             """\
             vals := set{1, 2, 1}
@@ -148,6 +166,156 @@ SCENARIOS = [
         ("number", 3),
         None,
         id="setliteral-sum",
+    ),
+    pytest.param(
+        "2 in set{1, 2, 3}",
+        ("bool", True),
+        None,
+        id="set-in-membership",
+    ),
+    pytest.param(
+        "5 in set{1, 2, 3}",
+        ("bool", False),
+        None,
+        id="set-not-in-membership",
+    ),
+    pytest.param(
+        "set{1, 2} + set{2, 3}",
+        ("set", [1, 2, 3]),
+        None,
+        id="set-union",
+    ),
+    pytest.param(
+        "set{1, 2, 3} - set{2}",
+        ("set", [1, 3]),
+        None,
+        id="set-difference",
+    ),
+    pytest.param(
+        "s := set{1, 2}; s.add(3); s.add(2); s",
+        ("set", [1, 2, 3]),
+        None,
+        id="set-add",
+    ),
+    pytest.param(
+        "s := set{1, 2, 3}; s[0] = 4; s",
+        ("set", [2, 3, 4]),
+        None,
+        id="set-index-assign-resort",
+    ),
+    pytest.param(
+        "s := set{1, 2}; s[0] = 2; s",
+        ("set", [2]),
+        None,
+        id="set-index-assign-dedup",
+    ),
+    pytest.param(
+        "s := set{1, 2, 3}; s[`0,1`] = 3; s",
+        ("set", [3]),
+        None,
+        id="set-selector-assign-dedup",
+    ),
+    pytest.param(
+        "s := set{1, 2, 3}; s.remove(2); s",
+        ("set", [1, 3]),
+        None,
+        id="set-remove",
+    ),
+    pytest.param(
+        "set{1, 2, 3}.remove(5)",
+        None,
+        ShakarRuntimeError,
+        id="set-remove-absent",
+    ),
+    pytest.param(
+        "set{1, 2, 3}.has(2)",
+        ("bool", True),
+        None,
+        id="set-has-true",
+    ),
+    pytest.param(
+        "set{1, 2, 3}.has(5)",
+        ("bool", False),
+        None,
+        id="set-has-false",
+    ),
+    pytest.param(
+        "set{1, 2, 3}.map&(. * 2)",
+        ("set", [2, 4, 6]),
+        None,
+        id="set-map",
+    ),
+    pytest.param(
+        "set{1, 2, 2, 3}.map&(. // 2)",
+        ("set", [0, 1]),
+        None,
+        id="set-map-dedup",
+    ),
+    pytest.param(
+        "set{1, 2, 3, 4}.filter&(. > 2)",
+        ("set", [3, 4]),
+        None,
+        id="set-filter",
+    ),
+    pytest.param(
+        "s := set{1, 2, 3, 4}; s.keep&(. > 2); s",
+        ("set", [3, 4]),
+        None,
+        id="set-keep",
+    ),
+    pytest.param(
+        "s := set{1, 2, 3}; s.update&(. * 10); s",
+        ("set", [10, 20, 30]),
+        None,
+        id="set-update",
+    ),
+    pytest.param(
+        "set{10, 20, 30}[1]",
+        ("number", 20),
+        None,
+        id="set-index",
+    ),
+    pytest.param(
+        "set{10, 20, 30}[`0,0`]",
+        ("set", [10]),
+        None,
+        id="set-selector-dedup",
+    ),
+    pytest.param(
+        "set{10, 20, 30}.len",
+        ("number", 3),
+        None,
+        id="set-len",
+    ),
+    pytest.param(
+        "set{n * n over [1, 2, 3, 2]}",
+        ("set", [1, 4, 9]),
+        None,
+        id="set-comprehension",
+    ),
+    pytest.param(
+        "set{1, 2, 3} ~ Set",
+        ("bool", True),
+        None,
+        id="set-typeof",
+    ),
+    pytest.param(
+        "if set{1}: 1 else: 0",
+        ("number", 1),
+        None,
+        id="set-truthy-non-empty",
+    ),
+    pytest.param(
+        "if set{}: 1 else: 0",
+        ("number", 0),
+        None,
+        id="set-truthy-empty",
+    ),
+    pytest.param(
+        "toSet([1, 2, 1])",
+        ("set", [1, 2]),
+        None,
+        id="set-from-array",
     ),
     pytest.param(
         dedent(

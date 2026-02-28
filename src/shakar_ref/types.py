@@ -264,6 +264,20 @@ class ShkArray:
 
 
 @dataclass
+class ShkSet:
+    items: List["ShkValue"]
+
+    def __post_init__(self) -> None:
+        # Keep set invariants centralized at construction sites.
+        from .utils import normalize_set_items
+
+        self.items = normalize_set_items(self.items)
+
+    def __repr__(self) -> str:
+        return "set{" + ", ".join(repr(x) for x in self.items) + "}"
+
+
+@dataclass
 class ShkFan:
     items: List["ShkValue"]
 
@@ -1039,6 +1053,7 @@ ShkValue: TypeAlias = Union[
     ShkRegex,
     ShkBool,
     ShkArray,
+    ShkSet,
     ShkFan,
     ShkObject,
     ShkModule,
@@ -1885,6 +1900,7 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     ShkRegex,
     ShkBool,
     ShkArray,
+    ShkSet,
     ShkFan,
     ShkObject,
     ShkModule,
@@ -1934,6 +1950,7 @@ MethodRegistry = Dict[str, Method[ShkValue]]
 
 class Builtins:
     array_methods: MethodRegistry = {}
+    set_methods: MethodRegistry = {}
     string_methods: MethodRegistry = {}
     regex_methods: MethodRegistry = {}
     object_methods: MethodRegistry = {}

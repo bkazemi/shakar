@@ -20,7 +20,7 @@ from .selector import (
     _selector_slice_to_slice,
     _normalize_index_position,
 )
-from ..runtime import ShkArray
+from ..runtime import ShkArray, ShkSet
 
 from .expr import apply_binary_operator
 from .write_targets import WriteTarget, apply_write_target
@@ -180,12 +180,13 @@ def _walk_to_parent(
         prev = current
         current = apply_op(current, seg, frame, eval_fn)
 
-        # When an intermediate *multi* selector returns an array, broadcast subsequent ops across its elements.
+        # When an intermediate *multi* selector returns a sequence, broadcast
+        # subsequent ops across its selected elements.
         if (
-            isinstance(current, ShkArray)
+            isinstance(current, (ShkArray, ShkSet))
             and idx < len(segments) - 1
             and _segment_is_multi_selector(seg)
-            and isinstance(prev, ShkArray)
+            and isinstance(prev, (ShkArray, ShkSet))
         ):
             current = _fan_context_from_selector(prev, seg, frame, eval_fn)
 
@@ -211,9 +212,9 @@ def _segment_is_multi_selector(seg: Tree) -> bool:
 
 
 def _fan_context_from_selector(
-    arr: ShkArray, seg: Tree, frame: Frame, eval_fn
+    arr: Union[ShkArray, ShkSet], seg: Tree, frame: Frame, eval_fn
 ) -> FanContext:
-    """Build FanContext targeting the original array elements selected by seg."""
+    """Build FanContext targeting the original array/set elements selected by seg."""
     selectorlist = child_by_label(seg, "selectorlist")
     if selectorlist is None:
         raise ShakarRuntimeError("Malformed selector in fanout path")
@@ -243,13 +244,25 @@ def _fan_context_from_selector(
     contexts: list[RebindContext] = []
 
     for i in indices:
-        target = WriteTarget(
-            kind="index",
-            owner=arr,
-            name_or_index=ShkNumber(float(i)),
-            frame=frame,
-            create=False,
-        )
+        if isinstance(arr, ShkSet):
+            # Set index positions are not stable under normalization.
+            # For intermediate fanout contexts we mutate the selected value
+            # directly, so no writeback target is needed.
+            target = WriteTarget(
+                kind="noop",
+                owner=None,
+                name_or_index=None,
+                frame=frame,
+                create=False,
+            )
+        else:
+            target = WriteTarget(
+                kind="index",
+                owner=arr,
+                name_or_index=ShkNumber(float(i)),
+                frame=frame,
+                create=False,
+            )
         contexts.append(RebindContext(arr.items[i], target))
 
     return FanContext(contexts)

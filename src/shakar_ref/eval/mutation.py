@@ -9,6 +9,7 @@ from ..runtime import (
     Descriptor,
     Frame,
     ShkArray,
+    ShkSet,
     ShkBool,
     ShkChannel,
     ShkCommand,
@@ -36,8 +37,9 @@ from ..runtime import (
     call_shkfn,
     set_mapping_item,
     set_sequence_item,
+    replace_sequence,
 )
-from ..utils import envvar_value_by_name
+from ..utils import envvar_value_by_name, normalize_set_items
 from .selector import (
     clone_selector_parts,
     apply_selectors_to_value,
@@ -82,6 +84,19 @@ def set_index_value(
 ) -> ShkValue:
     """Assign `recv[index] = value` for arrays/objects with minimal coercions."""
     match recv:
+        case ShkSet(items=items):
+            if isinstance(index, ShkNumber):
+                idx = int(index.value)
+                set_sequence_item(items, idx, value)
+                _normalize_set_items_in_place(items)
+                return value
+
+            if isinstance(index, ShkSelector):
+                _assign_selector_into_array(items, index, value)
+                _normalize_set_items_in_place(items)
+                return value
+
+            raise ShakarTypeError("Set index must be an integer or selector")
         case ShkArray(items=items):
             if isinstance(index, ShkNumber):
                 idx = int(index.value)
@@ -141,6 +156,11 @@ def _assign_selector_into_array(
         raise ShakarTypeError("Unsupported selector component for array assignment")
 
 
+def _normalize_set_items_in_place(items: list[ShkValue]) -> None:
+    """Reapply set uniqueness/sort invariants after indexed writes."""
+    replace_sequence(items, normalize_set_items(items))
+
+
 def index_value(
     recv: ShkValue,
     idx: ShkValue,
@@ -149,6 +169,19 @@ def index_value(
 ) -> ShkValue:
     """Read `recv[idx]`, supporting selectors, descriptors, and builtins."""
     match recv:
+        case ShkSet(items=items):
+            if default_thunk:
+                raise ShakarTypeError("Set index does not accept default")
+            if isinstance(idx, ShkSelector):
+                cloned = clone_selector_parts(idx.parts, clamp=True)
+                return apply_selectors_to_value(recv, cloned)
+
+            if isinstance(idx, ShkNumber):
+                try:
+                    return items[int(idx.value)]
+                except IndexError:
+                    raise ShakarIndexError("Set index out of bounds")
+            raise ShakarTypeError("Set index must be a number")
         case ShkArray(items=items):
             if default_thunk:
                 raise ShakarTypeError("Array index does not accept default")
@@ -228,6 +261,8 @@ def slice_value(
     """Return a shallow slice of an array/string (selector extraction)."""
     s = slice(start, stop, step)
     match recv:
+        case ShkSet(items=items):
+            return ShkSet(items[s])
         case ShkArray(items=items):
             return ShkArray(items[s])
         case ShkString(value=sval):
@@ -268,6 +303,12 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
 
                 return slot
             raise ShakarKeyError(name)
+        case ShkSet(items=items):
+            if name == "len":
+                return ShkNumber(float(len(items)))
+            if name in Builtins.set_methods:
+                return BuiltinMethod(name=name, subject=recv)
+            raise ShakarFieldNotFoundError(f"Set has no field '{name}'")
         case ShkArray(items=items):
             if name == "len":
                 return ShkNumber(float(len(items)))

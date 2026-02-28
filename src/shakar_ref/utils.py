@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os as _os
+import math
 from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, Tuple
 
@@ -16,6 +17,7 @@ from .types import (
     ShkDuration,
     ShkSize,
     ShkArray,
+    ShkSet,
     ShkFan,
     ShkObject,
     ShkPath,
@@ -34,6 +36,74 @@ def value_in_list(seq: List[ShkValue], value: ShkValue) -> bool:
             return True
 
     return False
+
+
+def _normalized_number_key(value: float) -> Tuple[int, float]:
+    """Produce a deterministic sort key for floating-point numbers."""
+    if math.isnan(value):
+        return (1, 0.0)
+
+    if value == 0:
+        return (0, 0.0)
+
+    return (0, value)
+
+
+def _set_sort_key(value: ShkValue) -> Tuple[object, ...]:
+    """Return a total-order key for deterministic set ordering."""
+    if isinstance(value, ShkNil):
+        return (0, 0)
+
+    if isinstance(value, ShkBool):
+        return (1, 1 if value.value else 0)
+
+    if isinstance(value, ShkNumber):
+        return (2, _normalized_number_key(value.value))
+
+    if isinstance(value, ShkDuration):
+        return (3, value.nanos)
+
+    if isinstance(value, ShkSize):
+        return (4, value.byte_count)
+
+    if isinstance(value, ShkString):
+        return (5, value.value)
+
+    if isinstance(value, ShkPath):
+        return (6, value.value)
+
+    if isinstance(value, ShkEnvVar):
+        return (7, value.name)
+
+    if isinstance(value, ShkArray):
+        return (8, tuple(_set_sort_key(item) for item in value.items))
+
+    if isinstance(value, ShkSet):
+        normalized_items = normalize_set_items(value.items)
+        return (9, tuple(_set_sort_key(item) for item in normalized_items))
+
+    if isinstance(value, ShkFan):
+        return (10, tuple(_set_sort_key(item) for item in value.items))
+
+    if isinstance(value, ShkObject):
+        slots = tuple(
+            (key, _set_sort_key(slot_value))
+            for key, slot_value in sorted(value.slots.items())
+        )
+        return (11, slots)
+
+    return (99, type(value).__name__, repr(value))
+
+
+def normalize_set_items(items: List[ShkValue]) -> List[ShkValue]:
+    """Deduplicate and deterministically sort set elements."""
+    deduped: List[ShkValue] = []
+
+    for item in items:
+        if not value_in_list(deduped, item):
+            deduped.append(item)
+
+    return sorted(deduped, key=_set_sort_key)
 
 
 def envvar_is_nil(env: ShkEnvVar) -> bool:
@@ -103,6 +173,11 @@ def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
             return len(items_a) == len(items_b) and all(
                 shk_equals(a, b) for a, b in zip(items_a, items_b)
             )
+        case (ShkSet(items=items_a), ShkSet(items=items_b)):
+            # Sets are equal if they have same length and every element in a is in b
+            if len(items_a) != len(items_b):
+                return False
+            return all(any(shk_equals(a, b) for b in items_b) for a in items_a)
         case (ShkFan(items=items_a), ShkFan(items=items_b)):
             return len(items_a) == len(items_b) and all(
                 shk_equals(a, b) for a, b in zip(items_a, items_b)
@@ -126,13 +201,13 @@ def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
 
 
 def is_sequence_value(value: ShkValue) -> bool:
-    return isinstance(value, (ShkArray, ShkFan))
+    return isinstance(value, (ShkArray, ShkSet, ShkFan))
 
 
 def sequence_items(value: ShkValue) -> List[ShkValue]:
-    if isinstance(value, (ShkArray, ShkFan)):
+    if isinstance(value, (ShkArray, ShkSet, ShkFan)):
         return list(value.items)
-    raise ShakarTypeError("Expected array or fan for sequence operations")
+    raise ShakarTypeError("Expected array, set, or fan for sequence operations")
 
 
 def coerce_sequence(
@@ -150,15 +225,20 @@ def coerce_sequence(
 
 
 def fanout_values(value: ShkValue, count: int) -> List[ShkValue]:
-    if isinstance(value, (ShkArray, ShkFan)) and len(value.items) == count:
+    if isinstance(value, (ShkArray, ShkSet, ShkFan)) and len(value.items) == count:
         return list(value.items)
 
     return [value] * count
 
 
 def replicate_empty_sequence(value: ShkValue, count: int) -> List[ShkValue]:
-    if isinstance(value, (ShkArray, ShkFan)) and len(value.items) == 0:
-        empty = ShkFan([]) if isinstance(value, ShkFan) else ShkArray([])
+    if isinstance(value, (ShkArray, ShkSet, ShkFan)) and len(value.items) == 0:
+        if isinstance(value, ShkFan):
+            empty: ShkValue = ShkFan([])
+        elif isinstance(value, ShkSet):
+            empty = ShkSet([])
+        else:
+            empty = ShkArray([])
         return [empty for _ in range(count)]
 
     return [value] * count
@@ -206,6 +286,10 @@ def stringify(value: Optional[ShkValue]) -> str:
 
     if isinstance(value, ShkNil) or value is None:
         return "nil"
+
+    if isinstance(value, ShkSet):
+        inner = ", ".join(stringify(item) for item in value.items)
+        return f"set{{{inner}}}"
 
     if isinstance(value, ShkCommand):
         return value.render()

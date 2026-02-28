@@ -37,6 +37,7 @@ from shakar_ref.runtime import (
     ShkFan,
     ShkNil,
     ShkNumber,
+    ShkSet,
     ShkSize,
     ShkString,
 )
@@ -139,6 +140,17 @@ def verify_result(value: object, kind: str, expected: object) -> None:
             assert isinstance(
                 value, ShkArray
             ), f"expected ShkArray, got {type(value).__name__}"
+            actual_items = [
+                item.value if hasattr(item, "value") else item for item in value.items
+            ]
+            assert (
+                actual_items == expected
+            ), f"expected {expected!r}, got {actual_items!r}"
+            return
+        case "set":
+            assert isinstance(
+                value, ShkSet
+            ), f"expected ShkSet, got {type(value).__name__}"
             actual_items = [
                 item.value if hasattr(item, "value") else item for item in value.items
             ]

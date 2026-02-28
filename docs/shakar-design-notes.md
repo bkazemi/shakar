@@ -19,7 +19,7 @@ This is a living technical spec. The language grows in two ways: new runtime pri
 - **Hygienic name resolution**: if the user typed a name, resolution follows normal scope rules. If the compiler generated it (sugar lowering, synthetic params), resolution must be pinned — user-scope bindings cannot interfere. Lowered internals use non-spellable identifiers (e.g., digit-prefixed names); lowered references to builtins use intrinsic resolution, not ambient scope lookup.
 - **Primitives vs sugar**: not every capability is sugar. Channels, `spawn`, structural match, core control flow — these are primitives with their own semantics. New primitives are allowed when the feature cannot be expressed as a deterministic lowering to existing ones. The rule: either it's sugar (deterministic lowering) or a primitive (explicit semantics). Nothing pretends to lower while secretly requiring compiler special-casing.
 - **Expression-local magic only**: implicit subject `.` never crosses statement boundaries; it follows the anchor stack rules.
-- **Truthiness**: falsey = `nil`, `false`, zero numbers/durations/sizes, empty strings/arrays/fans/objects/paths/commands; truthy = non-empty of those. Regexes, selectors, functions/methods, and type descriptors are invalid in boolean contexts (type error).
+- **Truthiness**: falsey = `nil`, `false`, zero numbers/durations/sizes, empty strings/arrays/sets/fans/objects/paths/commands; truthy = non-empty of those. Regexes, selectors, functions/methods, and type descriptors are invalid in boolean contexts (type error).
 - **Evaluation**: eager; `and`/`or` short-circuit.
 - **Errors**: exceptions; one-statement handlers via `catch`/`@@`; block-form `try`/`catch`.
 - **Strings**: raw forms `raw"…"` (escapes processed) and `raw#"…"#` (no interpolation; no escapes; exactly one `#` in v0.1). Examples: `raw"Line1\nLine2"`, `raw#"C:\\path\\file"#`, `raw#"he said "hi""#`.
@@ -108,6 +108,13 @@ Standard collections provide built-in methods that pair naturally with [Amp-lamb
 - **`Array.update&(body)`**: (**Mutable**) Modifies each element in-place by applying `body`; returns the array reference.
 - **`Array.keep&(body)`**: (**Mutable**) Removes elements where `body` is falsey in-place; returns the array reference.
 - **`Object.update&(body)`**: (**Mutable**) Modifies all values within the object in-place; returns the object reference.
+- **`Set.map&(body)`**: Returns a new set by applying `body` to each element, then re-normalizing (dedupe + sort).
+- **`Set.filter&(body)`**: Returns a new set containing only elements where `body` is truthy.
+- **`Set.update&(body)`**: (**Mutable**) Modifies each element in-place by applying `body`, then re-normalizing (dedupe + sort); returns the set reference.
+- **`Set.keep&(body)`**: (**Mutable**) Removes elements where `body` is falsey in-place, then re-normalizing (dedupe + sort); returns the set reference.
+- **`Set.add(v)`**: (**Mutable**) Adds `v` if not already present; returns `nil`.
+- **`Set.remove(v)`**: (**Mutable**) Removes `v` by value; errors if absent.
+- **`Set.has(v)`**: Returns `Bool`; sugar for `v in s`.
 
 ```shakar
 nums := [1, 2, 3, 4]
@@ -118,6 +125,13 @@ doubled_evens := nums.filter&(. % 2 == 0).map&(. * 2)
 # In-place Mutation (Efficient)
 nums.update&(. * 10) # nums is now [10, 20, 30, 40]
 nums.keep&(. > 25)   # nums is now [30, 40]
+
+# Sets
+tags := set{"a", "b", "c"}
+tags.add("d")              # tags is now set{"a", "b", "c", "d"}
+tags.remove("b")           # tags is now set{"a", "c", "d"}
+tags.has("a")              # true
+upper := tags.map&(.upper()) # set{"A", "C", "D"}
 ```
 
 ### Grouping & the anchor stack
@@ -273,7 +287,7 @@ if user.is_admin:
 
 ### Core types
 
-- **Int** (`i64`, overflow throws), **Float** (`f64`), **Bool**, **Str** (immutable UTF-8), **Array**, **Fan** (broadcast collection), **Object** (map with descriptors), **Module** (immutable object from imports), **Func**, **Selector literal** (iterable numeric range), **Duration** (nanosecond-precision time span), **Size** (byte quantity), **Nil**. Type predicates live in the stdlib (`isInt`, `typeOf`); no type grammar.
+- **Int** (`i64`, overflow throws), **Float** (`f64`), **Bool**, **Str** (immutable UTF-8), **Array**, **Set** (deduplicated, deterministically sorted collection), **Fan** (broadcast collection), **Object** (map with descriptors), **Module** (immutable object from imports), **Func**, **Selector literal** (iterable numeric range), **Duration** (nanosecond-precision time span), **Size** (byte quantity), **Nil**. Type predicates live in the stdlib (`isInt`, `typeOf`); no type grammar.
 
 ### Primitive literals
 
@@ -285,6 +299,7 @@ if user.is_admin:
 - **Floats**: IEEE-754 double; leading zero required (`0.5`, not `.5`). Underscores allowed between digits. Base prefixes are NOT supported for floats.
 - **Strings**: `"…"`, `'…'` with escapes `\n \t \r \b \f \0 \\ \" \' \xNN \u{…}`. Multiline is allowed for regular and shell strings. If the first character after the opening quote is a newline, it is dropped; then the common leading indentation of all non-blank lines is stripped (blank lines preserved, trailing newline preserved). `env"..."` and `p"..."` remain single-line. Environment strings: `env"VAR"`/`env'VAR'` (interpolation allowed) evaluate to a string or `nil`.
 - **Arrays**: `[1, 2, 3]`.
+- **Sets**: `set{1, 2, 3}` (deduplicated, deterministically sorted). Set comprehensions: `set{ .lower() over tokens }`. `typeof` returns `"Set"`. Membership: `x in s`. Operators: `+` (union), `-` (difference). Selectors/indexing work over canonical set order and preserve set normalization. Iterable via `for`. Conversion: `toSet(array)`.
 - **Fans**: `fan { expr, ... }` (reserved keyword; not a valid identifier or property name). Evaluates elements left=>right into a `Fan`; property/method access broadcasts across elements and returns a `Fan`. Fans are iterable (e.g., `for x in fan { ... }`). Fan literals can also be used as assignment lvalue heads when each item resolves to an assignable target (`=`, `.=`, and compound assignment). For concurrency, use `spawn` to create channels and `wait[all]` to join them. Modifiers like `fan[par] { ... }` are reserved but not implemented in v0.1.
 - **Objects**: `{ key: value }` (getters/setters contextual, below).
 - **Selector literals (values)**: backtick selectors like `` `1:10` `` produce Selector values (views/iterables). Default stop is inclusive; use `<stop` for exclusive (e.g., `` `[1:<10]` ``).
@@ -417,7 +432,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
   a[-1:2]        # ERROR: negative start with positive stop disallowed
   ```
   Negative indices allowed; no auto-reverse when `i > j`. Indexing `a[i]` throws OOB; slices clamp; inverted positive-step yields `[]`. Slice restriction: negative start with positive stop is an error (ambiguous semantics). Positive start with negative stop is valid (e.g., `arr[0:-1]` for "all but last"). Strict slicing: `slice!(a, i, j, step?)` throws on any OOB.
-- **Selector lists** (multiple selectors inside `[]`): concatenation of each selector’s result, in order. Index selectors throw on OOB; slice selectors clamp. Selector lists are valid as LHS targets for assignment and compound assignment.
+- **Selector lists** (multiple selectors inside `[]`): concatenation of each selector’s result, in order. Index selectors throw on OOB; slice selectors clamp. For set receivers, selector output is re-normalized (dedupe + sort) before returning. Selector lists are valid as LHS targets for assignment and compound assignment.
 - **Selector literals in comparisons**: see Comparison & Identity for CCC handling.
 - **Examples**:
   ```shakar
@@ -529,7 +544,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
 
 - **Objects**: `M + N` merge (RHS wins conflicts); `M * N` key intersection (values from RHS); `M - N` key difference; `M ^ N` symmetric key difference.
 - **Strings/arrays repeat**: `s * n`/`n * s`, `a * n`/`n * a` (Int `n >= 0`, else error).
-- **Sets**: `A + B` union; `A - B` difference; `A * B` intersection; `A ^ B` symmetric diff. Operators produce new sets (no mutation).
+- **Sets**: `A + B` union; `A - B` difference; `A * B` intersection; `A ^ B` symmetric diff. Operators produce new sets (no mutation). **Implementation status**: `+` (union) and `-` (difference) are implemented; `*` and `^` are ❓.
 - `/` yields float; `//` floor-div (ints or floats, returns int via floor); `%` remainder with dividend sign; `**` exponentiation (right-assoc).
 
 ### Bitwise (via `std/bit`)
@@ -566,7 +581,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
 
 ### Membership
 
-- `x in y`: substring for strings; element membership for arrays (`==`); key membership for objects.
+- `x in y`: substring for strings; element membership for arrays and sets (`==`); key membership for objects.
 - `x not in y` / `x !in y` are negations.
 
 ### Boolean & ternary

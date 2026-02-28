@@ -9,6 +9,7 @@ from ..token_types import TT
 from ..runtime import (
     Frame,
     ShkArray,
+    ShkSet,
     ShkFan,
     ShkChannel,
     ShkNil,
@@ -173,7 +174,7 @@ def _iter_indexed_entries(
     entries: list[tuple[ShkValue, list[ShkValue]]] = []
     binders: list[ShkValue]
     match value:
-        case ShkArray(items=items) | ShkFan(items=items):
+        case ShkArray(items=items) | ShkSet(items=items) | ShkFan(items=items):
             for idx, item in enumerate(items):
                 binders = [ShkNumber(float(idx))]
 
@@ -255,6 +256,8 @@ def _iterable_values(value: ShkValue) -> list[ShkValue]:
                 raise ShakarTypeError("Cannot iterate over negative number")
             return [ShkNumber(float(i)) for i in range(count)]
         case ShkArray(items=items):
+            return list(items)
+        case ShkSet(items=items):
             return list(items)
         case ShkFan(items=items):
             return list(items)
@@ -592,7 +595,7 @@ def eval_listcomp(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkArray:
     return ShkArray(items)
 
 
-def eval_setcomp(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkArray:
+def eval_setcomp(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkSet:
     body = n.children[0] if n.children else None
     if body is None:
         raise ShakarRuntimeError("Malformed set comprehension")
@@ -604,10 +607,10 @@ def eval_setcomp(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkArray:
         if not value_in_list(items, result):
             items.append(result)
 
-    return ShkArray(items)
+    return ShkSet(items)
 
 
-def eval_setliteral(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkArray:
+def eval_setliteral(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkSet:
     items: list[ShkValue] = []
     for child in tree_children(n):
         val = eval_fn(child, frame)
@@ -615,7 +618,7 @@ def eval_setliteral(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkArray:
         if not value_in_list(items, val):
             items.append(val)
 
-    return ShkArray(items)
+    return ShkSet(items)
 
 
 def eval_dictcomp(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkObject:

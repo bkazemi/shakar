@@ -89,6 +89,20 @@ SCENARIOS = [
         id="fanout-block-slice-selector",
     ),
     pytest.param(
+        dedent(
+            """\
+            state := {rows: set{{v: 1}, {v: 2}, {v: 3}}}
+            state{ .rows[0:2].v .= . + 10 }
+            total := 0
+            for row in state.rows: total += row.v
+            total
+        """
+        ),
+        ("number", 26),
+        None,
+        id="fanout-block-set-multi-selector",
+    ),
+    pytest.param(
         "state := {arr: [[0, 0], [0, 0]], idx: 1, x: 0}; state{ .x += 0; .arr[0][.idx] = 9 }",
         None,
         ShakarTypeError,
