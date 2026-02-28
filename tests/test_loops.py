@@ -113,6 +113,30 @@ SCENARIOS = [
     pytest.param(
         dedent(
             """\
+            xs := [1, 2, 3]
+            squares := set{. * . over xs}
+            squares[2]
+        """
+        ),
+        ("number", 9),
+        None,
+        id="setcomp-dot-binary-body",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            xs := [1, 2, 3]
+            squares := [. * . over xs]
+            squares[2]
+        """
+        ),
+        ("number", 9),
+        None,
+        id="listcomp-dot-binary-body",
+    ),
+    pytest.param(
+        dedent(
+            """\
             items := ["a", "b"]
             obj := { k: k + "!" over items bind k }
             obj["b"]

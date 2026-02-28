@@ -2964,9 +2964,16 @@ class Parser:
                 )
 
             # Implicit chain: .field, .(args), .[index], .over
-            self.advance()  # consume .
+            dot = self.advance()  # consume .
             seen_noanchor = [False]
             imphead = self._parse_implicit_chain_head(seen_noanchor)
+            if imphead is None:
+                # If no valid chain head follows DOT, treat this as a standalone
+                # subject and leave the following token for enclosing syntax
+                # (for example the comprehension keyword "over").
+                return Tree(
+                    "subject", [self._tok("DOT", dot.value, dot.line, dot.column)]
+                )
             postfix_ops = [imphead]
             self._collect_postfix_ops(postfix_ops, seen_noanchor)
 
