@@ -722,3 +722,144 @@ SCENARIOS = [
 @pytest.mark.parametrize("source, expectation, expected_exc", SCENARIOS)
 def test_collections(source: str, expectation, expected_exc) -> None:
     run_runtime_case(source, expectation, expected_exc)
+
+
+# ---------------------------------------------------------------------------
+# Selector set sorting & dedup (direct Python tests)
+# ---------------------------------------------------------------------------
+
+from shakar_ref.types import (
+    ShkNumber,
+    ShkSelector,
+    SelectorIndex,
+    SelectorSlice,
+)
+from shakar_ref.utils import normalize_set_items, shk_equals
+
+
+def _idx(n: float) -> SelectorIndex:
+    return SelectorIndex(value=ShkNumber(n))
+
+
+def _slc(
+    start: int | None = None,
+    stop: int | None = None,
+    step: int | None = None,
+    exclusive_stop: bool = False,
+    clamp: bool = False,
+) -> SelectorSlice:
+    return SelectorSlice(
+        start=start,
+        stop=stop,
+        step=step,
+        clamp=clamp,
+        exclusive_stop=exclusive_stop,
+    )
+
+
+def _sel(*parts: SelectorIndex | SelectorSlice) -> ShkSelector:
+    return ShkSelector(parts=list(parts))
+
+
+class TestSelectorSetSorting:
+    """Selector elements in sets should be deduplicated and sorted."""
+
+    def test_index_selectors_sorted(self) -> None:
+        """set{`3`, `1`, `2`} => [sel(1), sel(2), sel(3)]"""
+        items = [_sel(_idx(3)), _sel(_idx(1)), _sel(_idx(2))]
+        result = normalize_set_items(items)
+        assert len(result) == 3
+        assert result[0] == _sel(_idx(1))
+        assert result[1] == _sel(_idx(2))
+        assert result[2] == _sel(_idx(3))
+
+    def test_duplicate_selectors_deduped(self) -> None:
+        """set{`0:2`, `0:2`} => [sel(0:2)]"""
+        s = _sel(_slc(0, 2))
+        items = [s, _sel(_slc(0, 2))]
+        result = normalize_set_items(items)
+        assert len(result) == 1
+
+    def test_slice_sorted_by_stop(self) -> None:
+        """set{`0:5`, `0:2`, `0:4`} => sorted by stop ascending."""
+        items = [_sel(_slc(0, 5)), _sel(_slc(0, 2)), _sel(_slc(0, 4))]
+        result = normalize_set_items(items)
+        assert len(result) == 3
+        assert result[0] == _sel(_slc(0, 2))
+        assert result[1] == _sel(_slc(0, 4))
+        assert result[2] == _sel(_slc(0, 5))
+
+    def test_none_start_before_concrete(self) -> None:
+        """set{`:2`, `0:2`} => [sel(:2), sel(0:2)] — None start sorts first."""
+        items = [_sel(_slc(0, 2)), _sel(_slc(None, 2))]
+        result = normalize_set_items(items)
+        assert len(result) == 2
+        assert result[0] == _sel(_slc(None, 2))
+        assert result[1] == _sel(_slc(0, 2))
+
+    def test_multipart_shorter_first(self) -> None:
+        """Shorter selector sorts before longer when prefix matches."""
+        sel_short = _sel(_slc(0, 2))
+        sel_long = _sel(_slc(0, 2), _slc(1, 5))
+        items = [sel_long, sel_short]
+        result = normalize_set_items(items)
+        assert len(result) == 2
+        assert result[0] == sel_short
+        assert result[1] == sel_long
+
+    def test_multipart_sorted_by_second_part(self) -> None:
+        """set{`0:2, 3`, `0:2, 1:5`, `0:2, 1`}
+        => [sel(0:2, 1), sel(0:2, 3), sel(0:2, 1:5)]
+        Second part ordering: index < slice, so idx(1) < idx(3) < slc(1:5).
+        """
+        items = [
+            _sel(_slc(0, 2), _idx(3)),
+            _sel(_slc(0, 2), _slc(1, 5)),
+            _sel(_slc(0, 2), _idx(1)),
+        ]
+        result = normalize_set_items(items)
+        assert len(result) == 3
+        assert result[0] == _sel(_slc(0, 2), _idx(1))
+        assert result[1] == _sel(_slc(0, 2), _idx(3))
+        assert result[2] == _sel(_slc(0, 2), _slc(1, 5))
+
+    def test_index_before_slice(self) -> None:
+        """Index parts sort before slice parts."""
+        items = [_sel(_slc(0, 2)), _sel(_idx(0))]
+        result = normalize_set_items(items)
+        assert len(result) == 2
+        assert result[0] == _sel(_idx(0))
+        assert result[1] == _sel(_slc(0, 2))
+
+
+class TestSelectorEquality:
+    """ShkSelector equality in shk_equals."""
+
+    def test_equal_index_selectors(self) -> None:
+        assert shk_equals(_sel(_idx(1)), _sel(_idx(1)))
+
+    def test_unequal_index_selectors(self) -> None:
+        assert not shk_equals(_sel(_idx(1)), _sel(_idx(2)))
+
+    def test_equal_slice_selectors(self) -> None:
+        assert shk_equals(_sel(_slc(0, 5, 2)), _sel(_slc(0, 5, 2)))
+
+    def test_unequal_slice_exclusive_stop(self) -> None:
+        a = _sel(_slc(0, 5, exclusive_stop=False))
+        b = _sel(_slc(0, 5, exclusive_stop=True))
+        assert not shk_equals(a, b)
+
+    def test_unequal_slice_clamp(self) -> None:
+        a = _sel(_slc(0, 5, clamp=False))
+        b = _sel(_slc(0, 5, clamp=True))
+        assert not shk_equals(a, b)
+
+    def test_different_part_count(self) -> None:
+        assert not shk_equals(_sel(_idx(1)), _sel(_idx(1), _idx(2)))
+
+    def test_different_part_kind(self) -> None:
+        assert not shk_equals(_sel(_idx(0)), _sel(_slc(0, 1)))
+
+    def test_none_vs_zero_slice_start(self) -> None:
+        """None start and 0 start are distinct."""
+        assert not shk_equals(_sel(_slc(None, 2)), _sel(_slc(0, 2)))

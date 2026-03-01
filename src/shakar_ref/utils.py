@@ -24,6 +24,9 @@ from .types import (
     ShkFn,
     ShkDecorator,
     ShkCommand,
+    ShkSelector,
+    SelectorIndex,
+    SelectorSlice,
     Descriptor,
     ShakarRuntimeError,
     ShakarTypeError,
@@ -47,6 +50,44 @@ def _normalized_number_key(value: float) -> Tuple[int, float]:
         return (0, 0.0)
 
     return (0, value)
+
+
+def _selector_part_sort_key(
+    part: "SelectorIndex | SelectorSlice",
+) -> Tuple[object, ...]:
+    """Return a sort key for a single selector part (index or slice).
+
+    Ordering: index < slice.
+    - Index parts delegate to _set_sort_key on their ShkValue.
+    - Slice parts compare fields directly with integer/sentinel logic:
+      start: None sorts before concrete values.
+      stop: None sorts after concrete values (unbounded upper range).
+      step: None sorts before concrete values.
+      exclusive_stop: False before True.
+      clamp: False before True.
+    """
+    if isinstance(part, SelectorIndex):
+        # kind 0 => index sorts before slice
+        return (0, _set_sort_key(part.value))
+
+    # SelectorSlice
+    # Sentinels: for start/step, None sorts first => (-inf).
+    # For stop, None sorts last => (+inf).
+    NEG_INF = float("-inf")
+    POS_INF = float("inf")
+
+    start_key = NEG_INF if part.start is None else part.start
+    stop_key = POS_INF if part.stop is None else part.stop
+    step_key = NEG_INF if part.step is None else part.step
+
+    return (
+        1,
+        start_key,
+        stop_key,
+        step_key,
+        0 if not part.exclusive_stop else 1,
+        0 if not part.clamp else 1,
+    )
 
 
 def _set_sort_key(value: ShkValue) -> Tuple[object, ...]:
@@ -91,6 +132,9 @@ def _set_sort_key(value: ShkValue) -> Tuple[object, ...]:
             for key, slot_value in sorted(value.slots.items())
         )
         return (11, slots)
+
+    if isinstance(value, ShkSelector):
+        return (12, tuple(_selector_part_sort_key(p) for p in value.parts))
 
     return (99, type(value).__name__, repr(value))
 
@@ -188,6 +232,29 @@ def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
             )
         case (ShkPath(value=a), ShkPath(value=b)):
             return a == b
+        case (ShkSelector(parts=parts_a), ShkSelector(parts=parts_b)):
+            if len(parts_a) != len(parts_b):
+                return False
+            for pa, pb in zip(parts_a, parts_b):
+                if type(pa) is not type(pb):
+                    return False
+                if isinstance(pa, SelectorIndex):
+                    assert isinstance(pb, SelectorIndex)
+                    if not shk_equals(pa.value, pb.value):
+                        return False
+                else:
+                    assert isinstance(pa, SelectorSlice) and isinstance(
+                        pb, SelectorSlice
+                    )
+                    if (pa.start, pa.stop, pa.step, pa.exclusive_stop, pa.clamp) != (
+                        pb.start,
+                        pb.stop,
+                        pb.step,
+                        pb.exclusive_stop,
+                        pb.clamp,
+                    ):
+                        return False
+            return True
         case (
             (ShkFn(), ShkFn())
             | (ShkDecorator(), ShkDecorator())
