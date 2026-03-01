@@ -155,6 +155,7 @@ from .eval.bind import (
     eval_compound_assign,
     eval_apply_assign,
     eval_rebind_primary,
+    eval_assign_pun,
 )
 from .eval.let import eval_let_stmt
 from .types import SourceSpanInfo
@@ -1219,6 +1220,10 @@ def _eval_rebind_primary(n: Tree, frame: Frame) -> ShkValue:
     return eval_rebind_primary(n, frame, eval_node, apply_op, evaluate_index_operand)
 
 
+def _eval_assign_pun(n: Tree, frame: Frame) -> ShkValue:
+    return eval_assign_pun(n, frame, eval_node, apply_op, evaluate_index_operand)
+
+
 def _eval_anonfn(n: Tree, frame: Frame) -> ShkValue:
     return eval_anonymous_fn(n.children, frame)
 
@@ -1327,6 +1332,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "fanoutblock": _eval_fanoutblock,
     "valuefan": _eval_valuefan,
     "rebind_primary": _eval_rebind_primary,
+    "assign_pun": _eval_assign_pun,
     # Functions
     "amp_lambda": eval_amp_lambda,
     "anonfn": _eval_anonfn,

@@ -344,6 +344,10 @@ once_modifier = "lazy" | "static" ;
 rebind_primary = ( "=" , IDENT ) | ( "=" , "(" , rebind_lvalue , ")" ) ;
 rebind_lvalue = IDENT , { postfix_field | postfix_index }* , [ field_fan ] ;
 
+(* Assign-pun: =target.{names} stores scope values into target fields *)
+(* Disambiguated from rebind + fan-access: fan must be terminal, all items bare IDENTs *)
+assign_pun = "=" , IDENT , { postfix_field | postfix_index }* , value_fan ;
+
 (* Hole expression for partial application *)
 hole_expression = QMARK ;
 

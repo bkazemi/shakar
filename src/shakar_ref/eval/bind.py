@@ -51,6 +51,7 @@ __all__ = [
     "make_ident_context",
     "read_lvalue",
     "apply_fan_op",
+    "eval_assign_pun",
 ]
 
 
@@ -1156,3 +1157,58 @@ def resolve_rebind_lvalue(
         apply_op=apply_op,
         evaluate_index_operand=evaluate_index_operand,
     )
+
+
+def _extract_valuefan_names(fan_node: Tree) -> List[str]:
+    """Extract bare IDENT names from a valuefan node used in assign-pun."""
+    names: List[str] = []
+
+    for child in tree_children(fan_node):
+        if tree_label(child) == "valuefan_list":
+            for item in tree_children(child):
+                if tree_label(item) == "valuefan_item":
+                    for inner in tree_children(item):
+                        if name := ident_value(inner):
+                            names.append(name)
+
+    if not names:
+        raise ShakarRuntimeError("Assign-pun requires at least one identifier")
+
+    return names
+
+
+def eval_assign_pun(
+    n: Tree,
+    frame: Frame,
+    eval_fn: EvalFn,
+    apply_op: ApplyOpFunc,
+    evaluate_index_operand: IndexEvalFn,
+) -> ShkValue:
+    """Evaluate `=obj[.field|[idx]]*.{names}` — store scope values into target fields."""
+    children = tree_children(n)
+    if len(children) < 2:
+        raise ShakarRuntimeError("Malformed assign-pun")
+
+    head_node = children[0]
+    fan_node = children[-1]
+    middle_ops = children[1:-1]
+
+    # Resolve head identifier
+    head_name = ident_value(head_node)
+    if not head_name:
+        raise ShakarRuntimeError("Assign-pun head must be an identifier")
+    target = frame.get(head_name)
+
+    # Apply intermediate postfix ops to reach the target object
+    for op in middle_ops:
+        target = apply_op(target, op, frame, eval_fn)
+        if isinstance(target, RebindContext):
+            target = target.value
+
+    # Extract fan names and perform assignments
+    names = _extract_valuefan_names(fan_node)
+    for name in names:
+        value = frame.get(name)
+        set_field_value(target, name, value, frame, create=False)
+
+    return ShkNil()

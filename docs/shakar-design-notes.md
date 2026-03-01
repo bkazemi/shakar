@@ -719,6 +719,15 @@ Typed literals representing byte quantities. Distinct from integers and duration
   ```
   Items may be field names or chained postfix off a field (calls/indexes). Evaluates base once, items left=>right; missing/duplicate fields error. In arglists the resulting tuple/array auto-flattens; illegal in named-arg position unless wrapped (e.g., `f(xs: [state.{a,b}])`). LHS fanout semantics stay the same; shared duplicate/missing checks.
   Expression-style fanout blocks (`base{ .c - .d }` returning a value) remain in the "considering" bucket.
+- **Assign-pun `=target.{names}`**: stores same-named scope bindings into target fields. Eliminates `obj.x = x; obj.y = y` repetition.
+  ```shakar
+  =obj.{x, y, z}          # obj.x = x; obj.y = y; obj.z = z; nil
+  =obj.nested.{a, b}      # target evaluated once
+  =arr[0].{a, b}          # indexed targets supported
+  ```
+  - Disambiguation from rebind + fan-access: fan must be **terminal** (nothing follows). If postfix continues (`=state.{name, email}.trim()`), it remains rebind + value-fan + chain. Intermediate ops between head ident and terminal fan must be field or index only; calls/methods in the chain prevent the rewrite.
+  - Each fan name must be a bare identifier (no identchains). The name is looked up in the current scope and stored to the corresponding field on the target. Missing name in scope is a runtime error.
+  - Returns `nil`; statement-only (not expression-valued).
 # Apply-assign with selector on old LHS + expression-valued anchor
 - **Deep object merge `+>` and `+>=`**: recursive key-wise merge where RHS wins; non-object at a path replaces LHS at that path; arrays/sets/strings/numbers replace wholesale. Additive-tier precedence. `+>=` mutates LHS (must be object or error); `+>` yields value.
 - **Object index with default**:

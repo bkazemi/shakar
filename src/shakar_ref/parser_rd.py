@@ -2997,6 +2997,21 @@ class Parser:
         if not postfix_ops:
             return primary
 
+        # Assign-pun: =ident[.field|[idx]]*.{names} where fan is terminal
+        # and all items are bare idents => assign_pun node.
+        # Intermediate ops must be field/index only (no calls, methods, fans).
+        if (
+            tree_label(primary) == "rebind_primary"
+            and not primary.attrs.get("grouped")
+            and postfix_ops
+            and tree_label(postfix_ops[-1]) == "valuefan"
+            and _valuefan_all_simple_idents(postfix_ops[-1])
+            and _all_field_or_index_ops(postfix_ops[:-1])
+        ):
+            fan = postfix_ops[-1]
+            target_ops = postfix_ops[:-1]
+            return Tree("assign_pun", [primary.children[0]] + target_ops + [fan])
+
         return Tree("explicit_chain", [primary] + postfix_ops)
 
     # ------------------------------------------------------------------
@@ -4729,6 +4744,40 @@ class Parser:
 # ============================================================================
 # Usage Example
 # ============================================================================
+
+
+def _valuefan_all_simple_idents(fan: Tree) -> bool:
+    """Check that every item in a valuefan node is a bare IDENT (no identchains)."""
+    for child in fan.children:
+        if isinstance(child, Tree) and child.data == "valuefan_list":
+            for item in child.children:
+                if isinstance(item, Tree) and item.data == "valuefan_item":
+                    if len(item.children) != 1 or not is_token(item.children[0]):
+                        return False
+                    if item.children[0].type != TT.IDENT:
+                        return False
+                else:
+                    return False
+
+    return True
+
+
+_ASSIGN_PUN_ALLOWED_OPS = frozenset({"field", "index"})
+
+
+def _all_field_or_index_ops(ops: list) -> bool:
+    """Check that every op is a field or index access (possibly noanchor-wrapped)."""
+    for op in ops:
+        label = tree_label(op)
+
+        # Unwrap noanchor wrapper
+        if label == "noanchor" and hasattr(op, "children") and op.children:
+            label = tree_label(op.children[0])
+
+        if label not in _ASSIGN_PUN_ALLOWED_OPS:
+            return False
+
+    return True
 
 
 def parse_source(source: str, use_indenter: bool = True) -> Tree:
