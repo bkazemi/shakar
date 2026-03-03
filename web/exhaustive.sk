@@ -857,12 +857,10 @@ catch err:
     print("io term ops unavailable:", err)
 
 # --- Known Gaps (Syntax Only) ---
-# Computed object key ("a-b"): 7
-# ?? expr        # nullsafe sugar (not implemented)
-# or=            # default assignment (parser rejects)
-# fn f(a, ...rest, z): ...  # mid-spread params
-# f(...{a: 1})   # named-arg spread
-# expr bind name # bind expression
-# trace "msg"    # tracing hook (not implemented)
+# ?? expr        # nullsafe sugar shorthand (use ??(expr))
+# or=            # default assignment operator (not implemented)
+# fn f(a, ...rest, z): ...  # mid-spread params (spread must be last)
+# expr bind name # only supported in comprehension overspec forms
+# trace "msg"    # tracing hook keyword (not implemented)
 
 print("\n=== All features demonstrated! ===")
