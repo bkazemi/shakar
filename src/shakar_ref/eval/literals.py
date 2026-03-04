@@ -16,6 +16,7 @@ from ..runtime import (
     ShkNil,
     ShkObject,
     ShkPath,
+    ShkRepeatSchema,
     ShkString,
     ShkValue,
     ShakarRuntimeError,
@@ -69,6 +70,12 @@ def eval_array_literal(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkArray:
         items.append(eval_anchor_scoped(child, frame, eval_fn))
 
     return ShkArray(items)
+
+
+def eval_repeat_schema(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkRepeatSchema:
+    inner = eval_fn(tree_children(node)[0], frame)
+
+    return ShkRepeatSchema(inner=inner)
 
 
 def eval_string_interp(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkString:

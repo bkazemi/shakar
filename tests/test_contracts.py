@@ -976,6 +976,293 @@ SCENARIOS = [
         None,
         id="optional-syntax-hygienic-shadow",
     ),
+    # ── Compound array schemas ──────────────────────────────────────
+    # Homogeneous repeat
+    pytest.param(
+        "[1, 2, 3] ~ [Int...]", ("bool", True), None, id="array-repeat-int-ok"
+    ),
+    pytest.param(
+        '[1, "a"] ~ [Int...]', ("bool", False), None, id="array-repeat-int-mixed"
+    ),
+    pytest.param("[] ~ [Int...]", ("bool", True), None, id="array-repeat-int-empty"),
+    # Positional (no repeat)
+    pytest.param("[1, 2] ~ [Int, Int]", ("bool", True), None, id="array-positional-ok"),
+    pytest.param(
+        "[1] ~ [Int, Int]", ("bool", False), None, id="array-positional-short"
+    ),
+    pytest.param(
+        "[1, 2, 3] ~ [Int, Int]", ("bool", False), None, id="array-positional-long"
+    ),
+    # Head + tail repeat
+    pytest.param(
+        '["a", 1, 2] ~ [Str, Int...]',
+        ("bool", True),
+        None,
+        id="array-head-tail-ok",
+    ),
+    pytest.param(
+        "[1, 2] ~ [Int, Int...]",
+        ("bool", True),
+        None,
+        id="array-head-tail-exact",
+    ),
+    pytest.param(
+        "[] ~ [Int, Int...]",
+        ("bool", False),
+        None,
+        id="array-head-tail-empty",
+    ),
+    # Nesting
+    pytest.param(
+        "[[1, 2], [3]] ~ [[Int...]...]",
+        ("bool", True),
+        None,
+        id="array-nested-repeat",
+    ),
+    # Object in array
+    pytest.param(
+        '[{name: "a"}, {name: "b"}] ~ [{name: Str}...]',
+        ("bool", True),
+        None,
+        id="array-object-repeat",
+    ),
+    # Empty array schema
+    pytest.param("[] ~ []", ("bool", True), None, id="array-empty-match"),
+    pytest.param("[1] ~ []", ("bool", False), None, id="array-empty-nomatch"),
+    # Value matching (existing equality fallback)
+    pytest.param("[1, 2] ~ [1, 2]", ("bool", True), None, id="array-value-match"),
+    pytest.param("[1, 2] ~ [1, 3]", ("bool", False), None, id="array-value-nomatch"),
+    # Contracts
+    pytest.param(
+        dedent(
+            """\
+            fn f(xs ~ [Int...]): xs
+            f([1, 2])
+        """
+        ),
+        ("array", [1, 2]),
+        None,
+        id="array-contract-ok",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn f(xs ~ [Int...]): xs
+            f(["a"])
+        """
+        ),
+        None,
+        ShakarRuntimeError,
+        id="array-contract-fail",
+    ),
+    # Type alias
+    pytest.param(
+        dedent(
+            """\
+            Row := [Int...]
+            [1, 2, 3] ~ Row
+        """
+        ),
+        ("bool", True),
+        None,
+        id="array-type-alias",
+    ),
+    # Repeat not in final position => runtime error (array lhs)
+    pytest.param(
+        "[1, 2] ~ [Int..., Str]",
+        None,
+        ShakarRuntimeError,
+        id="array-repeat-not-final",
+    ),
+    # Repeat not in final position => runtime error even with non-array lhs
+    pytest.param(
+        "1 ~ [Int..., Str]",
+        None,
+        ShakarRuntimeError,
+        id="array-repeat-not-final-non-array-lhs",
+    ),
+    # Nested malformed schema rejected even when outer match would short-circuit
+    pytest.param(
+        "[] ~ [[Int..., Str]...]",
+        None,
+        ShakarRuntimeError,
+        id="array-repeat-not-final-nested",
+    ),
+    # Cyclic schema object does not crash the interpreter
+    pytest.param(
+        dedent(
+            """\
+            s := {self: nil}
+            s.self = s
+            1 ~ s
+        """
+        ),
+        ("bool", False),
+        None,
+        id="cyclic-schema-no-crash",
+    ),
+    # Nested env var matches type schema inside object
+    pytest.param(
+        '{x: env"PATH"} ~ {x: Str}',
+        ("bool", True),
+        None,
+        id="nested-envvar-matches-str",
+    ),
+    # Nested env var in array matches type schema
+    pytest.param(
+        '[env"PATH"] ~ [Str...]',
+        ("bool", True),
+        None,
+        id="array-envvar-matches-str",
+    ),
+    # ── Repeat schema placement errors ──────────────────────────────
+    # Standalone repeat schema (not inside array)
+    pytest.param(
+        "1 ~ Int...",
+        None,
+        ShakarRuntimeError,
+        id="repeat-standalone-scalar",
+    ),
+    pytest.param(
+        '"hello" ~ Str...',
+        None,
+        ShakarRuntimeError,
+        id="repeat-standalone-str",
+    ),
+    pytest.param(
+        "[1, 2] ~ Array...",
+        None,
+        ShakarRuntimeError,
+        id="repeat-standalone-array-type",
+    ),
+    # Repeat schema inside object field value
+    pytest.param(
+        "{x: 1} ~ {x: Int...}",
+        None,
+        ShakarRuntimeError,
+        id="repeat-in-object-field",
+    ),
+    pytest.param(
+        '{x: "a"} ~ {x: Str...}',
+        None,
+        ShakarRuntimeError,
+        id="repeat-in-object-field-str",
+    ),
+    # Repeat schema inside optional object field
+    pytest.param(
+        "{x: 1} ~ {x?: Int...}",
+        None,
+        ShakarRuntimeError,
+        id="repeat-in-optional-field",
+    ),
+    # Repeat schema inside union alternative
+    pytest.param(
+        "1 ~ Union(Int..., Str)",
+        None,
+        ShakarRuntimeError,
+        id="repeat-in-union-alt",
+    ),
+    # Repeat schema wrapped in Optional (standalone)
+    pytest.param(
+        "1 ~ Optional(Int...)",
+        None,
+        ShakarRuntimeError,
+        id="repeat-in-standalone-optional",
+    ),
+    # Repeat schema wrapped in Optional inside union
+    pytest.param(
+        "1 ~ Union(Optional(Int...), Int)",
+        None,
+        ShakarRuntimeError,
+        id="repeat-in-optional-in-union",
+    ),
+    # Repeat schema nested inside object inside array (valid: array tail)
+    pytest.param(
+        "[{x: 1}] ~ [{x: Int}...]",
+        ("bool", True),
+        None,
+        id="repeat-valid-object-in-array-tail",
+    ),
+    # Repeat inside non-final array position inside object field
+    pytest.param(
+        "{x: [1]} ~ {x: [Int..., Str]}",
+        None,
+        ShakarRuntimeError,
+        id="repeat-nonfinal-nested-in-object",
+    ),
+    # Shared repeat node: valid in tail, invalid in non-tail position
+    pytest.param(
+        dedent(
+            """\
+            r := Int...
+            a := [r]
+            s := [a, r, Str]
+            1 ~ s
+        """
+        ),
+        None,
+        ShakarRuntimeError,
+        id="repeat-shared-valid-then-invalid",
+    ),
+    # Shared repeat node: invalid position first, valid position second
+    pytest.param(
+        dedent(
+            """\
+            r := Int...
+            s := {x: r}
+            1 ~ s
+        """
+        ),
+        None,
+        ShakarRuntimeError,
+        id="repeat-shared-in-object-field",
+    ),
+    # Shared repeat node: both positions valid (both in array tails)
+    pytest.param(
+        dedent(
+            """\
+            r := Int...
+            a := [r]
+            b := [r]
+            [1, 2] ~ a
+        """
+        ),
+        ("bool", True),
+        None,
+        id="repeat-shared-both-valid-tails",
+    ),
+    # ── Assignment lvalue rejection ─────────────────────────────────
+    # Simple ident with repeat => parse error on assignment
+    pytest.param(
+        "a... = 2",
+        None,
+        ParseError,
+        id="repeat-lvalue-simple-assign",
+    ),
+    # Chain with repeat => parse error on assignment
+    pytest.param(
+        dedent(
+            """\
+            obj := {x: 1}
+            obj.x... = 2
+        """
+        ),
+        None,
+        ParseError,
+        id="repeat-lvalue-field-assign",
+    ),
+    # Compound assignment with repeat
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            a... += 1
+        """
+        ),
+        None,
+        ParseError,
+        id="repeat-lvalue-compound-assign",
+    ),
 ]
 
 

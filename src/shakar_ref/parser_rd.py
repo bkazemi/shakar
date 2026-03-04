@@ -2509,6 +2509,12 @@ class Parser:
 
         # Unwrap single-child precedence wrappers (expr, ternaryexpr, etc.)
         while isinstance(core_expr, Tree) and len(core_expr.children) == 1:
+            # repeat_schema is not a valid lvalue — reject before unwrapping
+            if isinstance(core_expr, Tree) and core_expr.data == "repeat_schema":
+                raise ParseError(
+                    "Repeat schema (...) cannot be used as an assignment target",
+                    self.current,
+                )
             core_expr = core_expr.children[0]
 
         if isinstance(core_expr, Tok) and core_expr.type == TT.IDENT:
@@ -2995,6 +3001,10 @@ class Parser:
         self._collect_postfix_ops(postfix_ops, seen_noanchor, allow_amp=True)
 
         if not postfix_ops:
+            # Postfix repeat schema: expr...
+            if self.match(TT.SPREAD):
+                return Tree("repeat_schema", [primary])
+
             return primary
 
         # Assign-pun: =ident[.field|[idx]]*.{names} where fan is terminal
@@ -3012,7 +3022,13 @@ class Parser:
             target_ops = postfix_ops[:-1]
             return Tree("assign_pun", [primary.children[0]] + target_ops + [fan])
 
-        return Tree("explicit_chain", [primary] + postfix_ops)
+        result = Tree("explicit_chain", [primary] + postfix_ops)
+
+        # Postfix repeat schema: expr.field... or expr[i]...
+        if self.match(TT.SPREAD):
+            return Tree("repeat_schema", [result])
+
+        return result
 
     # ------------------------------------------------------------------
     # Primary expression helpers

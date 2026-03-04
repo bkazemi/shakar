@@ -20,8 +20,11 @@ users[ .len-1 ]
 
 ## C. Leading-dot chain law
 ```shakar
-user and (.profile[0].name.trim()) and .id
-# expect: `.id` applies to `user` (the anchor), not to the result of `.trim()`
+user := { profile: { name: "  Ada " } }
+user and .profile.name.trim().len
+# expect: result is 3
+# expect: receiver advances per step (`user` => profile => name => trim() result)
+# expect: the leading-dot chain itself does not anchor/retarget
 ```
 
 ## D. Binder-shadowing law (loop × apply-assign)

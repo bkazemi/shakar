@@ -345,6 +345,16 @@ class ShkOptional:
 
 
 @dataclass(frozen=True)
+class ShkRepeatSchema:
+    """Marks a repeating element-type schema in array structural matching."""
+
+    inner: "ShkValue"
+
+    def __repr__(self) -> str:
+        return f"{self.inner!r}..."
+
+
+@dataclass(frozen=True)
 class ShkUnion:
     """Union type for structural matching - matches any of the alternatives."""
 
@@ -1073,6 +1083,7 @@ ShkValue: TypeAlias = Union[
     StdlibFunction,
     ShkType,
     ShkOptional,
+    ShkRepeatSchema,
     ShkUnion,
 ]
 
@@ -1920,6 +1931,7 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     StdlibFunction,
     ShkType,
     ShkOptional,
+    ShkRepeatSchema,
     ShkUnion,
 )
 

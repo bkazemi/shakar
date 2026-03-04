@@ -481,6 +481,12 @@ Typed literals representing byte quantities. Distinct from integers and duration
   - If RHS is a **Union**, check if LHS matches any alternative: `Union(T1, T2, ...)` succeeds if `LHS ~ T1` or `LHS ~ T2` or ...
   - If RHS is a type (e.g., `Str`, `Int`), check `type(LHS) == RHS`.
   - If RHS is a Selector, check `LHS in RHS`.
+  - If RHS is an **Array**, LHS must be an Array and matching is element-wise:
+    - **Positional**: `[Int, Str]` matches arrays of exactly length 2 with matching element types.
+    - **Repeat schema**: `[Int...]` matches arrays where every element matches `Int`. The `...` postfix operator creates a repeat schema; it is only valid in the final position of an array schema. Using `...` outside an array schema (standalone `Int...`, object field `{x: Int...}`, optional field `{x?: Int...}`, union alternative `Union(Int..., Str)`) is a runtime error. Using `expr...` as an assignment target (`a... = 2`) is a parse error.
+    - **Head + tail**: `[Str, Int...]` matches arrays with at least 1 element where the first is `Str` and remaining are `Int`.
+    - **Empty**: `[]` matches only empty arrays.
+    - **Nesting**: `[[Int...]...]` matches arrays of int-arrays. Malformed nested schemas are always rejected regardless of input shape (e.g. `[] ~ [[Int..., Str]...]` raises even though the outer array is empty).
   - If RHS is an Object, LHS must be an Object and each RHS key must exist with `LHS[K] ~ RHS[K]`.
     - **Optional fields**: If RHS value is `Optional(Schema)`, missing key is allowed. If present, must match inner schema.
   - Otherwise use value equality `LHS == RHS`.
@@ -518,6 +524,17 @@ Typed literals representing byte quantities. Distinct from integers and duration
   {id: 1} ~ {id: Union(Int, Str)}          # true
   {id: "abc"} ~ {id: Union(Int, Str)}      # true
   {name: "Alice", age?: Union(Int, Str)}   # combines optional and union
+
+  # Array schemas
+  [1, 2, 3] ~ [Int...]                    # true (all ints)
+  [1, "a"] ~ [Int...]                     # false (mixed types)
+  [] ~ [Int...]                           # true (vacuously)
+  [1, 2] ~ [Int, Int]                     # true (positional)
+  [1, 2, 3] ~ [Int, Int]                  # false (length mismatch)
+  ["a", 1, 2] ~ [Str, Int...]            # true (head + tail)
+  [[1, 2], [3]] ~ [[Int...]...]          # true (nested)
+  [{name: "a"}, {name: "b"}] ~ [{name: Str}...]  # true (objects in array)
+  Row := [Int...]; [1, 2, 3] ~ Row       # true (type alias)
   ```
 
 ---

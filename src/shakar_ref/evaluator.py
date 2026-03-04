@@ -135,6 +135,7 @@ from .eval.literals import (
     eval_env_string,
     eval_keyword_literal,
     eval_path_interp,
+    eval_repeat_schema,
     eval_shell_bang,
     eval_shell_string,
     eval_string_interp,
@@ -718,6 +719,10 @@ def _eval_array(n: Tree, frame: Frame) -> ShkValue:
     return eval_array_literal(n, frame, eval_node)
 
 
+def _eval_repeat_schema(n: Tree, frame: Frame) -> ShkValue:
+    return eval_repeat_schema(n, frame, eval_node)
+
+
 def _eval_fan_literal(n: Tree, frame: Frame) -> ShkValue:
     modifiers = None
     items_node = None
@@ -1242,6 +1247,7 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     "expr": _eval_wrapper_node,
     # Expressions
     "array": _eval_array,
+    "repeat_schema": _eval_repeat_schema,
     "fan_literal": _eval_fan_literal,
     "object": _eval_object,
     "unary": _eval_unary,

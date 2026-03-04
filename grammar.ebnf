@@ -260,9 +260,11 @@ unary_expression = wait_any_block
 unary_prefix_op = MINUS | "not" | NEG | "++" | "--" | PLUS ;
 
 (* Postfix expressions *)
-postfix_expression = ( primary , chain_suffix )
+postfix_expression = ( primary , chain_suffix , [ "..." ] )
                    | ( implicit_head , chain_suffix )
                    | DOT ;
+
+repeat_schema = postfix_expression , "..." ;
 
 chain_suffix = [ postfix ]* , [ postfix_incr ] , { chain_cont } ;
 
