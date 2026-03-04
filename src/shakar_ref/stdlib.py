@@ -25,13 +25,15 @@ from .runtime import (
     ShkSet,
     ShkFan,
     ShkObject,
+    ShkSelector,
+    SelectorPart,
     ShkOptional,
     ShkUnion,
 )
 from .runtime import ShakarRuntimeError
 from .eval.helpers import is_truthy, current_function_frame, name_in_current_frame
 from .lexer_rd import Lexer
-from .utils import stringify, parse_compound_literal
+from .utils import stringify, parse_compound_literal, compact_selector_parts
 
 
 @register_stdlib("int")
@@ -370,6 +372,32 @@ def std_any(
         if is_truthy(val):
             return ShkBool(True)
     return ShkBool(False)
+
+
+@register_stdlib("compact")
+def std_compact(
+    _frame,
+    subject: Optional[ShkValue],
+    args: List[ShkValue],
+    named: Optional[Dict[str, ShkValue]] = None,
+) -> ShkSelector:
+    args = _with_subject(subject, args)
+    if len(args) != 1:
+        raise ShakarTypeError("compact() expects exactly one argument")
+
+    selectors_arg = args[0]
+    if isinstance(selectors_arg, (ShkArray, ShkSet)):
+        selector_values = list(selectors_arg.items)
+    else:
+        raise ShakarTypeError("compact() expects an array or set of selectors")
+
+    flat_parts: List[SelectorPart] = []
+    for value in selector_values:
+        if not isinstance(value, ShkSelector):
+            raise ShakarTypeError("compact() expects an array or set of selectors")
+        flat_parts.extend(value.parts)
+
+    return ShkSelector(compact_selector_parts(flat_parts))
 
 
 @register_stdlib("mixin")

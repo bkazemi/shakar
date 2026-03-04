@@ -3,7 +3,7 @@ from __future__ import annotations
 import os as _os
 import math
 from decimal import Decimal, InvalidOperation
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from .types import (
     ShkValue,
@@ -27,6 +27,7 @@ from .types import (
     ShkSelector,
     SelectorIndex,
     SelectorSlice,
+    SelectorPart,
     Descriptor,
     ShakarRuntimeError,
     ShakarTypeError,
@@ -148,6 +149,251 @@ def normalize_set_items(items: List[ShkValue]) -> List[ShkValue]:
             deduped.append(item)
 
     return sorted(deduped, key=_set_sort_key)
+
+
+def compact_selector_parts(parts: List[SelectorPart]) -> List[SelectorPart]:
+    """Merge selector parts into a minimal union-preserving representation."""
+    canonical_parts: List[SelectorSlice] = []
+    passthrough_parts: List[SelectorPart] = []
+    # Track which integer positions originated from index selectors, so we
+    # can collapse them back after merge without converting real slices.
+    index_origins: Set[int] = set()
+
+    for part in parts:
+        if isinstance(part, SelectorIndex):
+            idx = _selector_compact_index_value(part.value)
+            index_origins.add(idx)
+            canonical_parts.append(_selector_compact_index_to_slice(part))
+            continue
+
+        if isinstance(part, SelectorSlice):
+            canonical_part = _selector_compact_canonicalize_slice(part)
+
+            if canonical_part is None:
+                passthrough_parts.append(part)
+            else:
+                canonical_parts.append(canonical_part)
+
+    merged_parts = _selector_compact_merge_canonical(canonical_parts)
+    all_parts: List[SelectorPart] = []
+    all_parts.extend(merged_parts)
+    all_parts.extend(passthrough_parts)
+
+    deduped_parts = _selector_compact_dedupe(all_parts)
+    deduped_parts.sort(key=_selector_compact_sort_key)
+
+    return [_selector_compact_minimize(p, index_origins) for p in deduped_parts]
+
+
+def _selector_compact_index_to_slice(part: SelectorIndex) -> SelectorSlice:
+    idx = _selector_compact_index_value(part.value)
+    return SelectorSlice(
+        start=idx,
+        stop=idx,
+        step=1,
+        clamp=False,
+        exclusive_stop=False,
+    )
+
+
+def _selector_compact_index_value(value: ShkValue) -> int:
+    if not isinstance(value, ShkNumber):
+        raise ShakarTypeError("compact() expects numeric selector indices")
+
+    num = value.value
+    if not float(num).is_integer():
+        raise ShakarTypeError("compact() expects integral selector indices")
+
+    return int(num)
+
+
+def _selector_compact_canonicalize_slice(
+    part: SelectorSlice,
+) -> Optional[SelectorSlice]:
+    step = part.step
+
+    # Non-unit steps are length-dependent and are intentionally excluded from merge math.
+    if step is not None and step != 1:
+        return None
+
+    stop = part.stop
+    if part.exclusive_stop and stop is not None:
+        stop -= 1
+
+    return SelectorSlice(
+        start=part.start,
+        stop=stop,
+        step=1,
+        clamp=part.clamp,
+        exclusive_stop=False,
+    )
+
+
+def _selector_compact_merge_canonical(parts: List[SelectorSlice]) -> List[SelectorPart]:
+    grouped: Dict[Tuple[bool, str], List[SelectorSlice]] = {}
+    passthrough_mixed: List[SelectorPart] = []
+
+    for part in parts:
+        sign_partition = _selector_compact_sign_partition(part)
+
+        if sign_partition == "mixed":
+            passthrough_mixed.append(part)
+            continue
+
+        key = (part.clamp, sign_partition)
+        group = grouped.get(key)
+        if group is None:
+            group = []
+            grouped[key] = group
+        group.append(part)
+
+    merged: List[SelectorPart] = []
+    for group in grouped.values():
+        merged.extend(_selector_compact_merge_group(group))
+
+    merged.extend(passthrough_mixed)
+    return merged
+
+
+def _selector_compact_sign_partition(part: SelectorSlice) -> str:
+    start = part.start
+    stop = part.stop
+
+    start_non_negative = start is None or start >= 0
+    stop_non_negative = stop is None or stop >= 0
+
+    if start_non_negative and stop_non_negative:
+        return "non_negative"
+
+    # Fully negative ranges are length-dependent after normalization, so
+    # merging them with interval math is not union-preserving. Treat them
+    # as unmergeable (same as mixed-sign).
+    return "mixed"
+
+
+def _selector_compact_merge_group(parts: List[SelectorSlice]) -> List[SelectorPart]:
+    ordered = sorted(parts, key=_selector_compact_group_sort_key)
+    if not ordered:
+        return []
+
+    merged: List[SelectorPart] = [ordered[0]]
+
+    for part in ordered[1:]:
+        current = merged[-1]
+        assert isinstance(current, SelectorSlice)
+
+        if _selector_compact_can_merge(current, part):
+            merged[-1] = _selector_compact_merge_pair(current, part)
+        else:
+            merged.append(part)
+
+    return merged
+
+
+def _selector_compact_group_sort_key(part: SelectorSlice) -> Tuple[object, ...]:
+    start_key = 0 if part.start is None else part.start
+    none_start_key = 0 if part.start is None else 1
+    stop_key = float("inf") if part.stop is None else part.stop
+    return (start_key, none_start_key, stop_key)
+
+
+def _selector_compact_can_merge(left: SelectorSlice, right: SelectorSlice) -> bool:
+    left_stop = left.stop
+    if left_stop is None:
+        return True
+
+    right_start = 0 if right.start is None else right.start
+    return right_start <= left_stop + 1
+
+
+def _selector_compact_merge_pair(
+    left: SelectorSlice, right: SelectorSlice
+) -> SelectorSlice:
+    if left.start is None or right.start is None:
+        merged_start = None
+    else:
+        merged_start = min(left.start, right.start)
+
+    if left.stop is None or right.stop is None:
+        merged_stop = None
+    else:
+        merged_stop = max(left.stop, right.stop)
+
+    return SelectorSlice(
+        start=merged_start,
+        stop=merged_stop,
+        step=1,
+        clamp=left.clamp,
+        exclusive_stop=False,
+    )
+
+
+def _selector_compact_dedupe(parts: List[SelectorPart]) -> List[SelectorPart]:
+    deduped: List[SelectorPart] = []
+    seen: Set[Tuple[object, ...]] = set()
+
+    for part in parts:
+        # Sort key is injective (unique per distinct part), so it doubles as identity.
+        key = _selector_part_sort_key(part)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(part)
+
+    return deduped
+
+
+def _selector_compact_sort_key(part: SelectorPart) -> Tuple[object, ...]:
+    if isinstance(part, SelectorIndex):
+        start_key = _selector_compact_index_value(part.value)
+        none_start_key = 1
+    else:
+        if part.start is None:
+            start_key = 0
+            none_start_key = 0
+        else:
+            start_key = part.start
+            none_start_key = 1
+
+    return (start_key, none_start_key, _selector_part_sort_key(part))
+
+
+def _selector_compact_minimize(
+    part: SelectorPart, index_origins: Set[int]
+) -> SelectorPart:
+    if not isinstance(part, SelectorSlice):
+        return part
+
+    # Normalize step=1 to step=None (the default representation).
+    normalized_step: Optional[int] = None if part.step == 1 else part.step
+
+    if normalized_step != part.step:
+        normalized = SelectorSlice(
+            start=part.start,
+            stop=part.stop,
+            step=normalized_step,
+            clamp=part.clamp,
+            exclusive_stop=part.exclusive_stop,
+        )
+    else:
+        normalized = part
+
+    # Only collapse singleton slices back to index if they originated from
+    # an index selector. Real slices (e.g. `7:7`) must stay slices because
+    # slices clamp on OOB while indices throw — changing kind changes semantics.
+    can_collapse = (
+        not normalized.clamp
+        and not normalized.exclusive_stop
+        and normalized.step is None
+        and normalized.start is not None
+        and normalized.stop is not None
+        and normalized.start == normalized.stop
+        and normalized.start in index_origins
+    )
+    if can_collapse:
+        return SelectorIndex(ShkNumber(float(normalized.start)))
+
+    return normalized
 
 
 def envvar_is_nil(env: ShkEnvVar) -> bool:

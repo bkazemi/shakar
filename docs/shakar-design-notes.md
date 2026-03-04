@@ -433,6 +433,10 @@ Typed literals representing byte quantities. Distinct from integers and duration
   ```
   Negative indices allowed; no auto-reverse when `i > j`. Indexing `a[i]` throws OOB; slices clamp; inverted positive-step yields `[]`. Slice restriction: negative start with positive stop is an error (ambiguous semantics). Positive start with negative stop is valid (e.g., `arr[0:-1]` for "all but last"). Strict slicing: `slice!(a, i, j, step?)` throws on any OOB.
 - **Selector lists** (multiple selectors inside `[]`): concatenation of each selector’s result, in order. Index selectors throw on OOB; slice selectors clamp. For set receivers, selector output is re-normalized (dedupe + sort) before returning. Selector lists are valid as LHS targets for assignment and compound assignment.
+- **`compact(selectors)` stdlib builtin**: takes an array/set of selector values and returns one minimal selector with equivalent union semantics.
+  - Flattens all input parts, canonicalizes unit-step/index forms, merges overlapping/adjacent ranges, collapses duplicates, and sorts output start-first.
+  - Merge partition keys are `clamp` and sign class (`non-negative` vs `negative`); mixed-sign ranges never merge.
+  - Stepped slices (`step != 1` and `step != nil`) pass through unmerged, but duplicate stepped slices still collapse.
 - **Selector literals in comparisons**: see Comparison & Identity for CCC handling.
 - **Examples**:
   ```shakar
