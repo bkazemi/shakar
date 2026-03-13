@@ -161,7 +161,27 @@ ready():
 
 Each `| expr:` is an `elif`, and `|:` is the final `else`. Single-line forms (`stmt if cond` and `if cond: stmt`) are still available.
 
-### 3. Selectors, Fan-out & Broadcasting
+### 3. Indented Multiline Expressions
+
+Shakar continues incomplete expressions with indentation instead of backslashes. This works for assignment RHSs, infix chains, ternaries, `if`/`while`/`match` headers, direct-value statement heads like `return`, and explicit dot-chains. Same-indent ordinary continuation is rejected.
+
+```shakar
+user :=
+  env"USER"
+  ?? config.user
+  ?? "guest"
+
+name := profile
+  .contact
+  .name
+  ?? "unknown"
+
+if score
+  + bonus > limit:
+    notify("cap reached")
+```
+
+### 4. Selectors, Fan-out & Broadcasting
 
 [Selectors](docs/shakar-design-notes.md#selector-values-slices-and-selectors) address multiple fields or regions of a structure in one shot. Fan literals broadcast an operation across multiple values.
 
@@ -190,7 +210,7 @@ key, val := arr[0,1]  # binds arr[0] => key, arr[1] => val
 
 Selector literals use backticks and have precise semantics for ranges, lists, and membership; the [design notes](docs/shakar-design-notes.md#selector-values-slices-and-selectors) cover the details.
 
-### 4. UFCS (Universal Function Call Syntax)
+### 5. UFCS (Universal Function Call Syntax)
 
 Any in-scope callable can be invoked with method syntax. When the receiver doesn’t have a matching method or builtin, Shakar falls back to a scope lookup and calls the function with the receiver as its subject/first arg.
 
@@ -214,9 +234,9 @@ for paths:
 
 UFCS only applies to **method-call syntax** (`recv.name(...)`). Plain field access (`recv.name`) never falls back.
 
-### 5. Collection Flow & In-place Mutation
+### 6. Collection Flow & In-place Mutation
 
-Built-in collection methods leverage UFCS and [Amp-lambdas](#8-other-features) to provide concise transformation and filtering. Shakar distinguishes between **pure** transformations (creating new arrays) and **in-place** mutations (modifying the original for performance).
+Built-in collection methods leverage UFCS and [Amp-lambdas](#11-other-features) to provide concise transformation and filtering. Shakar distinguishes between **pure** transformations (creating new arrays) and **in-place** mutations (modifying the original for performance).
 
 ```shakar
 arr := [1, 2, 3, 4]
@@ -234,7 +254,7 @@ config := { timeout: 5sec, retries: 3 }
 config.update&(. * 2) # config is now { timeout: 10sec, retries: 6 }
 ```
 
-### 6. Comparison Comma-Chains (CCC)
+### 7. Comparison Comma-Chains (CCC)
 
 CCC locks in a subject once and lets you stream more comparisons with commas, avoiding repeated left operands. The joiner defaults to `and` and sticks until changed; `and` legs can inherit the previous comparator, but `, or` legs must restate the comparator they want. See [Comparison & identity (CCC)](docs/shakar-design-notes.md#comparison--identity-ccc).
 
@@ -247,7 +267,7 @@ alert := temp > 70, or >= limits.max   # temp > 70 or temp >= limits.max
 ok    := temp >= 45, and <= 65, or == preferred   # temp >= 45 and temp <= 65 or temp == preferred
 ```
 
-### 7. Decorators
+### 8. Decorators
 
 Attach lightweight wrappers to functions. Decorator bodies see `f` (the next callable) and `args` (positional arguments as a mutable array). If the body finishes without `return`, the runtime calls `f(args)` automatically. Stacking is deterministic: the decorator closest to `fn` runs first. See [Decorators](docs/shakar-design-notes.md#decorators).
 
@@ -267,7 +287,7 @@ announce("ready")   # => "[prefix] ready"
 log                 # => ["ready"]
 ```
 
-### 8. Call Blocks and Emit `>`
+### 9. Call Blocks and Emit `>`
 
 Call blocks bind a callable as an emit target for the duration of a block. Inside, `>` invokes that target. See [Call blocks](docs/shakar-design-notes.md#call-blocks-call-and-emit-).
 
@@ -278,7 +298,7 @@ call self.expect:       # binds self.expect as the emit target
   > TT.COLON             # self.expect(TT.COLON)
 ```
 
-### 9. Concurrency (Experimental)
+### 10. Concurrency (Experimental)
 
 The reference runtime includes prototypes for structured concurrency primitives. *Note: These are active areas of design experimentation.* See [Channels & Wait](docs/shakar-design-notes.md#channels--wait).
 
@@ -292,7 +312,7 @@ task := spawn fetch_data()
 result := wait task
 ```
 
-### 8. Other Features
+### 11. Other Features
 
 *   **Nil-safe chains & coalescing**: Prefix `??(...)` evaluates a chain and short-circuits to `nil` on the first failure; infix `??` is null-coalescing. Together: `nickname := ??(user.profile.nick.trim()) ?? "guest"`. See [Null safety](docs/shakar-design-notes.md#null-safety).
 *   **Match expressions**: `match val: pattern: body` — see [Match Expression](docs/shakar-design-notes.md#match-expression-v01).

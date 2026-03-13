@@ -10,11 +10,19 @@ Features:
 - String literal handling (raw, shell, etc.)
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from .token_types import TT, Tok
 from .utils import parse_compound_literal
 from .types import ShakarTypeError
+
+
+class IndentFrame(NamedTuple):
+    level: int
+    string: str
+    visible: bool
+    kind: str
+
 
 # ============================================================================
 # Lexer Implementation
@@ -200,13 +208,15 @@ class Lexer:
 
         # Indentation tracking
         self.track_indentation = track_indentation
-        self.indent_stack = [0]  # Stack of indent levels (counts)
-        self.indent_strings = [""]  # Stack of indent strings
+        # Unified indent stack: each entry tracks level, string, visibility,
+        # and kind ("root" | "normal" | "group_colon_base" | "group_colon_body").
+        self.indent_stack: List[IndentFrame] = [IndentFrame(0, "", True, "root")]
         self.at_line_start = True
         self.pending_dedents = 0
         self.group_depth = 0
         self.line_ended_with_colon = False
         self.indent_after_colon = False
+        self.line_had_code = False
         self.prev_line_indent: Optional[int] = None
         self.prev_line_indent_str: Optional[str] = None
 
@@ -222,7 +232,9 @@ class Lexer:
         # Emit remaining DEDENTs at EOF
         if self.track_indentation:
             while len(self.indent_stack) > 1:
-                self.indent_stack.pop()
+                visible = self._pop_indent_frame()
+                if not visible:
+                    continue
                 self.emit(TT.DEDENT, "")
 
         self.emit(TT.EOF, None)
@@ -300,6 +312,22 @@ class Lexer:
     # Indentation Handling
     # ========================================================================
 
+    def _push_indent_frame(
+        self,
+        indent: int,
+        indent_str: str,
+        *,
+        visible: bool,
+        kind: str,
+    ) -> None:
+        self.indent_stack.append(IndentFrame(indent, indent_str, visible, kind))
+        if visible:
+            self.emit(TT.INDENT, indent_str)
+
+    def _pop_indent_frame(self) -> bool:
+        frame = self.indent_stack.pop()
+        return frame.visible
+
     def handle_indentation(self):
         """
         Handle indentation at start of line.
@@ -318,17 +346,24 @@ class Lexer:
             self.advance()
 
         self.at_line_start = False
+        opened_group_colon_base = False
+        pending_group_colon_body = self.indent_stack[-1].kind == "group_colon_base"
 
         if (
             self.indent_after_colon
             and self.group_depth > 0
-            and len(self.indent_stack) == 1
             and self.prev_line_indent is not None
-            and self.prev_line_indent > 0
+            and self.prev_line_indent > self.indent_stack[-1].level
             and self.prev_line_indent < indent
         ):
-            self.indent_stack.append(self.prev_line_indent)
-            self.indent_strings.append(self.prev_line_indent_str or "")
+            self._push_indent_frame(
+                self.prev_line_indent,
+                self.prev_line_indent_str or "",
+                visible=False,
+                kind="group_colon_base",
+            )
+            opened_group_colon_base = True
+            pending_group_colon_body = True
 
         # Skip blank lines
         if self.peek() in {"\n", "\r", "#"}:
@@ -340,32 +375,43 @@ class Lexer:
         if (
             self.group_depth > 0
             and not self.indent_after_colon
-            and len(self.indent_stack) == 1
+            and indent >= self.indent_stack[-1].level
+            and not (pending_group_colon_body and indent > self.indent_stack[-1].level)
         ):
             return
 
         self.indent_after_colon = False
 
-        current_indent = self.indent_stack[-1]
+        current_indent = self.indent_stack[-1].level
 
         if indent > current_indent:
-            # Increase indentation
-            self.indent_stack.append(indent)
-            self.indent_strings.append(indent_str)
-            self.emit(TT.INDENT, indent_str)
+            # Increase indentation. Grouped `:` bodies open a real block, while
+            # ordinary indentation inside grouped expressions remains ignored.
+            self._push_indent_frame(
+                indent,
+                indent_str,
+                visible=True,
+                kind=(
+                    "group_colon_body"
+                    if opened_group_colon_base or pending_group_colon_body
+                    else "normal"
+                ),
+            )
 
         elif indent < current_indent:
-            # Decrease indentation - may emit multiple DEDENTs
-            while len(self.indent_stack) > 1 and self.indent_stack[-1] > indent:
-                self.indent_stack.pop()
-                self.indent_strings.pop()
-                # DEDENT value should be the indentation we're returning to
-                dedent_str = self.indent_strings[-1] if self.indent_strings else ""
-                self.emit(TT.DEDENT, dedent_str)
+            # Decrease indentation - may emit multiple DEDENTs.
+            while len(self.indent_stack) > 1 and self.indent_stack[-1].level > indent:
+                visible = self._pop_indent_frame()
+                if visible:
+                    dedent_str = (
+                        self.indent_stack[-1].string if self.indent_stack else ""
+                    )
+                    self.emit(TT.DEDENT, dedent_str)
 
-            if self.indent_stack[-1] != indent:
-                # If we are inside a group and return to base indentation, ignore mismatch
-                # because the base indentation was likely suppressed/ignored.
+            if self.indent_stack[-1].level != indent:
+                # Tolerate mismatch only when inside a group at base
+                # indentation — the base level was suppressed by the
+                # early return above, so the stack has no frame for it.
                 if not (self.group_depth > 0 and len(self.indent_stack) == 1):
                     raise LexError("Indentation mismatch", line=self.line)
 
@@ -382,10 +428,34 @@ class Lexer:
         else:
             self.advance()
 
-        self.emit(TT.NEWLINE, "\n", start_line=start_line, start_col=start_col)
+        self.emit(
+            TT.NEWLINE,
+            "\n",
+            start_line=start_line,
+            start_col=start_col,
+            next_line_kind=self._classify_next_line(),
+        )
         self.line += 1
         self.column = 1
         self.at_line_start = True
+
+    def _classify_next_line(self) -> str:
+        """Classify the physical line after the current newline."""
+        pos = self.pos
+        source_len = len(self.source)
+
+        while pos < source_len and self.source[pos] in {" ", "\t"}:
+            pos += 1
+
+        if pos >= source_len:
+            return "eof"
+
+        ch = self.source[pos]
+        if ch in {"\n", "\r"}:
+            return "blank"
+        if ch == "#":
+            return "comment_only"
+        return "code"
 
     def scan_string(self):
         """Scan string literal: "..." or '...'"""
@@ -982,6 +1052,7 @@ class Lexer:
         *,
         start_line: Optional[int] = None,
         start_col: Optional[int] = None,
+        next_line_kind: Optional[str] = None,
     ):
         """Emit a token with position info.
 
@@ -992,12 +1063,22 @@ class Lexer:
             value=value,
             line=start_line if start_line is not None else self.line,
             column=start_col if start_col is not None else self.column,
+            next_line_kind=next_line_kind,
         )
         self.tokens.append(tok)
         if token_type == TT.NEWLINE:
-            self.indent_after_colon = self.line_ended_with_colon
+            if self.line_ended_with_colon:
+                self.indent_after_colon = True
+            elif self.indent_after_colon and not self.line_had_code:
+                # Keep waiting for the first real post-`:` code line. Blank and
+                # comment-only spacer lines do not decide block indentation.
+                self.indent_after_colon = True
+            else:
+                self.indent_after_colon = False
             self.line_ended_with_colon = False
-        elif token_type not in {TT.INDENT, TT.DEDENT, TT.EOF}:
+            self.line_had_code = False
+        elif token_type not in {TT.INDENT, TT.DEDENT, TT.EOF, TT.COMMENT}:
+            self.line_had_code = True
             self.line_ended_with_colon = token_type == TT.COLON
 
 

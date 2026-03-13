@@ -4,7 +4,7 @@ Token Types for Shakar Parser
 Shared between lexer and parser to avoid circular dependencies.
 """
 
-from typing import Any
+from typing import Any, Optional
 from dataclasses import dataclass
 from enum import Enum, auto
 
@@ -156,6 +156,7 @@ class Tok:
     value: Any
     line: int = 0
     column: int = 0
+    next_line_kind: Optional[str] = None
 
     def __repr__(self):
         return f"Tok({self.type.name}, {self.value!r}, {self.line}:{self.column})"

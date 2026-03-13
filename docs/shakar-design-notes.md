@@ -31,17 +31,38 @@ This is a living technical spec. The language grows in two ways: new runtime pri
 - **Identifiers**: `[_A-Za-z][_A-Za-z0-9]*`; case-sensitive. Unicode ids ❓ (later).
 - **Comments**: `#` to end-of-line.
 - **Whitespace & layout**: indentation (spaces only) after `:` starts blocks.
-- **Line continuation (dot-chain)**: an indented line starting with `.` continues the
-  prior expression’s member chain. Example:
+- **Indented expression continuation**: a physical newline ends the current
+  statement unless one of these is true:
+  - the parser is entering a normal `:` block
+  - the next non-empty line is an indented continuation of an incomplete expression
+  - the next non-empty line starts `.` and continues an explicit receiver chain
+  - the next non-empty line is a same-indent structural continuator such as
+    `catch`, `elif`, `else`, `|`, or `|:`
+  Examples:
   ```
-  user.profile
-    .contact
+  user :=
+    env"USER"
+    ?? config.user
+    ?? "guest"
+
+  value := obj
+    .profile
     .email
+    ?? "unknown"
   ```
-  This is not an implicit-subject chain; it continues the explicit receiver.
-  Indented non-`.` lines are errors (no implicit line continuation). Indentation
-  changes are only valid for blocks after `:` or dot-chain continuation; inside
-  groupings, indentation is ignored, so continuation there does not apply.
+  Rules:
+  - continuation requires deeper indentation; same-indent ordinary expression
+    continuation is invalid
+  - dot-chain continuation is a specialized case of the same layout model; it
+    still requires the continued line to begin with `.`
+  - a continued dot-chain may hand off to ordinary continued operators on later
+    lines in the same continuation block
+  - headers before `:` use the same rule, so `if value` newline `  ?? fallback:`
+    and `while score` newline `  + bonus < cap:` are valid
+  - comment-only lines may appear inside a continuation block, but blank or
+    whitespace-only lines do not reconnect an already-complete expression
+  - inside `()`, `[]`, and `{}`, ordinary layout indentation is ignored, but a
+    real `:` block nested inside a group still opens and closes its own body
   - ❓ **Considering**: end-dot continuation (`a.` newline `b()`), which would allow
     continuation inside groupings without relying on INDENT/DEDENT. Tradeoffs:
     conflicts with numeric literals like `1.` (currently invalid), and turns a
@@ -608,12 +629,19 @@ Typed literals representing byte quantities. Distinct from integers and duration
 ### Boolean & ternary
 
 - `and`, `or` (short-circuit, yield last evaluated operand); no `&&/||` in core.
-- Ternary `cond ? a : b` (right-assoc; lower than `or`).
+- Ternary `cond ? a : b` (right-assoc; lower than `or`). The `?` and `:` arms
+  may be split across an indented continuation block:
+  ```shakar
+  value =
+    cond
+    ? build_a()
+    : build_b()
+  ```
 
 ### Null safety
 
 - Nil-safe chain `??(expr)` turns a deep deref/call chain into nil-propagating expression.
-- Nil-coalescing `a ?? b` returns `a` unless `a` is `nil`, otherwise `b` (right-assoc, tighter than `or`).
+- Nil-coalescing `a ?? b` returns `a` unless `a` is `nil`, otherwise `b` (right-assoc, tighter than `or`). It participates in indented continuation, including after a continued dot-chain.
 - Allow paren-free nullsafe `?? expr` sugar (equivalent to `??(expr)`, tighter than infix `??`, capturing the following postfix chain) ❓
 
 ### Assignment & mutation
@@ -622,6 +650,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
   - `name := expr` introduces a new binding in the current lexical scope, yields the value, and errors if `name` already exists in that scope.
   - `name = expr` updates an existing binding; expression-valued (yields the assigned value); right-associative (`a = b = 3` assigns 3 to both); errors if `name` does not exist.
   - Destructuring: arrays `[head, ...rest] := xs`; objects `{id, name} := user`; updates use `=`. Chaining `x := y := 0` is disallowed.
+  - Assignment RHSs may start on the next indented line. Continuation preserves ordinary RHS legality; it does not make new RHS forms legal.
 - **Let-scoped assignment**:
   - `let` prefixes assignment/destructure to make bindings block-local without changing global `:=`/`=` behavior.
   - `let name := expr` declares a new local binding; error if `name` already exists in the current block or any outer scope (no shadowing).
@@ -818,6 +847,7 @@ u := makeUser() and .isValid()
   ```
 - `wait` is an expression (receive) and `wait[any]:` is a block expression, not a guard.
 - **Postfix conditionals**: `stmt if cond`, `stmt unless cond`. If the statement is a walrus, runtime sets the binding to `nil` before the guard so a failing condition leaves it at `nil` without running `expr`.
+- Condition expressions before `:` use the ordinary indented continuation rules.
 - **Early return**: `?ret expr` returns early if `expr` is truthy.
 
 ### Loops
@@ -829,6 +859,7 @@ u := makeUser() and .isValid()
   - `for[k] m:` / `for[k, v] m:` on objects; `.` = value (or `v` if bound). Destructuring alias: `for (k, v) in m:`.
   - `for … in <selectors>:` iterate selector lists/values.
   - `while expr:` standard while loop; condition re-evaluated each iteration; supports inline or indented bodies.
+- `while` conditions may span an indented continuation block before the `:`.
 - Rules: `.` is per-iteration and does not leak. Nested subjectful constructs rebind `.`; name outer value if needed before nesting. Works with any iterable.
 - **Hoisted binders `^name`**: bind loop variable to an outer-scope binding (create it with `nil` if absent). Each iteration assigns current value. Illegal to mix `^x` and `x` or repeat `^name` in a binder list. Closures capture the single hoisted binding. Examples:
   ```shakar
@@ -888,6 +919,10 @@ u := makeUser() and .isValid()
   user := risky() catch (ValidationError, ParseError) bind err: err.payload
   ```
   Evaluate left; on success return original value. On `ShakarRuntimeError` (or subclass), run handler and use its value. Without a type guard, `catch err:` binds payload (omit binder to rely on `.`). With a guard: `catch (Type, …) bind name:` filters. Payload exposes `.type`, `.message`, `.key` (for `ShakarKeyError`), `.method` (for `ShakarMethodNotFound`). Bare `catch` is catch-all. `throw` inside handler rethrows; `throw expr` raises new error.
+- `catch` is a structural continuator, not ordinary expression content. It may
+  attach on the same line as the protected expression or after continuation
+  newlines once that expression is complete. Comment-only lines may intervene,
+  but blank or whitespace-only lines break attachment.
 - **Catch statements** mirror expression semantics but discard original value; bodies execute only on failure.
 - **Try/catch statements** provide block-form error handling for protecting multiple statements:
   ```shakar
@@ -900,6 +935,9 @@ u := makeUser() and .isValid()
   `try` always requires a `catch` clause. Both `try:` and `catch:` in this form require indented blocks (no inline body form). Supports all catch features: type filters `(Type1, Type2)`, `bind name`, and `.` implicit subject. Unlike postfix `catch`, `try` blocks correctly propagate `break`/`continue` signals from enclosing loops.
 - **Inline vs block handlers:** `expr catch err: handler_expr` is expression-valued (usable in walrus/assign chains without parentheses). A block-bodied catch (`expr catch err: { … }` or newline/indent) is statement-valued and yields `nil`. Use inline form when you need the handler's value; use a block when you need multiple statements or don't care about the value.
 - **assert expr, "msg"`** raises if falsey; build can strip.
+- `return`, `throw`, `assert`, and `dbg` may take their operand on the next
+  indented line. For `return` and `throw`, if no indented operand line follows,
+  the bare form stands.
 - **throw [expr]** re-raises current payload when expression omitted; otherwise raises new `ShakarRuntimeError` from value (strings => message; objects set `.type/.message`). Bare `throw` (no expression) is valid in inline positions: clause delimiters (`else`, `elif`, `|`), postfix guards (`if`, `unless`), and standard terminators (newline, `;`, `}`, `)`, `,`) all end the bare form. Examples: `if cond: throw else: 0`, `throw if err`.
 - **Helpers**: `error(type, message, data?)` builds tagged payload; `dbg expr` logs and returns expr (strip-able); `tap(value, fn, ...args)` calls `fn(value, ...args)` and returns `value` for side-effect-friendly chaining. Conversion helpers: `int(x)`, `float(x)`, `bool(x)`, `str(x)`, `duration(x)`, `size(x)` (and UFCS forms like `x.int()`).
 - **Events**: `hook "name": .emit()` => `Event.on(name, &( .emit()))`.

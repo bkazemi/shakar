@@ -600,6 +600,18 @@ SCENARIOS = [
         None,
         id="destr-default-assign-delim",
     ),
+    pytest.param(
+        dedent(
+            """\
+            a = 0
+              ~ Int, b := 1, 2
+            a
+        """
+        ),
+        ("number", 1),
+        None,
+        id="destr-default-multiline-contract",
+    ),
     # Single-pattern `a = 1 = 2` is now chained assignment (not destructure
     # default).  `1` is not a valid lvalue, so this is a runtime error.
     pytest.param(

@@ -271,6 +271,96 @@ def test_comments() -> None:
     assert [token.type for token in filtered] == expected_types
 
 
+def test_newline_metadata_classifies_next_line_kind() -> None:
+    source = "x\n  # comment\n   \ny\n"
+    newlines = [
+        token
+        for token in tokenize(source, track_indentation=True)
+        if token.type == TT.NEWLINE
+    ]
+
+    assert [token.next_line_kind for token in newlines] == [
+        "comment_only",
+        "blank",
+        "code",
+        "eof",
+    ]
+
+
+def test_grouped_line_indent_does_not_open_nested_block() -> None:
+    source = "fn f():\n  if (a and\n    b):\n    42\n"
+    tokens = tokenize(source, track_indentation=True)
+
+    assert [token.type for token in tokens].count(TT.INDENT) == 2
+
+
+def test_grouped_colon_block_emits_dedent_before_sibling_field() -> None:
+    source = """obj := {
+  method: fn():
+    return 1
+  sibling: 2
+}
+"""
+    tokens = tokenize(source, track_indentation=True)
+
+    sibling_index = next(
+        idx
+        for idx, token in enumerate(tokens)
+        if token.type == TT.IDENT and token.value == "sibling"
+    )
+    dedent_index = next(
+        idx for idx, token in enumerate(tokens) if token.type == TT.DEDENT
+    )
+
+    assert dedent_index < sibling_index
+
+
+def test_grouped_colon_block_keeps_indent_after_leading_comment_and_blank() -> None:
+    source = """obj := {
+  f: fn():
+    # note
+
+    a := 1
+    b := 2
+}"""
+    tokens = tokenize(source, track_indentation=True)
+
+    a_index = next(
+        idx
+        for idx, token in enumerate(tokens)
+        if token.type == TT.IDENT and token.value == "a"
+    )
+    indent_index = next(
+        idx for idx, token in enumerate(tokens) if token.type == TT.INDENT
+    )
+
+    assert indent_index < a_index
+
+
+def test_grouped_colon_block_keeps_indent_after_header_indent_comment_and_blank() -> (
+    None
+):
+    source = """obj := {
+  f: fn():
+  # note
+
+    a := 1
+    b := 2
+}"""
+    tokens = tokenize(source, track_indentation=True)
+
+    a_index = next(
+        idx
+        for idx, token in enumerate(tokens)
+        if token.type == TT.IDENT and token.value == "a"
+    )
+    indent_index = next(
+        idx for idx, token in enumerate(tokens) if token.type == TT.INDENT
+    )
+
+    assert indent_index < a_index
+
+
 @pytest.mark.parametrize("case", POSITION_CASES, ids=lambda case: case.name)
 def test_position_tracking(case: Case) -> None:
     assert case.expected_lines is not None

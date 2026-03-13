@@ -120,7 +120,11 @@ class Parser:
         TT.POWEQ,
     )
 
-    def __init__(self, tokens: List[Tok], use_indenter: bool = True):
+    def __init__(
+        self,
+        tokens: List[Tok],
+        use_indenter: bool = True,
+    ):
         self.tokens = tokens
         self.pos = 0
         self.current = tokens[0] if tokens else Tok(TT.EOF, None, 0, 0)
@@ -142,6 +146,11 @@ class Parser:
         self._pattern_default_start_pos: int = -1
         # Monotonic once-site ID allocator seeded from process-global counter.
         self._next_once_id: int = 0
+        # Expression continuation depth: tracks nested INDENT levels entered
+        # for indented expression continuation (not dot-chain or block bodies).
+        self._expr_cont_depth: int = 0
+        # One-shot parser position where blank-line-separated `catch` must not attach.
+        self._catch_attach_blocked_pos: Optional[int] = None
 
     def _tok(
         self,
@@ -295,12 +304,16 @@ class Parser:
 
     def _check_catch_start(self) -> bool:
         """Check if current token starts a catch clause (catch or @@)."""
+        if self.pos == self._catch_attach_blocked_pos:
+            return False
         return self.check(TT.CATCH) or (
             self.check(TT.AT) and self.peek(1).type == TT.AT
         )
 
     def _check_catch_at(self, offset: int) -> bool:
         """Check if token at lookahead offset starts a catch clause."""
+        if self.pos + offset == self._catch_attach_blocked_pos:
+            return False
         tok = self.peek(offset)
         return tok.type == TT.CATCH or (
             tok.type == TT.AT and self.peek(offset + 1).type == TT.AT
@@ -342,28 +355,58 @@ class Parser:
         children.append(handler)
         return children
 
+    def _consume_attached_catch_newline(self) -> bool:
+        """Consume a single newline if it still keeps `catch` attached.
+
+        NEWLINE tokens carry the kind of physical line that follows them.
+        Attachment may cross comment-only lines, but blank or whitespace-only
+        lines break attachment.
+        """
+        if not self.check(TT.NEWLINE):
+            return self._check_catch_start()
+
+        span = self._peek_past_nonblank_newlines()
+        if span is None:
+            return False
+
+        k, _ = span
+
+        if not self._check_catch_at(k):
+            return False
+
+        self._consume_newlines()
+        return True
+
     def _parse_flat_binop(self, label: str, op_type: TT, next_parser: Any) -> Node:
         """Parse flat left-associative binary op with interleaved op tokens.
         Returns unwrapped next-level node when no operator is present."""
+        entered = self._mark_expr_continuations()
         left = next_parser()
-        if not self.check(op_type):
+        if not self.check(op_type) and not self._try_infix_continuation(op_type):
             return left
         children: list[Node] = [left]
-        while self.check(op_type):
+        while self.check(op_type) or self._try_infix_continuation(op_type):
             op = self.advance()
             children.append(self._tok(op.type.name, op.value))
+            # Trailing operator: RHS may be on the next indented line
+            self._try_operand_continuation()
             children.append(next_parser())
+        self._drain_expr_continuations(entered)
         return Tree(label, children)
 
     def _parse_left_assoc(
         self, label: str, op_label: str, op_types: tuple[TT, ...], next_parser: Any
     ) -> Node:
         """Parse left-associative binary ops that wrap each operator in an op node."""
+        entered = self._mark_expr_continuations()
         left = next_parser()
-        while self.check(*op_types):
+        while self.check(*op_types) or self._try_infix_continuation(*op_types):
             op = self.advance()
+            # Trailing operator: RHS may be on the next indented line
+            self._try_operand_continuation()
             right = next_parser()
             left = Tree(label, [left, Tree(op_label, [op]), right])
+        self._drain_expr_continuations(entered)
         return left
 
     def _parse_obj_item_body(self) -> Tree:
@@ -470,6 +513,7 @@ class Parser:
             # Chain continuation handling
             elif continuation_active and self.check(TT.DEDENT):
                 self.advance()
+                self._expr_cont_depth -= 1
                 break
             elif self.check(TT.NEWLINE):
                 if not continuation_active:
@@ -481,6 +525,8 @@ class Parser:
                 if cont is True:
                     continue
                 if cont is False:
+                    break
+                if self._expr_cont_depth > 0:
                     break
                 k = 0
                 while self.peek(k).type == TT.NEWLINE:
@@ -494,19 +540,32 @@ class Parser:
 
     def _start_chain_continuation(self) -> bool:
         """
-        Detect and consume NEWLINE+INDENT that starts a dot-chain continuation.
+        Start a dot-chain continuation on either:
+        - NEWLINE+DOT inside an existing continuation block
+        - NEWLINE+INDENT+DOT when opening a fresh continuation block
+
         Leaves the DOT as the next token.
         """
+        if not self.use_indenter or self.paren_depth > 0:
+            return False
         if not self.check(TT.NEWLINE):
             return False
-        k = 0
-        while self.peek(k).type == TT.NEWLINE:
-            k += 1
-        if self.peek(k).type != TT.INDENT or self.peek(k + 1).type != TT.DOT:
+
+        span = self._peek_past_nonblank_newlines()
+        if span is None:
             return False
-        while self.match(TT.NEWLINE):
-            pass
+
+        k, next_type = span
+        if self._expr_cont_depth > 0 and next_type == TT.DOT:
+            self._consume_newlines()
+            return True
+
+        if next_type != TT.INDENT or self.peek(k + 1).type != TT.DOT:
+            return False
+
+        self._consume_newlines()
         self.expect(TT.INDENT)
+        self._expr_cont_depth += 1
         return True
 
     def _continue_chain_continuation(self) -> Optional[bool]:
@@ -517,18 +576,18 @@ class Parser:
         """
         if not self.check(TT.NEWLINE):
             return None
-        k = 0
-        while self.peek(k).type == TT.NEWLINE:
-            k += 1
-        next_tok = self.peek(k)
-        if next_tok.type == TT.DOT:
-            while self.match(TT.NEWLINE):
-                pass
+        span = self._peek_past_nonblank_newlines()
+        if span is None:
+            return None
+        k, next_type = span
+        if next_type == TT.DOT:
+            self._consume_newlines()
             return True
-        if next_tok.type == TT.DEDENT:
-            while self.match(TT.NEWLINE):
-                pass
+        if next_type == TT.DEDENT:
+            saw_blank = self._consume_newlines_for_cont_dedent()
             self.expect(TT.DEDENT)
+            self._expr_cont_depth -= 1
+            self._mark_catch_attachment_break(saw_blank)
             return False
         return None
 
@@ -617,14 +676,6 @@ class Parser:
             last = _advance_once()
         return last
 
-    def _rewind(self, pos: int) -> None:
-        self.pos = pos
-        self.current = (
-            self.tokens[self.pos]
-            if self.pos < len(self.tokens)
-            else Tok(TT.EOF, None, 0, 0)
-        )
-
     def check(self, *types: TT) -> bool:
         """Check if current token matches any of the given types"""
         return self.current.type in types
@@ -662,6 +713,242 @@ class Parser:
         while self.match(TT.NEWLINE):
             pass
 
+    def _peek_past_nonblank_newlines(self) -> Optional[tuple[int, TT]]:
+        """Peek past NEWLINEs while allowing only comment-only intervening lines.
+
+        A direct next code line is allowed. Additional physical lines may be
+        crossed only when they are comment-only; blank or whitespace-only lines
+        break the span and return None.
+        """
+        if not self.check(TT.NEWLINE):
+            return None
+
+        k, next_type = self._peek_past_newlines()
+        for offset in range(k - 1):
+            if self.peek(offset).next_line_kind != "comment_only":
+                return None
+
+        return k, next_type
+
+    def _consume_newlines_for_cont_dedent(self) -> bool:
+        """Consume NEWLINE tokens before a continuation-closing DEDENT.
+
+        Returns True if any crossed physical line was blank/whitespace-only,
+        which breaks attached `catch` semantics even though the DEDENT still
+        needs to be consumed structurally.
+        """
+        saw_blank = False
+        while self.check(TT.NEWLINE):
+            if self.current.next_line_kind == "blank":
+                saw_blank = True
+            self.advance()
+        return saw_blank
+
+    def _mark_catch_attachment_break(self, saw_blank: bool) -> None:
+        if saw_blank:
+            self._catch_attach_blocked_pos = self.pos
+
+    # ==================================================================
+    # Expression Continuation
+    # ==================================================================
+
+    def _peek_past_newlines(self, offset: int = 0) -> tuple[int, TT]:
+        """Peek past NEWLINE tokens from current pos + offset.
+        Returns (token_offset_from_pos, token_type) of the first non-NEWLINE token."""
+        k = offset
+        while self.peek(k).type == TT.NEWLINE:
+            k += 1
+        return k, self.peek(k).type
+
+    def _try_enter_expr_continuation(self) -> bool:
+        """Try to enter an indented expression continuation block.
+
+        Call this when the parser is in an incomplete expression state
+        (after an assignment op, infix op, etc.) and the current token is NEWLINE.
+        If the next non-empty line is indented (NEWLINE+ INDENT), consumes those
+        tokens and enters the continuation block.
+
+        Blank lines are allowed here because the expression is syntactically
+        incomplete — the caller has already consumed an operator that requires
+        an operand.
+
+        Returns True if continuation was entered, False otherwise.
+        """
+        if not self.use_indenter or self.paren_depth > 0:
+            return False
+        if not self.check(TT.NEWLINE):
+            return False
+
+        k, next_type = self._peek_past_newlines()
+        if next_type != TT.INDENT:
+            return False
+
+        # Consume the NEWLINEs and INDENT
+        self._consume_newlines()
+        self.expect(TT.INDENT)
+        self._expr_cont_depth += 1
+        return True
+
+    def _try_same_indent_continuation(self, *token_types: TT) -> bool:
+        """Continue within an existing continuation block at the same indent.
+
+        This handles the shared layout pattern `NEWLINE* token` when the parser
+        is already inside an expression continuation block. It does not open a
+        new continuation level.
+        """
+        if not self.use_indenter or self.paren_depth > 0:
+            return False
+        if self._expr_cont_depth <= 0 or not self.check(TT.NEWLINE):
+            return False
+
+        span = self._peek_past_nonblank_newlines()
+        if span is None:
+            return False
+
+        _k, next_type = span
+        if next_type not in token_types:
+            return False
+
+        self._consume_newlines()
+        return True
+
+    def _try_infix_continuation(self, *op_types: TT) -> bool:
+        """Check for infix operator on an indented continuation line.
+
+        Used by binary operator loops: after parsing a complete operand, if the
+        current token is NEWLINE, peek ahead for INDENT + one of op_types.
+        If found, consume the layout tokens and return True so the loop continues.
+
+        Also handles continuing within an already-active continuation block:
+        NEWLINE + op_type (same indent level, no extra INDENT needed).
+        """
+        if not self.use_indenter or self.paren_depth > 0:
+            return False
+        if not self.check(TT.NEWLINE):
+            return False
+
+        span = self._peek_past_nonblank_newlines()
+        if span is None:
+            return False
+
+        k, next_type = span
+
+        # Case 1: Already inside a continuation block, operator at same indent
+        if self._expr_cont_depth > 0 and next_type in op_types:
+            self._consume_newlines()
+            return True
+
+        # Case 2: Enter a new continuation block (NEWLINE+ INDENT op).
+        if next_type == TT.INDENT:
+            after_indent = self.peek(k + 1).type
+            if after_indent in op_types:
+                self._consume_newlines()
+                self.expect(TT.INDENT)
+                self._expr_cont_depth += 1
+                return True
+
+        return False
+
+    def _try_consume_cont_dedent(self) -> bool:
+        """Try to consume NEWLINE* DEDENT for an expression continuation exit.
+        Returns True if DEDENT was consumed."""
+        if self._expr_cont_depth <= 0:
+            return False
+        if self.check(TT.DEDENT):
+            self.advance()
+            self._expr_cont_depth -= 1
+            return True
+        if self.check(TT.NEWLINE):
+            k, next_type = self._peek_past_newlines()
+            if next_type == TT.DEDENT:
+                saw_blank = self._consume_newlines_for_cont_dedent()
+                self.advance()
+                self._expr_cont_depth -= 1
+                self._mark_catch_attachment_break(saw_blank)
+                return True
+        return False
+
+    def _exit_expr_continuation(self) -> None:
+        """Exit an expression continuation block by consuming DEDENT."""
+        self._try_consume_cont_dedent()
+
+    def _try_delimited_continuation(self) -> bool:
+        """Continue after a separator like `,` when the item is incomplete at newline.
+
+        Supports both:
+        - staying inside an already-open continuation block (`NEWLINE* expr`)
+        - opening a fresh continuation block (`NEWLINE* INDENT expr`)
+
+        Called after `,` so the expression is incomplete — blank lines allowed.
+        """
+        if not self.use_indenter or self.paren_depth > 0:
+            return False
+        if not self.check(TT.NEWLINE):
+            return False
+
+        if self._expr_cont_depth > 0:
+            _k, next_type = self._peek_past_newlines()
+            if next_type == TT.DEDENT:
+                return False
+            self._consume_newlines()
+            return False
+
+        return self._try_enter_expr_continuation()
+
+    def _try_operand_continuation(self) -> bool:
+        """Continue to the next operand line for prefix heads like `throw`.
+
+        Called when the expression is incomplete (after a trailing operator or
+        prefix head), so blank lines are tolerated — the parser still needs an
+        operand.
+        """
+        if not self.use_indenter or self.paren_depth > 0:
+            return False
+        if not self.check(TT.NEWLINE):
+            return False
+
+        if self._expr_cont_depth > 0:
+            k, next_type = self._peek_past_newlines()
+            if next_type == TT.DEDENT:
+                return False
+            if next_type == TT.INDENT:
+                self._consume_newlines()
+                self.expect(TT.INDENT)
+                self._expr_cont_depth += 1
+                return True
+            self._consume_newlines()
+            return False
+
+        return self._try_enter_expr_continuation()
+
+    def _parse_delimited_item(self, item_parser: Any) -> Node:
+        """Parse an item after a separator, owning any new continuation opened."""
+        opened_cont = self._try_delimited_continuation()
+        try:
+            return item_parser()
+        finally:
+            if opened_cont:
+                self._exit_expr_continuation()
+
+    def _parse_prefix_operand(self, item_parser: Any) -> Node:
+        """Parse a required operand after a prefix head with continuation support."""
+        entered_cont = self._try_operand_continuation()
+        try:
+            return item_parser()
+        finally:
+            if entered_cont:
+                self._exit_expr_continuation()
+
+    def _mark_expr_continuations(self) -> int:
+        """Snapshot the continuation depth owned by the current construct."""
+        return self._expr_cont_depth
+
+    def _drain_expr_continuations(self, target_depth: int = 0) -> None:
+        """Consume as many pending continuation DEDENTs as are currently visible."""
+        while self._expr_cont_depth > target_depth:
+            if not self._try_consume_cont_dedent():
+                break
+
     def _expect_indented_block(self, context: str, require_arm: bool = False) -> None:
         if not self.match(TT.NEWLINE):
             raise ParseError(f"{context} expects a newline after ':'", self.current)
@@ -671,11 +958,25 @@ class Parser:
         if require_arm and self.check(TT.DEDENT):
             raise ParseError(f"{context} requires at least one arm", self.current)
 
-    def _snapshot(self) -> tuple[int, Tok, Tok, int]:
-        return self.pos, self.current, self.previous, self.paren_depth
+    def _snapshot(self) -> tuple[int, Tok, Tok, int, int, Optional[int]]:
+        return (
+            self.pos,
+            self.current,
+            self.previous,
+            self.paren_depth,
+            self._expr_cont_depth,
+            self._catch_attach_blocked_pos,
+        )
 
-    def _restore(self, snapshot: tuple[int, Tok, Tok, int]) -> None:
-        self.pos, self.current, self.previous, self.paren_depth = snapshot
+    def _restore(self, snapshot: tuple[int, Tok, Tok, int, int, Optional[int]]) -> None:
+        (
+            self.pos,
+            self.current,
+            self.previous,
+            self.paren_depth,
+            self._expr_cont_depth,
+            self._catch_attach_blocked_pos,
+        ) = snapshot
 
     def skip_layout_tokens(self) -> None:
         """Skip NEWLINE and optionally INDENT/DEDENT tokens (when using indenter)"""
@@ -751,14 +1052,14 @@ class Parser:
         if stmt:
             return self._wrap_postfix(stmt) or stmt
 
-        expr_start = self.pos
+        expr_snapshot = self._snapshot()
 
         stmt = self._parse_destructure_with_contracts()
         if stmt:
             return stmt
 
         expr = self.parse_expr()
-        return self._parse_statement_from_expr(expr_start, expr)
+        return self._parse_statement_from_expr(expr_snapshot, expr)
 
     def _parse_statement_prefix(self) -> Optional[Tree]:
         # Dispatch table for simple statement starters
@@ -814,6 +1115,7 @@ class Parser:
         let <lvalue> := expr
         """
         self.expect(TT.LET)
+        entered_patterns = self._mark_expr_continuations()
 
         pattern_snapshot = self._snapshot()
         _let_destructure: Optional[Tree] = None
@@ -852,6 +1154,7 @@ class Parser:
 
                     op = self.advance()
                     rhs = self.parse_destructure_rhs()
+                    self._drain_expr_continuations(entered_patterns)
                     label = (
                         "destructure_walrus" if op.type == TT.WALRUS else "destructure"
                     )
@@ -940,6 +1243,7 @@ class Parser:
             self.check(TT.IDENT, TT.SPREAD) and self._is_destructure_with_contracts()
         ):
             return None
+        entered_patterns = self._mark_expr_continuations()
 
         # Parse pattern(s) using general parse_pattern() to support nested patterns
         patterns = [self.parse_pattern()]
@@ -958,22 +1262,26 @@ class Parser:
 
         if self.match(TT.ASSIGN):
             rhs = self.parse_destructure_rhs()
+            self._drain_expr_continuations(entered_patterns)
             return Tree("destructure", [pattern_node, rhs])
         if self.match(TT.WALRUS):
             rhs = self.parse_destructure_rhs()
+            self._drain_expr_continuations(entered_patterns)
             return Tree("destructure_walrus", [pattern_node, rhs])
         raise ParseError("Expected = or := after pattern", self.current)
 
-    def _parse_statement_from_expr(self, expr_start: int, expr: Node) -> Tree:
-        stmt = self._parse_destructure_after_expr(expr_start)
+    def _parse_statement_from_expr(
+        self, expr_snapshot: tuple[int, Tok, Tok, int, int, Optional[int]], expr: Node
+    ) -> Tree:
+        stmt = self._parse_destructure_after_expr(expr_snapshot)
         if stmt:
             return stmt
 
-        stmt = self._parse_guard_chain_after_expr(expr_start)
+        stmt = self._parse_guard_chain_after_expr(expr_snapshot)
         if stmt:
             return stmt
 
-        stmt = self._parse_catch_stmt_after_expr(expr_start)
+        stmt = self._parse_catch_stmt_after_expr(expr_snapshot)
         if stmt:
             return stmt
 
@@ -989,7 +1297,13 @@ class Parser:
         if self.check(*self._ASSIGNMENT_OPS):
             lvalue = self._expr_to_lvalue(expr)
             op = self.advance()
-            rhs = self._parse_assignment_rhs(lvalue)
+            # Allow RHS on next line (same indent inside continuation, or indented)
+            entered_depth = self._mark_expr_continuations()
+            self._try_operand_continuation()
+            try:
+                rhs = self._parse_assignment_rhs(lvalue)
+            finally:
+                self._drain_expr_continuations(entered_depth)
             label = "assignstmt" if op.type == TT.ASSIGN else "compound_assign"
             base_stmt = Tree(label, [lvalue, op, rhs])
 
@@ -1003,11 +1317,14 @@ class Parser:
             return base_stmt
         return Tree("expr", [base_stmt])
 
-    def _parse_destructure_after_expr(self, expr_start: int) -> Optional[Tree]:
+    def _parse_destructure_after_expr(
+        self, expr_snapshot: tuple[int, Tok, Tok, int, int, Optional[int]]
+    ) -> Optional[Tree]:
         # Check for destructuring: a, b, c = ... or a, b, c := ...
         if not self.check(TT.COMMA):
             return None
 
+        expr_start = expr_snapshot[0]
         first_tok = self.tokens[expr_start] if expr_start < len(self.tokens) else None
         if first_tok is None or first_tok.type not in {TT.IDENT, TT.LPAR, TT.SPREAD}:
             # Not a valid pattern start; comma belongs to surrounding expression (e.g., anon fn body)
@@ -1015,36 +1332,36 @@ class Parser:
 
         # Backtrack and parse as pattern_list.
         # Disable defaults: `=` here means the assignment operator, not a default.
-        self._rewind(expr_start)
+        self._restore(expr_snapshot)
+        entered_depth = self._expr_cont_depth
         pattern_list = self.parse_pattern_list(allow_default=False)
 
         if self.match(TT.ASSIGN):
             rhs = self.parse_destructure_rhs()
+            self._drain_expr_continuations(entered_depth)
             return Tree("destructure", [pattern_list, rhs])
         if self.match(TT.WALRUS):
             rhs = self.parse_destructure_rhs()
+            self._drain_expr_continuations(entered_depth)
             return Tree("destructure_walrus", [pattern_list, rhs])
         raise ParseError("Expected = or := after pattern list", self.current)
 
-    def _parse_guard_chain_after_expr(self, expr_start: int) -> Optional[Tree]:
+    def _parse_guard_chain_after_expr(
+        self, expr_snapshot: tuple[int, Tok, Tok, int, int, Optional[int]]
+    ) -> Optional[Tree]:
         # Guard chain inline form
         if not self.check(TT.COLON):
             return None
-        self._rewind(expr_start)
+        self._restore(expr_snapshot)
         return self.parse_guard_chain()
 
-    def _parse_catch_stmt_after_expr(self, expr_start: int) -> Optional[Tree]:
+    def _parse_catch_stmt_after_expr(
+        self, expr_snapshot: tuple[int, Tok, Tok, int, int, Optional[int]]
+    ) -> Optional[Tree]:
         # Catch statement form: expr catch ... : body
-        if self.check(TT.NEWLINE):
-            # Allow blank lines before a trailing catch so multiline expressions can attach.
-            k = 0
-            while self.peek(k).type == TT.NEWLINE:
-                k += 1
-            if not self._check_catch_at(k):
-                return None
-        elif not self._check_catch_start():
+        if not self._consume_attached_catch_newline():
             return None
-        self._rewind(expr_start)
+        self._restore(expr_snapshot)
         return self.parse_catch_stmt()
 
     def parse_if_stmt(self) -> Tree:
@@ -1053,18 +1370,20 @@ class Parser:
         if expr: body [elif expr: body]* [else: body]
         """
         if_tok = self.expect(TT.IF)
+        entered_cond = self._mark_expr_continuations()
         cond = self.parse_expr()
         self.expect(TT.COLON)
-        then_body = self.parse_body()
+        then_body = self._parse_body_for_header_expr(entered_cond)
 
         elifs = []
         else_clause = None
 
         while self.check(TT.ELIF):
             elif_tok = self.advance()
+            entered_elif = self._mark_expr_continuations()
             elif_cond = self.parse_expr()
             self.expect(TT.COLON)
-            elif_body = self.parse_body()
+            elif_body = self._parse_body_for_header_expr(entered_elif)
             elifs.append(Tree("elifclause", [elif_tok, elif_cond, elif_body]))
 
         if self.check(TT.ELSE):
@@ -1087,6 +1406,7 @@ class Parser:
           else: body
         """
         self.expect(TT.MATCH)
+        entered_match = self._mark_expr_continuations()
         cmp_node: Optional[Tree] = None
         # Optional comparator binder: match[cmp] subject: ...
         if self._should_parse_match_cmp():
@@ -1112,15 +1432,17 @@ class Parser:
                     raise ParseError("match else must be last", self.current)
                 break
 
+            entered_arm = self._mark_expr_continuations()
             patterns = [self.parse_match_pattern()]
             while self.match(TT.PIPE):
                 patterns.append(self.parse_match_pattern())
 
             self.expect(TT.COLON)
-            body = self.parse_body()
+            body = self._parse_body_for_header_expr(entered_arm)
             arms.append(Tree("matcharm", [Tree("matchpatterns", patterns), body]))
 
         self.expect(TT.DEDENT)
+        self._drain_expr_continuations(entered_match)
 
         children: list[Node] = []
         if cmp_node:
@@ -1254,9 +1576,10 @@ class Parser:
     def parse_while_stmt(self) -> Tree:
         """Parse while loop: while expr: body"""
         while_tok = self.expect(TT.WHILE)
+        entered_cond = self._mark_expr_continuations()
         cond = self.parse_expr()
         self.expect(TT.COLON)
-        body = self.parse_body()
+        body = self._parse_body_for_header_expr(entered_cond)
         return Tree("whilestmt", [while_tok, cond, body])
 
     def parse_for_stmt(self) -> Tree:
@@ -1292,9 +1615,10 @@ class Parser:
                 if self.check(TT.COLON):
                     self._restore(binder_snapshot)
                 else:
+                    entered_iter = self._mark_expr_continuations()
                     iterable = self.parse_expr()
                     self.expect(TT.COLON)
-                    body = self.parse_body()
+                    body = self._parse_body_for_header_expr(entered_iter)
                     if binder2:
                         return Tree(
                             "formap2", [for_tok, binder1, binder2, iterable, body]
@@ -1340,9 +1664,10 @@ class Parser:
                             self.advance()
 
                     in_tok = self.expect(TT.IN)
+                    entered_iter = self._mark_expr_continuations()
                     iterable = self.parse_expr()
                     self.expect(TT.COLON)
-                    body = self.parse_body()
+                    body = self._parse_body_for_header_expr(entered_iter)
 
                     # Build pattern (use original tokens directly)
                     if len(idents) == 1:
@@ -1355,9 +1680,10 @@ class Parser:
                     return Tree("forin", [for_tok, pattern, in_tok, iterable, body])
 
         # Subjectful for: for expr: body
+        entered_iter = self._mark_expr_continuations()
         iterable = self.parse_expr()
         self.expect(TT.COLON)
-        body = self.parse_body()
+        body = self._parse_body_for_header_expr(entered_iter)
         return Tree("forsubject", [for_tok, iterable, body])
 
     def parse_using_stmt(self) -> Tree:
@@ -1372,6 +1698,7 @@ class Parser:
             ident_tok, _ = self.expect_seq(TT.IDENT, TT.RSQB)
             handle = ident_tok
 
+        entered_resource = self._mark_expr_continuations()
         resource = self.parse_expr()
 
         binder = None
@@ -1379,7 +1706,7 @@ class Parser:
             binder = self.expect(TT.IDENT)
 
         self.expect(TT.COLON)
-        body = self.parse_body()
+        body = self._parse_body_for_header_expr(entered_resource)
 
         children: List[Any] = []
         if handle:
@@ -1411,6 +1738,7 @@ class Parser:
             ident_tok, _ = self.expect_seq(TT.IDENT, TT.RSQB)
             handle = ident_tok
 
+        entered_target = self._mark_expr_continuations()
         target = self.parse_expr()
 
         binder = None
@@ -1426,7 +1754,7 @@ class Parser:
 
         self.call_depth += 1
         try:
-            body = self.parse_body()
+            body = self._parse_body_for_header_expr(entered_target)
         finally:
             self.call_depth -= 1
 
@@ -1780,13 +2108,10 @@ class Parser:
         params = self.parse_param_list()
         self.expect(TT.RPAR)
 
-        # Optional return contract: ~ Schema
-        return_contract = None
-        if self.match(TT.TILDE):
-            return_contract = self.parse_expr()
+        entered_contract, return_contract = self._parse_optional_return_contract()
 
         self.expect(TT.COLON)
-        body = self.parse_body()
+        body = self._parse_body_for_header_expr(entered_contract)
 
         # fnstmt structure: [name, params, body, return_contract?, decorator_list?]
         children = [name, params, body]
@@ -1799,6 +2124,15 @@ class Parser:
             children.append(decorator_list)
 
         return Tree("fnstmt", children)
+
+    def _parse_optional_return_contract(self) -> tuple[int, Optional[Tree]]:
+        """Parse optional `~ contract` shared by named and anonymous fn forms."""
+        entered_contract = self._mark_expr_continuations()
+        return_contract = None
+        if self.match(TT.TILDE):
+            self._try_delimited_continuation()
+            return_contract = self.parse_expr()
+        return entered_contract, return_contract
 
     def parse_wait_expr(self) -> Tree:
         """
@@ -1843,7 +2177,7 @@ class Parser:
 
             # Single-expr form: treat wait[all]/wait[group] as unary; use parens for
             # broader expressions or CCC if needed.
-            expr = self.parse_unary_expr()
+            expr = self._parse_prefix_operand(self.parse_unary_expr)
             if kind == "all":
                 return Tree("waitallcall", [expr], attrs=self._modifier_attrs(kind_tok))
             if kind == "group":
@@ -1863,7 +2197,7 @@ class Parser:
             expr = self.parse_expr()
             self.expect(TT.RPAR)
         else:
-            expr = self.parse_unary_expr()
+            expr = self._parse_prefix_operand(self.parse_unary_expr)
         return Tree("recv", [expr])
 
     def parse_spawn_expr(self) -> Tree:
@@ -1878,7 +2212,7 @@ class Parser:
             expr = self.parse_expr()
             self.expect(TT.RPAR)
         else:
-            expr = self.parse_unary_expr()
+            expr = self._parse_prefix_operand(self.parse_unary_expr)
         return Tree("spawn", [expr])
 
     def _alloc_once_id(self) -> int:
@@ -2026,16 +2360,18 @@ class Parser:
 
             if self.check(TT.IDENT) and self.current.value == "timeout":
                 self.advance()
+                entered_timeout = self._mark_expr_continuations()
                 timeout_expr = self.parse_expr()
                 self.expect(TT.COLON)
-                body = self.parse_body()
+                body = self._parse_body_for_header_expr(entered_timeout)
                 arms.append(Tree("waitany_timeout", [timeout_expr, body]))
                 self._consume_newlines()
                 continue
 
+            entered_head = self._mark_expr_continuations()
             head = self.parse_expr()
             self.expect(TT.COLON)
-            body = self.parse_body()
+            body = self._parse_body_for_header_expr(entered_head)
             arms.append(Tree("waitany_arm", [head, body]))
 
             self._consume_newlines()
@@ -2105,35 +2441,27 @@ class Parser:
         return Tree("waitmodifierblock", arms, attrs=self._modifier_attrs(modifier_tok))
 
     def parse_return_stmt(self) -> Tree:
-        """Parse return statement: return [expr | pack]"""
-        return_tok = self.expect(TT.RETURN)
+        """Parse return statement: return [expr | pack]
 
-        # Check if there's a value — clause delimiters also end bare return
-        if self.check(
-            TT.NEWLINE,
-            TT.EOF,
-            TT.SEMI,
-            TT.RBRACE,
-            TT.ELSE,
-            TT.ELIF,
-            TT.IF,
-            TT.UNLESS,
-            TT.PIPE,
-        ):
+        Supports indented expression continuation:
+          return
+            expr
+          return
+            1, 2
+        """
+        return_tok = self.expect(TT.RETURN)
+        entered_depth = self._expr_cont_depth
+
+        # Check for bare return — but NEWLINE with indented continuation is allowed
+        if self.check(TT.NEWLINE):
+            if not self._try_operand_continuation():
+                return Tree("returnstmt", [return_tok])
+        elif self.current.type in self._BARE_STMT_TERMINATORS:
             return Tree("returnstmt", [return_tok])
 
-        # Parse first expression
-        first_expr = self.parse_expr()
-
-        # Check for pack (comma-separated expressions)
-        if self.check(TT.COMMA):
-            exprs = [first_expr]
-            while self.match(TT.COMMA):
-                exprs.append(self.parse_expr())
-            pack = Tree("pack", exprs)
-            return Tree("returnstmt", [return_tok, pack])
-
-        return Tree("returnstmt", [return_tok, first_expr])
+        value = self._parse_expr_or_pack(self.parse_expr)
+        self._drain_expr_continuations(entered_depth)
+        return Tree("returnstmt", [return_tok, value])
 
     def parse_break_stmt(self) -> Tree:
         """Parse break statement"""
@@ -2144,32 +2472,57 @@ class Parser:
         return Tree("continuestmt", [self.expect(TT.CONTINUE)])
 
     def parse_throw_stmt(self) -> Tree:
-        """Parse throw statement: throw [expr]"""
+        """Parse throw statement: throw [expr]
+
+        Supports indented expression continuation:
+          throw
+            expr
+        """
         self.expect(TT.THROW)
-        # Optional expression — treat clause delimiters as bare-throw boundaries
+        entered_depth = self._expr_cont_depth
+        # Check for bare throw with optional continuation
+        if self.check(TT.NEWLINE):
+            if not self._try_operand_continuation():
+                return Tree("throwstmt", [])
+            value = self.parse_expr()
+            self._drain_expr_continuations(entered_depth)
+            return Tree("throwstmt", [value])
         if self.current.type in self._BARE_STMT_TERMINATORS:
             return Tree("throwstmt", [])
         value = self.parse_expr()
         return Tree("throwstmt", [value])
 
+    def _parse_expr_with_optional_second(self) -> tuple[Node, Optional[Node]]:
+        """Parse expr [, expr] with expression continuation support.
+        Shared by assert and dbg."""
+        entered_depth = self._expr_cont_depth
+        self._try_operand_continuation()
+        first = self.parse_expr()
+        second: Optional[Node] = None
+        if self.match(TT.COMMA):
+            second = self._parse_delimited_item(self.parse_expr)
+        self._drain_expr_continuations(entered_depth)
+        return first, second
+
     def parse_assert_stmt(self) -> Tree:
         """Parse assert: assert expr [, message]"""
         self.expect(TT.ASSERT)
-        value = self.parse_expr()
-        # Optional comma and message expression
-        if self.match(TT.COMMA):
-            message = self.parse_expr()
-            return Tree("assert", [value, message])
-        return Tree("assert", [value])
+        value, message = self._parse_expr_with_optional_second()
+        children: list[Node] = [value]
+        if message:
+            children.append(message)
+
+        return Tree("assert", children)
 
     def parse_dbg_stmt(self) -> Tree:
         """Parse dbg: DBG (expr ("," expr)?)"""
         dbg_tok = self.expect(TT.DBG)
-        first_expr = self.parse_expr()
-        if self.match(TT.COMMA):
-            second_expr = self.parse_expr()
-            return Tree("dbg", [dbg_tok, first_expr, second_expr])
-        return Tree("dbg", [dbg_tok, first_expr])
+        first_expr, second_expr = self._parse_expr_with_optional_second()
+        children: list[Node] = [dbg_tok, first_expr]
+        if second_expr:
+            children.append(second_expr)
+
+        return Tree("dbg", children)
 
     def parse_guard_chain(self) -> Tree:
         """
@@ -2180,9 +2533,10 @@ class Parser:
         branches = []
 
         # Parse first branch
+        entered_cond = self._mark_expr_continuations()
         cond = self.parse_expr()
         self.expect(TT.COLON)
-        body = self.parse_body()
+        body = self._parse_body_for_header_expr(entered_cond)
         branches.append(Tree("guardbranch", [cond, body]))
 
         # Parse additional branches (allow newlines before | or |:)
@@ -2210,9 +2564,10 @@ class Parser:
                         break
 
                     # Another conditional branch
+                    entered_cond = self._mark_expr_continuations()
                     cond = self.parse_expr()
                     self.expect(TT.COLON)
-                    body = self.parse_body()
+                    body = self._parse_body_for_header_expr(entered_cond)
                     branches.append(Tree("guardbranch", [cond, body]))
             else:
                 # No continuation, exit without consuming tokens
@@ -2290,6 +2645,12 @@ class Parser:
         self.in_inline_body = old_inline
         return Tree("body", [stmt], attrs={"inline": True})
 
+    def _parse_body_for_header_expr(self, entered_depth: int) -> Tree:
+        """Parse a `:` body, then drain only continuation owned by the header."""
+        body = self.parse_body()
+        self._drain_expr_continuations(entered_depth)
+        return body
+
     def _parse_required_indented_body(self, context: str) -> Tree:
         """Parse body and require the next non-newline token to be INDENT."""
         lookahead = 0
@@ -2316,10 +2677,15 @@ class Parser:
 
     def parse_catch_expr(self) -> Node:
         """Parse catch expression: expr catch [types] [bind x]: handler"""
+        entered_expr = self._mark_expr_continuations()
         expr = self.parse_ternary_expr()
 
+        # Check for catch on same line or across newlines in continuation
         if not self._check_catch_start():
-            return expr
+            if self._expr_cont_depth <= 0 or not self.check(TT.NEWLINE):
+                return expr
+            if not self._consume_attached_catch_newline():
+                return expr
 
         self._consume_catch_keyword()
         types, binder = self._parse_catch_filter()
@@ -2333,31 +2699,24 @@ class Parser:
                 k += 1
             is_stmt = self.peek(k).type == TT.INDENT
         handler = self.parse_body()
+        self._drain_expr_continuations(entered_expr)
 
         children = self._build_catch_children(expr, types, binder, handler)
         return Tree("catchstmt" if is_stmt else "catchexpr", children)
 
     def parse_catch_stmt(self) -> Tree:
         """Parse catch statement starting at current position."""
+        entered_expr = self._mark_expr_continuations()
         try_expr = self.parse_expr()
 
-        if self.check(TT.NEWLINE):
-            # Permit catch after blank lines when it immediately follows the expression.
-            k = 0
-            while self.peek(k).type == TT.NEWLINE:
-                k += 1
-            if not self._check_catch_at(k):
-                return try_expr
-            while self.match(TT.NEWLINE):
-                pass
-
-        if not self._check_catch_start():
+        if not self._consume_attached_catch_newline():
             return try_expr
 
         self._consume_catch_keyword()
         types, binder = self._parse_catch_filter()
         self.expect(TT.COLON)
         body = self.parse_body()
+        self._drain_expr_continuations(entered_expr)
 
         return Tree(
             "catchstmt", self._build_catch_children(try_expr, types, binder, body)
@@ -2382,13 +2741,29 @@ class Parser:
         )
 
     def parse_ternary_expr(self) -> Node:
-        """Parse ternary: expr ? then : else"""
+        """Parse ternary: expr ? then : else
+        Supports multiline:
+          cond
+          ? then_expr
+          : else_expr
+        """
+        entered = self._mark_expr_continuations()
         expr = self.parse_or_expr()
 
-        if self.match(TT.QMARK):
+        # Check for ? on same line or on indented continuation line
+        if self.check(TT.QMARK) or self._try_infix_continuation(TT.QMARK):
+            self.expect(TT.QMARK)
+            # Trailing ?: then-arm may be on the next indented line
+            self._try_operand_continuation()
             then_expr = self.parse_expr()
+            # Allow : on same line or continuation line
+            if not self.check(TT.COLON):
+                self._try_same_indent_continuation(TT.COLON)
             self.expect(TT.COLON)
+            # Trailing :: else-arm may be on the next indented line
+            self._try_operand_continuation()
             else_expr = self.parse_ternary_expr()  # Right associative
+            self._drain_expr_continuations(entered)
             return Tree("ternary", [expr, then_expr, else_expr])
 
         # No ternary, return unwrapped
@@ -2451,24 +2826,37 @@ class Parser:
           lvalue = expr
           lvalue += expr  (and other compounds)
         """
+        entered_bind = self._mark_expr_continuations()
         left = self.parse_send_expr()
-
-        if self.match(TT.APPLYASSIGN):
+        if self.check(TT.APPLYASSIGN) or self._try_infix_continuation(TT.APPLYASSIGN):
+            self.expect(TT.APPLYASSIGN)
             lvalue = self._expr_to_lvalue(left)
+            # Trailing operator: RHS may be on next line (same indent or indented)
+            self._try_operand_continuation()
             right = self.parse_bind_expr()  # right-associative
+            self._drain_expr_continuations(entered_bind)
             return Tree("bind", [lvalue, right])
 
         # = and compound ops suppressed inside pattern-default expressions
         if self._assign_expr_allowed():
-            if self.match(TT.ASSIGN):
+            if self.check(TT.ASSIGN) or self._try_infix_continuation(TT.ASSIGN):
+                self.expect(TT.ASSIGN)
                 lvalue = self._expr_to_lvalue(left)
+                # Trailing operator: RHS may be on next line (same indent or indented)
+                self._try_operand_continuation()
                 right = self._parse_assign_expr_rhs(lvalue)
+                self._drain_expr_continuations(entered_bind)
                 return Tree("assignstmt", [lvalue, right])
 
-            if self.check(*self._COMPOUND_ASSIGN_EXPR_OPS):
+            if self.check(
+                *self._COMPOUND_ASSIGN_EXPR_OPS
+            ) or self._try_infix_continuation(*self._COMPOUND_ASSIGN_EXPR_OPS):
                 op = self.advance()
                 lvalue = self._expr_to_lvalue(left)
+                # Trailing operator: RHS may be on next line (same indent or indented)
+                self._try_operand_continuation()
                 right = self._parse_assign_expr_rhs(lvalue)
+                self._drain_expr_continuations(entered_bind)
                 return Tree("compound_assign", [lvalue, op, right])
 
         return left
@@ -2491,12 +2879,17 @@ class Parser:
 
     def parse_send_expr(self) -> Node:
         """Parse channel send: expr -> expr"""
+        entered = self._mark_expr_continuations()
         left = self.parse_walrus_expr()
 
-        while self.match(TT.SEND):
+        while self.check(TT.SEND) or self._try_infix_continuation(TT.SEND):
+            self.advance()  # consume ->
+            # Trailing operator: RHS may be on the next indented line
+            self._try_operand_continuation()
             right = self.parse_walrus_expr()
             left = Tree("send", [left, right])
 
+        self._drain_expr_continuations(entered)
         return left
 
     def _expr_to_lvalue(self, expr: Tree | Tok) -> Tree:
@@ -2613,7 +3006,12 @@ class Parser:
 
         return False
 
-    def _parse_assignment_rhs(self, lvalue: Tree, *, allow_pack: bool = True) -> Node:
+    def _parse_assignment_rhs(
+        self,
+        lvalue: Tree,
+        *,
+        allow_pack: bool = True,
+    ) -> Node:
         """Parse assignment RHS; allow `expr, expr` packs for fan-shaped lvalues."""
         allow_pack = allow_pack and self._lvalue_allows_rhs_pack(lvalue)
         if not allow_pack:
@@ -2621,19 +3019,33 @@ class Parser:
 
         # Each pack element is parsed at bind level so chained
         # assignments like `a.{x,y} = b = 3` are consumed correctly.
-        saved_context = self._push_parse_context(ParseContext.DESTRUCTURE_PACK)
+        return self._parse_expr_or_pack(
+            self.parse_bind_expr,
+            context=ParseContext.DESTRUCTURE_PACK,
+        )
+
+    def _parse_expr_or_pack(
+        self,
+        item_parser: Any,
+        *,
+        context: Optional[ParseContext] = None,
+    ) -> Node:
+        """Parse one expression or a comma-separated pack."""
+        saved_context = (
+            self._push_parse_context(context) if context is not None else None
+        )
         try:
-            rhs = self.parse_bind_expr()
+            first_expr = item_parser()
             if not self.check(TT.COMMA):
-                return rhs
+                return first_expr
 
-            exprs: List[Node] = [rhs]
+            exprs: list[Node] = [first_expr]
             while self.match(TT.COMMA):
-                exprs.append(self.parse_bind_expr())
-
+                exprs.append(self._parse_delimited_item(item_parser))
             return Tree("pack", exprs)
         finally:
-            self._pop_parse_context(saved_context)
+            if saved_context is not None:
+                self._pop_parse_context(saved_context)
 
     def parse_walrus_expr(self) -> Node:
         """Parse walrus: x := expr"""
@@ -2641,8 +3053,12 @@ class Parser:
         if self.check(TT.IDENT) and self.peek(1).type == TT.WALRUS:
             name = self.current
             self.advance(2)  # consume IDENT and :=
-            # Parse the RHS
+            # Allow RHS on next line (same indent inside continuation, or indented)
+            entered_depth = self._expr_cont_depth
+            self._try_operand_continuation()
             value = self.parse_catch_expr()  # allow catch expressions in walrus RHS
+            # Drain any continuations opened by the operand continuation
+            self._drain_expr_continuations(entered_depth)
             return Tree("walrus", [name, value])
 
         # No walrus, just return nullish level
@@ -2650,36 +3066,128 @@ class Parser:
 
     def parse_nullish_expr(self) -> Node:
         """Parse nullish coalescing: expr ?? expr"""
+        entered = self._mark_expr_continuations()
         left = self.parse_compare_expr()
 
-        if not self.check(TT.NULLISH):
-            # No nullish operator, just return compare level
+        if not self.check(TT.NULLISH) and not self._try_infix_continuation(TT.NULLISH):
             return left
 
-        # Collect all operands and operators into flat list
         children: list[Node] = [left]
-        while self.check(TT.NULLISH):
+        while self.check(TT.NULLISH) or self._try_infix_continuation(TT.NULLISH):
             op = self.advance()
             children.append(op)
+            # Trailing operator: RHS may be on the next indented line
+            self._try_operand_continuation()
             right = self.parse_compare_expr()
             children.append(right)
 
+        self._drain_expr_continuations(entered)
         return Tree("nullish", children)
+
+    # Comparison operators that can appear on an indented continuation line.
+    _COMPARE_CONT_OPS: frozenset[TT] = frozenset(
+        {
+            TT.EQ,
+            TT.NEQ,
+            TT.LT,
+            TT.LTE,
+            TT.GT,
+            TT.GTE,
+            TT.IS,
+            TT.IN,
+            TT.REGEXMATCH,
+            TT.NOT,
+            TT.NEG,
+            TT.TILDE,
+        }
+    )
+
+    def _try_compare_continuation(self) -> bool:
+        """Try comparison continuation while honoring pattern-default suppression."""
+        if not self.check(TT.NEWLINE):
+            return False
+
+        k, next_type = self._peek_past_newlines()
+        if (
+            self._pattern_default_paren_depth >= 0
+            and self.paren_depth <= self._pattern_default_paren_depth
+            and next_type in {TT.TILDE, TT.REGEXMATCH}
+        ):
+            return False
+
+        return self._try_infix_continuation(*self._COMPARE_CONT_OPS)
+
+    def _try_pattern_contract_continuation(self) -> bool:
+        """Try `NEWLINE + INDENT + ~` continuation for a pattern contract."""
+        if not self.use_indenter or self.paren_depth > 0:
+            return False
+        if not self.check(TT.NEWLINE):
+            return False
+
+        span = self._peek_past_nonblank_newlines()
+        if span is None:
+            return False
+
+        k, next_type = span
+        if next_type != TT.INDENT or self.peek(k + 1).type != TT.TILDE:
+            return False
+
+        self._consume_newlines()
+        self.expect(TT.INDENT)
+        self._expr_cont_depth += 1
+        return True
+
+    def _lookahead_pattern_contract_continuation(
+        self, idx: int, paren_depth: int
+    ) -> Optional[tuple[int, int]]:
+        """Stateless lookahead for `NEWLINE* INDENT ~` pattern-contract continuation."""
+        look_idx = idx
+        look_paren_depth = paren_depth
+
+        if not self._lookahead_check(look_idx, TT.NEWLINE):
+            return None
+
+        # Collect NEWLINE positions, then check that all except the last
+        # (which describes the target code line) are comment-only.
+        newline_indices: list[int] = []
+        while self._lookahead_check(look_idx, TT.NEWLINE):
+            newline_indices.append(look_idx)
+            _, look_idx, look_paren_depth = self._lookahead_advance(
+                look_idx, look_paren_depth
+            )
+
+        # All intervening NEWLINEs (all except the last) must be comment-only
+        for nl_idx in newline_indices[:-1]:
+            if self._lookahead_peek(nl_idx).next_line_kind != "comment_only":
+                return None
+
+        if not self._lookahead_check(look_idx, TT.INDENT):
+            return None
+        _, look_idx, look_paren_depth = self._lookahead_advance(
+            look_idx, look_paren_depth
+        )
+
+        if not self._lookahead_check(look_idx, TT.TILDE):
+            return None
+        return look_idx, look_paren_depth
 
     def parse_compare_expr(self) -> Node:
         """
         Parse comparison with chained comparison chains (CCC):
         x == 5, and < 10, or > 100
         """
+        entered = self._mark_expr_continuations()
         left = self.parse_add_expr()
 
-        # Check for comparison operator
+        # Check for comparison operator (same line or continuation)
         if not self.is_compare_op():
-            # No comparison, return unwrapped
-            return left
+            if not self._try_compare_continuation():
+                return left
 
         # Parse CCC
         op_tokens = self.parse_compare_op()
+        # Trailing operator: RHS may be on the next indented line
+        self._try_operand_continuation()
         right = self.parse_add_expr()
 
         # Wrap operator tokens in cmpop tree
@@ -2687,6 +3195,7 @@ class Parser:
         children = [left, op_tree, right]
 
         # Check for comma-chained comparisons (only if comma is CCC)
+        # Note: CCC legs do NOT split across newlines (per spec)
         if self.comma_is_ccc():
             # CCC chain - consume the comma
             self.match(TT.COMMA)
@@ -2729,8 +3238,10 @@ class Parser:
                     break
                 self.match(TT.COMMA)  # consume it
 
+            self._drain_expr_continuations(entered)
             return Tree("compare", children)
 
+        self._drain_expr_continuations(entered)
         return Tree("compare", [left, op_tree, right])
 
     def comma_is_ccc(self) -> bool:
@@ -2875,11 +3386,15 @@ class Parser:
 
     def parse_pow_expr(self) -> Node:
         """Parse exponentiation: expr ** expr (right associative)"""
+        entered = self._mark_expr_continuations()
         base = self.parse_unary_expr()
 
-        if self.check(TT.POW):
+        if self.check(TT.POW) or self._try_infix_continuation(TT.POW):
             pow_tok = self.advance()
+            # Trailing operator: RHS may be on the next indented line
+            self._try_operand_continuation()
             exp = self.parse_pow_expr()  # Right associative
+            self._drain_expr_continuations(entered)
             return Tree("pow", [base, pow_tok, exp])
 
         # No power operator, return unwrapped
@@ -2890,10 +3405,15 @@ class Parser:
         # Throw as expression-form
         if self.check(TT.THROW):
             self.advance()
-            if self.current.type in self._BARE_STMT_TERMINATORS:
+            entered_cont = self._try_operand_continuation()
+            if not entered_cont and self.current.type in self._BARE_STMT_TERMINATORS:
                 return Tree("throwstmt", [])
-            value = self.parse_unary_expr()
-            return Tree("throwstmt", [value])
+            try:
+                value = self.parse_unary_expr()
+                return Tree("throwstmt", [value])
+            finally:
+                if entered_cont:
+                    self._exit_expr_continuation()
 
         # Wait
         if self.check(TT.WAIT):
@@ -2901,7 +3421,7 @@ class Parser:
 
         # Receive
         if self.match(TT.RECV):
-            expr = self.parse_unary_expr()
+            expr = self._parse_prefix_operand(self.parse_unary_expr)
             return Tree("recv", [expr])
 
         # Spawn
@@ -2910,12 +3430,12 @@ class Parser:
 
         # $ (no anchor)
         if self.match(TT.DOLLAR):
-            expr = self.parse_unary_expr()
+            expr = self._parse_prefix_operand(self.parse_unary_expr)
             return Tree("noanchor_expr", [expr])
 
         # Spread prefix
         if self.match(TT.SPREAD):
-            expr = self.parse_unary_expr()
+            expr = self._parse_prefix_operand(self.parse_unary_expr)
             return Tree("spread", [expr])
 
         # Unary prefix operators
@@ -2931,7 +3451,7 @@ class Parser:
                         line=tok.line,
                         column=tok.column,
                     )
-            expr = self.parse_unary_expr()
+            expr = self._parse_prefix_operand(self.parse_unary_expr)
             op_tree = Tree("unaryprefixop", [op])
             return Tree("unary", [op_tree, expr])
 
@@ -3813,6 +4333,12 @@ class Parser:
                     return saw_expr_token
 
                 if tok.type in {TT.NEWLINE, TT.SEMI, TT.PIPE, TT.EOF}:
+                    if tok.type == TT.NEWLINE:
+                        contract_cont = self._lookahead_pattern_contract_continuation(
+                            idx, 0
+                        )
+                        if contract_cont is not None:
+                            return saw_expr_token
                     return False
 
             saw_expr_token = True
@@ -3858,6 +4384,12 @@ class Parser:
                     return saw_expr_token
 
                 if tok.type in {TT.NEWLINE, TT.SEMI, TT.PIPE, TT.EOF}:
+                    if tok.type == TT.NEWLINE:
+                        contract_cont = self._lookahead_pattern_contract_continuation(
+                            idx, 0
+                        )
+                        if contract_cont is not None:
+                            return saw_expr_token
                     return False
 
             saw_expr_token = True
@@ -3881,7 +4413,9 @@ class Parser:
         ):
             self.advance()
             default = self._parse_pattern_default_expr()
-        if self.match(TT.TILDE):
+        if self.match(TT.TILDE) or self._try_pattern_contract_continuation():
+            if self.check(TT.TILDE):
+                self.advance()
             # Parse contract at comparison level to avoid consuming walrus/comma.
             contract = self.parse_compare_expr()
 
@@ -4454,23 +4988,12 @@ class Parser:
         return Tree("pattern_list", patterns)
 
     def parse_destructure_rhs(self) -> Tree:
-        """Parse destructuring RHS: expr or expr, expr, ..."""
-        # Set context: commas in destructure pack are separators, not CCC
-        saved_context = self._push_parse_context(ParseContext.DESTRUCTURE_PACK)
-        try:
-            first_expr = self.parse_expr()
-
-            # Check if there are more expressions (pack)
-            if self.check(TT.COMMA):
-                exprs = [first_expr]
-                while self.match(TT.COMMA):
-                    exprs.append(self.parse_expr())
-                return Tree("pack", exprs)
-
-            # Single expression
-            return first_expr
-        finally:
-            self._pop_parse_context(saved_context)
+        """Parse destructuring RHS: expr or expr, expr, ...
+        Handles trailing assignment operator with RHS on next indented line."""
+        self._try_operand_continuation()
+        return self._parse_expr_or_pack(
+            self.parse_expr, context=ParseContext.DESTRUCTURE_PACK
+        )
 
     def parse_destructure_pattern(self) -> Tree:
         """Parse destructuring pattern for assignments: ident [~ contract] (, ident [~ contract])*"""
@@ -4565,10 +5088,25 @@ class Parser:
                             if depth < 0:
                                 return False
                         elif tok.type in {TT.NEWLINE, TT.SEMI, TT.EOF}:
+                            if depth == 0 and tok.type == TT.NEWLINE:
+                                contract_cont = (
+                                    self._lookahead_pattern_contract_continuation(
+                                        idx, paren_depth
+                                    )
+                                )
+                                if contract_cont is not None:
+                                    idx, paren_depth = contract_cont
+                                    break
                             return False
                         _, idx, paren_depth = self._lookahead_advance(idx, paren_depth)
 
                 # Optional contract: ~ <expr until comma/assign/walrus>
+                contract_cont = self._lookahead_pattern_contract_continuation(
+                    idx, paren_depth
+                )
+                if contract_cont is not None:
+                    idx, paren_depth = contract_cont
+
                 if self._lookahead_check(idx, TT.TILDE):
                     has_special = True
                     has_contract_or_rest = True
@@ -4674,10 +5212,7 @@ class Parser:
                 )
             self.expect(TT.RPAR)
 
-        # Optional return contract: ~ Schema
-        return_contract = None
-        if self.match(TT.TILDE):
-            return_contract = self.parse_expr()
+        entered_contract, return_contract = self._parse_optional_return_contract()
 
         self.expect(TT.COLON)
         if self.check(TT.LBRACE):
@@ -4699,6 +5234,7 @@ class Parser:
                 body = self.parse_body()
         else:
             body = self.parse_body()
+        self._drain_expr_continuations(entered_contract)
 
         paramlist_node = None if auto_invoke else params
         anon_children: List[Any] = []
