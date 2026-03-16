@@ -370,7 +370,7 @@ def _explicit_call_in_node(node: Node) -> bool:
 
 def _unwrap_expr_node(node: Node) -> Node:
     cur = node
-    while tree_label(cur) in {"expr", "group", "group_expr"}:
+    while tree_label(cur) in {"group", "group_expr"}:
         children = tree_children(cur)
         if len(children) != 1:
             break

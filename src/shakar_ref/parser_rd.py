@@ -169,7 +169,6 @@ class Parser:
         self.pos = 0
         self.current = tokens[0] if tokens else Tok(TT.EOF, None, 0, 0)
         self.previous = self.current  # Track last consumed token for _tok positions
-        self.in_inline_body = False  # Track if we're in inlinebody context
         self.use_indenter = use_indenter  # Track indentation mode
         self._layout_types = (
             self._LAYOUT_TYPES_FULL if use_indenter else self._LAYOUT_TYPES_NEWLINE_ONLY
@@ -190,8 +189,6 @@ class Parser:
         # Used to allow nested assignment expressions inside []/{} while still
         # suppressing ambiguous top-level `=` in defaults.
         self._pattern_default_start_pos: int = -1
-        # Monotonic once-site ID allocator seeded from process-global counter.
-        self._next_once_id: int = 0
         # Expression continuation depth: tracks nested INDENT levels entered
         # for indented expression continuation (not dot-chain or block bodies).
         self._expr_cont_depth: int = 0
@@ -1353,15 +1350,6 @@ class Parser:
         self.delimiter_depth = snapshot.delimiter_depth
         self._group_stack = snapshot.group_stack
         self._group_layout_stop_tokens = snapshot.group_layout_stop_tokens
-
-    def skip_layout_tokens(self) -> None:
-        """Skip NEWLINE and optionally INDENT/DEDENT tokens (when using indenter)"""
-        if self.use_indenter:
-            while self.match(TT.NEWLINE, TT.INDENT, TT.DEDENT):
-                pass
-        else:
-            while self.match(TT.NEWLINE):
-                pass
 
     def _consume_grouped_layout(self, opener_column: Optional[int] = None) -> None:
         """Consume layout tokens inside a grouped delimiter.
@@ -3050,10 +3038,7 @@ class Parser:
                 return Tree("body", children, attrs={"inline": False})
 
             # Single statement inline
-            old_inline = self.in_inline_body
-            self.in_inline_body = True
             stmt = self.parse_statement()
-            self.in_inline_body = old_inline
             return Tree("body", [stmt], attrs={"inline": True})
 
     def _parse_body_for_header_expr(self, entered_depth: int) -> Tree:
@@ -5465,23 +5450,6 @@ class Parser:
         return self._parse_expr_or_pack(
             self.parse_expr, context=ParseContext.DESTRUCTURE_PACK
         )
-
-    def parse_destructure_pattern(self) -> Tree:
-        """Parse destructuring pattern for assignments: ident [~ contract] (, ident [~ contract])*"""
-        items: list[Node] = []
-        items.append(self._parse_pattern_item())
-
-        while self.match(TT.COMMA):
-            items.append(self._parse_pattern_item())
-
-        return Tree("patternlist", items)
-
-    def _parse_pattern_item(self) -> Tree:
-        """Parse a single pattern item: IDENT [= default] [~ contract] or ...IDENT"""
-        if self.match(TT.SPREAD):
-            ident = self.expect(TT.IDENT)
-            return Tree("pattern_rest", [ident])
-        return self._parse_pattern_from_ident(self.expect(TT.IDENT))
 
     def _is_destructure_with_contracts(self) -> bool:
         """

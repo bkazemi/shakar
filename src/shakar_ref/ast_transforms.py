@@ -1,6 +1,6 @@
 """
-AST transformation utilities (Prune/ChainNormalize/ArgTidy) and helpers that
-were previously defined inside parse_auto.py.
+AST transformation utilities (Prune) and helpers that were previously defined
+inside parse_auto.py.
 """
 
 from __future__ import annotations
@@ -42,118 +42,6 @@ def looks_like_offside(code: str) -> bool:
         if ln and (ln[0] == " " or ln[0] == "\t"):
             return True
     return False
-
-
-def enforce_subject_scope(tree: Tree) -> None:
-    """Validate that bare '.' only appears inside an anchor/binder context."""
-    errors: List[str] = []
-
-    def visit(node: Node, depth: int) -> None:
-        label = tree_label(node)
-        if label is None:
-            return
-
-        children = list(tree_children(node))
-
-        if label == "subject":
-            if depth == 0:
-                errors.append("bare '.' outside a binder/anchor context")
-            return
-        if label == "bindexpr" and len(children) == 2:
-            visit(children[0], depth)
-            visit(children[1], depth + 1)
-            return
-        if label == "hook":
-            for ch in children:
-                if tree_label(ch) == "body":
-                    visit(ch, depth + 1)
-                else:
-                    visit(ch, depth)
-            return
-        if label == "waitany_arm":
-            for idx, ch in enumerate(children):
-                if idx == 1 and tree_label(ch) == "body":
-                    visit(ch, depth + 1)
-                else:
-                    visit(ch, depth)
-            return
-        if label in {"waitany_timeout", "waitany_default"}:
-            for idx, ch in enumerate(children):
-                if idx == len(children) - 1 and tree_label(ch) == "body":
-                    visit(ch, depth + 1)
-                else:
-                    visit(ch, depth)
-            return
-        # These labels all visit the last child at depth+1 (binder scope).
-        if (
-            label
-            in {
-                "forsubject",
-                "forindexed",
-                "lambdacall1",
-                "lambdacalln",
-                "stmtsubjectassign",
-            }
-            and children
-        ):
-            for ch in children[:-1]:
-                visit(ch, depth)
-            visit(children[-1], depth + 1)
-            return
-
-        for ch in children:
-            visit(ch, depth)
-
-    visit(tree, 0)
-
-    if errors:
-        raise SyntaxError(errors[0])
-
-
-class ChainNormalize(Transformer):
-    @staticmethod
-    def _fuse(items: List[Node]) -> List[Node]:
-        out: List[Node] = []
-        i = 0
-
-        while i < len(items):
-            node = items[i]
-
-            # Check for field (or noanchor-wrapped field) followed by call
-            is_field = tree_label(node) == "field"
-            is_noanchor_field = (
-                tree_label(node) == "noanchor"
-                and tree_label(node.children[0]) == "field"
-            )
-
-            if (is_field or is_noanchor_field) and i + 1 < len(items):
-                nxt = items[i + 1]
-
-                if tree_label(nxt) == "call":
-                    inner = node.children[0] if is_noanchor_field else node
-                    name = inner.children[0]
-                    args_node = (
-                        Tree("args", [Tree("amp_lambda", nxt.children)])
-                        if nxt.children
-                        else Tree("args", [])
-                    )
-                    method = Tree("method", [name, args_node])
-                    out.append(
-                        Tree("noanchor", [method]) if is_noanchor_field else method
-                    )
-                    i += 2
-                    continue
-
-            out.append(node)
-            i += 1
-
-        return out
-
-    def implicit_chain(self, c: List[Node]) -> Tree:
-        return Tree("implicit_chain", self._fuse(c))
-
-    def explicit_chain(self, c: List[Node]) -> Tree:
-        return Tree("explicit_chain", self._fuse(c))
 
 
 def _strip_tokens(children: List[Node], token_type: TT) -> List[Node]:
@@ -199,16 +87,6 @@ class Prune(Transformer):
                 return self._transform_env_string_token(node)
         return node
 
-    # Canonicalize fields to a single node shape: obj_field(key, value)
-    def obj_field_ident(self, c):
-        return Tree("obj_field", [Tree("key_ident", [c[0]]), c[1]])
-
-    def obj_field_string(self, c):
-        return Tree("obj_field", [Tree("key_string", [c[0]]), c[1]])
-
-    def obj_field_expr(self, c):
-        return Tree("obj_field", [Tree("key_expr", [c[0]]), c[1]])
-
     def obj_field_optional(self, c):
         """Preserve optional field sugar: key?: value.
 
@@ -216,9 +94,6 @@ class Prune(Transformer):
         directly from builtins, bypassing scope (hygienic sugar).
         """
         return Tree("obj_field_optional", [c[0], c[1]])
-
-    def obj_sep(self, _c):
-        return Discard
 
     # ---- string interpolation ----
 
@@ -611,17 +486,11 @@ class Prune(Transformer):
     def setliteral(self, c):
         return Tree("setliteral", _strip_tokens(c, TT.COMMA))
 
-    def setliteral_empty(self, _):
-        return Tree("setliteral", [])
-
     def setcomp(self, c):
         return Tree("setcomp", _strip_tokens(c, TT.SET))
 
     def array(self, c):
         return Tree("array", _strip_tokens(c, TT.COMMA))
-
-    def array_empty(self, _c):
-        return Tree("array", [])
 
     # Guard chains (inline if-else)
     def guardbranch(self, c):
@@ -629,24 +498,6 @@ class Prune(Transformer):
 
     def onelineguard(self, c):
         return Tree("onelineguard", c)
-
-    # Subject assignment =a syntax
-    # NOTE: rebind_primary is handled by base Transformer to preserve attrs
-
-    def subjectassign(self, c):
-        return Tree("subjectassign", c)
-
-    def stmtsubjectassign(self, c):
-        return Tree("stmtsubjectassign", c)
-
-    def subjectassign_rhs(self, c):
-        return Tree("subjectassign_rhs", c)
-
-    def implicit_subject_chain(self, c):
-        return Tree("implicit_chain", _strip_tokens(c, TT.DOT))
-
-    def explicit_subject_chain(self, c):
-        return Tree("explicit_chain", _strip_tokens(c, TT.DOT))
 
     # Dot stripping
     def field(self, c):
@@ -688,18 +539,6 @@ class Prune(Transformer):
         if meta:
             node.meta = meta
         return node
-
-    def amp_lambda1(self, c):
-        # Standalone &(expr) => amp_lambda
-        return Tree("amp_lambda", [c[0]])
-
-    def amp_lambdan(self, c):
-        # Standalone &[params](expr) => amp_lambda with paramlist
-        params, body = c[0], c[1]
-        return Tree("amp_lambda", [params, body])
-
-    def primary(self, c):
-        return c[0] if len(c) == 1 else Tree("primary", c)
 
     def stmt(self, c):
         return c[0] if len(c) == 1 else Tree("stmt", c)
@@ -918,18 +757,12 @@ class Prune(Transformer):
     def catchtypes(self, c: List[Node]) -> Tree:
         return Tree("catchtypes", _strip_tokens(c, TT.COMMA))
 
-    def catchassign(self, c: List[Node]) -> Tree:
-        return Tree("catchassign", _strip_tokens(c, TT.BIND))
-
     # tidy arg nodes for printing
     def arg(self, c):
         return c[0]
 
     def argitem(self, c):
         return c[0]
-
-    def arglist(self, c):
-        return Tree("args", c)
 
     def arglistnamedmixed(self, c):
         return Tree("args", c)
@@ -953,102 +786,6 @@ class Prune(Transformer):
                 yield from self._flatten_ccc_parts(tree_children(item))
                 continue
             yield item
-
-
-class ArgTidy(Transformer):
-    def arg(self, c):
-        return c[0]
-
-    def argitem(self, c):
-        return c[0]
-
-    def arglist(self, c):
-        return Tree("args", c)
-
-    def arglistnamedmixed(self, c):
-        return Tree("args", c)
-
-
-def validate_named_args(tree: Tree) -> None:
-    def is_namedarg(n: Node) -> bool:
-        if tree_label(n) == "argnamed":
-            return True
-
-        for ch in tree_children(n):
-            if is_namedarg(ch):
-                return True
-        return False
-
-    def walk(n: Node) -> None:
-        label = tree_label(n)
-        if label is None:
-            return
-
-        children = tree_children(n)
-
-        if label in {"call", "callnc", "emitexpr"} and children:
-            arglist = children[0]
-
-            if tree_label(arglist) != "arglistnamedmixed":
-                return
-            seen_named = False
-            for ch in tree_children(arglist):
-                if not is_namedarg(ch) and seen_named:
-                    raise SyntaxError(
-                        "Positional arguments must appear before named arguments"
-                    )
-                if is_namedarg(ch):
-                    seen_named = True
-
-        for ch in children:
-            walk(ch)
-
-    walk(tree)
-
-
-def validate_hoisted_binders(tree: Tree) -> None:
-    def walk(n: Node) -> None:
-        label = tree_label(n)
-        if label is None:
-            return
-
-        if label == "binderlist":
-            pairs: list[tuple[str, bool]] = []
-
-            for ch in tree_children(n):
-                if tree_label(ch) == "binder":
-                    name = _first_ident(ch)
-                    if name is None:
-                        continue
-                    is_hoisted = any(
-                        is_token(tok) and tok.type == TT.PLUS
-                        for tok in tree_children(ch)
-                        if is_token(tok)
-                    )
-                    pairs.append((name, is_hoisted))
-
-            if pairs:
-                byname: dict[str, set[str]] = {}
-
-                for name, is_h in pairs:
-                    base = name
-                    byname.setdefault(base, set()).add("H" if is_h else "P")
-
-                for base, kinds in byname.items():
-                    if kinds == {"H", "P"}:
-                        raise SyntaxError(
-                            f"Cannot use both hoisted and local binder for '{base}' in the same binder list"
-                        )
-
-                    if sum(1 for nm, is_h in pairs if nm == base and is_h) > 1:
-                        raise SyntaxError(
-                            f"Duplicate hoisted binder '{base}' in binder list"
-                        )
-
-        for ch in tree_children(n):
-            walk(ch)
-
-    walk(tree)
 
 
 def _strip_discard(node: Tree) -> Tree:

@@ -96,9 +96,6 @@ def retargets_anchor(node: Node) -> bool:
     if is_tree(node):
         label = tree_label(node)
 
-        if label == "expr" and node.children:
-            return retargets_anchor(node.children[0])
-
         return label not in {
             "implicit_chain",
             "subject",

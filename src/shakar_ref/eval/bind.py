@@ -309,15 +309,6 @@ def resolve_assignable_node(
             evaluate_index_operand=evaluate_index_operand,
         )
 
-    if label == "expr" and children:
-        return resolve_assignable_node(
-            children[0],
-            frame,
-            eval_fn=eval_fn,
-            apply_op=apply_op,
-            evaluate_index_operand=evaluate_index_operand,
-        )
-
     raise ShakarRuntimeError("Increment target must be assignable")
 
 
@@ -421,7 +412,7 @@ def _unwrap_lvalue_head(node: Node) -> Node:
     current = node
 
     while (
-        tree_label(current) in {"group", "group_expr", "expr", "primary"}
+        tree_label(current) in {"group", "group_expr", "primary"}
         and len(tree_children(current)) == 1
     ):
         current = tree_children(current)[0]

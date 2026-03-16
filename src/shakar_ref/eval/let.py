@@ -67,7 +67,6 @@ def _plain_single_pattern_name(node: Tree) -> Optional[str]:
 def _rhs_is_pack(rhs_node: Node) -> bool:
     rhs = rhs_node
     while tree_label(rhs) in {
-        "expr",
         "group",
         "group_expr",
         "primary",
@@ -164,9 +163,6 @@ def eval_let_stmt(
         raise ShakarRuntimeError("Malformed let statement")
 
     inner = node.children[0]
-    if tree_label(inner) == "expr" and tree_children(inner):
-        inner = tree_children(inner)[0]
-
     label = tree_label(inner)
 
     match label:
