@@ -2391,7 +2391,12 @@ class Parser:
             self.advance()
             fanop = Tree(fanop_label, [])
 
-            value = self.parse_expr()
+            # Suspend grouped-delimiter state so the value expression
+            # uses normal INDENT/DEDENT continuation rules.  This
+            # prevents the expression parser from consuming the next
+            # fanout clause's leading DOT as a chain continuation.
+            with self._suspended_group_state():
+                value = self.parse_expr()
 
             clauses.append(Tree("fanclause", [dot_tok, fanpath, fanop, value]))
             clause_count += 1

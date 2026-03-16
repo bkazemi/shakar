@@ -10,6 +10,7 @@ from tests.support.harness import (
     ShakarTypeError,
     run_runtime_case,
 )
+from shakar_ref.parser_rd import parse_source
 from shakar_ref.runner import run as run_program
 
 SCENARIOS = [
@@ -418,12 +419,111 @@ SCENARIOS = [
         ShakarRuntimeError,
         id="fan-modifier-unsupported",
     ),
+    # ---- Indented fanout: clause vs chain-continuation disambiguation ----
+    pytest.param(
+        dedent(
+            """\
+            state := {x: 0, y: 0}
+            state{
+              .x = 1
+              .y = 2
+            }
+            state.x + state.y
+        """
+        ),
+        ("number", 3),
+        None,
+        id="fanout-indented-plain-values",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            state := {x: 0, y: 0}
+            state{
+              .x = 1
+                + 2
+              .y = 3
+            }
+            state.x + state.y
+        """
+        ),
+        ("number", 6),
+        None,
+        id="fanout-indented-rhs-op-continuation",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            state := {x: "hello"}
+            state{
+              .x = .x
+                .len
+            }
+            state.x
+        """
+        ),
+        ("number", 5),
+        None,
+        id="fanout-indented-rhs-chain-deeper",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            s := {a: "hello", b: "world"}
+            s{
+              .a = .b
+                .trim()
+            }
+            s.a
+        """
+        ),
+        ("string", "world"),
+        None,
+        id="fanout-indented-rhs-chain-continuation",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            state := {rows: [{v: 1}, {v: 2}]}
+            state{
+              .rows[0].v = 10
+              .rows[1].v = 20
+            }
+            state.rows[0].v + state.rows[1].v
+        """
+        ),
+        ("number", 30),
+        None,
+        id="fanout-indented-selector-path-clauses",
+    ),
 ]
 
 
 @pytest.mark.parametrize("source, expectation, expected_exc", SCENARIOS)
 def test_fan(source: str, expectation, expected_exc) -> None:
     run_runtime_case(source, expectation, expected_exc)
+
+
+def test_fanout_indented_selector_path_indenter_mode() -> None:
+    """Adjacent-selector fanpath clauses must parse under use_indenter=True.
+
+    Regression: _lookahead_is_fanout_clause broke on .rows[0].v because the
+    lookahead only continued across DOT, not adjacent LSQB.  Without this
+    test the failure is masked by run()'s silent fallback to use_indenter=False.
+    """
+    code = dedent(
+        """\
+        state := {rows: [{v: 1}, {v: 2}]}
+        state{
+          .rows[0].v = 10
+          .rows[1].v = 20
+        }
+        state.rows[0].v + state.rows[1].v
+    """
+    )
+    # Must not raise — parse_source with use_indenter=True directly,
+    # no fallback to non-indenter mode.
+    parse_source(code, use_indenter=True)
 
 
 def test_fan_unknown_modifier_runtime_error() -> None:

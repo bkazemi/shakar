@@ -95,7 +95,7 @@ fn new_state():
     next: tetris_shapes[next_idx],
     x: int(
       cols / 2
-    - tetris_shapes[idx][0].len / 2
+      - tetris_shapes[idx][0].len / 2
     ),
     y: 0,
     level: 1,
