@@ -7,10 +7,10 @@
 
 typedef struct {
     const char *src;
-    int         src_len;
-    int         pos;
-    int         line;
-    int         col;
+    int src_len;
+    int pos;
+    int line;
+    int col;
 
     TokBuf tokens;
 
@@ -21,20 +21,22 @@ typedef struct {
     int indent_count; /* depth of indent_stack */
     int at_line_start;
     int group_depth;
+    int group_indent_marks[SHK_MAX_INDENT_DEPTH]; /* indent_count at each opener */
+    int group_mark_count;
     int line_ended_with_colon;
     int indent_after_colon;
     int prev_line_indent; /* -1 = not set */
 
     /* Error state */
-    int  has_error;
+    int has_error;
     char error_msg[256];
-    int  error_line;
-    int  error_col;
-    int  error_pos;
+    int error_line;
+    int error_col;
+    int error_pos;
 } Lexer;
 
 void lexer_init(Lexer *L, const char *src, int len, int track_indent, int emit_comments);
-int  lexer_tokenize(Lexer *L); /* returns token count, or -1 on error */
+int lexer_tokenize(Lexer *L); /* returns token count, or -1 on error */
 void lexer_free(Lexer *L);
 
 #endif /* SHK_LEXER_H */

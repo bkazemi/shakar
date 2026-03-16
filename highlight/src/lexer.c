@@ -658,14 +658,31 @@ static void scan_operator(Lexer *L) {
             TT type = OPERATORS[i].type;
             int spos = L->pos;
             adv(L, olen);
-            emit(L, type, spos, olen, sline, scol);
 
-            if (type == TT_LPAR || type == TT_LSQB || type == TT_LBRACE)
+            if (type == TT_LPAR || type == TT_LSQB || type == TT_LBRACE) {
                 L->group_depth++;
-            else if (type == TT_RPAR || type == TT_RSQB || type == TT_RBRACE) {
+                if (L->track_indent) {
+                    if (L->group_mark_count >= SHK_MAX_INDENT_DEPTH) {
+                        lexer_error(L, "Too many nested grouped delimiters");
+                        return;
+                    }
+                    L->group_indent_marks[L->group_mark_count++] = L->indent_count;
+                }
+            } else if (type == TT_RPAR || type == TT_RSQB || type == TT_RBRACE) {
+                /* Emit visible DEDENTs before the closer so tracked layout
+                 * remains balanced for consumers that read the token stream. */
+                if (L->track_indent && L->group_mark_count > 0) {
+                    int mark = L->group_indent_marks[--L->group_mark_count];
+                    while (L->indent_count > mark) {
+                        emit(L, TT_DEDENT, spos, 0, sline, scol);
+                        L->indent_count--;
+                    }
+                }
                 if (L->group_depth > 0)
                     L->group_depth--;
             }
+
+            emit(L, type, spos, olen, sline, scol);
             return;
         }
     }
@@ -692,27 +709,25 @@ static void handle_indentation(Lexer *L) {
 
     L->at_line_start = 0;
 
-    /* Implicit indent after colon inside group at base level */
-    if (L->indent_after_colon && L->group_depth > 0 && L->indent_count == 1 &&
-        L->prev_line_indent > 0 && L->prev_line_indent < indent) {
-        if (L->indent_count < SHK_MAX_INDENT_DEPTH - 1) {
-            L->indent_stack[L->indent_count++] = L->prev_line_indent;
-        }
-    }
-
     /* Skip blank lines */
     char ch = pk0(L);
     if (ch == '\n' || ch == '\r' || ch == '#')
         return;
 
     L->prev_line_indent = indent;
-
-    if (L->group_depth > 0 && !L->indent_after_colon && L->indent_count == 1)
-        return;
-
     L->indent_after_colon = 0;
 
     int current = L->indent_stack[L->indent_count - 1];
+
+    /* Reject misaligned grouped closers: inside a group, a closer
+     * indented past the current block level is an error. */
+    if (L->group_depth > 0 && indent > current) {
+        char nx = pk0(L);
+        if (nx == ')' || nx == ']' || nx == '}') {
+            lexer_error(L, "Indentation mismatch");
+            return;
+        }
+    }
 
     if (indent > current) {
         if (L->indent_count < SHK_MAX_INDENT_DEPTH - 1) {

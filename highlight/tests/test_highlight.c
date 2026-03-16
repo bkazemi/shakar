@@ -333,6 +333,191 @@ static void test_inline_guard_with_colon_expr_in_body_stays_keyword(void) {
                         HL_KEYWORD);
 }
 
+/* ================================================================ */
+/* Grouped delimiter layout enforcement tests                       */
+/* ================================================================ */
+
+/* Run lexer with indent tracking and check for expected error state. */
+static void check_lex_ok(const char *test, const char *src) {
+    Lexer lex;
+    lexer_init(&lex, src, (int)strlen(src), 1, 0);
+    int rc = lexer_tokenize(&lex);
+    if (rc < 0) {
+        printf("FAIL %s: unexpected error: %s (line %d)\n", test, lex.error_msg, lex.error_line);
+        g_fail++;
+    } else {
+        g_pass++;
+    }
+    lexer_free(&lex);
+}
+
+static void check_lex_ok_no_indent(const char *test, const char *src) {
+    Lexer lex;
+    lexer_init(&lex, src, (int)strlen(src), 0, 0);
+    int rc = lexer_tokenize(&lex);
+    if (rc < 0) {
+        printf("FAIL %s: unexpected error: %s (line %d)\n", test, lex.error_msg, lex.error_line);
+        g_fail++;
+    } else {
+        g_pass++;
+    }
+    lexer_free(&lex);
+}
+
+static void check_lex_error(const char *test, const char *src, const char *expected_msg) {
+    Lexer lex;
+    lexer_init(&lex, src, (int)strlen(src), 1, 0);
+    int rc = lexer_tokenize(&lex);
+    if (rc >= 0) {
+        printf("FAIL %s: expected error but got success\n", test);
+        g_fail++;
+    } else if (strstr(lex.error_msg, expected_msg) == NULL) {
+        printf("FAIL %s: expected '%s' but got '%s'\n", test, expected_msg, lex.error_msg);
+        g_fail++;
+    } else {
+        g_pass++;
+    }
+    lexer_free(&lex);
+}
+
+static void check_lex_token_types(const char *test, const char *src, const TT *expected,
+                                  int expected_count) {
+    Lexer lex;
+    lexer_init(&lex, src, (int)strlen(src), 1, 0);
+    int rc = lexer_tokenize(&lex);
+    if (rc < 0) {
+        printf("FAIL %s: unexpected error: %s (line %d)\n", test, lex.error_msg, lex.error_line);
+        g_fail++;
+        lexer_free(&lex);
+        return;
+    }
+
+    if (lex.tokens.count != expected_count) {
+        printf("FAIL %s: expected %d tokens got %d\n", test, expected_count, lex.tokens.count);
+        g_fail++;
+        lexer_free(&lex);
+        return;
+    }
+
+    for (int i = 0; i < expected_count; i++) {
+        if (lex.tokens.toks[i].type != expected[i]) {
+            printf("FAIL %s: token %d expected %d got %d\n", test, i, expected[i],
+                   lex.tokens.toks[i].type);
+            g_fail++;
+            lexer_free(&lex);
+            return;
+        }
+    }
+
+    g_pass++;
+    lexer_free(&lex);
+}
+
+/* Misaligned closer: indented past block level inside group => error. */
+static void test_misaligned_closer_rejected(void) {
+    /* Closer indented past current block level */
+    check_lex_error("misaligned_closer: paren", "x = (\n    1\n        )", "Indentation mismatch");
+    check_lex_error("misaligned_closer: bracket", "x = [\n    1\n        ]",
+                    "Indentation mismatch");
+    check_lex_error("misaligned_closer: brace", "x = {\n    1\n        }", "Indentation mismatch");
+}
+
+/* Properly aligned closer at or below current indent => ok. */
+static void test_aligned_closer_accepted(void) {
+    check_lex_ok("aligned_closer: paren at base", "x = (\n    1\n)");
+    check_lex_ok("aligned_closer: bracket at base", "x = [\n    1\n]");
+    check_lex_ok("aligned_closer: brace at base", "x = {\n    1\n}");
+    check_lex_ok("aligned_closer: same line", "x = (1)");
+}
+
+/* Indent frames pushed inside a group are rolled back on close,
+ * so subsequent code at the original level should not error. */
+static void test_indent_rollback_on_closer(void) {
+    check_lex_ok("rollback: code after group", "x = (\n    1\n)\ny = 2");
+    check_lex_ok("rollback: nested groups", "x = (\n    [\n        1\n    ]\n)\ny = 2");
+}
+
+/* Rolling back grouped indent frames must emit visible DEDENT tokens before
+ * the matching closer so downstream tracked-layout consumers stay balanced.
+ */
+static void test_grouped_closer_emits_visible_dedent(void) {
+    static const TT expected[] = {
+        TT_IDENT,   TT_ASSIGN, TT_LPAR,    TT_NEWLINE, TT_INDENT, TT_LSQB,    TT_NEWLINE,
+        TT_INDENT,  TT_NUMBER, TT_NEWLINE, TT_DEDENT,  TT_RSQB,   TT_NEWLINE, TT_NUMBER,
+        TT_NEWLINE, TT_DEDENT, TT_RPAR,    TT_NEWLINE, TT_EOF,
+    };
+
+    check_lex_token_types("grouped_closer_emits_visible_dedent",
+                          "x = (\n"
+                          "    [\n"
+                          "        1\n"
+                          "        ]\n"
+                          "    2\n"
+                          ")\n",
+                          expected, (int)(sizeof(expected) / sizeof(expected[0])));
+}
+
+/* Grouped block bodies must not double-push indent frames after ':'. */
+static void test_grouped_block_body_no_double_push(void) {
+    static const TT expected[] = {
+        TT_IDENT,   TT_ASSIGN,  TT_LPAR,   TT_NEWLINE, TT_INDENT,  TT_IDENT,
+        TT_NEWLINE, TT_DEDENT,  TT_IDENT,  TT_COLON,   TT_NEWLINE, TT_INDENT,
+        TT_IDENT,   TT_NEWLINE, TT_DEDENT, TT_RPAR,    TT_NEWLINE, TT_EOF,
+    };
+
+    check_lex_token_types("grouped_block_body_no_double_push",
+                          "x = (\n"
+                          "        a\n"
+                          "    b:\n"
+                          "        c\n"
+                          ")\n",
+                          expected, (int)(sizeof(expected) / sizeof(expected[0])));
+}
+
+/* Delimiter nesting beyond the recorded mark capacity must error rather than
+ * corrupt parent group rollback state.
+ */
+static void test_group_mark_overflow_errors(void) {
+    const int extra = SHK_MAX_INDENT_DEPTH + 1;
+    const int src_len = extra * 2 + 1;
+    char *src = (char *)malloc((size_t)src_len);
+    if (!src) {
+        printf("FAIL group_mark_overflow_errors: allocation failed\n");
+        g_fail++;
+        return;
+    }
+
+    for (int i = 0; i < extra; i++)
+        src[i] = '(';
+    for (int i = 0; i < extra; i++)
+        src[extra + i] = ')';
+    src[src_len - 1] = '\0';
+
+    check_lex_error("group_mark_overflow_errors", src, "Too many nested grouped delimiters");
+    free(src);
+}
+
+/* Deep pure grouping is valid when indent tracking is disabled. */
+static void test_group_mark_overflow_ignored_without_indent_tracking(void) {
+    const int extra = SHK_MAX_INDENT_DEPTH + 1;
+    const int src_len = extra * 2 + 1;
+    char *src = (char *)malloc((size_t)src_len);
+    if (!src) {
+        printf("FAIL group_mark_overflow_ignored_without_indent_tracking: allocation failed\n");
+        g_fail++;
+        return;
+    }
+
+    for (int i = 0; i < extra; i++)
+        src[i] = '(';
+    for (int i = 0; i < extra; i++)
+        src[extra + i] = ')';
+    src[src_len - 1] = '\0';
+
+    check_lex_ok_no_indent("group_mark_overflow_ignored_without_indent_tracking", src);
+    free(src);
+}
+
 int main(void) {
     test_standalone_dot_no_leak();
     test_dot_method_call();
@@ -352,6 +537,13 @@ int main(void) {
     test_grouped_pipe_matrix_not_guard_keyword();
     test_match_separator_with_prior_colon_expr_not_guard_keyword();
     test_inline_guard_with_colon_expr_in_body_stays_keyword();
+    test_misaligned_closer_rejected();
+    test_aligned_closer_accepted();
+    test_indent_rollback_on_closer();
+    test_grouped_closer_emits_visible_dedent();
+    test_grouped_block_body_no_double_push();
+    test_group_mark_overflow_errors();
+    test_group_mark_overflow_ignored_without_indent_tracking();
 
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
