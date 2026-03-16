@@ -291,7 +291,8 @@ def test_grouped_line_indent_does_not_open_nested_block() -> None:
     source = "fn f():\n  if (a and\n    b):\n    42\n"
     tokens = tokenize(source, track_indentation=True)
 
-    assert [token.type for token in tokens].count(TT.INDENT) == 2
+    # 3 INDENTs: fn body, group-internal (inside parens), if body
+    assert [token.type for token in tokens].count(TT.INDENT) == 3
 
 
 def test_grouped_colon_block_emits_dedent_before_sibling_field() -> None:

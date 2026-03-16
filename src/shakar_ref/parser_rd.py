@@ -12,13 +12,37 @@ Structure:
 """
 
 import threading
-from typing import Optional, List, Any
+from contextlib import contextmanager
+from typing import Optional, List, Any, Iterator, NamedTuple
 from types import SimpleNamespace
 from enum import Enum
 from .tree import Tree, Node, is_token, tree_label, tree_children
 
 from .token_types import TT, Tok
 from .lexer_rd import LexError
+
+
+class GroupFrame(NamedTuple):
+    """Per-delimiter state pushed when entering a grouped delimiter."""
+
+    column: int  # Line-base column of the opener (for indentation checks)
+    opener: TT  # Opener token type (LPAR, LSQB, LBRACE)
+    baseline: Optional[int] = None  # Active continuation column
+
+
+class _Snapshot(NamedTuple):
+    """Immutable parser state for speculative parsing and backtracking."""
+
+    pos: int
+    current: Tok
+    previous: Tok
+    paren_depth: int
+    expr_cont_depth: int
+    catch_attach_blocked_pos: Optional[int]
+    delimiter_depth: int
+    group_stack: list  # list[GroupFrame]
+    group_layout_stop_tokens: list  # list[frozenset[TT]]
+
 
 # Process-global monotonic allocator for parser-assigned once site IDs.
 # Each Parser instance draws from this counter so IDs are unique across
@@ -120,6 +144,22 @@ class Parser:
         TT.POWEQ,
     )
 
+    # Keywords whose trailing [...] is an atomic modifier bracket,
+    # not an expression-level group.
+    _MODIFIER_BRACKET_KEYWORDS = frozenset(
+        {
+            TT.WAIT,
+            TT.ONCE,
+            TT.USING,
+            TT.CALL,
+            TT.FAN,
+        }
+    )
+
+    # Layout token sets — allocated once, used in hot paths.
+    _LAYOUT_TYPES_FULL = frozenset({TT.NEWLINE, TT.INDENT, TT.DEDENT})
+    _LAYOUT_TYPES_NEWLINE_ONLY = frozenset({TT.NEWLINE})
+
     def __init__(
         self,
         tokens: List[Tok],
@@ -131,7 +171,13 @@ class Parser:
         self.previous = self.current  # Track last consumed token for _tok positions
         self.in_inline_body = False  # Track if we're in inlinebody context
         self.use_indenter = use_indenter  # Track indentation mode
+        self._layout_types = (
+            self._LAYOUT_TYPES_FULL if use_indenter else self._LAYOUT_TYPES_NEWLINE_ONLY
+        )
         self.paren_depth = 0  # Track parenthesis nesting depth
+        self.delimiter_depth = 0  # Track any grouped delimiter nesting
+        self._group_stack: list[GroupFrame] = []
+        self._group_layout_stop_tokens: list[frozenset[TT]] = []
         self.parse_context = (
             ParseContext.NORMAL
         )  # Track parsing context for comma disambiguation
@@ -257,7 +303,9 @@ class Parser:
         # Check for immediate call -> method node
         if self.check(TT.LPAR):
             self.advance()
+            self._consume_grouped_layout()
             args = self.parse_arg_list()
+            self._consume_grouped_layout()
             self.expect(TT.RPAR)
             args_node = Tree("arglistnamedmixed", args) if args else None
             children = [field_tok] + ([args_node] if args_node else [])
@@ -268,10 +316,13 @@ class Parser:
     def _parse_index_node(self, noanchor: bool) -> Tree:
         """Parse [selectors, default: expr] — assumes current token is LSQB."""
         lsqb_tok = self.advance()
+        self._consume_grouped_layout()
         selectors = self.parse_selector_list()
 
+        self._consume_grouped_layout()
         default = None
         if self.match(TT.COMMA):
+            self._consume_grouped_layout()
             default_tok = self.expect(TT.IDENT)
             if default_tok.value != "default":
                 raise ParseError(
@@ -279,8 +330,10 @@ class Parser:
                     default_tok,
                 )
             self.expect(TT.COLON)
+            self._consume_grouped_layout()
             default = self.parse_expr()
 
+        self._consume_grouped_layout()
         rsqb_tok = self.expect(TT.RSQB)
         children = [lsqb_tok, Tree("selectorlist", selectors), rsqb_tok]
         if default:
@@ -290,13 +343,16 @@ class Parser:
 
     def _parse_plain_index_node(self) -> Tree:
         lsqb_tok = self.expect(TT.LSQB)
+        self._consume_grouped_layout()
         selectors = self.parse_selector_list()
+        self._consume_grouped_layout()
         rsqb_tok = self.expect(TT.RSQB)
         return Tree("index", [lsqb_tok, Tree("selectorlist", selectors), rsqb_tok])
 
     def _parse_valuefan(self) -> Tree:
         """Parse fan items after '{' consumed — expects '}', builds valuefan node."""
         items = self.parse_fan_items()
+        self._consume_grouped_layout()
         self.expect(TT.RBRACE)
         valuefan_items = [Tree("valuefan_item", [item]) for item in items]
 
@@ -330,9 +386,12 @@ class Parser:
         """Parse optional (Type1, Type2) filter and binder after catch keyword."""
         types: List[Tok] = []
         if self.match(TT.LPAR):
+            self._consume_grouped_layout()
             types.append(self.expect(TT.IDENT))
             while self.match(TT.COMMA):
+                self._consume_grouped_layout()
                 types.append(self.expect(TT.IDENT))
+            self._consume_grouped_layout()
             self.expect(TT.RPAR)
 
         binder: Optional[Tok] = None
@@ -409,17 +468,63 @@ class Parser:
         self._drain_expr_continuations(entered)
         return left
 
+    @contextmanager
+    def _suspended_group_state(self) -> Iterator[None]:
+        """Save, clear, and restore grouped-delimiter state.
+
+        Used by parse_body() and _parse_obj_item_body() so that
+        statements inside the body use normal INDENT/DEDENT rules,
+        not column-based grouped continuation.
+        """
+        saved = (
+            self.delimiter_depth,
+            self._group_stack,
+            self._group_layout_stop_tokens,
+        )
+        self.delimiter_depth = 0
+        self._group_stack = []
+        self._group_layout_stop_tokens = []
+        try:
+            yield
+        finally:
+            (
+                self.delimiter_depth,
+                self._group_stack,
+                self._group_layout_stop_tokens,
+            ) = saved
+
+    def _reset_group_baseline(self) -> None:
+        """Reset the active continuation baseline for the current group."""
+        if self._group_stack:
+            self._group_stack[-1] = self._group_stack[-1]._replace(baseline=None)
+
     def _parse_obj_item_body(self) -> Tree:
-        """Parse object item body: indented block or inline expression."""
-        if self.check(TT.NEWLINE):
-            return self.parse_object_body()
-        expr = self.parse_expr()
-        return Tree("body", [expr], attrs={"inline": True})
+        """Parse object item body: indented block or inline expression.
+
+        Unlike parse_body(), this does NOT treat a leading { as a statement
+        block — inside an object literal the { must remain an expression
+        (e.g. obj := { m(): {x: 1} }).
+
+        Suspends grouped-delimiter state so the NEWLINE loop doesn't
+        trigger advance()'s auto-skip (same rationale as parse_body).
+        """
+        with self._suspended_group_state():
+            while self.match(TT.NEWLINE):
+                pass
+
+            if self.check(TT.INDENT):
+                return self.parse_body()
+
+            # Inline expression (may start with { for nested objects)
+            expr = self.parse_expr()
+            return Tree("body", [expr], attrs={"inline": True})
 
     def _parse_call_op(self) -> Tree:
         """Parse call (args) — assumes current is LPAR."""
         lpar_tok = self.advance()
+        self._consume_grouped_layout()
         args = self.parse_arg_list()
+        self._consume_grouped_layout()
         self.expect(TT.RPAR)
         if args:
             args = [Tree("arglistnamedmixed", args)]
@@ -546,10 +651,14 @@ class Parser:
 
         Leaves the DOT as the next token.
         """
-        if not self.use_indenter or self.paren_depth > 0:
+        if not self.use_indenter:
             return False
         if not self.check(TT.NEWLINE):
             return False
+
+        # Inside groups: column-based continuation for dot-chains
+        if self.delimiter_depth > 0:
+            return self._grouped_column_continuation(TT.DOT)
 
         span = self._peek_past_nonblank_newlines()
         if span is None:
@@ -633,6 +742,60 @@ class Parser:
         """Check if token at idx matches any of the given types (stateless)"""
         return self._lookahead_peek(idx).type in types
 
+    def _line_base_column(self, pos: int) -> int:
+        """Find the column of the first non-layout token on the same line as tokens[pos]."""
+        line = self.tokens[pos].line
+        col = self.tokens[pos].column
+        for i in range(pos - 1, -1, -1):
+            tok = self.tokens[i]
+            if tok.line != line:
+                break
+            if tok.type not in self._LAYOUT_TYPES_FULL:
+                col = tok.column
+
+        return col
+
+    def _peek_next_non_layout_type(self, layout_types: set[TT]) -> TT:
+        """Return the next non-layout token type from the current cursor."""
+        idx = self.pos
+        while idx < len(self.tokens) and self.tokens[idx].type in layout_types:
+            idx += 1
+        if idx >= len(self.tokens):
+            return TT.EOF
+
+        return self.tokens[idx].type
+
+    def _can_cross_blank_group_layout(self, layout_types: set[TT]) -> bool:
+        """Blank lines may separate items, but not splice clauses/expressions."""
+        if self.previous.type in {TT.COMMA, TT.LPAR, TT.LSQB, TT.LBRACE}:
+            return True
+
+        return self._peek_next_non_layout_type(layout_types) in {
+            TT.RPAR,
+            TT.RSQB,
+            TT.RBRACE,
+            TT.EOF,
+        }
+
+    def _parse_expr_with_group_layout_stops(self, *stop_types: TT) -> Tree:
+        """Parse an expression without auto-splicing into later grouped clauses."""
+        self._group_layout_stop_tokens.append(frozenset(stop_types))
+        try:
+            return self.parse_expr()
+        finally:
+            self._group_layout_stop_tokens.pop()
+
+    def _consume_grouped_layout_allowing_blank_lines(self) -> None:
+        """Consume grouped layout at item boundaries, including blank separators."""
+        while True:
+            self._consume_grouped_layout()
+            if (
+                self.current.type != TT.NEWLINE
+                or self.current.next_line_kind != "blank"
+            ):
+                return
+            self.advance()
+
     def advance(self, count: int = 1) -> Tok:
         """Consume `count` tokens (default 1) and return the last one."""
         if count < 1:
@@ -640,13 +803,42 @@ class Parser:
 
         def _advance_once() -> Tok:
             prev = self.current
+            old_previous = self.previous  # token before this one
             self.previous = prev  # Track for _tok position defaults
 
-            # Track paren depth for layout token skipping
+            # Track paren depth
             if prev.type == TT.LPAR:
                 self.paren_depth += 1
             elif prev.type == TT.RPAR:
                 self.paren_depth -= 1
+
+            # Track delimiter depth and opener column stack.
+            # Store the line's leading column (first non-layout token on the
+            # opener's line), not the opener's own column, so that
+            # `items = [\n  x]` passes the indentation check (line base is
+            # column 1 for `items`, not column 9 for `[`).
+            if prev.type in {TT.LPAR, TT.LSQB, TT.LBRACE}:
+                self.delimiter_depth += 1
+                # Modifier brackets (wait[all], once[static], etc.) are
+                # atomic — tag them as LBRACE on the opener stack so the
+                # auto-skip check excludes them just like brace groups.
+                opener = (
+                    TT.LBRACE
+                    if prev.type == TT.LSQB
+                    and old_previous.type in self._MODIFIER_BRACKET_KEYWORDS
+                    else prev.type
+                )
+                self._group_stack.append(
+                    GroupFrame(self._line_base_column(self.pos), opener)
+                )
+            elif prev.type in {TT.RPAR, TT.RSQB, TT.RBRACE}:
+                self.delimiter_depth -= 1
+                if self._group_stack:
+                    self._group_stack.pop()
+
+            # Reset active continuation baseline on comma (new item)
+            if prev.type == TT.COMMA:
+                self._reset_group_baseline()
 
             self.pos += 1
             if self.pos < len(self.tokens):
@@ -654,14 +846,87 @@ class Parser:
             else:
                 self.current = Tok(TT.EOF, None, 0, 0)
 
-            # Skip newlines and layout tokens when inside parentheses
-            if self.paren_depth > 0:
-                skip_types = (
-                    (TT.NEWLINE, TT.INDENT, TT.DEDENT)
-                    if self.use_indenter
-                    else (TT.NEWLINE,)
-                )
-                while self.current.type in skip_types:
+            # --- Automatic layout skipping inside grouped delimiters ---
+            # The invariant: inside (...), [...], {...}, layout tokens
+            # (NEWLINE, INDENT, DEDENT) are transparent between parse units.
+            # Consuming them here means individual parse sites don't need
+            # manual _consume_grouped_layout() calls.
+            #
+            # Exception: after COLON, layout is NOT skipped because `:` may
+            # introduce a statement body whose INDENT token must remain
+            # visible for parse_body() to detect indented blocks.
+            # The few non-body `:` sites (named args, defaults, dict keys)
+            # still call _consume_grouped_layout() explicitly.
+            # Auto-skip only inside (...) and [...] groups. Brace groups
+            # {..} are excluded because object literals use NEWLINE as an
+            # implicit item separator — auto-skipping would cause the
+            # expression parser to merge adjacent items.
+            in_autoskip_group = (
+                self.delimiter_depth > 0
+                and self._group_stack
+                and self._group_stack[-1].opener != TT.LBRACE
+            )
+            if in_autoskip_group and prev.type != TT.COLON:
+                layout_types = self._layout_types
+                skipped_layout = False
+                while self.current.type in layout_types:
+                    # Stop before blank-line boundary — per spec Section 5:
+                    # "blank lines do not splice together otherwise
+                    # disconnected expressions."
+                    if (
+                        self.current.type == TT.NEWLINE
+                        and self.current.next_line_kind == "blank"
+                    ):
+                        if not self._can_cross_blank_group_layout(layout_types):
+                            break
+                    if (
+                        self.current.type == TT.NEWLINE
+                        and self._group_layout_stop_tokens
+                        and any(
+                            self._peek_next_non_layout_type(layout_types) in stop_set
+                            for stop_set in self._group_layout_stop_tokens
+                        )
+                    ):
+                        break
+                    skipped_layout = True
+                    self.pos += 1
+                    if self.pos < len(self.tokens):
+                        self.current = self.tokens[self.pos]
+                    else:
+                        self.current = Tok(TT.EOF, None, 0, 0)
+                        break
+                # Validate indentation when we actually crossed a line
+                if (
+                    skipped_layout
+                    and self.use_indenter
+                    and self._group_stack
+                    and self.current.type not in {TT.EOF, TT.RPAR, TT.RSQB, TT.RBRACE}
+                ):
+                    frame = self._group_stack[-1]
+                    col = self.current.column
+                    if col <= frame.column:
+                        raise ParseError(
+                            "continued lines inside grouped delimiter must be indented",
+                            self.current,
+                        )
+                    # Active continuation baseline enforcement:
+                    # once a continuation column is established, later
+                    # lines in the same expression cannot regress below it.
+                    if frame.baseline is not None and col < frame.baseline:
+                        raise ParseError(
+                            "continued line inside grouped delimiter "
+                            "dedents below active continuation baseline",
+                            self.current,
+                        )
+                    # Track the high-water mark
+                    new_baseline = (
+                        col if frame.baseline is None else max(frame.baseline, col)
+                    )
+                    self._group_stack[-1] = frame._replace(baseline=new_baseline)
+            elif not self.use_indenter and self.paren_depth > 0:
+                # No-indenter mode outside delimiter tracking (legacy path):
+                # skip newlines inside parentheses for parse_expr_fragment.
+                while self.current.type == TT.NEWLINE:
                     self.pos += 1
                     if self.pos < len(self.tokens):
                         self.current = self.tokens[self.pos]
@@ -760,6 +1025,91 @@ class Parser:
             k += 1
         return k, self.peek(k).type
 
+    def _peek_past_layout(self, offset: int = 0) -> tuple[int, TT]:
+        """Peek past all layout tokens (NEWLINE, INDENT, DEDENT) from current pos + offset.
+        Returns (token_offset_from_pos, token_type) of the first non-layout token."""
+        k = offset
+        while self.peek(k).type in self._LAYOUT_TYPES_FULL:
+            k += 1
+
+        return k, self.peek(k).type
+
+    def _consume_layout(self) -> None:
+        """Consume all layout tokens (NEWLINE, INDENT, DEDENT)."""
+        while self.check(TT.NEWLINE, TT.INDENT, TT.DEDENT):
+            self.advance()
+
+    def _peek_past_nonblank_layout(self) -> Optional[tuple[int, TT]]:
+        """Peek past layout tokens (NEWLINE, INDENT, DEDENT) inside groups,
+        rejecting blank-line spans.
+
+        Like _peek_past_nonblank_newlines but also skips INDENT/DEDENT
+        (which the lexer emits inside groups). Returns None if a blank
+        physical line intervenes — per spec Section 5: "blank lines do not
+        splice together otherwise disconnected expressions."
+
+        NOTE: This intentionally uses a wider acceptance rule than
+        _peek_past_nonblank_newlines.  That function rejects anything whose
+        next_line_kind is not "comment_only" (strict — used for bare
+        expression continuation outside groups).  This function only rejects
+        explicit "blank" lines, allowing "code" and "comment_only" to pass
+        (permissive — grouped delimiters already have an explicit closing
+        token, so the blank-line rule only needs to prevent accidentally
+        splicing disconnected expressions).
+        """
+        k = 0
+        while self.peek(k).type in self._LAYOUT_TYPES_FULL:
+            tok = self.peek(k)
+            # A NEWLINE whose next line is blank means a blank-line gap
+            if tok.type == TT.NEWLINE and tok.next_line_kind == "blank":
+                return None
+            k += 1
+
+        if k == 0:
+            return None
+
+        return k, self.peek(k).type
+
+    def _grouped_column_continuation(self, *token_types: TT) -> bool:
+        """Column-based continuation check inside groups.
+
+        Peeks past layout tokens (rejecting blank-line spans). If the next
+        real token matches one of token_types and is deeper than the opener
+        column (and the active continuation baseline, if set), consumes the
+        layout and returns True.
+
+        Also tracks the active continuation baseline: once continuation
+        establishes a column, later lines in the same expression cannot
+        regress below it.
+        """
+        if not self._group_stack:
+            return False
+        frame = self._group_stack[-1]
+        span = self._peek_past_nonblank_layout()
+        if span is None:
+            return False
+        k, next_type = span
+        tok = self.peek(k)
+        if tok.column <= frame.column:
+            return False
+
+        # Check active continuation baseline
+        if frame.baseline is not None and tok.column < frame.baseline:
+            return False
+
+        if token_types and next_type not in token_types:
+            return False
+
+        # Track the high-water mark for active continuation
+        new_baseline = (
+            tok.column if frame.baseline is None else max(frame.baseline, tok.column)
+        )
+        self._group_stack[-1] = frame._replace(baseline=new_baseline)
+
+        self._consume_layout()
+
+        return True
+
     def _try_enter_expr_continuation(self) -> bool:
         """Try to enter an indented expression continuation block.
 
@@ -768,16 +1118,16 @@ class Parser:
         If the next non-empty line is indented (NEWLINE+ INDENT), consumes those
         tokens and enters the continuation block.
 
-        Blank lines are allowed here because the expression is syntactically
-        incomplete — the caller has already consumed an operator that requires
-        an operand.
-
-        Returns True if continuation was entered, False otherwise.
+        Inside groups, uses column-based continuation instead of INDENT/DEDENT.
         """
-        if not self.use_indenter or self.paren_depth > 0:
+        if not self.use_indenter:
             return False
         if not self.check(TT.NEWLINE):
             return False
+
+        # Inside groups: column-based continuation
+        if self.delimiter_depth > 0:
+            return self._grouped_column_continuation()
 
         k, next_type = self._peek_past_newlines()
         if next_type != TT.INDENT:
@@ -796,9 +1146,16 @@ class Parser:
         is already inside an expression continuation block. It does not open a
         new continuation level.
         """
-        if not self.use_indenter or self.paren_depth > 0:
+        if not self.use_indenter:
             return False
-        if self._expr_cont_depth <= 0 or not self.check(TT.NEWLINE):
+        if not self.check(TT.NEWLINE):
+            return False
+
+        # Inside groups: column-based continuation
+        if self.delimiter_depth > 0:
+            return self._grouped_column_continuation(*token_types)
+
+        if self._expr_cont_depth <= 0:
             return False
 
         span = self._peek_past_nonblank_newlines()
@@ -821,11 +1178,17 @@ class Parser:
 
         Also handles continuing within an already-active continuation block:
         NEWLINE + op_type (same indent level, no extra INDENT needed).
+
+        Inside groups, uses column-based continuation.
         """
-        if not self.use_indenter or self.paren_depth > 0:
+        if not self.use_indenter:
             return False
         if not self.check(TT.NEWLINE):
             return False
+
+        # Inside groups: column-based continuation
+        if self.delimiter_depth > 0:
+            return self._grouped_column_continuation(*op_types)
 
         span = self._peek_past_nonblank_newlines()
         if span is None:
@@ -880,11 +1243,16 @@ class Parser:
         - opening a fresh continuation block (`NEWLINE* INDENT expr`)
 
         Called after `,` so the expression is incomplete — blank lines allowed.
+        Inside groups, uses column-based continuation.
         """
-        if not self.use_indenter or self.paren_depth > 0:
+        if not self.use_indenter:
             return False
         if not self.check(TT.NEWLINE):
             return False
+
+        # Inside groups: column-based continuation
+        if self.delimiter_depth > 0:
+            return self._grouped_column_continuation()
 
         if self._expr_cont_depth > 0:
             _k, next_type = self._peek_past_newlines()
@@ -902,10 +1270,14 @@ class Parser:
         prefix head), so blank lines are tolerated — the parser still needs an
         operand.
         """
-        if not self.use_indenter or self.paren_depth > 0:
+        if not self.use_indenter:
             return False
         if not self.check(TT.NEWLINE):
             return False
+
+        # Inside groups: column-based continuation
+        if self.delimiter_depth > 0:
+            return self._grouped_column_continuation()
 
         if self._expr_cont_depth > 0:
             k, next_type = self._peek_past_newlines()
@@ -958,25 +1330,29 @@ class Parser:
         if require_arm and self.check(TT.DEDENT):
             raise ParseError(f"{context} requires at least one arm", self.current)
 
-    def _snapshot(self) -> tuple[int, Tok, Tok, int, int, Optional[int]]:
-        return (
-            self.pos,
-            self.current,
-            self.previous,
-            self.paren_depth,
-            self._expr_cont_depth,
-            self._catch_attach_blocked_pos,
+    def _snapshot(self) -> _Snapshot:
+        return _Snapshot(
+            pos=self.pos,
+            current=self.current,
+            previous=self.previous,
+            paren_depth=self.paren_depth,
+            expr_cont_depth=self._expr_cont_depth,
+            catch_attach_blocked_pos=self._catch_attach_blocked_pos,
+            delimiter_depth=self.delimiter_depth,
+            group_stack=list(self._group_stack),
+            group_layout_stop_tokens=list(self._group_layout_stop_tokens),
         )
 
-    def _restore(self, snapshot: tuple[int, Tok, Tok, int, int, Optional[int]]) -> None:
-        (
-            self.pos,
-            self.current,
-            self.previous,
-            self.paren_depth,
-            self._expr_cont_depth,
-            self._catch_attach_blocked_pos,
-        ) = snapshot
+    def _restore(self, snapshot: _Snapshot) -> None:
+        self.pos = snapshot.pos
+        self.current = snapshot.current
+        self.previous = snapshot.previous
+        self.paren_depth = snapshot.paren_depth
+        self._expr_cont_depth = snapshot.expr_cont_depth
+        self._catch_attach_blocked_pos = snapshot.catch_attach_blocked_pos
+        self.delimiter_depth = snapshot.delimiter_depth
+        self._group_stack = snapshot.group_stack
+        self._group_layout_stop_tokens = snapshot.group_layout_stop_tokens
 
     def skip_layout_tokens(self) -> None:
         """Skip NEWLINE and optionally INDENT/DEDENT tokens (when using indenter)"""
@@ -986,6 +1362,71 @@ class Parser:
         else:
             while self.match(TT.NEWLINE):
                 pass
+
+    def _consume_grouped_layout(self, opener_column: Optional[int] = None) -> None:
+        """Consume layout tokens inside a grouped delimiter.
+
+        In indenter mode: after each newline sequence, verify that the next
+        non-empty token is indented deeper than the opener's column, or is a
+        closing delimiter.  Absorbs INDENT/DEDENT tokens that the lexer emits
+        inside groups.
+
+        In no-indenter mode: only NEWLINE tokens exist as layout; consume them
+        without column validation (there is no indentation contract).
+
+        If opener_column is not provided, uses the current group's opener
+        column from the _group_stack.
+        """
+        if opener_column is None:
+            if not self._group_stack:
+                return  # not inside any group
+            opener_column = self._group_stack[-1].column
+
+        layout_types = self._layout_types
+
+        skipped_layout = False
+        while self.current.type in layout_types:
+            if (
+                self.current.type == TT.NEWLINE
+                and self.current.next_line_kind == "blank"
+            ):
+                if not self._can_cross_blank_group_layout(layout_types):
+                    break
+            skipped_layout = True
+            self.advance()
+
+        # Column validation only applies in indenter mode and only when
+        # we actually crossed a line boundary.  Without the skipped_layout
+        # guard, same-line calls would seed the continuation baseline with
+        # the current token's column — poisoning later cross-line checks.
+        if not self.use_indenter or not skipped_layout:
+            return
+
+        # After consuming all layout, check indentation of first real token
+        if self.current.type == TT.EOF:
+            return
+        if self.current.type in {TT.RPAR, TT.RSQB, TT.RBRACE}:
+            return  # closing delimiter at any column is OK
+        col = self.current.column
+        if col <= opener_column:
+            raise ParseError(
+                "continued lines inside grouped delimiter must be indented",
+                self.current,
+            )
+        # Active continuation baseline enforcement — same invariant as
+        # advance()'s auto-skip path.  Without this, brace groups (which
+        # use _consume_grouped_layout instead of auto-skip) would accept
+        # under-indented follow-up lines that ()/[] correctly reject.
+        if self._group_stack:
+            frame = self._group_stack[-1]
+            if frame.baseline is not None and col < frame.baseline:
+                raise ParseError(
+                    "continued line inside grouped delimiter "
+                    "dedents below active continuation baseline",
+                    self.current,
+                )
+            new_baseline = col if frame.baseline is None else max(frame.baseline, col)
+            self._group_stack[-1] = frame._replace(baseline=new_baseline)
 
     # ========================================================================
     # Top-Level Parsing
@@ -1189,7 +1630,9 @@ class Parser:
         self.expect(TT.IMPORT)
 
         if self.match(TT.LSQB):
+            self._consume_grouped_layout()
             if self.match(TT.STAR):
+                self._consume_grouped_layout()
                 self.expect(TT.RSQB)
                 module_node = self._parse_import_string_literal()
                 return Tree("import_mixin", [module_node])
@@ -1199,10 +1642,12 @@ class Parser:
 
             names = [self.expect(TT.IDENT)]
             while self.match(TT.COMMA):
+                self._consume_grouped_layout()
                 if self.check(TT.RSQB):
                     break
                 names.append(self.expect(TT.IDENT))
 
+            self._consume_grouped_layout()
             self.expect(TT.RSQB)
             module_node = self._parse_import_string_literal()
             return Tree(
@@ -1270,9 +1715,7 @@ class Parser:
             return Tree("destructure_walrus", [pattern_node, rhs])
         raise ParseError("Expected = or := after pattern", self.current)
 
-    def _parse_statement_from_expr(
-        self, expr_snapshot: tuple[int, Tok, Tok, int, int, Optional[int]], expr: Node
-    ) -> Tree:
+    def _parse_statement_from_expr(self, expr_snapshot: _Snapshot, expr: Node) -> Tree:
         stmt = self._parse_destructure_after_expr(expr_snapshot)
         if stmt:
             return stmt
@@ -1317,14 +1760,12 @@ class Parser:
             return base_stmt
         return Tree("expr", [base_stmt])
 
-    def _parse_destructure_after_expr(
-        self, expr_snapshot: tuple[int, Tok, Tok, int, int, Optional[int]]
-    ) -> Optional[Tree]:
+    def _parse_destructure_after_expr(self, expr_snapshot: _Snapshot) -> Optional[Tree]:
         # Check for destructuring: a, b, c = ... or a, b, c := ...
         if not self.check(TT.COMMA):
             return None
 
-        expr_start = expr_snapshot[0]
+        expr_start = expr_snapshot.pos
         first_tok = self.tokens[expr_start] if expr_start < len(self.tokens) else None
         if first_tok is None or first_tok.type not in {TT.IDENT, TT.LPAR, TT.SPREAD}:
             # Not a valid pattern start; comma belongs to surrounding expression (e.g., anon fn body)
@@ -1346,18 +1787,14 @@ class Parser:
             return Tree("destructure_walrus", [pattern_list, rhs])
         raise ParseError("Expected = or := after pattern list", self.current)
 
-    def _parse_guard_chain_after_expr(
-        self, expr_snapshot: tuple[int, Tok, Tok, int, int, Optional[int]]
-    ) -> Optional[Tree]:
+    def _parse_guard_chain_after_expr(self, expr_snapshot: _Snapshot) -> Optional[Tree]:
         # Guard chain inline form
         if not self.check(TT.COLON):
             return None
         self._restore(expr_snapshot)
         return self.parse_guard_chain()
 
-    def _parse_catch_stmt_after_expr(
-        self, expr_snapshot: tuple[int, Tok, Tok, int, int, Optional[int]]
-    ) -> Optional[Tree]:
+    def _parse_catch_stmt_after_expr(self, expr_snapshot: _Snapshot) -> Optional[Tree]:
         # Catch statement form: expr catch ... : body
         if not self._consume_attached_catch_newline():
             return None
@@ -1597,15 +2034,24 @@ class Parser:
         # Disambiguation is syntax-based, not whitespace-based:
         # treat bracket content as binders only when an iterable expression
         # follows the closing bracket (i.e., `for[pat] expr: ...`).
-        if self.check(TT.LSQB) and self.peek(1).type in {TT.IDENT, TT.CARET}:
+        # Peek past layout after [ to check for binder start
+        _binder_start = False
+        if self.check(TT.LSQB):
+            _k, _next = self._peek_past_layout(1)
+            _binder_start = _next in {TT.IDENT, TT.CARET}
+        if _binder_start:
             binder_snapshot = self._snapshot()
 
             try:
                 self.advance()  # consume [
+                self._consume_grouped_layout()
                 binder1 = self.parse_binderpattern()
+                self._consume_grouped_layout()
                 binder2 = None
                 if self.match(TT.COMMA):
+                    self._consume_grouped_layout()
                     binder2 = self.parse_binderpattern()
+                self._consume_grouped_layout()
                 self.expect(TT.RSQB)
             except ParseError:
                 self._restore(binder_snapshot)
@@ -1695,8 +2141,8 @@ class Parser:
 
         handle = None
         if self.match(TT.LSQB):
-            ident_tok, _ = self.expect_seq(TT.IDENT, TT.RSQB)
-            handle = ident_tok
+            handle = self.expect(TT.IDENT)
+            self.expect(TT.RSQB)
 
         entered_resource = self._mark_expr_continuations()
         resource = self.parse_expr()
@@ -1735,8 +2181,8 @@ class Parser:
 
         handle = None
         if self.match(TT.LSQB):
-            ident_tok, _ = self.expect_seq(TT.IDENT, TT.RSQB)
-            handle = ident_tok
+            handle = self.expect(TT.IDENT)
+            self.expect(TT.RSQB)
 
         entered_target = self._mark_expr_continuations()
         target = self.parse_expr()
@@ -1834,10 +2280,13 @@ class Parser:
         deps: List[Tok] = []
 
         if self.match(TT.LPAR):
+            self._consume_grouped_layout()
             if not self.check(TT.RPAR):
                 deps.append(self.expect(TT.IDENT))
                 while self.match(TT.COMMA):
+                    self._consume_grouped_layout()
                     deps.append(self.expect(TT.IDENT))
+            self._consume_grouped_layout()
             self.expect(TT.RPAR)
         else:
             deps.append(self.expect(TT.IDENT))
@@ -1849,71 +2298,6 @@ class Parser:
             if expr.data in {"call", "method"}:
                 return True
             return any(self._expr_has_call(ch) for ch in expr.children)
-        return False
-
-    def _scan_colon_after_parens(self, start_pos: int) -> bool:
-        """Look ahead from a '(' token to find a matching ')' followed by a colon at depth 0."""
-        depth = 0
-        idx = start_pos
-
-        while idx < len(self.tokens):
-            tok = self.tokens[idx]
-
-            if tok.type in {TT.LPAR, TT.LSQB, TT.LBRACE}:
-                depth += 1
-            elif tok.type in {TT.RPAR, TT.RSQB, TT.RBRACE}:
-                depth -= 1
-                if depth < 0:
-                    return False
-
-            if depth == 0:
-                if tok.type == TT.COLON:
-                    return True
-                if tok.type in {TT.COMMA, TT.RBRACE, TT.SEMI, TT.NEWLINE, TT.EOF}:
-                    return False
-
-            idx += 1
-
-        return False
-
-    def _looks_like_object_item_start(self) -> bool:
-        """Heuristic to detect start of the next object item without consuming tokens."""
-        if self.check(TT.RBRACE):
-            return True
-        if self.check(TT.GET, TT.SET):
-            return True
-        if self.check(TT.IDENT):
-            nxt = self.peek(1)
-            if nxt.type == TT.COLON:
-                return True
-            if nxt.type == TT.LPAR and self._scan_colon_after_parens(self.pos + 1):
-                return True
-            # Pun: bare IDENT followed by separator or closing brace
-            if nxt.type in {TT.COMMA, TT.RBRACE}:
-                return True
-        # Expression key: (expr): value - need to scan beyond the closing paren
-        if self.check(TT.LPAR):
-            # Scan for matching closing paren and check if colon follows
-            depth = 0
-            idx = self.pos
-            while idx < len(self.tokens):
-                tok = self.tokens[idx]
-                if tok.type in {TT.LPAR, TT.LSQB, TT.LBRACE}:
-                    depth += 1
-                elif tok.type in {TT.RPAR, TT.RSQB, TT.RBRACE}:
-                    depth -= 1
-                    if depth == 0 and tok.type == TT.RPAR:
-                        # Found closing paren, check if next is colon
-                        if (
-                            idx + 1 < len(self.tokens)
-                            and self.tokens[idx + 1].type == TT.COLON
-                        ):
-                            return True
-                        break
-                idx += 1
-        # String key
-        if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING):
-            return True
         return False
 
     def parse_hook_stmt(self) -> Tree:
@@ -1943,7 +2327,9 @@ class Parser:
         decorator name(params): body
         """
         _, name, _ = self.expect_seq(TT.DECORATOR, TT.IDENT, TT.LPAR)
+        self._consume_grouped_layout()
         params = self.parse_param_list()
+        self._consume_grouped_layout()
         self.expect(TT.RPAR)
 
         self.expect(TT.COLON)
@@ -2044,7 +2430,9 @@ class Parser:
     def _parse_lv_index_segment(self) -> Tree:
         """Parse a bracketed selector segment: '[' selectorlist ']'."""
         lsqb_tok = self.advance()
+        self._consume_grouped_layout()
         selectors = self.parse_selector_list()
+        self._consume_grouped_layout()
         rsqb_tok = self.expect(TT.RSQB)
 
         return Tree("lv_index", [lsqb_tok, Tree("selectorlist", selectors), rsqb_tok])
@@ -2105,7 +2493,9 @@ class Parser:
             decorators.append(Tree("decorator_entry", [decorator_expr]))
 
         _, name, _ = self.expect_seq(TT.FN, TT.IDENT, TT.LPAR)
+        self._consume_grouped_layout()
         params = self.parse_param_list()
+        self._consume_grouped_layout()
         self.expect(TT.RPAR)
 
         entered_contract, return_contract = self._parse_optional_return_contract()
@@ -2194,7 +2584,9 @@ class Parser:
 
         # wait expr / wait(expr)
         if self.match(TT.LPAR):
+            self._consume_grouped_layout()
             expr = self.parse_expr()
+            self._consume_grouped_layout()
             self.expect(TT.RPAR)
         else:
             expr = self._parse_prefix_operand(self.parse_unary_expr)
@@ -2209,7 +2601,9 @@ class Parser:
             return Tree("spawn", [body])
 
         if self.match(TT.LPAR):
+            self._consume_grouped_layout()
             expr = self.parse_expr()
+            self._consume_grouped_layout()
             self.expect(TT.RPAR)
         else:
             expr = self._parse_prefix_operand(self.parse_unary_expr)
@@ -2576,74 +2970,86 @@ class Parser:
         return Tree("onelineguard", branches)
 
     def parse_body(self) -> Tree:
-        """
-        Parse body after colon - implements "colon chooses" rule.
+        """Parse body after colon — implements "colon chooses" rule.
 
         Accepts:
         - Inline brace block: { stmts }
         - Indented block: INDENT stmts DEDENT
         - Single statement: stmt
+
+        Suspends grouped-delimiter state at the top so that:
+        1. The NEWLINE-matching loop doesn't trigger advance()'s auto-skip
+           (which would eat the INDENT token needed for block detection).
+        2. Statements inside the body use normal INDENT/DEDENT rules, not
+           column-based grouped continuation.
         """
-        # Skip newlines before block
-        while self.match(TT.NEWLINE):
-            pass
+        with self._suspended_group_state():
+            # Skip newlines before block
+            while self.match(TT.NEWLINE):
+                pass
 
-        if self.match(TT.LBRACE):
-            # Inline block: { stmts }
-            # Build a stmtlist and wrap in inlinebody to match the expected AST
-            stmts: list[Node] = []
-            while not self.check(TT.RBRACE, TT.EOF):
-                if self.match(TT.NEWLINE):
-                    continue
-                if self.match(TT.SEMI):
-                    stmts.append(self._tok("SEMI", ";"))
-                    continue
-                stmt = self.parse_statement()
-                stmts.append(Tree("stmt", [stmt]))
-            self.expect(TT.RBRACE)
-            # Wrap stmtlist in body (inline)
-            if stmts:
-                return Tree("body", [Tree("stmtlist", stmts)], attrs={"inline": True})
-            return Tree("body", [], attrs={"inline": True})
+            if self.match(TT.LBRACE):
+                # Inline block: { stmts }
+                # Undo the delimiter_depth bump from advance() — body
+                # braces are statement containers, not expression groups.
+                self.delimiter_depth -= 1
+                if self._group_stack:
+                    self._group_stack.pop()
+                stmts: list[Node] = []
+                while not self.check(TT.RBRACE, TT.EOF):
+                    if self.match(TT.NEWLINE, TT.INDENT, TT.DEDENT):
+                        continue
+                    if self.match(TT.SEMI):
+                        stmts.append(self._tok("SEMI", ";"))
+                        continue
+                    stmt = self.parse_statement()
+                    stmts.append(Tree("stmt", [stmt]))
+                # Restore before consuming RBRACE so advance() can decrement
+                self.delimiter_depth += 1
+                self._group_stack.append(GroupFrame(0, TT.LBRACE))
+                self.expect(TT.RBRACE)
+                # Wrap stmtlist in body (inline)
+                if stmts:
+                    return Tree(
+                        "body", [Tree("stmtlist", stmts)], attrs={"inline": True}
+                    )
+                return Tree("body", [], attrs={"inline": True})
 
-        if self.check(TT.INDENT):
-            # Indented block
-            indent_tok = self.advance()
-            # Use actual indent value from lexer
-            children: list[Node] = [
-                self._tok(
-                    "INDENT",
-                    indent_tok.value if indent_tok.value is not None else "    ",
+            if self.check(TT.INDENT):
+                indent_tok = self.advance()
+                children: list[Node] = [
+                    self._tok(
+                        "INDENT",
+                        indent_tok.value if indent_tok.value is not None else "    ",
+                    )
+                ]
+
+                while not self.check(TT.DEDENT, TT.EOF):
+                    if self.match(TT.NEWLINE):
+                        continue
+                    if self.match(TT.SEMI):
+                        children.append(self._tok("SEMI", ";"))
+                        continue
+                    stmt = self.parse_statement()
+                    children.append(Tree("stmt", [stmt]))
+                    while self.check(TT.NEWLINE) and not self.check(TT.DEDENT):
+                        self.match(TT.NEWLINE)
+
+                dedent_tok = self.expect(TT.DEDENT)
+                children.append(
+                    self._tok(
+                        "DEDENT",
+                        dedent_tok.value if dedent_tok.value is not None else "",
+                    )
                 )
-            ]
+                return Tree("body", children, attrs={"inline": False})
 
-            # Parse statements in the block
-            while not self.check(TT.DEDENT, TT.EOF):
-                if self.match(TT.NEWLINE):
-                    continue
-                if self.match(TT.SEMI):
-                    children.append(self._tok("SEMI", ";"))
-                    continue
-                stmt = self.parse_statement()
-                children.append(Tree("stmt", [stmt]))
-                # Skip newlines between statements
-                while self.check(TT.NEWLINE) and not self.check(TT.DEDENT):
-                    self.match(TT.NEWLINE)
-
-            dedent_tok = self.expect(TT.DEDENT)
-            children.append(
-                self._tok(
-                    "DEDENT", dedent_tok.value if dedent_tok.value is not None else ""
-                )
-            )
-            return Tree("body", children, attrs={"inline": False})
-
-        # Single statement inline
-        old_inline = self.in_inline_body
-        self.in_inline_body = True
-        stmt = self.parse_statement()
-        self.in_inline_body = old_inline
-        return Tree("body", [stmt], attrs={"inline": True})
+            # Single statement inline
+            old_inline = self.in_inline_body
+            self.in_inline_body = True
+            stmt = self.parse_statement()
+            self.in_inline_body = old_inline
+            return Tree("body", [stmt], attrs={"inline": True})
 
     def _parse_body_for_header_expr(self, entered_depth: int) -> Tree:
         """Parse a `:` body, then drain only continuation owned by the header."""
@@ -3583,16 +3989,23 @@ class Parser:
     def _parse_set_primary(self) -> Tree:
         """Parse set literal or set comprehension — SET already consumed."""
         self.expect(TT.LBRACE)
+        self._consume_grouped_layout()
 
         if self.check(TT.RBRACE):
             self.advance()
             return Tree("setliteral", [])
 
         first_expr = self.parse_expr()
+        # Reset baseline — expression is complete; for/over is a new clause
+        self._reset_group_baseline()
+        self._consume_grouped_layout()
 
         if self.check(TT.FOR, TT.OVER):
             comphead = self.parse_comphead()
+            self._reset_group_baseline()
+            self._consume_grouped_layout()
             ifclause = self.parse_ifclause_opt()
+            self._consume_grouped_layout()
             self.expect(TT.RBRACE)
             children = [first_expr, comphead]
             if ifclause:
@@ -3601,9 +4014,11 @@ class Parser:
 
         items = [first_expr]
         while self.match(TT.COMMA):
+            self._consume_grouped_layout()
             if self.check(TT.RBRACE):
                 break
             items.append(self.parse_expr())
+            self._consume_grouped_layout()
         self.expect(TT.RBRACE)
 
         return Tree("setliteral", items)
@@ -3612,7 +4027,9 @@ class Parser:
         """Parse parenthesized expression — LPAR already consumed."""
         saved_context = self._push_parse_context(ParseContext.NORMAL)
         try:
+            self._consume_grouped_layout()
             expr = self.parse_expr()
+            self._consume_grouped_layout()
             self.expect(TT.RPAR)
             return Tree("group_expr", [expr])
         finally:
@@ -3620,7 +4037,7 @@ class Parser:
 
     def _parse_array_primary(self) -> Tree:
         """Parse array literal or list comprehension — LSQB already consumed."""
-        self.skip_layout_tokens()
+        self._consume_grouped_layout()
 
         if self.check(TT.RSQB):
             self.advance()
@@ -3628,11 +4045,17 @@ class Parser:
 
         saved_context = self._push_parse_context(ParseContext.ARRAY_ELEMENTS)
         try:
-            first_elem = self.parse_expr()
+            first_elem = self._parse_expr_with_group_layout_stops(TT.FOR, TT.OVER)
+            # Reset baseline — expression is complete; for/over is a new clause.
+            self._reset_group_baseline()
+            self._consume_grouped_layout()
 
             if self.check(TT.FOR, TT.OVER):
                 comphead = self.parse_comphead()
+                self._reset_group_baseline()
+                self._consume_grouped_layout()
                 ifclause = self.parse_ifclause_opt()
+                self._consume_grouped_layout()
                 self.expect(TT.RSQB)
                 children = [first_elem, comphead]
                 if ifclause:
@@ -3640,15 +4063,14 @@ class Parser:
                 return Tree("listcomp", children)
 
             elements = [first_elem]
-            self.skip_layout_tokens()
             while True:
                 if not self.match(TT.COMMA):
                     break
-                self.skip_layout_tokens()
+                self._consume_grouped_layout()
                 if self.check(TT.RSQB, TT.EOF):
                     break
                 elements.append(self.parse_expr())
-                self.skip_layout_tokens()
+                self._consume_grouped_layout()
 
             self.expect(TT.RSQB)
             return Tree("array", elements)
@@ -3658,16 +4080,25 @@ class Parser:
     def _parse_object_primary(self) -> Tree:
         """Parse object literal or dict comprehension — LBRACE already consumed."""
         # Try dict comprehension detection
+        self._consume_grouped_layout()
         snapshot = self._snapshot()
 
         try:
             first_key = self.parse_expr()
             if self.check(TT.COLON):
                 self.advance()
+                self._consume_grouped_layout()
                 first_val = self.parse_expr()
+                # Reset baseline — value expr is complete; for/over is a new clause
+                self._reset_group_baseline()
+                self._consume_grouped_layout()
                 if self.check(TT.FOR, TT.OVER):
                     comphead = self.parse_comphead()
+                    # Reset baseline — comphead is complete; if is a new clause
+                    self._reset_group_baseline()
+                    self._consume_grouped_layout()
                     ifclause = self.parse_ifclause_opt()
+                    self._consume_grouped_layout()
                     self.expect(TT.RBRACE)
                     children = [first_key, first_val, comphead]
                     if ifclause:
@@ -3681,15 +4112,22 @@ class Parser:
 
         items: List[Node] = []
         while not self.check(TT.RBRACE, TT.EOF):
-            self.skip_layout_tokens()
+            # Reset continuation baseline at each item boundary.
+            # Commas already reset via advance(); bare-newline item
+            # separators need an explicit reset here.
+            self._reset_group_baseline()
+            self._consume_grouped_layout_allowing_blank_lines()
             if self.check(TT.RBRACE):
                 break
 
             items.append(self.parse_object_item())
 
-            self.skip_layout_tokens()
+            # Reset baseline — the item is complete.  Without this,
+            # the value's baseline leaks into inter-item layout checks.
+            self._reset_group_baseline()
+            self._consume_grouped_layout_allowing_blank_lines()
             if not self.match(TT.COMMA):
-                self.skip_layout_tokens()
+                self._consume_grouped_layout_allowing_blank_lines()
                 if self.check(TT.RBRACE):
                     break
                 continue
@@ -3717,7 +4155,9 @@ class Parser:
         # Rebind primary: =ident or =(lvalue)
         if self.match(TT.ASSIGN):
             if self.match(TT.LPAR):
+                self._consume_grouped_layout()
                 lvalue = self.parse_rebind_lvalue()
+                self._consume_grouped_layout()
                 self.expect(TT.RPAR)
                 return Tree("rebind_primary", [lvalue], attrs={"grouped": True})
             ident = self.expect(TT.IDENT)
@@ -3726,7 +4166,9 @@ class Parser:
         # Null-safe chain: ??(expr)
         if self.match(TT.NULLISH):
             self.expect(TT.LPAR)
+            self._consume_grouped_layout()
             inner = self.parse_expr()
+            self._consume_grouped_layout()
             self.expect(TT.RPAR)
             return Tree("nullsafe", [inner])
 
@@ -3841,7 +4283,7 @@ class Parser:
             )
 
         self.expect(TT.LBRACE)
-        self.skip_layout_tokens()
+        self._consume_grouped_layout()
 
         items: List[Node] = []
 
@@ -3849,14 +4291,14 @@ class Parser:
             saved_context = self._push_parse_context(ParseContext.ARRAY_ELEMENTS)
             try:
                 items.append(self.parse_expr())
-                self.skip_layout_tokens()
+                self._consume_grouped_layout()
 
                 while self.match(TT.COMMA):
-                    self.skip_layout_tokens()
+                    self._consume_grouped_layout()
                     if self.check(TT.RBRACE, TT.EOF):
                         break
                     items.append(self.parse_expr())
-                    self.skip_layout_tokens()
+                    self._consume_grouped_layout()
             finally:
                 self._pop_parse_context(saved_context)
 
@@ -3919,14 +4361,17 @@ class Parser:
         """Parse fieldfan: .{fieldlist} where fieldlist is IDENT ("," IDENT)*"""
         dot_tok = self.expect(TT.DOT)  # Capture DOT token
         self.expect(TT.LBRACE)
+        self._consume_grouped_layout()
 
         # Parse fieldlist
         fields = []
         fields.append(self.expect(TT.IDENT))
 
         while self.match(TT.COMMA):
+            self._consume_grouped_layout()
             fields.append(self.expect(TT.IDENT))
 
+        self._consume_grouped_layout()
         self.expect(TT.RBRACE)
 
         # Build fieldlist tree - use captured tokens directly
@@ -3939,9 +4384,11 @@ class Parser:
 
         while not self.check(end_token, TT.EOF):
             params.append(self._parse_param_entry())
+            self._consume_grouped_layout()
 
             if not self.match(TT.COMMA):
                 break
+            self._consume_grouped_layout()
 
         return Tree("paramlist", params)
 
@@ -3950,6 +4397,7 @@ class Parser:
             return self._parse_param_destruct()
 
         if self.match(TT.LPAR):
+            self._consume_grouped_layout()
             # Parenthesized parameter entry has two modes:
             # 1) isolated single param: (x), (x ~ T), ({a})
             # 2) grouped contract sugar: (a, b) ~ T, ({a}, b) ~ T
@@ -3964,6 +4412,7 @@ class Parser:
                 )
 
             if self.match(TT.COMMA):
+                self._consume_grouped_layout()
                 if has_default or has_contract or is_spread:
                     raise ParseError(
                         "Grouped parameters cannot include defaults, contracts, or spread",
@@ -3980,10 +4429,12 @@ class Parser:
 
                 while True:
                     if self.check(TT.RPAR):
-                        raise ParseError(
-                            "Grouped parameters require at least two names",
-                            self.current,
-                        )
+                        if len(group_items) < 2:
+                            raise ParseError(
+                                "Grouped parameters require at least two names",
+                                self.current,
+                            )
+                        break
 
                     if self.check(TT.SPREAD):
                         raise ParseError(
@@ -4014,7 +4465,9 @@ class Parser:
 
                     if not self.match(TT.COMMA):
                         break
+                    self._consume_grouped_layout()
 
+                self._consume_grouped_layout()
                 self.expect(TT.RPAR)
 
                 if self.match(TT.ASSIGN):
@@ -4040,6 +4493,7 @@ class Parser:
                     [Tree("paramlist", group_items), Tree("contract", [contract])],
                 )
 
+            self._consume_grouped_layout()
             self.expect(TT.RPAR)
 
             outer_default = None
@@ -4083,6 +4537,7 @@ class Parser:
 
     def _parse_param_destruct(self) -> Tree:
         self.expect(TT.LBRACE)
+        self._consume_grouped_layout()
 
         fields: List[Node] = []
         seen: set[str] = set()
@@ -4102,11 +4557,16 @@ class Parser:
 
             field_children: List[Node] = [ident]
             if self.match(TT.ASSIGN):
+                # Consume layout after `=` — needed inside brace groups
+                # where auto-skip is disabled.
+                self._consume_grouped_layout()
                 # Preserve top-level '~' as field-contract metadata rather than
                 # consuming it as a compare operator inside the default expr.
                 field_children.append(self._parse_pattern_default_expr())
 
             if self.match(TT.TILDE):
+                # Consume layout after `~` — same rationale as above.
+                self._consume_grouped_layout()
                 contract = self.parse_expr()
                 field_children.append(Tree("contract", [contract]))
                 if self.check(TT.ASSIGN):
@@ -4119,9 +4579,11 @@ class Parser:
 
             if not self.match(TT.COMMA):
                 break
+            self._consume_grouped_layout()
             if self.check(TT.RBRACE):
                 break
 
+        self._consume_grouped_layout()
         self.expect(TT.RBRACE)
 
         if self.match(TT.ASSIGN):
@@ -4438,12 +4900,16 @@ class Parser:
             )
 
         if self.match(TT.LPAR):
+            self._consume_grouped_layout()
             items = [self.parse_pattern()]
             if not self.match(TT.COMMA):
                 raise ParseError("Pattern list requires comma", self.current)
+            self._consume_grouped_layout()
             items.append(self.parse_pattern())
             while self.match(TT.COMMA):
+                self._consume_grouped_layout()
                 items.append(self.parse_pattern())
+            self._consume_grouped_layout()
             self.expect(TT.RPAR)
 
             # Rest patterns are not supported inside nested tuple patterns
@@ -4465,6 +4931,9 @@ class Parser:
     def parse_binderlist(self) -> Tree:
         items = [self.parse_binderpattern()]
         while self.match(TT.COMMA):
+            self._consume_grouped_layout()
+            if self.check(TT.RSQB):
+                break  # trailing comma
             items.append(self.parse_binderpattern())
         return Tree("binderlist", items)
 
@@ -4476,29 +4945,34 @@ class Parser:
         saved_context = self._push_parse_context(ParseContext.NORMAL)
         try:
             # Check for binder list syntax: [x, y] iterable
-            # Only if '[' is followed by a pattern start (IDENT, ^, or '(')
+            # Use snapshot/restore so multiline list literals like
+            # [\n  a,\n  b,\n] are not stolen as binder lists.
             if self.check(TT.LSQB):
-                next_tok = self.peek(1)
-                if next_tok.type in (TT.IDENT, TT.CARET, TT.LPAR):
+                snapshot = self._snapshot()
+                try:
                     self.advance()  # consume '['
+                    self._consume_grouped_layout()
                     binder_list = self.parse_binderlist()
+                    self._consume_grouped_layout()
                     self.expect(TT.RSQB)
-                    iter_expr = self.parse_expr()
+                    iter_expr = self._parse_expr_with_group_layout_stops(TT.IF)
                     children.append(binder_list)
                     children.append(iter_expr)
                     return Tree("overspec", children)
+                except ParseError:
+                    self._restore(snapshot)
 
             # Check for common pattern: IDENT in expr (e.g., for x in data)
             if self.check(TT.IDENT) and self.peek(1).type == TT.IN:
                 pattern = self.parse_pattern()
                 self.expect(TT.IN)
-                iter_expr = self.parse_expr()
+                iter_expr = self._parse_expr_with_group_layout_stops(TT.IF)
                 children.append(iter_expr)
                 children.append(pattern)
                 return Tree("overspec", children)
 
             # Otherwise: expr [bind pattern]
-            iter_expr = self.parse_expr()
+            iter_expr = self._parse_expr_with_group_layout_stops(TT.IF)
             children.append(iter_expr)
             if self.match(TT.BIND):
                 pattern = self.parse_pattern()
@@ -4510,10 +4984,14 @@ class Parser:
     def parse_comphead(self) -> Tree:
         if self.check(TT.FOR):
             for_tok = self.advance()
+            # Consume layout after `for` — needed inside brace groups
+            # where auto-skip is disabled.  No-op for paren/sqb groups.
+            self._consume_grouped_layout()
             spec = self.parse_overspec()
             return Tree("comphead", [for_tok, spec])
         if self.check(TT.OVER):
             over_tok = self.advance()
+            self._consume_grouped_layout()
             spec = self.parse_overspec()
             return Tree("comphead", [over_tok, spec])
         raise ParseError("Expected comprehension head", self.current)
@@ -4523,6 +5001,9 @@ class Parser:
         if not self.check(TT.IF):
             return None
         if_tok = self.advance()
+        # Consume layout after `if` — needed inside brace groups
+        # where auto-skip is disabled.  No-op for paren/sqb groups.
+        self._consume_grouped_layout()
 
         # Reset context: if-clause condition allows CCC
         saved_context = self._push_parse_context(ParseContext.NORMAL)
@@ -4536,14 +5017,14 @@ class Parser:
         if self.check(TT.IDENT) and self.peek(1).type == TT.COLON:
             name = self.current
             self.advance(2)
+            self._consume_grouped_layout()
             value = self.parse_expr()
             return Tree("argitem", [Tree("namedarg", [name, value])])
         return Tree("argitem", [Tree("arg", [self.parse_expr()])])
 
     def parse_arg_list(self) -> Optional[List[Tree]]:
-        """
-        Parse function call arguments
-        Returns list of argitems (unwrapped) or None if empty
+        """Parse function call arguments.
+        Returns list of argitems (unwrapped) or None if empty.
         """
         if self.check(TT.RPAR):
             return None  # Empty arg list
@@ -4554,10 +5035,11 @@ class Parser:
             argitems: List[Tree] = []
             while not self.check(TT.RPAR, TT.EOF):
                 argitems.append(self._parse_arg_item())
+                self._consume_grouped_layout()
                 if not self.match(TT.COMMA):
                     break
+                self._consume_grouped_layout()
 
-            # Return argitems directly (let caller wrap if needed)
             return argitems
         finally:
             self._pop_parse_context(saved_context)
@@ -4610,12 +5092,12 @@ class Parser:
             self._pop_parse_context(saved_context)
 
     def parse_selector_list(self) -> List[Tree]:
-        """
-        Parse selector list for indexing: [0, 1:10, :, 1:]
-        Returns list of Tree('selector', [Tree('indexsel', [expr])]) nodes
-        Stops before ', default:' sequence
+        """Parse selector list for indexing: [0, 1:10, :, 1:]
+        Returns list of Tree('selector', [Tree('indexsel', [expr])]) nodes.
+        Stops before ', default:' sequence.
         """
         selectors = []
+        self._consume_grouped_layout()
 
         while not self.check(TT.RSQB, TT.EOF):
             # Check for slice syntax (has :)
@@ -4626,17 +5108,21 @@ class Parser:
                 expr = self.parse_expr()
                 selectors.append(Tree("selector", [Tree("indexsel", [expr])]))
 
+            self._consume_grouped_layout()
+
             # Check if next is ', default:' sequence - if so, stop before consuming comma
             if self.check(TT.COMMA):
-                # Peek ahead to see if it's followed by 'default' ':'
+                # Peek past any layout tokens after the comma
+                k, next_type = self._peek_past_layout(1)
                 if (
-                    self.peek(1).type == TT.IDENT
-                    and self.peek(1).value == "default"
-                    and self.peek(2).type == TT.COLON
+                    next_type == TT.IDENT
+                    and self.peek(k).value == "default"
+                    and self.peek(k + 1).type == TT.COLON
                 ):
                     break
                 # Not a default clause, consume the comma and continue
                 self.match(TT.COMMA)
+                self._consume_grouped_layout()
             else:
                 break
 
@@ -4671,7 +5157,9 @@ class Parser:
         """Parse selector atom: {expr} (interp), IDENT, or NUMBER"""
         # Interpolation: {expr}
         if self.match(TT.LBRACE):
+            self._consume_grouped_layout()
             expr = self.parse_expr()
+            self._consume_grouped_layout()
             self.expect(TT.RBRACE)
             return Tree("interp", [expr])
 
@@ -4879,7 +5367,9 @@ class Parser:
 
             # Method: name(params): body
             if self.match(TT.LPAR):
+                self._consume_grouped_layout()
                 params = self.parse_param_list()
+                self._consume_grouped_layout()
                 self.expect(TT.RPAR)
                 self.expect(TT.COLON)
                 return Tree("obj_method", [name, params, self._parse_obj_item_body()])
@@ -4891,8 +5381,7 @@ class Parser:
             # Field: name: value or name?: value (optional)
             is_optional = self.match(TT.QMARK)
             self.expect(TT.COLON)
-            while self.match(TT.NEWLINE, TT.INDENT):
-                pass
+            self._consume_grouped_layout()
             value = self.parse_expr()
             key = Tree("key_ident", [name])
             if is_optional:
@@ -4903,8 +5392,7 @@ class Parser:
         if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING):
             key_tok = self.advance()
             self.expect(TT.COLON)
-            while self.match(TT.NEWLINE, TT.INDENT):
-                pass
+            self._consume_grouped_layout()
             value = self.parse_expr()
             key = Tree("key_string", [key_tok])
             return Tree("obj_field", [key, value])
@@ -4912,11 +5400,12 @@ class Parser:
         # Expression key: (expr): value
         if self.check(TT.LPAR):
             self.advance()  # consume LPAR
+            self._consume_grouped_layout()
             key_expr = self.parse_expr()
+            self._consume_grouped_layout()
             self.expect(TT.RPAR)
             self.expect(TT.COLON)
-            while self.match(TT.NEWLINE, TT.INDENT):
-                pass
+            self._consume_grouped_layout()
             value = self.parse_expr()
             key = Tree("key_expr", [key_expr])
             return Tree("obj_field", [key, value])
@@ -4925,45 +5414,22 @@ class Parser:
         if self.match(TT.GET):
             name = self.expect(TT.IDENT)
             if self.match(TT.LPAR):
+                self._consume_grouped_layout()
                 self.expect(TT.RPAR)
             self.expect(TT.COLON)
             return Tree("obj_get", [name, self._parse_obj_item_body()])
 
         if self.match(TT.SET):
             name = self.expect(TT.IDENT)
-            _, param, _ = self.expect_seq(TT.LPAR, TT.IDENT, TT.RPAR)
+            self.expect(TT.LPAR)
+            self._consume_grouped_layout()
+            param = self.expect(TT.IDENT)
+            self._consume_grouped_layout()
+            self.expect(TT.RPAR)
             self.expect(TT.COLON)
             return Tree("obj_set", [name, param, self._parse_obj_item_body()])
 
         raise ParseError("Expected object item", self.current)
-
-    def parse_object_body(self) -> Tree:
-        """
-        Parse a method/get/set body inside an object literal.
-        No INDENT tokens inside braces; collect statements until next item or RBRACE.
-        """
-        stmts: List[Tree] = []
-
-        while True:
-            if self._looks_like_object_item_start():
-                break
-
-            if self.match(TT.NEWLINE):
-                continue
-
-            stmt = self.parse_statement()
-            stmts.append(Tree("stmt", [stmt]))
-
-            if self.match(TT.SEMI):
-                continue
-
-            self._consume_newlines()
-
-            # If next token starts a new object item, stop collecting
-            if self._looks_like_object_item_start():
-                break
-
-        return Tree("body", stmts, attrs={"inline": False})
 
     def parse_pattern_list(self, *, allow_default: bool = True) -> Tree:
         """Parse destructuring pattern list: a, b, c"""
@@ -5148,6 +5614,7 @@ class Parser:
     def parse_fan_items(self) -> List[Node]:
         """Parse fan items: {field1, field2} or {chain1, chain2}"""
         items: list[Node] = []
+        self._consume_grouped_layout()
 
         while not self.check(TT.RBRACE, TT.EOF):
             if self.check(TT.IDENT):
@@ -5183,7 +5650,9 @@ class Parser:
 
             if not self.match(TT.COMMA):
                 break
+            self._consume_grouped_layout()
 
+        self._consume_grouped_layout()
         return items
 
     def parse_anonymous_fn_decl(self) -> Tree:
@@ -5198,9 +5667,11 @@ class Parser:
 
         if self.check(TT.LPAR):
             outer_lpar = self.advance()
+            self._consume_grouped_layout()
             if self.check(TT.LPAR):
                 self.advance()
                 # fn ( ( ) ) : body  -> auto invoke
+                self._consume_grouped_layout()
                 self.expect(TT.RPAR)
                 auto_invoke = True
                 auto_call_tok = outer_lpar
@@ -5210,6 +5681,7 @@ class Parser:
                     if not self.check(TT.RPAR)
                     else Tree("paramlist", [])
                 )
+            self._consume_grouped_layout()
             self.expect(TT.RPAR)
 
         entered_contract, return_contract = self._parse_optional_return_contract()
@@ -5269,27 +5741,31 @@ class Parser:
         # Check for explicit params: &[params]
         if self.match(TT.LSQB):
             # &[a, b](a + b)
+            self._consume_grouped_layout()
             params = (
                 self.parse_param_list(end_token=TT.RSQB)
                 if not self.check(TT.RSQB)
                 else Tree("paramlist", [])
             )
+            self._consume_grouped_layout()
             self.expect(TT.RSQB)
 
             # Now expect (expr)
             self.expect(TT.LPAR)
+            self._consume_grouped_layout()
             body = self.parse_expr()
+            self._consume_grouped_layout()
             self.expect(TT.RPAR)
 
-            # Return Tree('amp_lambda', [Tree('paramlist', params), body])
             return Tree("amp_lambda", [params, body])
 
         # Implicit subject: &(expr)
         self.expect(TT.LPAR)
+        self._consume_grouped_layout()
         body = self.parse_expr()
+        self._consume_grouped_layout()
         self.expect(TT.RPAR)
 
-        # Return Tree('amp_lambda', [body])
         return Tree("amp_lambda", [body])
 
 

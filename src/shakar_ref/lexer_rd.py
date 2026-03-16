@@ -209,11 +209,13 @@ class Lexer:
         # Indentation tracking
         self.track_indentation = track_indentation
         # Unified indent stack: each entry tracks level, string, visibility,
-        # and kind ("root" | "normal" | "group_colon_base" | "group_colon_body").
+        # and kind ("root" | "normal").
         self.indent_stack: List[IndentFrame] = [IndentFrame(0, "", True, "root")]
         self.at_line_start = True
         self.pending_dedents = 0
-        self.group_depth = 0
+        self.delimiter_depth = 0
+        # Track indent stack depth at each group opener for cleanup on close
+        self._group_indent_marks: List[int] = []
         self.line_ended_with_colon = False
         self.indent_after_colon = False
         self.line_had_code = False
@@ -329,9 +331,9 @@ class Lexer:
         return frame.visible
 
     def handle_indentation(self):
-        """
-        Handle indentation at start of line.
+        """Handle indentation at start of line.
         Emit INDENT/DEDENT tokens as needed.
+        INDENT/DEDENT are emitted uniformly — inside and outside groups.
         """
         # Count leading spaces/tabs and capture the actual string
         indent = 0
@@ -346,24 +348,6 @@ class Lexer:
             self.advance()
 
         self.at_line_start = False
-        opened_group_colon_base = False
-        pending_group_colon_body = self.indent_stack[-1].kind == "group_colon_base"
-
-        if (
-            self.indent_after_colon
-            and self.group_depth > 0
-            and self.prev_line_indent is not None
-            and self.prev_line_indent > self.indent_stack[-1].level
-            and self.prev_line_indent < indent
-        ):
-            self._push_indent_frame(
-                self.prev_line_indent,
-                self.prev_line_indent_str or "",
-                visible=False,
-                kind="group_colon_base",
-            )
-            opened_group_colon_base = True
-            pending_group_colon_body = True
 
         # Skip blank lines
         if self.peek() in {"\n", "\r", "#"}:
@@ -371,31 +355,23 @@ class Lexer:
 
         self.prev_line_indent = indent
         self.prev_line_indent_str = indent_str
-
-        if (
-            self.group_depth > 0
-            and not self.indent_after_colon
-            and indent >= self.indent_stack[-1].level
-            and not (pending_group_colon_body and indent > self.indent_stack[-1].level)
-        ):
-            return
-
         self.indent_after_colon = False
 
         current_indent = self.indent_stack[-1].level
 
+        if (
+            self.delimiter_depth > 0
+            and self.peek() in {")", "]", "}"}
+            and indent > current_indent
+        ):
+            raise LexError("Indentation mismatch", line=self.line)
+
         if indent > current_indent:
-            # Increase indentation. Grouped `:` bodies open a real block, while
-            # ordinary indentation inside grouped expressions remains ignored.
             self._push_indent_frame(
                 indent,
                 indent_str,
                 visible=True,
-                kind=(
-                    "group_colon_body"
-                    if opened_group_colon_base or pending_group_colon_body
-                    else "normal"
-                ),
+                kind="normal",
             )
 
         elif indent < current_indent:
@@ -409,10 +385,15 @@ class Lexer:
                     self.emit(TT.DEDENT, dedent_str)
 
             if self.indent_stack[-1].level != indent:
-                # Tolerate mismatch only when inside a group at base
-                # indentation — the base level was suppressed by the
-                # early return above, so the stack has no frame for it.
-                if not (self.group_depth > 0 and len(self.indent_stack) == 1):
+                # Inside a group at base indentation the stack has no
+                # frame for the grouped base level — that is the ONLY
+                # case where a mismatch is tolerated.  Every other
+                # mismatch (deeper stack, or outside any group) is a
+                # real indentation error.
+                at_base_inside_group = (
+                    self.delimiter_depth > 0 and len(self.indent_stack) == 1
+                )
+                if not at_base_inside_group:
                     raise LexError("Indentation mismatch", line=self.line)
 
     # ========================================================================
@@ -870,9 +851,16 @@ class Lexer:
                 self.advance(len(op_str))
                 self.emit(op_type, op_str, start_line=start_line, start_col=start_col)
                 if op_type in {TT.LPAR, TT.LSQB, TT.LBRACE}:
-                    self.group_depth += 1
+                    self.delimiter_depth += 1
+                    self._group_indent_marks.append(len(self.indent_stack))
                 elif op_type in {TT.RPAR, TT.RSQB, TT.RBRACE}:
-                    self.group_depth = max(0, self.group_depth - 1)
+                    self.delimiter_depth = max(0, self.delimiter_depth - 1)
+                    # Pop indent frames pushed inside this group
+                    if self._group_indent_marks:
+                        mark = self._group_indent_marks.pop()
+                        while len(self.indent_stack) > mark:
+                            self._pop_indent_frame()
+
                 return
 
         ch = self.peek()
