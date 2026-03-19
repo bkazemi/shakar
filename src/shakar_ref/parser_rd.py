@@ -22,11 +22,24 @@ from .token_types import TT, Tok
 from .lexer_rd import LexError
 
 
-class GroupFrame(NamedTuple):
+class DelimiterMode(Enum):
+    """Layout policy for a delimiter pair.
+
+    EXPR_GROUP  — interior layout is transparent (auto-skip NEWLINE/INDENT/DEDENT).
+    ATOMIC_SLOT — interior layout is significant (no auto-skip).
+    BRACE_GROUP — layout not auto-skipped; parse sites consume explicitly.
+    """
+
+    EXPR_GROUP = 0
+    ATOMIC_SLOT = 1
+    BRACE_GROUP = 2
+
+
+class DelimiterFrame(NamedTuple):
     """Per-delimiter state pushed when entering a grouped delimiter."""
 
     column: int  # Line-base column of the opener (for indentation checks)
-    opener: TT  # Opener token type (LPAR, LSQB, LBRACE)
+    mode: DelimiterMode  # Layout policy for this delimiter pair
     baseline: Optional[int] = None  # Active continuation column
 
 
@@ -40,7 +53,7 @@ class _Snapshot(NamedTuple):
     expr_cont_depth: int
     catch_attach_blocked_pos: Optional[int]
     delimiter_depth: int
-    group_stack: list  # list[GroupFrame]
+    group_stack: list  # list[DelimiterFrame]
     group_layout_stop_tokens: list  # list[frozenset[TT]]
 
 
@@ -144,18 +157,6 @@ class Parser:
         TT.POWEQ,
     )
 
-    # Keywords whose trailing [...] is an atomic modifier bracket,
-    # not an expression-level group.
-    _MODIFIER_BRACKET_KEYWORDS = frozenset(
-        {
-            TT.WAIT,
-            TT.ONCE,
-            TT.USING,
-            TT.CALL,
-            TT.FAN,
-        }
-    )
-
     # Layout token sets — allocated once, used in hot paths.
     _LAYOUT_TYPES_FULL = frozenset({TT.NEWLINE, TT.INDENT, TT.DEDENT})
     _LAYOUT_TYPES_NEWLINE_ONLY = frozenset({TT.NEWLINE})
@@ -175,7 +176,11 @@ class Parser:
         )
         self.paren_depth = 0  # Track parenthesis nesting depth
         self.delimiter_depth = 0  # Track any grouped delimiter nesting
-        self._group_stack: list[GroupFrame] = []
+        self._group_stack: list[DelimiterFrame] = []
+        # Pre-registered mode for the next delimiter opener consumed by
+        # advance().  Parse sites set this before consuming an opener to
+        # override the default mode assignment.
+        self._next_delimiter_mode: Optional[DelimiterMode] = None
         self._group_layout_stop_tokens: list[frozenset[TT]] = []
         self.parse_context = (
             ParseContext.NORMAL
@@ -495,6 +500,17 @@ class Parser:
         if self._group_stack:
             self._group_stack[-1] = self._group_stack[-1]._replace(baseline=None)
 
+    def consume_opener(self, mode: DelimiterMode) -> Tok:
+        """Consume an opening delimiter with an explicit layout mode.
+
+        Sets the mode before advancing so that advance()'s auto-skip
+        logic uses the correct policy from the moment the opener is
+        consumed.
+        """
+        self._next_delimiter_mode = mode
+
+        return self.advance()
+
     def _parse_obj_item_body(self) -> Tree:
         """Parse object item body: indented block or inline expression.
 
@@ -800,7 +816,6 @@ class Parser:
 
         def _advance_once() -> Tok:
             prev = self.current
-            old_previous = self.previous  # token before this one
             self.previous = prev  # Track for _tok position defaults
 
             # Track paren depth
@@ -816,17 +831,17 @@ class Parser:
             # column 1 for `items`, not column 9 for `[`).
             if prev.type in {TT.LPAR, TT.LSQB, TT.LBRACE}:
                 self.delimiter_depth += 1
-                # Modifier brackets (wait[all], once[static], etc.) are
-                # atomic — tag them as LBRACE on the opener stack so the
-                # auto-skip check excludes them just like brace groups.
-                opener = (
-                    TT.LBRACE
-                    if prev.type == TT.LSQB
-                    and old_previous.type in self._MODIFIER_BRACKET_KEYWORDS
-                    else prev.type
-                )
+                # Determine delimiter mode: use pre-registered mode if set,
+                # otherwise default based on token type.
+                if self._next_delimiter_mode is not None:
+                    mode = self._next_delimiter_mode
+                    self._next_delimiter_mode = None
+                elif prev.type == TT.LBRACE:
+                    mode = DelimiterMode.BRACE_GROUP
+                else:
+                    mode = DelimiterMode.EXPR_GROUP
                 self._group_stack.append(
-                    GroupFrame(self._line_base_column(self.pos), opener)
+                    DelimiterFrame(self._line_base_column(self.pos), mode)
                 )
             elif prev.type in {TT.RPAR, TT.RSQB, TT.RBRACE}:
                 self.delimiter_depth -= 1
@@ -854,14 +869,14 @@ class Parser:
             # visible for parse_body() to detect indented blocks.
             # The few non-body `:` sites (named args, defaults, dict keys)
             # still call _consume_grouped_layout() explicitly.
-            # Auto-skip only inside (...) and [...] groups. Brace groups
-            # {..} are excluded because object literals use NEWLINE as an
-            # implicit item separator — auto-skipping would cause the
-            # expression parser to merge adjacent items.
+            # Auto-skip only inside EXPR_GROUP delimiters. BRACE_GROUP
+            # and ATOMIC_SLOT are excluded — brace groups use NEWLINE as
+            # an implicit item separator, and atomic slots have no layout
+            # transparency.
             in_autoskip_group = (
                 self.delimiter_depth > 0
                 and self._group_stack
-                and self._group_stack[-1].opener != TT.LBRACE
+                and self._group_stack[-1].mode == DelimiterMode.EXPR_GROUP
             )
             if in_autoskip_group and prev.type != TT.COLON:
                 layout_types = self._layout_types
@@ -1350,6 +1365,7 @@ class Parser:
         self.delimiter_depth = snapshot.delimiter_depth
         self._group_stack = snapshot.group_stack
         self._group_layout_stop_tokens = snapshot.group_layout_stop_tokens
+        self._next_delimiter_mode = None
 
     def _consume_grouped_layout(self, opener_column: Optional[int] = None) -> None:
         """Consume layout tokens inside a grouped delimiter.
@@ -1934,7 +1950,7 @@ class Parser:
         )
 
     def parse_match_cmp(self) -> Tree:
-        self.expect(TT.LSQB)
+        self.consume_opener(DelimiterMode.ATOMIC_SLOT)
         # Support two-token comparators: !in / not in.
         if self.check(TT.NEG, TT.NOT) and self.peek(1).type == TT.IN:
             first = self.advance()
@@ -2128,7 +2144,8 @@ class Parser:
         self.expect(TT.USING)
 
         handle = None
-        if self.match(TT.LSQB):
+        if self.check(TT.LSQB):
+            self.consume_opener(DelimiterMode.ATOMIC_SLOT)
             handle = self.expect(TT.IDENT)
             self.expect(TT.RSQB)
 
@@ -2168,7 +2185,8 @@ class Parser:
         self.expect(TT.CALL)
 
         handle = None
-        if self.match(TT.LSQB):
+        if self.check(TT.LSQB):
+            self.consume_opener(DelimiterMode.ATOMIC_SLOT)
             handle = self.expect(TT.IDENT)
             self.expect(TT.RSQB)
 
@@ -2526,7 +2544,8 @@ class Parser:
         """
         self.expect(TT.WAIT)
 
-        if self.match(TT.LSQB):
+        if self.check(TT.LSQB):
+            self.consume_opener(DelimiterMode.ATOMIC_SLOT)
             kind_tok = self.expect(TT.IDENT)
             kind = str(kind_tok.value)
             self.expect(TT.RSQB)
@@ -2617,7 +2636,8 @@ class Parser:
 
         modifiers_node: Optional[Tree] = None
         seen_modifiers: set[str] = set()
-        if self.match(TT.LSQB):
+        if self.check(TT.LSQB):
+            self.consume_opener(DelimiterMode.ATOMIC_SLOT)
             modifier_tokens: List[Tok] = []
 
             while True:
@@ -2999,7 +3019,7 @@ class Parser:
                     stmts.append(Tree("stmt", [stmt]))
                 # Restore before consuming RBRACE so advance() can decrement
                 self.delimiter_depth += 1
-                self._group_stack.append(GroupFrame(0, TT.LBRACE))
+                self._group_stack.append(DelimiterFrame(0, DelimiterMode.BRACE_GROUP))
                 self.expect(TT.RBRACE)
                 # Wrap stmtlist in body (inline)
                 if stmts:
@@ -4327,7 +4347,8 @@ class Parser:
         """Parse fan literal: fan [modifier] { expr, ... }"""
         modifiers = None
 
-        if self.match(TT.LSQB):
+        if self.check(TT.LSQB):
+            self.consume_opener(DelimiterMode.ATOMIC_SLOT)
             mod_tok = self.expect(TT.IDENT)
             self.expect(TT.RSQB)
             modifiers = Tree(
