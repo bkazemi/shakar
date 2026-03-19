@@ -40,7 +40,7 @@ from .helpers import (
     eval_anchor_scoped,
     is_truthy as _is_truthy,
 )
-from .expr import _compare_values
+from .expr import _compare_condition
 from .selector import selector_contains
 from ..utils import debug_py_trace_enabled, shk_equals
 
@@ -461,17 +461,17 @@ def _match_pattern(
             return not shk_equals(subject, value)
         case "<" | "<=" | ">" | ">=":
             # Ordered comparators: pattern is LHS, subject is RHS.
-            return _compare_values(cmp_op, value, subject)
+            return _compare_condition(cmp_op, value, subject)
         case "in":
             if isinstance(value, ShkSelector):
                 return _selector_matches(subject, value)
-            return _compare_values("in", subject, value)
+            return _compare_condition("in", subject, value)
         case "!in" | "not in":
             if isinstance(value, ShkSelector):
                 return not _selector_matches(subject, value)
-            return _compare_values(cmp_op, subject, value)
+            return _compare_condition(cmp_op, subject, value)
         case "~~":
-            return _compare_values("~~", subject, value)
+            return _compare_condition("~~", subject, value)
         case _:
             raise ShakarRuntimeError(f"Unknown match comparator '{cmp_op}'")
 

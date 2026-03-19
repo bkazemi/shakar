@@ -184,6 +184,58 @@ SCENARIOS = [
     pytest.param(
         dedent(
             """\
+            a, b := "c"
+            fan { a, b }.upper() + "c"
+        """
+        ),
+        ("fan", ["Cc", "Cc"]),
+        None,
+        id="fan-binary-string-broadcast-right",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a, b := 1, 2
+            10 + fan { a, b }
+        """
+        ),
+        ("fan", [11.0, 12.0]),
+        None,
+        id="fan-binary-broadcast-left",
+    ),
+    pytest.param(
+        "fan { 1, 2 } + fan { 10, 20 }",
+        ("fan", [11.0, 22.0]),
+        None,
+        id="fan-binary-zip-matching-arity",
+    ),
+    pytest.param(
+        "fan { 2, 3 } ** 2",
+        ("fan", [4.0, 9.0]),
+        None,
+        id="fan-binary-pow-broadcast-right",
+    ),
+    pytest.param(
+        "2 ** fan { 2, 3 }",
+        ("fan", [4.0, 8.0]),
+        None,
+        id="fan-binary-pow-broadcast-left",
+    ),
+    pytest.param(
+        "fan { 2, 3 } ** fan { 3, 2 }",
+        ("fan", [8.0, 9.0]),
+        None,
+        id="fan-binary-pow-zip-matching-arity",
+    ),
+    pytest.param(
+        'fan { "a", "b" } + fan { "c" }',
+        None,
+        ShakarRuntimeError,
+        id="fan-binary-zip-mismatched-arity-error",
+    ),
+    pytest.param(
+        dedent(
+            """\
             a := { x: 1 }
             b := { x: 2 }
             fan { a, b }.x = 5
@@ -456,14 +508,44 @@ SCENARIOS = [
         id="fan-compound-assign-nonassignable-item-error",
     ),
     pytest.param(
-        "fan { 1, 2 } == fan { 1, 2 }",
-        ("bool", True),
+        "fan { 1, 2 } < 2",
+        ("fan", [True, False]),
         None,
-        id="fan-equality-basic",
+        id="fan-compare-broadcast-ordering",
     ),
     pytest.param(
-        "fan { fan { 1 }, fan { 2 } } == fan { fan { 1 }, fan { 2 } }",
-        ("bool", True),
+        "fan { 1, 2 } == fan { 1, 9 }",
+        ("fan", [True, False]),
+        None,
+        id="fan-compare-zip-equality",
+    ),
+    pytest.param(
+        "fan { 1, 2 } < 3, > 0",
+        ("fan", [True, True]),
+        None,
+        id="fan-compare-chain-ccc",
+    ),
+    pytest.param(
+        'fan { 1, 2 } == fan { 9, 9 } ? "yes" : "no"',
+        None,
+        ShakarTypeError,
+        id="fan-compare-invalid-scalar-ternary-condition",
+    ),
+    pytest.param(
+        "fan { 1, 2 } == fan { 9, 9 } and 1 / 0",
+        None,
+        ShakarTypeError,
+        id="fan-compare-invalid-scalar-logical-condition",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            res := fan { fan { 1 }, fan { 2 } } == fan { fan { 1 }, fan { 9 } }
+            arr := [...res]
+            [[...arr[0]][0], [...arr[1]][0]]
+        """
+        ),
+        ("array", [True, False]),
         None,
         id="fan-equality-nested",
     ),

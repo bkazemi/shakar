@@ -280,9 +280,7 @@ def eval_infix(
         vals = evaluate_operands()
         acc = vals[-1]
         for i in range(len(vals) - 2, -1, -1):
-            lhs = require_number(vals[i])
-            rhs = require_number(acc)
-            acc = ShkNumber(lhs.value**rhs.value)
+            acc = apply_binary_operator(ops[i], vals[i], acc)
         return acc
 
     vals = evaluate_operands()
@@ -315,14 +313,14 @@ def eval_compare(children: List[Tree], frame: Frame, eval_fn: EvalFn) -> ShkValu
         lhs_node, _, rhs_node = children
         lhs = _eval_and_update(lhs_node)
         rhs = _eval_and_update(rhs_node)
-        return _regex_match(lhs, rhs)
+        return _regex_match_compare(lhs, rhs)
 
     first_node = children[0]
     subject = _eval_and_update(first_node)
     idx = 1
     joiner = "and"
     last_comp: Optional[str] = None
-    agg: Optional[bool] = None
+    agg: Optional[ShkValue] = None
 
     while idx < len(children):
         node = children[idx]
@@ -354,13 +352,11 @@ def eval_compare(children: List[Tree], frame: Frame, eval_fn: EvalFn) -> ShkValu
             idx += 1
 
         leg_val = _compare_values(comp, subject, rhs)
-        agg = (
-            leg_val
-            if agg is None
-            else ((agg and leg_val) if joiner == "and" else (agg or leg_val))
-        )
+        if comp == "~~":
+            leg_val = _booleanize_compare_result(leg_val)
+        agg = leg_val if agg is None else _combine_compare_results(joiner, agg, leg_val)
 
-    return ShkBool(bool(agg)) if agg is not None else ShkBool(True)
+    return agg if agg is not None else ShkBool(True)
 
 
 def eval_logical(
@@ -564,7 +560,44 @@ def _div_size(lhs: ShkValue, rhs: ShkValue) -> ShkSize | ShkNumber:
     raise ShakarTypeError("Expected size or number")
 
 
+def _fan_map_binary(
+    lhs: ShkValue,
+    rhs: ShkValue,
+    *,
+    err_msg: str,
+    apply_scalar: Callable[[ShkValue, ShkValue], ShkValue],
+) -> Optional[ShkValue]:
+    if not isinstance(lhs, ShkFan) and not isinstance(rhs, ShkFan):
+        return None
+
+    if isinstance(lhs, ShkFan) and isinstance(rhs, ShkFan):
+        if len(lhs.items) != len(rhs.items):
+            raise ShakarRuntimeError(err_msg)
+        return ShkFan(
+            [
+                apply_scalar(lhs_item, rhs_item)
+                for lhs_item, rhs_item in zip(lhs.items, rhs.items)
+            ]
+        )
+
+    if isinstance(lhs, ShkFan):
+        return ShkFan([apply_scalar(item, rhs) for item in lhs.items])
+
+    return ShkFan([apply_scalar(lhs, item) for item in rhs.items])
+
+
 def apply_binary_operator(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
+    fan_result = _fan_map_binary(
+        lhs,
+        rhs,
+        err_msg="Fan binary operators require matching arity",
+        apply_scalar=lambda lhs_item, rhs_item: apply_binary_operator(
+            op, lhs_item, rhs_item
+        ),
+    )
+    if fan_result is not None:
+        return fan_result
+
     match op:
         case "+":
             if isinstance(lhs, ShkSet) and isinstance(rhs, ShkSet):
@@ -692,7 +725,20 @@ def _compare_numeric(op: str, lhs_val: int, rhs_val: int) -> bool:
             raise ShakarTypeError(f"Unsupported comparator '{op}' for values")
 
 
-def _compare_values(op: str, lhs: ShkValue, rhs: ShkValue) -> bool:
+def _regex_match_compare(lhs: ShkValue, rhs: ShkValue) -> ShkValue:
+    fan_result = _fan_map_binary(
+        lhs,
+        rhs,
+        err_msg="Fan comparisons require matching arity",
+        apply_scalar=_regex_match_compare,
+    )
+    if fan_result is not None:
+        return fan_result
+
+    return _regex_match(lhs, rhs)
+
+
+def _compare_values_scalar(op: str, lhs: ShkValue, rhs: ShkValue) -> bool:
     if isinstance(rhs, ShkSelector):
         return _compare_with_selector(op, lhs, rhs)
 
@@ -732,10 +778,64 @@ def _compare_values(op: str, lhs: ShkValue, rhs: ShkValue) -> bool:
             from .match import match_structure
 
             return match_structure(lhs, rhs)
-        case "~~":
-            return is_truthy(_regex_match(lhs, rhs))
         case _:
             raise ShakarRuntimeError(f"Unknown comparator {op}")
+
+
+def _compare_values(op: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
+    if op == "~~":
+        return _regex_match_compare(lhs, rhs)
+
+    fan_result = _fan_map_binary(
+        lhs,
+        rhs,
+        err_msg="Fan comparisons require matching arity",
+        apply_scalar=lambda lhs_item, rhs_item: _compare_values(op, lhs_item, rhs_item),
+    )
+    if fan_result is not None:
+        return fan_result
+
+    return ShkBool(_compare_values_scalar(op, lhs, rhs))
+
+
+def _booleanize_compare_result(value: ShkValue) -> ShkValue:
+    if isinstance(value, ShkFan):
+        return ShkFan([_booleanize_compare_result(item) for item in value.items])
+
+    if isinstance(value, ShkBool):
+        return value
+
+    return ShkBool(is_truthy(value))
+
+
+def _compare_condition(op: str, lhs: ShkValue, rhs: ShkValue) -> bool:
+    result = _booleanize_compare_result(_compare_values(op, lhs, rhs))
+
+    if not isinstance(result, ShkBool):
+        raise ShakarRuntimeError("Control-flow comparison requires a scalar result")
+
+    return result.value
+
+
+def _combine_compare_results(joiner: str, lhs: ShkValue, rhs: ShkValue) -> ShkValue:
+    fan_result = _fan_map_binary(
+        lhs,
+        rhs,
+        err_msg="Fan comparison chains require matching arity",
+        apply_scalar=lambda lhs_item, rhs_item: _combine_compare_results(
+            joiner, lhs_item, rhs_item
+        ),
+    )
+    if fan_result is not None:
+        return fan_result
+
+    if not isinstance(lhs, ShkBool) or not isinstance(rhs, ShkBool):
+        raise ShakarRuntimeError("Comparison chain expected boolean results")
+
+    if joiner == "and":
+        return ShkBool(lhs.value and rhs.value)
+
+    return ShkBool(lhs.value or rhs.value)
 
 
 def _regex_match(lhs: ShkValue, rhs: ShkValue) -> ShkValue:
