@@ -30,7 +30,7 @@ This is a living technical spec. The language grows in two ways: new runtime pri
 
 - **Identifiers**: `[_A-Za-z][_A-Za-z0-9]*`; case-sensitive. Unicode ids ❓ (later).
 - **Comments**: `#` to end-of-line.
-- **Whitespace & layout**: indentation (spaces only) after `:` starts blocks.
+- **Whitespace & layout**: indentation after `:` starts blocks. Both spaces and tabs are allowed (tab = 8 columns). Dedents and same-level siblings must match the exact indent string of the target level, not just the numeric width — e.g. a tab and eight spaces are both width 8 but are not interchangeable.
 - **Indented expression continuation**: a physical newline ends the current
   statement unless one of these is true:
   - the parser is entering a normal `:` block

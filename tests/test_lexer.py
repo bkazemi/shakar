@@ -214,6 +214,33 @@ LEX_ERROR_CASES: List[Case] = [
         err_line=1,
         err_col=1,
     ),
+    # Exact indent string mismatch: tab indent, dedent with 8 spaces
+    Case(
+        "indent-string-mismatch-tab-vs-spaces",
+        "\tif x:\n\t\twork()\n        more()\n",
+        exc=LexError,
+        msg="Indentation mismatch",
+        err_line=3,
+        track_indentation=True,
+    ),
+    # Exact indent string mismatch: 8-space indent, dedent with tab
+    Case(
+        "indent-string-mismatch-spaces-vs-tab",
+        "        if x:\n                work()\n\tmore()\n",
+        exc=LexError,
+        msg="Indentation mismatch",
+        err_line=3,
+        track_indentation=True,
+    ),
+    # Same-level sibling with different indent string
+    Case(
+        "indent-string-mismatch-same-level",
+        "\twork()\n        more()\n",
+        exc=LexError,
+        msg="Indentation mismatch",
+        err_line=2,
+        track_indentation=True,
+    ),
 ]
 
 
@@ -374,6 +401,22 @@ def test_position_tracking(case: Case) -> None:
     for value, expected_line in case.expected_lines:
         assert value in actual_lines
         assert actual_lines[value] == expected_line
+
+
+@pytest.mark.parametrize(
+    "name, source",
+    [
+        ("spaces-only", "    if x:\n        work()\n    more()\n"),
+        ("tabs-only", "\tif x:\n\t\twork()\n\tmore()\n"),
+        ("tab-plus-spaces-reused", "\tif x:\n\t  work()\n\tmore()\n"),
+    ],
+)
+def test_exact_indent_string_valid(name: str, source: str) -> None:
+    """Dedent with the same exact indent string succeeds."""
+    tokens = tokenize(source, track_indentation=True)
+    types = [t.type for t in tokens]
+    assert TT.INDENT in types
+    assert TT.DEDENT in types
 
 
 @pytest.mark.parametrize("case", LEX_ERROR_CASES, ids=lambda case: case.name)

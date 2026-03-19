@@ -396,6 +396,15 @@ class Lexer:
                 if not at_base_inside_group:
                     raise LexError("Indentation mismatch", line=self.line)
 
+            # Width matches but the exact whitespace string differs —
+            # e.g. tab (width 8) vs eight spaces.
+            elif self.indent_stack[-1].string != indent_str:
+                raise LexError("Indentation mismatch", line=self.line)
+
+        # Same level — still require the exact indent string.
+        elif self.indent_stack[-1].string != indent_str:
+            raise LexError("Indentation mismatch", line=self.line)
+
     # ========================================================================
     # Tok Scanners
     # ========================================================================
