@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from typing import Optional, List, Any, Iterator, NamedTuple
 from types import SimpleNamespace
 from enum import Enum
-from .tree import Tree, Node, is_token, tree_label, tree_children
+from .tree import Tree, Node, is_tree, is_token, tree_label, tree_children
 
 from .token_types import TT, Tok
 from .lexer_rd import LexError
@@ -3288,6 +3288,69 @@ class Parser:
         self._drain_expr_continuations(entered)
         return left
 
+    def _copy_tree_meta(self, src: Tree, dst: Tree) -> Tree:
+        """Preserve parser metadata when rebuilding an equivalent tree node."""
+        dst.meta = src.meta
+        dst._meta = src._meta
+        return dst
+
+    def _promotable_object_to_fan_literal(self, node: Node) -> Optional[Tree]:
+        """Convert a pun-only object literal into the equivalent fan literal."""
+        if tree_label(node) != "object":
+            return None
+
+        items: List[Node] = []
+        object_items = tree_children(node)
+        if not object_items:
+            return None
+
+        for item in object_items:
+            if tree_label(item) != "obj_field":
+                return None
+
+            key_node, value_node = tree_children(item)
+            if tree_label(key_node) != "key_ident":
+                return None
+
+            key_tok = tree_children(key_node)[0]
+            if not (
+                isinstance(key_tok, Tok)
+                and key_tok.type == TT.IDENT
+                and isinstance(value_node, Tok)
+                and value_node.type == TT.IDENT
+                and key_tok.value == value_node.value
+            ):
+                return None
+
+            items.append(value_node)
+
+        return self._copy_tree_meta(
+            node,
+            Tree("fan_literal", [Tree("fan_items", items)], attrs=node.attrs),
+        )
+
+    def _promote_object_lvalue_head(self, node: Node) -> Node:
+        """Promote `{ a, b }` to `fan { a, b }` only in assignment-head position."""
+        if not is_tree(node):
+            return node
+
+        promoted = self._promotable_object_to_fan_literal(node)
+        if promoted is not None:
+            return promoted
+
+        node_children = tree_children(node)
+        if len(node_children) == 1:
+            child = self._promote_object_lvalue_head(node_children[0])
+            if child is node_children[0]:
+                return node
+
+            return self._copy_tree_meta(
+                node,
+                Tree(node.data, [child], attrs=node.attrs),
+            )
+
+        return node
+
     def _expr_to_lvalue(self, expr: Tree | Tok) -> Tree:
         """
         Convert an expression node into an lvalue tree, preserving chain
@@ -3317,11 +3380,6 @@ class Parser:
                 return Tree("lvalue", [core_expr])
 
             head, *ops = core_expr.children
-
-            def _copy_meta(src: Tree, dst: Tree) -> Tree:
-                if hasattr(src, "meta"):
-                    dst.meta = src.meta
-                return dst
 
             def _convert_valuefan_to_fieldlist(valuefan: Tree) -> Tree:
                 """Convert valuefan(valuefan_list(...)) to fieldlist(IDENT, ...)."""
@@ -3353,27 +3411,33 @@ class Parser:
             norm_ops: List[Tree | Tok] = []
             for op in ops:
                 if isinstance(op, Tree) and op.data == "index":
-                    norm_ops.append(_copy_meta(op, Tree("lv_index", list(op.children))))
+                    norm_ops.append(
+                        self._copy_tree_meta(op, Tree("lv_index", list(op.children)))
+                    )
                 elif isinstance(op, Tree) and op.data == "noanchor":
                     inner = op.children[0]
                     if isinstance(inner, Tree) and inner.data == "index":
-                        lv_idx = _copy_meta(
+                        lv_idx = self._copy_tree_meta(
                             inner, Tree("lv_index", list(inner.children))
                         )
-                        norm_ops.append(_copy_meta(op, Tree("noanchor", [lv_idx])))
+                        norm_ops.append(
+                            self._copy_tree_meta(op, Tree("noanchor", [lv_idx]))
+                        )
                     else:
                         norm_ops.append(op)
                 elif isinstance(op, Tree) and op.data == "valuefan":
                     # valuefan is expression fan-out; for assignment convert to fieldfan
                     # with proper fieldlist structure
                     fieldlist = _convert_valuefan_to_fieldlist(op)
-                    norm_ops.append(_copy_meta(op, Tree("fieldfan", [fieldlist])))
+                    norm_ops.append(
+                        self._copy_tree_meta(op, Tree("fieldfan", [fieldlist]))
+                    )
                 else:
                     norm_ops.append(op)
 
-            return Tree("lvalue", [head] + norm_ops)
+            return Tree("lvalue", [self._promote_object_lvalue_head(head)] + norm_ops)
 
-        return Tree("lvalue", [expr])
+        return Tree("lvalue", [self._promote_object_lvalue_head(expr)])
 
     def _lvalue_allows_rhs_pack(self, lvalue: Tree) -> bool:
         """Whether assignment RHS may parse comma-separated pack values."""

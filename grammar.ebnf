@@ -364,6 +364,8 @@ slice_selector = slice_arm , ":" , slice_arm , [ ":" , slice_arm ] ;
 slice_arm = expression | (* empty *) ;
 
 (* L-values *)
+(* Contextual sugar: a pun-only object literal head `{a, b}` is promoted to a *)
+(* fan-literal lvalue head in assignment position, equivalent to `fan {a, b}`. *)
 lvalue = primary , { postfix_field | lv_index | field_fan }* ;
 lv_index = [ "$" ] , "[" , selector_list , "]" ;
 

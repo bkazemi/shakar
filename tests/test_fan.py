@@ -199,6 +199,83 @@ SCENARIOS = [
             """\
             a := 1
             b := 2
+            { a, b } = 5
+            [a, b]
+        """
+        ),
+        ("array", [5.0, 5.0]),
+        None,
+        id="obj-to-fan-assign-identifiers",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
+            { a, b } = 10, 20
+            [a, b]
+        """
+        ),
+        ("array", [10.0, 20.0]),
+        None,
+        id="obj-to-fan-assign-identifiers-pack-rhs",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
+            ({ a, b }) += 5
+            [a, b]
+        """
+        ),
+        ("array", [6.0, 7.0]),
+        None,
+        id="obj-to-fan-compound-assign-grouped-head",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := " Ada "
+            b := " BOB "
+            { a, b } .= .trim()
+            [a, b]
+        """
+        ),
+        ("array", ["Ada", "BOB"]),
+        None,
+        id="obj-to-fan-apply-assign-identifiers",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := {x: 1}
+            b := {x: 2}
+            { a, b }.x += 5
+            [a.x, b.x]
+        """
+        ),
+        ("array", [6.0, 7.0]),
+        None,
+        id="obj-to-fan-chain-compound-assign-field",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
+            { a: a, b: b } = 5
+        """
+        ),
+        None,
+        ShakarRuntimeError,
+        id="obj-to-fan-explicit-self-map-not-promoted",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
             fan { a, b } = 5
             [a, b]
         """

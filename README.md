@@ -199,6 +199,7 @@ state{ .cur = .next; .x += 1; .name .= .trim() }
 fan { db, cache, worker }.restart()
 fan { left, right } .= .trim()
 fan { a, b } += 1, 2
+{ cfg, backup }.port = 5432
 
 # Selector literals in comparisons
 level == `warn, error`, or >= `critical:`:
@@ -209,6 +210,8 @@ key, val := arr[0,1]  # binds arr[0] => key, arr[1] => val
 ```
 
 Selector literals use backticks and have precise semantics for ranges, lists, and membership; the [design notes](docs/shakar-design-notes.md#selector-values-slices-and-selectors) cover the details.
+
+In assignment position, pun-only object heads are shorthand for fan lvalues: `{ a, b } = 5` is equivalent to `fan { a, b } = 5`. This promotion is contextual; expression-position `{ a, b }` still means an object literal.
 
 ### 5. UFCS (Universal Function Call Syntax)
 

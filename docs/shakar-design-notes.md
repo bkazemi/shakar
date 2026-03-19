@@ -682,6 +682,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
   ```
   Use `bind` when an operator is not desired: `makeUser() bind u and .isValid()`.
 - **Subjects and LValues**: lvalues are identifiers with member/selector chains, plus fan literal heads whose items resolve to assignable targets; calls are not allowed on the LHS. Grouped statement-subject `=(LHS)` must be an lvalue.
+  - Object pun heads are contextual lvalue sugar: in assignment position, pun-only object literals like `{a, b}` promote to the same fan-literal lvalue shape as `fan { a, b }`. Non-pun object literals such as `{a: a}`, `{x: 1}`, spreads, and descriptors do not promote.
   - Statement-subject rules: `=name<tail>` desugars to `name = name<tail>`; `name` must exist and `<tail>` must do work (e.g., call/selector/fan-out/`.=`). `=name.field` with no effect is rejected. Grouped heads pick that exact lvalue as the destination (e.g., `=(user.profile.email).trim()`). The statement-subject must start the statement.
 - **Apply-assign `.=`**: inside `RHS`, `.` = old `LHS`; result writes back and the expression yields the updated value. Notes: bare `.` cannot stand alone; to keep old value on failure, use explicit fallback (`a .= ??(.transform()) ?? a`). If only defaulting, prefer `a = a ?? default`. Idioms:
   ```shakar
@@ -716,6 +717,7 @@ Typed literals representing byte quantities. Distinct from integers and duration
   - Surface:
     ```shakar
     fan { a, b } = 5
+    { a, b } = 5                    # pun-object shorthand
     fan { a, b } += 5
     fan { a, b } += [10, 20]        # zip by arity when RHS length matches
     fan { left, right } .= .trim()
@@ -732,6 +734,8 @@ Typed literals representing byte quantities. Distinct from integers and duration
     result = [cfg.port .= . + 1]
     ```
   - Rules:
+    - pun-only object heads are equivalent sugar here: `{ a, b } = rhs`, `{ a, b } .= rhs`, and `{ o1, o2 }.x += 1` use the same fan-lvalue semantics as the explicit `fan { ... }` forms
+    - promotion is contextual and top-level to the assignment head; expression-position `{ a, b }` remains an object literal, and keyed/spread/descriptor object forms do not promote
     - each fan item must resolve to an assignable target (identifier or assignable chain); non-assignable items error
     - evaluation is left-to-right and updates happen per-target in that order
     - RHS zip/broadcast matches fieldfan behavior: arrays/fans of matching arity zip, otherwise RHS broadcasts to every target

@@ -934,3 +934,23 @@ def test_wait_unknown_block_uses_generic_wait_modifier_node() -> None:
     labels = _collect_tree_labels(ast)
     assert "waitmodifierblock" in labels
     assert "waitgroupblock" not in labels
+
+
+def test_object_lvalue_pun_head_promotes_to_fan_literal() -> None:
+    ast = parse_pipeline("{ a, b } = 1, 2", use_indenter=False)
+    stmt = ast.children[0].children[0]
+    lvalue = stmt.children[0]
+
+    assert lvalue.children[0].data == "fan_literal"
+    assert [child.value for child in lvalue.children[0].children[0].children] == [
+        "a",
+        "b",
+    ]
+
+
+def test_object_lvalue_explicit_self_map_does_not_promote() -> None:
+    ast = parse_pipeline("{ a: a, b: b } = 1", use_indenter=False)
+    stmt = ast.children[0].children[0]
+    lvalue = stmt.children[0]
+
+    assert lvalue.children[0].data == "object"
