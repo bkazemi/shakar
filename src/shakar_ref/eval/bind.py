@@ -293,6 +293,16 @@ def resolve_assignable_node(
 
         raise ShakarRuntimeError("Rebind primary did not produce a context")
 
+    if _is_fan_literal_node(current):
+        contexts = _resolve_fan_literal_contexts(
+            current,
+            frame,
+            eval_fn=eval_fn,
+            apply_op=apply_op,
+            evaluate_index_operand=evaluate_index_operand,
+        )
+        return FanContext(contexts)
+
     if label == "explicit_chain":
         if not children:
             raise ShakarRuntimeError("Malformed explicit chain")
@@ -641,6 +651,82 @@ def _lvalue_uses_fan_shape(node: Node) -> bool:
     return False
 
 
+def _resolve_remaining_chain(
+    current: ShkValue,
+    ops: List[Tree],
+    frame: Frame,
+    *,
+    apply_op: ApplyOpFunc,
+    evaluate_index_operand: IndexEvalFn,
+    eval_fn: EvalFn,
+) -> RebindContext | FanContext:
+    """Resolve remaining chain ops from an already-evaluated value to an assignable context."""
+    for idx, raw_op in enumerate(ops):
+        is_last = idx == len(ops) - 1
+        op, label = unwrap_noanchor(raw_op)
+
+        if is_last and raw_op is not op:
+            frame.pending_anchor_override = current
+
+        if is_last and label in {"field", "fieldsel", "index"}:
+            return _rebind_segment(
+                current,
+                op,
+                label,
+                frame,
+                evaluate_index_operand,
+                eval_fn,
+            )
+
+        if is_last and label == "fieldfan":
+            return build_fieldfan_context(current, op, frame)
+
+        if is_last and label == "valuefan":
+            from .valuefan import build_valuefan_context
+
+            return build_valuefan_context(current, op, frame, eval_fn, apply_op)
+
+        # Mid-chain fan: recurse per-item
+        if label in {"fieldfan", "valuefan"}:
+            if label == "fieldfan":
+                fan_ctx = build_fieldfan_context(current, op, frame)
+            else:
+                from .valuefan import build_valuefan_context
+
+                fan_ctx = build_valuefan_context(current, op, frame, eval_fn, apply_op)
+
+            remaining = ops[idx + 1 :]
+            sub_contexts: List[RebindContext] = []
+            saved_dot = frame.dot
+            saved_pending = frame.pending_anchor_override
+            try:
+                for ctx in fan_ctx.contexts:
+                    frame.dot = ctx.value
+                    frame.pending_anchor_override = None
+                    sub = _resolve_remaining_chain(
+                        ctx.value,
+                        remaining,
+                        frame,
+                        apply_op=apply_op,
+                        evaluate_index_operand=evaluate_index_operand,
+                        eval_fn=eval_fn,
+                    )
+                    if isinstance(sub, FanContext):
+                        sub_contexts.extend(sub.contexts)
+                    else:
+                        sub_contexts.append(sub)
+            finally:
+                frame.dot = saved_dot
+                frame.pending_anchor_override = saved_pending
+            return FanContext(sub_contexts)
+
+        current = apply_op(current, raw_op, frame, eval_fn)
+        if isinstance(current, RebindContext):
+            current = current.value
+
+    raise ShakarRuntimeError("Increment target must end with a field or index")
+
+
 def resolve_chain_assignment(
     head_node: Node,
     ops: List[Tree],
@@ -665,33 +751,40 @@ def resolve_chain_assignment(
     if isinstance(current, RebindContext):
         current = current.value
 
-    for idx, raw_op in enumerate(ops):
-        is_last = idx == len(ops) - 1
-        op, label = unwrap_noanchor(raw_op)
+    # Fan-valued head: resolve remaining chain per-item
+    if isinstance(current, ShkFan):
+        sub_contexts: List[RebindContext] = []
+        saved_dot = frame.dot
+        saved_pending = frame.pending_anchor_override
+        try:
+            for item in current.items:
+                frame.dot = item
+                frame.pending_anchor_override = None
+                sub = _resolve_remaining_chain(
+                    item,
+                    ops,
+                    frame,
+                    apply_op=apply_op,
+                    evaluate_index_operand=evaluate_index_operand,
+                    eval_fn=eval_fn,
+                )
+                if isinstance(sub, FanContext):
+                    sub_contexts.extend(sub.contexts)
+                else:
+                    sub_contexts.append(sub)
+        finally:
+            frame.dot = saved_dot
+            frame.pending_anchor_override = saved_pending
+        return FanContext(sub_contexts)
 
-        # Capture anchor for final noanchor-wrapped segment (handled manually below)
-        if is_last and raw_op is not op:
-            frame.pending_anchor_override = current
-
-        if is_last and label in {"field", "fieldsel", "index"}:
-            return _rebind_segment(
-                current,
-                op,
-                label,
-                frame,
-                evaluate_index_operand,
-                eval_fn,
-            )
-
-        if is_last and label == "fieldfan":
-            return build_fieldfan_context(current, op, frame)
-
-        current = apply_op(current, raw_op, frame, eval_fn)
-
-        if isinstance(current, RebindContext):
-            current = current.value
-
-    raise ShakarRuntimeError("Increment target must end with a field or index")
+    return _resolve_remaining_chain(
+        current,
+        ops,
+        frame,
+        apply_op=apply_op,
+        evaluate_index_operand=evaluate_index_operand,
+        eval_fn=eval_fn,
+    )
 
 
 def apply_numeric_delta(ref: RebindContext, delta: int) -> tuple[ShkValue, ShkValue]:

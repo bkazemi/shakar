@@ -11,6 +11,13 @@ from .mutation import get_field_value
 from .write_targets import WriteTarget
 
 
+def _evaluate_index_operand(index_node, frame, eval_fn, selector_base=None):
+    """Lazy import wrapper to avoid circular imports."""
+    from .chains import evaluate_index_operand
+
+    return evaluate_index_operand(index_node, frame, eval_fn, selector_base)
+
+
 def eval_valuefan(
     base: ShkValue, fan_node: Tree, frame: Frame, eval_fn, apply_op
 ) -> ShkValue:
@@ -60,7 +67,7 @@ def build_valuefan_context(
             contexts.append(RebindContext(value, target))
 
         elif label in {"valuefan_chain", "identchain"}:
-            # Chained access like {a.b}: evaluate but no writeback supported
+            # Chained access like {a.b}: resolve to writable context
             children = tree_children(item)
             if not children:
                 raise ShakarRuntimeError("Malformed value fan item")
@@ -68,19 +75,40 @@ def build_valuefan_context(
             ops = children[1:]
             val = get_field_value(base, head.value, frame)
 
-            for op in ops:
-                val = apply_op(val, op, frame, eval_fn)
-                if isinstance(val, RebindContext):
-                    val = val.value
+            if not ops:
+                # Should not happen — bare ident goes through "field" branch
+                target = WriteTarget(
+                    kind="noop",
+                    owner=None,
+                    name_or_index=None,
+                    frame=frame,
+                    create=False,
+                )
+                contexts.append(RebindContext(val, target))
+            else:
+                # Walk intermediate ops, resolve final op as writable target
+                from .bind import _resolve_remaining_chain
 
-            target = WriteTarget(
-                kind="noop",
-                owner=None,
-                name_or_index=None,
-                frame=frame,
-                create=False,
-            )
-            contexts.append(RebindContext(val, target))
+                saved_dot = frame.dot
+                saved_pending = frame.pending_anchor_override
+                try:
+                    frame.dot = val
+                    frame.pending_anchor_override = None
+                    ctx = _resolve_remaining_chain(
+                        val,
+                        list(ops),
+                        frame,
+                        apply_op=apply_op,
+                        evaluate_index_operand=_evaluate_index_operand,
+                        eval_fn=eval_fn,
+                    )
+                finally:
+                    frame.dot = saved_dot
+                    frame.pending_anchor_override = saved_pending
+                if isinstance(ctx, FanContext):
+                    contexts.extend(ctx.contexts)
+                else:
+                    contexts.append(ctx)
 
         else:
             # Fallback: evaluate with explicit no-op write target.

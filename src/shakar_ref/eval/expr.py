@@ -102,14 +102,16 @@ def eval_explicit_chain(node: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
         )
         delta = 1 if tree_label(tail) == "incr" else -1
         if isinstance(context, FanContext):
-            raise ShakarRuntimeError("++/-- not supported on field fan assignments")
+            results = []
+            for ctx in context.contexts:
+                old_val, _ = apply_numeric_delta(ctx, delta)
+                results.append(old_val)
+            return ShkFan(results)
         old_val, _ = apply_numeric_delta(context, delta)
         return old_val
 
     val = eval_fn(head, frame)
     if isinstance(val, ShkFan):
-        if ops and tree_label(ops[-1]) in {"incr", "decr"}:
-            raise ShakarRuntimeError("++/-- not supported on fan broadcasts")
         return eval_fan_chain(val, ops, frame, eval_fn)
     head_label = tree_label(head)
     head_is_rebind = head_label == "rebind_primary"
@@ -201,6 +203,18 @@ def normalize_unary_op(op_node: Node, frame: Frame) -> Node | str:
     return op_node
 
 
+def _negate_scalar(val: ShkValue) -> ShkValue:
+    """Negate a scalar number, duration, or size."""
+    if isinstance(val, ShkNumber):
+        return ShkNumber(-val.value)
+    if isinstance(val, ShkDuration):
+        return ShkDuration(-val.nanos, units=val.units)
+    if isinstance(val, ShkSize):
+        return ShkSize(-val.byte_count, units=val.units)
+
+    raise ShakarTypeError("Expected number, duration, or size")
+
+
 def eval_unary(
     op_node: Node,
     rhs_node: Tree,
@@ -221,9 +235,14 @@ def eval_unary(
             apply_op=apply_op_func,
             evaluate_index_operand=evaluate_index_operand,
         )
+        delta = 1 if op_value == "++" else -1
         if isinstance(context, FanContext):
-            raise ShakarRuntimeError("Increment target must end with a field or index")
-        _, new_val = apply_numeric_delta(context, 1 if op_value == "++" else -1)
+            results = []
+            for ctx in context.contexts:
+                _, new_val = apply_numeric_delta(ctx, delta)
+                results.append(new_val)
+            return ShkFan(results)
+        _, new_val = apply_numeric_delta(context, delta)
         return new_val
 
     rhs = eval_fn(rhs_node, frame)
@@ -232,18 +251,18 @@ def eval_unary(
         case Tok(type=TT.PLUS) | "+":
             raise ShakarRuntimeError("unary + not supported")
         case Tok(type=TT.MINUS) | "-":
-            if isinstance(rhs, ShkNumber):
-                return ShkNumber(-rhs.value)
-            if isinstance(rhs, ShkDuration):
-                return ShkDuration(-rhs.nanos, units=rhs.units)
-            if isinstance(rhs, ShkSize):
-                return ShkSize(-rhs.byte_count, units=rhs.units)
-            raise ShakarTypeError("Expected number, duration, or size")
+            if isinstance(rhs, ShkFan):
+                return ShkFan([_negate_scalar(item) for item in rhs.items])
+            return _negate_scalar(rhs)
         case Tok(type=TT.TILDE) | "~":
             raise ShakarRuntimeError("bitwise ~ not supported yet")
         case Tok(type=TT.NOT) | "not":
+            if isinstance(rhs, ShkFan):
+                return ShkFan([ShkBool(not is_truthy(item)) for item in rhs.items])
             return ShkBool(not is_truthy(rhs))
         case Tok(type=TT.NEG) | "!":
+            if isinstance(rhs, ShkFan):
+                return ShkFan([ShkBool(not is_truthy(item)) for item in rhs.items])
             return ShkBool(not is_truthy(rhs))
         case _:
             raise ShakarRuntimeError("Unsupported unary op")

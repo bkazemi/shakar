@@ -573,6 +573,206 @@ SCENARIOS = [
         id="fan-iter-comprehension",
     ),
     pytest.param(
+        "- fan { 1, 2 }",
+        ("fan", [-1.0, -2.0]),
+        None,
+        id="fan-unary-negate-broadcast",
+    ),
+    pytest.param(
+        "not fan { true, false }",
+        ("fan", [False, True]),
+        None,
+        id="fan-unary-not-broadcast",
+    ),
+    pytest.param(
+        "! fan { 1, 0 }",
+        ("fan", [False, True]),
+        None,
+        id="fan-unary-bang-broadcast",
+    ),
+    pytest.param(
+        '- fan { "a" }',
+        None,
+        ShakarTypeError,
+        id="fan-unary-negate-type-error",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
+            ++fan { a, b }
+            [a, b]
+        """
+        ),
+        ("array", [2.0, 3.0]),
+        None,
+        id="fan-prefix-incr",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := 1
+            b := 2
+            --fan { a, b }
+            [a, b]
+        """
+        ),
+        ("array", [0.0, 1.0]),
+        None,
+        id="fan-prefix-decr",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            state := {a: 1, b: 2}
+            state.{a, b}++
+            [state.a, state.b]
+        """
+        ),
+        ("array", [2.0, 3.0]),
+        None,
+        id="fieldfan-postfix-incr",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            state := {a: {c: 1}, b: {c: 2}}
+            state.{a, b}.c++
+            [state.a.c, state.b.c]
+        """
+        ),
+        ("array", [2.0, 3.0]),
+        None,
+        id="valuefan-chain-postfix-incr",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            state := {a: {c: 1}, b: {c: 2}}
+            ++state.{a, b}.c
+            [state.a.c, state.b.c]
+        """
+        ),
+        ("array", [2.0, 3.0]),
+        None,
+        id="valuefan-chain-prefix-incr",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            state := {a: {c: 1}, b: {c: 2}}
+            state.{a.c, b.c}++
+            [state.a.c, state.b.c]
+        """
+        ),
+        ("array", [2.0, 3.0]),
+        None,
+        id="valuefan-chained-items-postfix-incr",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := {x: 1}
+            b := {x: 2}
+            ++fan { a, b }.x
+            [a.x, b.x]
+        """
+        ),
+        ("array", [2.0, 3.0]),
+        None,
+        id="fan-head-chain-prefix-incr",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            a := {x: 1}
+            b := {x: 2}
+            fan { a, b }.x++
+            [a.x, b.x]
+        """
+        ),
+        ("array", [2.0, 3.0]),
+        None,
+        id="fan-head-chain-postfix-incr",
+    ),
+    # ---- Subject rebinding in writable fan chains ----
+    pytest.param(
+        dedent(
+            """\
+            fn pick(obj, key):
+              obj[key]
+
+            a := {key: "x", data: {x: {n: 1}}}
+            b := {key: "y", data: {y: {n: 2}}}
+            ++fan{a, b}.data.pick(.key).n
+            [a.data.x.n, b.data.y.n]
+        """
+        ),
+        ("array", [2.0, 3.0]),
+        None,
+        id="fan-head-subject-rebind-incr",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn pick(obj, key):
+              obj[key]
+
+            state := {a: {key: "x", nested: {x: {n: 1}}}, b: {key: "y", nested: {y: {n: 2}}}}
+            ++state.{a, b}.nested.pick(.key).n
+            [state.a.nested.x.n, state.b.nested.y.n]
+        """
+        ),
+        ("array", [2.0, 3.0]),
+        None,
+        id="midchain-fan-subject-rebind-incr",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            fn pick(obj, key):
+              obj[key]
+
+            a := {key: "x", data: {x: {n: 5}}}
+            b := {key: "y", data: {y: {n: 10}}}
+            fan{a, b}.data.pick(.key).n++
+            [a.data.x.n, b.data.y.n]
+        """
+        ),
+        ("array", [6.0, 11.0]),
+        None,
+        id="fan-head-subject-rebind-postfix-incr",
+    ),
+    # ---- Noanchor fan increment ----
+    pytest.param(
+        dedent(
+            """\
+            ctx := {val: 99}
+            a := {count: 10, val: 77}
+            b := {count: 20, val: 88}
+            x := fan{a, b}.$count++
+            ctx and .val
+        """
+        ),
+        ("number", 99),
+        None,
+        id="fan-head-noanchor-postfix-incr",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            ctx := {val: 99}
+            state := {a: {count: 10, val: 77}, b: {count: 20, val: 88}}
+            x := state.{a, b}.$count++
+            ctx and .val
+        """
+        ),
+        ("number", 99),
+        None,
+        id="midchain-fan-noanchor-postfix-incr",
+    ),
+    pytest.param(
         "fan[par] { 1 }",
         None,
         ShakarRuntimeError,
@@ -683,6 +883,18 @@ def test_fanout_indented_selector_path_indenter_mode() -> None:
     # Must not raise — parse_source with use_indenter=True directly,
     # no fallback to non-indenter mode.
     parse_source(code, use_indenter=True)
+
+
+def test_fan_unary_negate_duration_broadcast() -> None:
+    """Unary - broadcasts over fan items containing durations."""
+    result = run_program("- fan { 1sec, 2sec }")
+    from shakar_ref.runtime import ShkFan, ShkDuration
+
+    assert isinstance(result, ShkFan)
+    assert len(result.items) == 2
+    assert all(isinstance(item, ShkDuration) for item in result.items)
+    assert result.items[0].nanos == -1_000_000_000
+    assert result.items[1].nanos == -2_000_000_000
 
 
 def test_fan_unknown_modifier_runtime_error() -> None:
