@@ -199,7 +199,7 @@ state{ .cur = .next; .x += 1; .name .= .trim() }
 fan { db, cache, worker }.restart()
 fan { left, right } .= .trim()
 fan { a, b } += 1, 2
-{ cfg, backup }.port = 5432
+{ cfg, backup }.port = 5432  # `fan` keyword optional for any assignment operator (=, +=, .=, etc.)
 
 # Selector literals in comparisons
 level == `warn, error`, or >= `critical:`:
