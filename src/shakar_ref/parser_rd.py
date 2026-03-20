@@ -5429,19 +5429,66 @@ class Parser:
 
         return Tree("slicesel", children)
 
+    def _peek_method_colon(self) -> bool:
+        """Lookahead past balanced parens to check for method COLON.
+
+        Current token must be LPAR.  Scans forward tracking paren depth;
+        returns True iff the token immediately after the matching RPAR is
+        COLON.  Does not consume any tokens.
+        """
+        depth = 0
+        k = 0
+        while True:
+            tok = self.peek(k)
+            if tok.type == TT.EOF:
+                return False
+            if tok.type == TT.LPAR:
+                depth += 1
+            elif tok.type == TT.RPAR:
+                depth -= 1
+                if depth == 0:
+                    # Skip layout tokens between ) and potential :
+                    j = k + 1
+                    while self.peek(j).type in (
+                        TT.NEWLINE,
+                        TT.INDENT,
+                        TT.DEDENT,
+                    ):
+                        j += 1
+                    return self.peek(j).type == TT.COLON
+            k += 1
+
+    def _is_identity_pun(self) -> bool:
+        """True when the identifier stands alone — no expression follows.
+
+        Needed to keep identity puns as bare Tok values so fan promotion
+        (``{a, b} = ...`` => ``fan {a, b} = ...``) continues to work.
+        Layout tokens (NEWLINE, INDENT, DEDENT) are excluded: parse_expr()
+        handles grouped continuations, so ``{x\\n  + 1}`` correctly parses
+        as an expression pun while ``{x\\n  y}`` parses x alone.
+        """
+        return self.check(TT.COMMA, TT.SEMI, TT.RBRACE, TT.EOF)
+
     def parse_object_item(self) -> Tree:
-        """Parse object item: key: value or method(params): body"""
+        """Parse object item: key: value, method(params): body, or expression pun."""
         if self.match(TT.SPREAD):
             expr = self.parse_expr()
             return Tree("obj_spread", [expr])
 
-        # Field, method, getter, setter
+        # Field, method, getter, setter, expression pun
         # Grammar allows: (IDENT | OVER) for field names
         if self.check(TT.IDENT, TT.OVER):
+            snap = self._snapshot()
             name = self.advance()
+            key = Tree("key_ident", [name])
 
-            # Method: name(params): body
-            if self.match(TT.LPAR):
+            # Method or call expression pun: name(...)
+            # Disambiguate by scanning ahead for balanced RPAR then COLON,
+            # without consuming tokens.  Only commit to method parsing when
+            # the lookahead confirms IDENT(...): — otherwise restore and let
+            # the expression parser handle it as a call.
+            if self.check(TT.LPAR) and self._peek_method_colon():
+                self.advance()  # consume LPAR
                 self._consume_grouped_layout()
                 params = self.parse_param_list()
                 self._consume_grouped_layout()
@@ -5449,19 +5496,31 @@ class Parser:
                 self.expect(TT.COLON)
                 return Tree("obj_method", [name, params, self._parse_obj_item_body()])
 
-            # Pun: bare IDENT (not followed by : or ?) => {x} desugars to {x: x}
-            if name.type == TT.IDENT and not self.check(TT.COLON, TT.QMARK):
-                return Tree("obj_field", [Tree("key_ident", [name]), name])
+            # Explicit field: name: value or name?: value (optional)
+            # Disambiguate QMARK: name?: is optional field, name ? is ternary.
+            # Optional field requires QMARK immediately followed by COLON.
+            if self.check(TT.COLON):
+                self.advance()
+                self._consume_grouped_layout()
+                return Tree("obj_field", [key, self.parse_expr()])
 
-            # Field: name: value or name?: value (optional)
-            is_optional = self.match(TT.QMARK)
-            self.expect(TT.COLON)
-            self._consume_grouped_layout()
-            value = self.parse_expr()
-            key = Tree("key_ident", [name])
-            if is_optional:
-                return Tree("obj_field_optional", [key, value])
-            return Tree("obj_field", [key, value])
+            if self.check(TT.QMARK) and self.peek(1).type == TT.COLON:
+                self.advance()  # consume QMARK
+                self.advance()  # consume COLON
+                self._consume_grouped_layout()
+                return Tree("obj_field_optional", [key, self.parse_expr()])
+
+            # Pun or expression pun (IDENT only, not OVER)
+            if name.type == TT.IDENT:
+                # Identity pun: {x} => {x: x} — next token terminates the item
+                if self._is_identity_pun():
+                    return Tree("obj_field", [key, name])
+                # Expression pun: {score ** 2} => {score: score ** 2}
+                self._restore(snap)
+                return Tree("obj_field", [key, self.parse_expr()])
+
+            # OVER without COLON — error
+            raise ParseError("Expected ':' after field name", self.current)
 
         # String key
         if self.check(TT.STRING, TT.RAW_STRING, TT.RAW_HASH_STRING):

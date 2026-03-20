@@ -213,6 +213,14 @@ Selector literals use backticks and have precise semantics for ranges, lists, an
 
 In assignment position, pun-only object heads are shorthand for fan lvalues: `{ a, b } = 5` is equivalent to `fan { a, b } = 5`. This promotion is contextual; expression-position `{ a, b }` still means an object literal.
 
+Object literals also support **expression punning** — when an entry has no `:` and starts with a bare identifier, that identifier becomes the key:
+
+```shakar
+score := 3; name := "ada"
+{score ** 2, name.upper(), label: "result"}
+# => {score: 9, name: "ADA", label: "result"}
+```
+
 ### 5. UFCS (Universal Function Call Syntax)
 
 Any in-scope callable can be invoked with method syntax. When the receiver doesn’t have a matching method or builtin, Shakar falls back to a scope lookup and calls the function with the receiver as its subject/first arg.

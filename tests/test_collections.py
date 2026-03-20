@@ -716,6 +716,78 @@ SCENARIOS = [
         None,
         id="obj-pun-trailing-comma",
     ),
+    # Expression punning
+    pytest.param(
+        "score := 3; {score ** 2}.score",
+        ("number", 9),
+        None,
+        id="obj-expr-pun-binop",
+    ),
+    pytest.param(
+        "count := 10; {count + 1}.count",
+        ("number", 11),
+        None,
+        id="obj-expr-pun-add",
+    ),
+    pytest.param(
+        'name := "hello"; {name.upper()}.name',
+        ("string", "HELLO"),
+        None,
+        id="obj-expr-pun-method-call",
+    ),
+    pytest.param(
+        'score := 3; {score ** 2, label: "result", count: 5}.score',
+        ("number", 9),
+        None,
+        id="obj-expr-pun-mixed-with-explicit",
+    ),
+    pytest.param(
+        "a := 2; b := 3; o := {a * 10, b + 1}; o.a + o.b",
+        ("number", 24),
+        None,
+        id="obj-expr-pun-multi",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            x := 5
+            y := 2
+            {
+              x * 10
+              y + 1
+            }.x
+        """
+        ),
+        ("number", 50),
+        None,
+        id="obj-expr-pun-multiline",
+    ),
+    pytest.param(
+        "f := fn(x): x * 10; {f(1)}.f",
+        ("number", 10),
+        None,
+        id="obj-expr-pun-direct-call",
+    ),
+    pytest.param(
+        "cond := true; {cond ? 1 : 2}.cond",
+        ("number", 1),
+        None,
+        id="obj-expr-pun-ternary",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            x := 5
+            {
+              x
+              + 1
+            }.x
+        """
+        ),
+        ("number", 6),
+        None,
+        id="obj-expr-pun-multiline-continuation",
+    ),
 ]
 
 
