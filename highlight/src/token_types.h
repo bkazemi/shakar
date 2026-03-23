@@ -30,6 +30,7 @@ typedef enum {
     TT_BREAK,
     TT_CONTINUE,
     TT_RETURN,
+    TT_YIELD,
     TT_FN,
     TT_LET,
     TT_ONCE,

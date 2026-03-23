@@ -142,6 +142,7 @@ static const KWEntry KEYWORDS[] = {
     {"true", TT_TRUE},     {"try", TT_TRY},
     {"unless", TT_UNLESS}, {"using", TT_USING},
     {"wait", TT_WAIT},     {"while", TT_WHILE},
+    {"yield", TT_YIELD},
 };
 
 #define KW_COUNT (sizeof(KEYWORDS) / sizeof(KEYWORDS[0]))

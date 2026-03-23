@@ -66,6 +66,7 @@ _TT_GROUP = {
     TT.HOOK: "keyword",
     TT.OVER: "keyword",
     TT.FAN: "keyword",
+    TT.YIELD: "keyword",
     TT.MATCH: "keyword",
     TT.NOT: "keyword",
     TT.AND: "keyword",

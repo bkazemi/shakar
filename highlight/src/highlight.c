@@ -78,6 +78,7 @@ static HlGroup base_group(TT t) {
     case TT_BREAK:
     case TT_CONTINUE:
     case TT_RETURN:
+    case TT_YIELD:
     case TT_FN:
     case TT_LET:
     case TT_ONCE:
