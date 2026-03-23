@@ -208,6 +208,10 @@ def run_deferred_action(frame: Frame, action: DeferredAction, eval_fn: EvalFn) -
         source=action.saved_source,
         source_path=action.saved_source_path,
     )
+    # Deferred cleanup is a yield boundary — yielding during cleanup
+    # is invalid regardless of whether the enclosing generator closed
+    # explicitly or exhausted normally.
+    child_frame.mark_yield_boundary()
     push_defer_scope(child_frame)
 
     try:

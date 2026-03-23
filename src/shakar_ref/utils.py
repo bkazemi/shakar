@@ -22,6 +22,7 @@ from .types import (
     ShkObject,
     ShkPath,
     ShkFn,
+    ShkGenerator,
     ShkDecorator,
     ShkCommand,
     ShkSelector,
@@ -503,6 +504,7 @@ def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
             return True
         case (
             (ShkFn(), ShkFn())
+            | (ShkGenerator(), ShkGenerator())
             | (ShkDecorator(), ShkDecorator())
             | (DecoratorConfigured(), DecoratorConfigured())
             | (DecoratorContinuation(), DecoratorContinuation())

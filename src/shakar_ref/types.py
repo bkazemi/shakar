@@ -6,12 +6,14 @@ import math
 import pathlib
 import re
 import threading
+import weakref
 from typing import (
     Any,
     Callable,
     Deque,
     Dict,
     FrozenSet,
+    Iterator,
     List,
     Literal,
     NamedTuple,
@@ -402,6 +404,7 @@ class CancelToken:
         self._event = threading.Event()
         self._lock = threading.Lock()
         self._conditions: list[threading.Condition] = []
+        self._children: list[weakref.ref["CancelToken"]] = []
 
     def register_condition(self, cond: threading.Condition) -> None:
         with self._lock:
@@ -413,12 +416,53 @@ class CancelToken:
             if cond in self._conditions:
                 self._conditions.remove(cond)
 
+    def add_child(self, child: "CancelToken") -> None:
+        """Link a child token so cancelling this token also cancels the child.
+
+        Uses a weak reference with a release callback so dead entries
+        are removed eagerly when the child is GC'd, not deferred to
+        the next cancel() call.
+        """
+
+        def _on_release(ref: weakref.ref) -> None:  # type: ignore[type-arg]
+            with self._lock:
+                try:
+                    self._children.remove(ref)
+                except ValueError:
+                    pass
+
+        ref = weakref.ref(child, _on_release)
+        with self._lock:
+            self._children.append(ref)
+            # If already cancelled, propagate immediately.
+            if self._event.is_set():
+                child.cancel()
+
+    def remove_child(self, child: "CancelToken") -> None:
+        """Unlink a child token so it no longer accumulates in this parent.
+
+        Called when a generator completes, closes, or finalizes to
+        eagerly drop the parent=>child reference instead of waiting
+        for GC to trigger the weak-ref callback.
+        """
+        with self._lock:
+            self._children = [
+                ref
+                for ref in self._children
+                if (t := ref()) is not None and t is not child
+            ]
+
     def cancel(self) -> None:
         self._event.set()
         with self._lock:
             for cond in self._conditions:
                 with cond:
                     cond.notify_all()
+            for ref in self._children:
+                child = ref()
+                if child is not None:
+                    child.cancel()
+            self._children.clear()
 
     def cancelled(self) -> bool:
         return self._event.is_set()
@@ -914,6 +958,7 @@ class ShkFn:
     kind: str = "fn"
     name: Optional[str] = None
     return_contract: Optional[Node] = None  # AST node for return type contract
+    yield_contract: Optional[Node] = None  # AST node for yield contract (generators)
     vararg_indices: Optional[List[int]] = None
     param_defaults: Optional[List[Optional[Node]]] = None
     destruct_fields: Optional[List[Optional["DestructFields"]]] = None
@@ -928,6 +973,27 @@ class ShkFn:
             param_desc = ", ".join(self.params) if self.params else "nullary"
 
         return f"<{label} params={param_desc} body={body_label}>"
+
+
+@dataclass
+class ShkGenerator:
+    """Generator object: wraps a Python iterator that yields ShkValues.
+
+    The internal iterator is created when the generator function is called.
+    Each .next() call resumes the iterator. The peek_buffer holds a
+    one-element lookahead for .peek().
+    """
+
+    fn: ShkFn
+    _iterator: Iterator["ShkValue"]
+    state: str = "suspended"  # "suspended" | "running" | "completed" | "closed"
+    result_value: Optional["ShkValue"] = None
+    peek_buffer: Optional[Tuple[bool, "ShkValue"]] = None  # (has_value, value)
+    _close_fn: Optional[Callable[[], None]] = None  # wakes body thread on close
+
+    def __repr__(self) -> str:
+        name = self.fn.name or "<anonymous>"
+        return f"<generator {name} [{self.state}]>"
 
 
 @dataclass
@@ -1069,6 +1135,7 @@ ShkValue: TypeAlias = Union[
     ShkModule,
     ShkChannel,
     ShkFn,
+    ShkGenerator,
     ShkDecorator,
     DecoratorConfigured,
     DecoratorContinuation,
@@ -1222,6 +1289,8 @@ class FrameExecState:
 class FrameControlState:
     defer_stack: List[List[DeferEntry]] = field(default_factory=list)
     is_function_frame: bool = False
+    is_generator_frame: bool = False
+    is_yield_boundary: bool = False
     active_error: Optional["ShakarRuntimeError"] = None
     call_stack: List[CallSite] = field(default_factory=list)
     hoisted_names: Optional[set[str]] = None
@@ -1652,6 +1721,18 @@ class Frame:
     def is_function_frame(self) -> bool:
         return self._control.is_function_frame
 
+    def mark_generator_frame(self) -> None:
+        self._control.is_generator_frame = True
+
+    def is_generator_frame(self) -> bool:
+        return self._control.is_generator_frame
+
+    def mark_yield_boundary(self) -> None:
+        self._control.is_yield_boundary = True
+
+    def is_yield_boundary(self) -> bool:
+        return self._control.is_yield_boundary
+
     def get_function_frame(self) -> "Frame":
         """Walk up to the nearest function frame; root falls back to self."""
         current = self
@@ -1917,6 +1998,7 @@ _SHK_VALUE_TYPES: Tuple[type, ...] = (
     ShkModule,
     ShkChannel,
     ShkFn,
+    ShkGenerator,
     ShkDecorator,
     DecoratorConfigured,
     DecoratorContinuation,
@@ -1970,5 +2052,6 @@ class Builtins:
     path_methods: MethodRegistry = {}
     envvar_methods: MethodRegistry = {}
     channel_methods: MethodRegistry = {}
+    generator_methods: MethodRegistry = {}
     stdlib_functions: Dict[str, StdlibFunction] = {}
     type_constants: Dict[str, "ShkType"] = {}

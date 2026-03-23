@@ -1162,6 +1162,105 @@ db := env"DB_TYPE" == "postgres" ? import "./pg" : import "./sqlite"
 
 ---
 
+## Generators
+
+### Basics
+
+- ✅ A function containing `yield` is implicitly a generator. No marker keyword — the parser infers it from the presence of `yield` in the body.
+- Detection is **lexically scoped to the immediate function** — a `yield` inside a nested `fn` makes that inner function a generator, not the outer.
+- Each call returns a **generator object**. The body suspends at each `yield` and resumes on the next pull.
+- Generators are **single-pass and non-reentrant**. A generator object can only be iterated once; calling `.next()` from within a running generator's own body is an error.
+- Generators are intentionally distinct from channels. Generators are pull-based suspended function calls in the current task; channels are cross-task message queues with send/recv/close semantics. Consumers (`for`, comprehensions, `yield ...`) share one internal cursor-based pull protocol for both.
+
+```shakar
+fn fibonacci():
+  a := 0
+  b := 1
+  while true:
+    yield a
+    a, b = b, a + b
+
+for fibonacci()[`:<8`]:
+  print(.)   # 0, 1, 1, 2, 3, 5, 8, 13
+```
+
+### Generator object API
+
+| Member | Description |
+|--------|-------------|
+| `.next()` | Pull the next value. Throws if exhausted. |
+| `.peek()` | Inspect the next value without consuming it (one-element buffer). |
+| `.done` | `true` if the generator is exhausted or closed. |
+| `.result` | The return value of the generator body. `nil` until a natural `return`. |
+| `.close()` | Explicitly stop the generator, triggering cleanup (`defer`/`using`). |
+
+### Delegation
+
+- `yield ...expr` yields each element from an iterable individually. Desugars to `for expr: yield .`.
+- Delegation follows the same iteration rules as `for` loops — any value accepted by the `for` iteration path is valid, including generators and channels.
+
+```shakar
+fn all_users():
+  yield ...active_users()
+  yield ...archived_users()
+```
+
+### Selector interaction
+
+- A selector applied to a generator call **collects** the constrained elements into an array, consistent with array selector semantics.
+- v1 supports arbitrary **bounded, non-negative** selector lists. Unbounded forms (`` `n:` ``, `` `::s` ``) and negative-from-end positions are deferred to v2.
+- **Skipped elements still execute.** The generator runs for every position; the selector only controls which yielded values are kept. Side effects in skipped iterations still fire.
+- Generator selectors are **new lowering**, not reuse of existing selector machinery. Existing selectors operate on realized sequences; generator selectors need position-tracking iteration with early termination.
+
+```shakar
+fn naturals():
+  i := 0
+  while true:
+    yield i++
+
+first_ten := naturals()[`:<10`]       # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+sampled   := naturals()[`2:<20:3`]    # skip 2, every 3rd, stop before 20
+combo     := naturals()[`0:<3, 7:<10`]  # [0, 1, 2, 7, 8, 9]
+```
+
+### Yield contracts
+
+- `~ T` on a generator constrains **yielded values**, not the return value. Each `yield` is validated against the contract at the yield point.
+- This is an intentional generator-specific reinterpretation: for ordinary functions, `fn f(...) ~ T:` remains a return contract; for generators, the presence of `yield` makes `~ T` a yield contract instead.
+- `.result` is unconstrained. Generators that `return expr` typically return a different type than they yield (e.g. yield rows, return count).
+
+```shakar
+fn fibonacci() ~ Int:
+  a := 0
+  b := 1
+  while true:
+    yield a        # validated: a ~ Int
+    a, b = b, a + b
+```
+
+### Cleanup and lifetime
+
+- Cleanup captured by a generator (`defer` / `using`) belongs to the **generator's lifetime**, not to any particular consumer.
+- Cleanup runs when the generator is **naturally exhausted**, the consumer calls **`.close()`** explicitly, or the generator becomes unreachable and is finalized by **GC** (timing unspecified).
+- Stopping consumption early (`break`, `return`, `throw`, selector short-circuit) does **not** close the generator. The generator remains suspended and reusable via `.next()` / `.peek()`.
+- After explicit `.close()`: `.done` is `true`, `.result` stays `nil`, and `.next()` / `.peek()` throw.
+
+```shakar
+fn lines(path):
+  using[f] open(path):
+    for line in f:
+      yield line
+
+gen := lines("app.log")
+for gen:
+  break
+
+gen.done   # false
+gen.next() # resumes; file is still open
+```
+
+---
+
 ## Concurrency & Resources
 
 ### Channels & Wait

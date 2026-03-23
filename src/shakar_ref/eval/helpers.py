@@ -142,6 +142,34 @@ def current_function_frame(frame: Frame) -> Optional[Frame]:
     return None
 
 
+def current_generator_frame(frame: Frame) -> Optional[Frame]:
+    """Walk parents to find the nearest generator-call frame marker.
+
+    Stops at any function frame boundary or yield boundary (spawn) —
+    yield must not escape a non-generator callable or a concurrent
+    task to bind to an outer generator.
+    """
+    cur: Optional[Frame] = frame
+
+    while cur:
+        if cur.is_generator_frame():
+            return cur
+
+        # Stop at any function boundary; if it's not a generator, yield
+        # has no valid target in this lexical scope.
+        if cur.is_function_frame():
+            return None
+
+        # Stop at spawn boundaries — concurrent tasks must not yield
+        # into an enclosing generator from a different thread.
+        if cur.is_yield_boundary():
+            return None
+
+        cur = getattr(cur, "parent", None)
+
+    return None
+
+
 def name_in_current_frame(frame: Frame, name: str) -> bool:
     """Check only the current frame for a visible binding."""
     return (

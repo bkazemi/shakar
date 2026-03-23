@@ -15,6 +15,7 @@ from ..runtime import (
     ShkCommand,
     ShkEnvVar,
     ShkFn,
+    ShkGenerator,
     ShkNil,
     ShkNumber,
     ShkDuration,
@@ -228,6 +229,13 @@ def index_value(
                 except IndexError:
                     raise ShakarIndexError("String index out of bounds")
             raise ShakarTypeError("String index must be a number")
+        case ShkGenerator():
+            if default_thunk:
+                raise ShakarTypeError("Generator index does not accept default")
+            if isinstance(idx, ShkSelector):
+                cloned = clone_selector_parts(idx.parts, clamp=False)
+                return apply_selectors_to_value(recv, cloned)
+            raise ShakarTypeError("Generator index must be a selector")
         case ShkModule(slots=slots) | ShkObject(slots=slots):
             key = _normalize_index_key(idx)
 
@@ -392,6 +400,14 @@ def get_field_value(recv: ShkValue, name: str, frame: Frame) -> ShkValue:
             if name in Builtins.channel_methods:
                 return BuiltinMethod(name=name, subject=recv)
             raise ShakarFieldNotFoundError(f"Channel has no field '{name}'")
+        case ShkGenerator():
+            if name == "done":
+                return ShkBool(recv.state in ("completed", "closed"))
+            if name == "result":
+                return recv.result_value if recv.result_value is not None else ShkNil()
+            if name in Builtins.generator_methods:
+                return BuiltinMethod(name=name, subject=recv)
+            raise ShakarFieldNotFoundError(f"Generator has no field '{name}'")
         case ShkFn():
             raise ShakarFieldNotFoundError("Function has no fields")
         case _:

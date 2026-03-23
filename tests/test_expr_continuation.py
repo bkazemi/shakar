@@ -2019,6 +2019,41 @@ obj.m().x
         )
         assert result.value == 1
 
+    def test_obj_member_body_postfix_if(self):
+        """Inline obj member body supports postfix-if."""
+        result = run("obj := { m(): 1 if true }\nobj.m()")
+        assert result.value == 1
+
+    def test_obj_member_body_postfix_unless(self):
+        """Inline obj member body supports postfix-unless."""
+        result = run("obj := { m(): 1 unless false }\nobj.m()")
+        assert result.value == 1
+
+    def test_obj_member_body_destructure(self):
+        """Inline obj member body supports destructuring assignment."""
+        result = run("pair := [1, 2]\nobj := { m(): a, b := pair }\nobj.m()")
+        assert [v.value for v in result.items] == [1.0, 2.0]
+
+    def test_obj_member_body_comma_separated(self):
+        """Comma after inline obj member body does not misparse."""
+        result = run("obj := { m(): 5, y: 2 }\nobj.y")
+        assert result.value == 2
+
+    def test_obj_member_body_ident_comma(self):
+        """Ident body followed by comma does not trigger destructure detection."""
+        result = run("obj := { m(): 5, y: 2 }\nobj.y")
+        assert result.value == 2
+
+    def test_anon_fn_body_destructure(self):
+        """Anonymous fn inline body supports destructuring assignment."""
+        result = run("pair := [1, 2]\nf := fn(): a, b := pair\nf()")
+        assert [v.value for v in result.items] == [1.0, 2.0]
+
+    def test_anon_fn_body_ident_comma_in_array(self):
+        """Anon fn inline body with ident, followed by comma in array."""
+        result = run("x := 5\nresult := [fn(): x, 2]\nresult[1]")
+        assert result.value == 2
+
     def test_indent_mismatch_inside_group_rejected(self):
         """Real indentation errors inside grouped constructs must still be caught."""
         with pytest.raises(Exception):

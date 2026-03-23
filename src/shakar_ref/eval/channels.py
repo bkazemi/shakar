@@ -155,7 +155,7 @@ def eval_send_expr(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
 def _spawn_frame(
     parent: Frame, token: CancelToken, call_stack: Optional[list["CallSite"]] = None
 ) -> Frame:
-    return Frame(
+    f = Frame(
         parent=parent,
         dot=parent.dot,
         emit_target=parent.emit_target,
@@ -164,6 +164,11 @@ def _spawn_frame(
         source_path=parent.source_path,
         call_stack=call_stack,
     )
+    # Spawn is a hard boundary for yield — concurrent tasks must not
+    # yield into an enclosing generator from a different thread.
+    f.mark_yield_boundary()
+
+    return f
 
 
 def _spawn_task(

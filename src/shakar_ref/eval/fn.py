@@ -36,6 +36,39 @@ EvalFn = Callable[[Node, Frame], ShkValue]
 _DECORATOR_RESERVED_BINDINGS = frozenset({"f", "args"})
 
 
+def _build_fn_value(
+    params: Optional[List[str]],
+    body: Node,
+    frame: Frame,
+    return_contract_expr: Optional[Node],
+    varargs: Optional[List[int]],
+    defaults: Optional[List[Optional[Node]]],
+    destruct_fields: Optional[list],
+    name: Optional[str],
+    attrs: Optional[dict],
+) -> ShkFn:
+    """Build a ShkFn, handling generator detection and yield contracts."""
+    is_generator = attrs is not None and attrs.get("generator") is True
+
+    fn_value = ShkFn(
+        params=params,
+        body=body,
+        frame=closure_frame(frame),
+        # For generators, ~ T constrains yielded values, not return
+        return_contract=None if is_generator else return_contract_expr,
+        vararg_indices=varargs,
+        param_defaults=defaults,
+        destruct_fields=destruct_fields,
+        name=name,
+        kind="gen" if is_generator else "fn",
+    )
+
+    if is_generator and return_contract_expr:
+        fn_value.yield_contract = return_contract_expr
+
+    return fn_value
+
+
 def eval_hook_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     children = tree_children(n)
     if len(children) != 2:
@@ -57,7 +90,12 @@ def eval_hook_stmt(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
     return ShkNil()
 
 
-def eval_fn_def(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
+def eval_fn_def(
+    children: List[Node],
+    frame: Frame,
+    eval_fn: EvalFn,
+    attrs: Optional[dict] = None,
+) -> ShkValue:
     if not children:
         raise ShakarRuntimeError("Malformed function definition")
 
@@ -97,15 +135,16 @@ def eval_fn_def(children: List[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue
         if contracts or spread_contracts
         else body_node
     )
-    fn_value = ShkFn(
+    fn_value = _build_fn_value(
         params=params,
         body=final_body,
-        frame=closure_frame(frame),
-        return_contract=return_contract_expr,
-        vararg_indices=varargs,
-        param_defaults=defaults,
+        frame=frame,
+        return_contract_expr=return_contract_expr,
+        varargs=varargs,
+        defaults=defaults,
         destruct_fields=destruct_fields,
         name=name,
+        attrs=attrs,
     )
 
     if decorators_node:
@@ -237,7 +276,9 @@ def eval_decorator_def(children: List[Node], frame: Frame) -> ShkValue:
     return ShkNil()
 
 
-def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
+def eval_anonymous_fn(
+    children: List[Node], frame: Frame, attrs: Optional[dict] = None
+) -> ShkFn:
     params_node = None
     body_node = None
     return_contract_node = None
@@ -270,15 +311,16 @@ def eval_anonymous_fn(children: List[Node], frame: Frame) -> ShkFn:
         else body_node
     )
 
-    return ShkFn(
+    return _build_fn_value(
         params=params,
         body=final_body,
-        frame=closure_frame(frame),
-        return_contract=return_contract_expr,
-        vararg_indices=varargs,
-        param_defaults=defaults,
+        frame=frame,
+        return_contract_expr=return_contract_expr,
+        varargs=varargs,
+        defaults=defaults,
         destruct_fields=destruct_fields,
         name=None,
+        attrs=attrs,
     )
 
 

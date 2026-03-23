@@ -11,11 +11,12 @@ from .ast_transforms import (
 
 
 def lower(ast: Node) -> Node:
-    """Runtime lowering pass: hole desugaring + amp-lambda inference + param normalization."""
+    """Runtime lowering pass: hole desugaring + amp-lambda inference + param normalization + generator detection."""
     ast = _desugar_call_holes(ast)
     ast = _infer_amp_lambda_params(ast)
     ast = normalize_param_contracts(ast)
     _validate_noanchor_segments(ast)
+    _mark_generator_fns(ast)
     return ast
 
 
@@ -34,6 +35,68 @@ def _validate_noanchor_segments(node: Node) -> None:
             visit(grandchild, next_in_noanchor)
 
     visit(node, False)
+
+
+# Labels that define a new function scope boundary — yield inside these
+# does not make the outer function a generator.
+_FN_SCOPE_LABELS = frozenset(
+    {
+        "fndef",
+        "anonfn",
+        "amp_lambda",
+        "decorator_def",
+        "obj_method",
+        "obj_get",
+        "obj_set",
+    }
+)
+
+# Subset of _FN_SCOPE_LABELS that the runtime can actually instantiate
+# as generators.  decorator_def is excluded because the runtime does
+# not support generator decorators — marking one would silently return
+# a ShkGenerator instead of running the decorator body.
+_GENERATOR_CAPABLE_LABELS = _FN_SCOPE_LABELS - {"decorator_def"}
+
+
+def _mark_generator_fns(node: Node) -> None:
+    """Walk AST and set attrs["generator"]=True on fndef/anonfn nodes whose
+    immediate body contains yield/yield-deleg statements (lexically scoped)."""
+    if not is_tree(node):
+        return
+
+    label = tree_label(node)
+
+    if label in _GENERATOR_CAPABLE_LABELS:
+        if any(_has_yield_in_scope(child) for child in tree_children(node)):
+            if node.attrs is None:
+                node.attrs = {}
+            node.attrs["generator"] = True
+
+    for child in tree_children(node):
+        _mark_generator_fns(child)
+
+
+_YIELD_BOUNDARY_LABELS = frozenset({"spawn", "deferstmt"})
+
+
+def _has_yield_in_scope(node: Node) -> bool:
+    """Recursively check for yieldstmt/yielddelegstmt, stopping at fn and
+    yield boundaries (spawn, defer) — mirroring the runtime's semantics."""
+    if not is_tree(node):
+        return False
+
+    label = tree_label(node)
+    if label in ("yieldstmt", "yielddelegstmt"):
+        return True
+
+    # Do not descend into nested function definitions or yield boundaries.
+    # Spawn and defer are runtime yield boundaries — a yield inside them
+    # cannot reach the enclosing generator, so it must not cause the
+    # enclosing function to be tagged as a generator.
+    if label in _FN_SCOPE_LABELS or label in _YIELD_BOUNDARY_LABELS:
+        return False
+
+    return any(_has_yield_in_scope(child) for child in tree_children(node))
 
 
 def _desugar_call_holes(node: Node) -> Node:

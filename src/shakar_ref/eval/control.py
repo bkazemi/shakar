@@ -6,6 +6,8 @@ from ..tree import Tok
 from ..runtime import (
     Frame,
     ShkBool,
+    ShkChannel,
+    ShkGenerator,
     ShkNil,
     ShkObject,
     ShkSelector,
@@ -20,6 +22,7 @@ from ..runtime import (
     ShakarReturnSignal,
     ShakarRuntimeError,
     ShakarTypeError,
+    generator_next,
     set_mapping_item,
 )
 from ..tree import Node, Tree, is_token, tree_children, tree_label
@@ -37,6 +40,7 @@ from .common import (
 from .common import token_kind as _token_kind
 from .helpers import (
     current_function_frame as _current_function_frame,
+    current_generator_frame as _current_generator_frame,
     eval_anchor_scoped,
     is_truthy as _is_truthy,
 )
@@ -66,6 +70,86 @@ def eval_return_if(children: list[Node], frame: Frame, eval_fn: EvalFn) -> ShkVa
     value = eval_fn(children[0], frame)
     if _is_truthy(value):
         raise ShakarReturnSignal(value)
+
+    return ShkNil()
+
+
+def _find_yield_fn(frame: Frame) -> Callable[[ShkValue], None]:
+    """Walk up from the current frame to find the generator yield hook."""
+    gen_frame = _current_generator_frame(frame)
+    if gen_frame is None:
+        # Distinguish "yield in defer/spawn" from "yield with no generator".
+        if _blocked_by_yield_boundary(frame):
+            raise ShakarRuntimeError(
+                "Cannot yield from deferred cleanup or spawned task"
+            )
+        raise ShakarRuntimeError("yield outside of a generator")
+
+    return gen_frame._generator_yield_fn  # type: ignore[attr-defined]
+
+
+def _blocked_by_yield_boundary(frame: Frame) -> bool:
+    """Check if a yield boundary sits between frame and a generator frame."""
+    cur: Optional[Frame] = frame
+
+    while cur:
+        if cur.is_generator_frame():
+            return False
+        if cur.is_yield_boundary():
+            return True
+        if cur.is_function_frame():
+            return False
+        cur = getattr(cur, "parent", None)
+
+    return False
+
+
+def eval_yield_stmt(children: list[Node], frame: Frame, eval_fn: EvalFn) -> ShkValue:
+    yield_fn = _find_yield_fn(frame)
+
+    value = eval_fn(children[0], frame) if children else ShkNil()
+
+    # Block current thread, pass value to consumer
+    yield_fn(value)
+
+    return ShkNil()
+
+
+def eval_yield_deleg_stmt(
+    children: list[Node], frame: Frame, eval_fn: EvalFn
+) -> ShkValue:
+    """Handle yield ...expr — delegates to an iterable, yielding each element."""
+    yield_fn = _find_yield_fn(frame)
+
+    value = eval_fn(children[0], frame) if children else ShkNil()
+
+    # Iterate the value and yield each element via the hook
+    from .loops import _iterable_values, _iter_channel_values
+    from ..runtime import _GeneratorCloseSignal, generator_close
+
+    if isinstance(value, ShkGenerator):
+
+        try:
+            while True:
+                item, ok = generator_next(value)
+                if not ok:
+                    break
+                yield_fn(item)
+        except _GeneratorCloseSignal:
+            generator_close(value)
+            raise
+        except BaseException:
+            # Any error from yield_fn (runtime errors, etc.) must close
+            # the delegated generator so deferred cleanup runs and
+            # suspended state is not leaked.
+            generator_close(value)
+            raise
+    elif isinstance(value, ShkChannel):
+        for item in _iter_channel_values(value, frame):
+            yield_fn(item)
+    else:
+        for item in _iterable_values(value):
+            yield_fn(item)
 
     return ShkNil()
 

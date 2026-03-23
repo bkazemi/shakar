@@ -528,9 +528,21 @@ class Parser:
             if self.check(TT.INDENT):
                 return self.parse_body()
 
-            # Inline expression (may start with { for nested objects)
-            expr = self.parse_expr()
-            return Tree("body", [expr], attrs={"inline": True})
+            # Statement parsing with expr_context=True: wraps destructure-
+            # after-expr in snapshot recovery to avoid misfiring on commas
+            # that are object item separators.
+            stmt = self._parse_statement_prefix()
+            if stmt:
+                stmt = self._wrap_postfix(stmt) or stmt
+            else:
+                expr_snapshot = self._snapshot()
+                stmt = self._parse_destructure_with_contracts()
+                if stmt is None:
+                    expr = self.parse_expr()
+                    stmt = self._parse_statement_from_expr(
+                        expr_snapshot, expr, expr_context=True
+                    )
+            return Tree("body", [stmt], attrs={"inline": True})
 
     def _parse_call_op(self) -> Tree:
         """Parse call (args) — assumes current is LPAR."""
@@ -1523,6 +1535,7 @@ class Parser:
                 TT.LET: self.parse_let_stmt,
                 TT.IMPORT: self.parse_import_stmt,
                 TT.RETURN: self.parse_return_stmt,
+                TT.YIELD: self.parse_yield_stmt,
                 TT.BREAK: self.parse_break_stmt,
                 TT.CONTINUE: self.parse_continue_stmt,
                 TT.THROW: self.parse_throw_stmt,
@@ -1719,11 +1732,30 @@ class Parser:
             return Tree("destructure_walrus", [pattern_node, rhs])
         raise ParseError("Expected = or := after pattern", self.current)
 
-    def _parse_statement_from_expr(self, expr_snapshot: _Snapshot, expr: Node) -> Tree:
-        stmt = self._parse_destructure_after_expr(expr_snapshot)
-        if stmt:
-            return stmt
+    def _parse_statement_from_expr(
+        self, expr_snapshot: _Snapshot, expr: Node, *, expr_context: bool = False
+    ) -> Tree:
+        if not expr_context:
+            stmt = self._parse_destructure_after_expr(expr_snapshot)
+            if stmt:
+                return stmt
+        else:
+            # In expression contexts (array elements, fn args, object items),
+            # destructure-after-expr can misfire on commas that are
+            # surrounding delimiters. Try with a snapshot to recover.
+            if self.check(TT.COMMA):
+                snap = self._snapshot()
+                try:
+                    stmt = self._parse_destructure_after_expr(expr_snapshot)
+                    if stmt:
+                        return stmt
+                except ParseError:
+                    self._restore(snap)
 
+        # Guard-chain parsing is unconditional: the body-introducing colon
+        # is already consumed before we reach here, so a colon at this point
+        # genuinely starts a guard chain — it can never be an enclosing
+        # delimiter.
         stmt = self._parse_guard_chain_after_expr(expr_snapshot)
         if stmt:
             return stmt
@@ -2609,7 +2641,7 @@ class Parser:
         self.expect(TT.SPAWN)
 
         if self.match(TT.COLON):
-            body = self.parse_body()
+            body = self.parse_body(expr_context=True)
             return Tree("spawn", [body])
 
         if self.match(TT.LPAR):
@@ -2870,6 +2902,33 @@ class Parser:
         self._drain_expr_continuations(entered_depth)
         return Tree("returnstmt", [return_tok, value])
 
+    def parse_yield_stmt(self) -> Tree:
+        """Parse yield statement: yield [...]expr
+
+        Supports delegation via `yield ...expr` which yields each
+        element from the iterable individually.
+        """
+        yield_tok = self.expect(TT.YIELD)
+        entered_depth = self._expr_cont_depth
+
+        # Check for delegation: yield ...expr
+        if self.check(TT.SPREAD):
+            self.advance()  # consume ...
+            value = self.parse_expr()
+            self._drain_expr_continuations(entered_depth)
+            return Tree("yielddelegstmt", [yield_tok, value])
+
+        # Check for bare yield
+        if self.check(TT.NEWLINE):
+            if not self._try_operand_continuation():
+                return Tree("yieldstmt", [yield_tok])
+        elif self.current.type in self._BARE_STMT_TERMINATORS:
+            return Tree("yieldstmt", [yield_tok])
+
+        value = self._parse_expr_or_pack(self.parse_expr)
+        self._drain_expr_continuations(entered_depth)
+        return Tree("yieldstmt", [yield_tok, value])
+
     def parse_break_stmt(self) -> Tree:
         """Parse break statement"""
         return Tree("breakstmt", [self.expect(TT.BREAK)])
@@ -2982,13 +3041,20 @@ class Parser:
 
         return Tree("onelineguard", branches)
 
-    def parse_body(self) -> Tree:
+    def parse_body(self, *, expr_context: bool = False) -> Tree:
         """Parse body after colon — implements "colon chooses" rule.
 
         Accepts:
         - Inline brace block: { stmts }
         - Indented block: INDENT stmts DEDENT
         - Single statement: stmt
+
+        When expr_context is True, the single-statement inline fallback
+        uses _parse_statement_prefix() + parse_expr() instead of full
+        parse_statement(). This prevents _parse_statement_from_expr's
+        destructure detection from misfiring on trailing commas that
+        serve as delimiters in the enclosing expression (arrays, calls,
+        object literals).
 
         Suspends grouped-delimiter state at the top so that:
         1. The NEWLINE-matching loop doesn't trigger advance()'s auto-skip
@@ -3057,8 +3123,24 @@ class Parser:
                 )
                 return Tree("body", children, attrs={"inline": False})
 
-            # Single statement inline
-            stmt = self.parse_statement()
+            # Single statement inline.
+            # In expression contexts, _parse_statement_from_expr wraps
+            # destructure-after-expr in snapshot recovery to avoid
+            # misfiring on commas that are surrounding delimiters.
+            if expr_context:
+                stmt = self._parse_statement_prefix()
+                if stmt:
+                    stmt = self._wrap_postfix(stmt) or stmt
+                else:
+                    expr_snapshot = self._snapshot()
+                    stmt = self._parse_destructure_with_contracts()
+                    if stmt is None:
+                        expr = self.parse_expr()
+                        stmt = self._parse_statement_from_expr(
+                            expr_snapshot, expr, expr_context=True
+                        )
+            else:
+                stmt = self.parse_statement()
             return Tree("body", [stmt], attrs={"inline": True})
 
     def _parse_body_for_header_expr(self, entered_depth: int) -> Tree:
@@ -3114,7 +3196,7 @@ class Parser:
             while self.peek(k).type == TT.NEWLINE:
                 k += 1
             is_stmt = self.peek(k).type == TT.INDENT
-        handler = self.parse_body()
+        handler = self.parse_body(expr_context=True)
         self._drain_expr_continuations(entered_expr)
 
         children = self._build_catch_children(expr, types, binder, handler)
@@ -5820,9 +5902,9 @@ class Parser:
                 expr_body = self.parse_expr()
                 body = Tree("body", [Tree("stmt", [expr_body])], attrs={"inline": True})
             else:
-                body = self.parse_body()
+                body = self.parse_body(expr_context=True)
         else:
-            body = self.parse_body()
+            body = self.parse_body(expr_context=True)
         self._drain_expr_continuations(entered_contract)
 
         paramlist_node = None if auto_invoke else params

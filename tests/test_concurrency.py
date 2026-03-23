@@ -202,3 +202,101 @@ def test_wait_modifier_close_match_suggestion() -> None:
         match=r"unknown wait modifier 'gruop'.*did you mean 'group'\?",
     ):
         run_program("wait[gruop] 1")
+
+
+def test_generator_inherits_cancel_token() -> None:
+    """Generator body must see the caller's cancellation.
+
+    Regression: _create_generator replaced the frame's cancel_token with a
+    fresh CancelToken, severing the link to the caller. In a spawn context
+    the generator would ignore task cancellation and block forever.
+    """
+    import threading
+
+    from shakar_ref.types import CancelToken
+
+    parent = CancelToken()
+    child = CancelToken()
+    parent.add_child(child)
+
+    # Child should not be cancelled yet.
+    assert not child.cancelled()
+
+    # Cancelling parent must propagate to child.
+    parent.cancel()
+    assert child.cancelled()
+
+
+def test_generator_cancel_propagation_with_conditions() -> None:
+    """Parent cancellation must wake conditions registered on the child token."""
+    import threading
+
+    from shakar_ref.types import CancelToken
+
+    parent = CancelToken()
+    child = CancelToken()
+    parent.add_child(child)
+
+    lock = threading.Lock()
+    cond = threading.Condition(lock)
+    child.register_condition(cond)
+
+    woke = threading.Event()
+
+    def waiter() -> None:
+        with cond:
+            # Wait until notified — parent.cancel() should wake us.
+            cond.wait(timeout=2)
+        woke.set()
+
+    t = threading.Thread(target=waiter, daemon=True)
+    t.start()
+
+    # Give the waiter a moment to enter cond.wait().
+    import time
+
+    time.sleep(0.05)
+
+    parent.cancel()
+    assert woke.wait(timeout=1), "condition was not notified on parent cancel"
+    assert child.cancelled()
+
+
+def test_generator_close_does_not_cancel_parent() -> None:
+    """Calling .close() on a generator must not cancel the caller's token."""
+    from shakar_ref.types import CancelToken
+
+    parent = CancelToken()
+    child = CancelToken()
+    parent.add_child(child)
+
+    # Closing the generator cancels the child only.
+    child.cancel()
+    assert child.cancelled()
+    assert not parent.cancelled()
+
+
+def test_cancel_token_child_refs_do_not_leak() -> None:
+    """Dead child tokens must be pruned eagerly, not only on cancel().
+
+    Regression: add_child() stored refs that were only pruned during
+    cancel(), so an uncancelled long-lived parent accumulated one dead
+    entry per generator call.
+    """
+    import gc
+
+    from shakar_ref.types import CancelToken
+
+    parent = CancelToken()
+
+    for _ in range(100):
+        child = CancelToken()
+        parent.add_child(child)
+    # All children go out of scope here.
+
+    del child
+    gc.collect()
+
+    # Refs should be pruned eagerly by the weakref callback —
+    # no cancel() needed.
+    assert len(parent._children) == 0

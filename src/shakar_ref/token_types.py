@@ -38,6 +38,7 @@ class TT(Enum):
     BREAK = auto()
     CONTINUE = auto()
     RETURN = auto()
+    YIELD = auto()
     FN = auto()
     LET = auto()
     ONCE = auto()

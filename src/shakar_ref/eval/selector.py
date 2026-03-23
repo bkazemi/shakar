@@ -7,6 +7,7 @@ from ..runtime import (
     ShkArray,
     ShkSet,
     ShkEnvVar,
+    ShkGenerator,
     ShkString,
     ShkNumber,
     ShkNil,
@@ -18,6 +19,7 @@ from ..runtime import (
     ShakarRuntimeError,
     ShakarTypeError,
     ShakarIndexError,
+    generator_next,
 )
 
 from ..utils import sequence_items, envvar_value_by_name, normalize_set_items
@@ -177,8 +179,11 @@ def apply_selectors_to_value(recv: ShkValue, selectors: List[SelectorPart]) -> S
             raise ShakarTypeError(f"Env var '{recv.name}' has no value for selector")
         return _apply_selectors_to_string(ShkString(env_val), selectors)
 
+    if isinstance(recv, ShkGenerator):
+        return _apply_selectors_to_generator(recv, selectors)
+
     raise ShakarTypeError(
-        "Complex selectors only supported on arrays, sets, or strings"
+        "Complex selectors only supported on arrays, sets, strings, or generators"
     )
 
 
@@ -469,6 +474,94 @@ def _apply_selectors_to_string(
         pieces.append(s.value[slice_obj])
 
     return ShkString("".join(pieces))
+
+
+def _apply_selectors_to_generator(
+    gen: ShkGenerator, selectors: List[SelectorPart]
+) -> ShkValue:
+    """Apply bounded selectors to a generator by buffering up to the maximum
+    referenced position, then applying normal selector-list semantics.
+
+    For a single index selector, returns the value directly (not wrapped
+    in an array), matching array single-index behavior.
+    """
+    # Compute the maximum position we need to consume
+    max_pos = _compute_max_position(selectors)
+
+    # Pull values from generator into a buffer up to max_pos
+    buffer: List[ShkValue] = []
+    for _ in range(max_pos):
+        value, ok = generator_next(gen)
+        if not ok:
+            break
+        buffer.append(value)
+
+    # For single index selectors, return the value directly
+    if len(selectors) == 1 and isinstance(selectors[0], SelectorIndex):
+        idx = _selector_index_to_int(selectors[0].value)
+        if idx < 0 or idx >= len(buffer):
+            raise ShakarIndexError("Generator index out of bounds")
+        return buffer[idx]
+
+    # Apply selectors to the buffered array
+    return _apply_selectors_to_array(ShkArray(buffer), selectors)
+
+
+def _compute_max_position(selectors: List[SelectorPart]) -> int:
+    """Compute the maximum position referenced by a selector list.
+    Rejects unbounded and negative selectors."""
+    max_pos = 0
+
+    for part in selectors:
+        if isinstance(part, SelectorIndex):
+            idx = _selector_index_to_int(part.value)
+            if idx < 0:
+                raise ShakarTypeError(
+                    "Negative indices on generators are not supported"
+                )
+            max_pos = max(max_pos, idx + 1)
+        elif isinstance(part, SelectorSlice):
+            if part.step == 0:
+                raise ShakarTypeError("Selector slice step cannot be zero")
+            start = part.start or 0
+            stop = part.stop
+            step = part.step or 1
+
+            if start < 0:
+                raise ShakarTypeError(
+                    "Negative start on generator selectors is not supported"
+                )
+            if stop is not None and stop < 0:
+                raise ShakarTypeError(
+                    "Negative stop on generator selectors is not supported"
+                )
+
+            if step > 0:
+                # Forward slice: need to buffer up to stop.
+                if stop is None:
+                    raise ShakarTypeError(
+                        "Unbounded selectors on generators are not supported (v1)"
+                    )
+                effective_stop = stop if part.exclusive_stop else stop + 1
+                # Empty forward slice (start >= effective_stop) contributes nothing,
+                # but we still need to have consumed up to start for position tracking.
+                if start >= effective_stop:
+                    max_pos = max(max_pos, start)
+                else:
+                    max_pos = max(max_pos, effective_stop)
+            else:
+                # Reverse slice: start is the highest referenced position.
+                if part.start is None:
+                    raise ShakarTypeError(
+                        "Reverse slices on generators require an explicit start"
+                    )
+                if stop is None:
+                    raise ShakarTypeError(
+                        "Unbounded selectors on generators are not supported (v1)"
+                    )
+                max_pos = max(max_pos, start + 1)
+
+    return max_pos
 
 
 def _selector_index_to_int(value: ShkValue) -> int:

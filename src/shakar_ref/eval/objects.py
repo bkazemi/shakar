@@ -201,11 +201,13 @@ def _handle_obj_get(item: Tree, slots: dict[str, ShkValue], frame: Frame) -> Non
         raise ShakarRuntimeError("Getter missing name")
 
     key = _expect_ident_token(name_tok, "Getter name")
+    is_gen = bool(item.attrs and item.attrs.get("generator"))
     getter_fn = ShkFn(
         params=None,
         body=body,
         frame=closure_frame(frame),
         name=f"{key}.get",
+        kind="gen" if is_gen else "fn",
     )
     _install_descriptor(slots, key, getter=getter_fn)
 
@@ -217,6 +219,10 @@ def _handle_obj_set(item: Tree, slots: dict[str, ShkValue], frame: Frame) -> Non
 
     key = _expect_ident_token(name_tok, "Setter name")
     param_name = _expect_ident_token(param_tok, "Setter parameter")
+    if item.attrs and item.attrs.get("generator"):
+        raise ShakarRuntimeError(
+            f"Setter '{key}' cannot be a generator (yield is not allowed in setters)"
+        )
     setter_fn = ShkFn(
         params=[param_name],
         body=body,
@@ -240,6 +246,7 @@ def _handle_obj_method(item: Tree, slots: dict[str, ShkValue], frame: Frame) -> 
         if contracts or spread_contracts
         else body
     )
+    is_gen = bool(item.attrs and item.attrs.get("generator"))
     set_mapping_item(
         slots,
         method_name,
@@ -251,6 +258,7 @@ def _handle_obj_method(item: Tree, slots: dict[str, ShkValue], frame: Frame) -> 
             param_defaults=defaults,
             destruct_fields=destruct_fields,
             name=method_name,
+            kind="gen" if is_gen else "fn",
         ),
     )
 

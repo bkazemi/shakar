@@ -629,6 +629,63 @@ SCENARIOS = [
         None,
         id="obj-destruct-scalar-broadcast",
     ),
+    # ---- Guard chains in expression-context inline bodies ----
+    pytest.param(
+        dedent(
+            """\
+            f := fn(): true: 1 |: 2
+            f()
+        """
+        ),
+        ("number", 1),
+        None,
+        id="guard-chain-anon-fn-inline-body",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            f := fn(): false: 1 |: 2
+            f()
+        """
+        ),
+        ("number", 2),
+        None,
+        id="guard-chain-anon-fn-inline-body-else",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            obj := {m(): true: "yes" |: "no"}
+            obj.m()
+        """
+        ),
+        ("string", "yes"),
+        None,
+        id="guard-chain-object-method-inline-body",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            obj := {m(): false: "yes" |: "no"}
+            obj.m()
+        """
+        ),
+        ("string", "no"),
+        None,
+        id="guard-chain-object-method-inline-body-else",
+    ),
+    pytest.param(
+        dedent(
+            """\
+            x := 10
+            result := wait spawn: x > 5: "big" |: "small"
+            result
+        """
+        ),
+        ("string", "big"),
+        None,
+        id="guard-chain-spawn-inline-body",
+    ),
 ]
 
 

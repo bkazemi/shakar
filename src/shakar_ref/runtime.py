@@ -81,6 +81,7 @@ from .types import (
     ShakarCancelledError,
     ShakarChannelClosedEmpty,
     ShakarAllChannelsClosed,
+    ShkGenerator,
     ShakarReturnSignal,
     ShakarBreakSignal,
     ShakarContinueSignal,
@@ -399,6 +400,10 @@ def register_envvar(name: str):
 
 def register_channel(name: str):
     return register_method(Builtins.channel_methods, name)
+
+
+def register_generator(name: str):
+    return register_method(Builtins.generator_methods, name)
 
 
 def register_stdlib(name: str, *, arity: Optional[int] = None, named: bool = False):
@@ -973,6 +978,34 @@ def _envvar_unset(_frame: Frame, recv: ShkEnvVar, args: List[ShkValue]) -> ShkNi
     return ShkNil()
 
 
+@register_generator("next")
+def _generator_next(frame: Frame, recv: ShkGenerator, args: List[ShkValue]) -> ShkValue:
+    """Pull the next value. Throws if exhausted."""
+    _expect_arity("Generator", "next", args, 0)
+    value, ok = generator_next(recv)
+    if not ok:
+        raise ShakarRuntimeError("Generator is exhausted")
+    return value
+
+
+@register_generator("peek")
+def _generator_peek(frame: Frame, recv: ShkGenerator, args: List[ShkValue]) -> ShkValue:
+    """Inspect the next value without consuming it."""
+    _expect_arity("Generator", "peek", args, 0)
+    value, ok = generator_peek(recv)
+    if not ok:
+        raise ShakarRuntimeError("Generator is exhausted")
+    return value
+
+
+@register_generator("close")
+def _generator_close(frame: Frame, recv: ShkGenerator, args: List[ShkValue]) -> ShkNil:
+    """Close the generator, triggering cleanup."""
+    _expect_arity("Generator", "close", args, 0)
+    generator_close(recv)
+    return ShkNil()
+
+
 _BUILTIN_METHOD_REGISTRY: Dict[type, MethodRegistry] = {
     ShkArray: Builtins.array_methods,
     ShkSet: Builtins.set_methods,
@@ -983,6 +1016,7 @@ _BUILTIN_METHOD_REGISTRY: Dict[type, MethodRegistry] = {
     ShkPath: Builtins.path_methods,
     ShkEnvVar: Builtins.envvar_methods,
     ShkChannel: Builtins.channel_methods,
+    ShkGenerator: Builtins.generator_methods,
 }
 
 
@@ -1339,6 +1373,10 @@ def _call_shkfn_raw(
         callee_frame.frozen_scope_names = fn.frame.frozen_scope_names
         callee_frame.mark_function_frame()
 
+        if fn.kind == "gen":
+            callee_frame.mark_generator_frame()
+            return _create_generator(fn, callee_frame)
+
         try:
             result = _ensure_shk_value(eval_node(fn.body, callee_frame))
         except ShakarReturnSignal as signal:
@@ -1381,12 +1419,323 @@ def _call_shkfn_raw(
 
     _apply_destruct_bindings(fn, callee_frame, eval_default)
 
+    if fn.kind == "gen":
+        callee_frame.mark_generator_frame()
+        return _create_generator(fn, callee_frame)
+
     try:
         result = _ensure_shk_value(eval_node(fn.body, callee_frame))
     except ShakarReturnSignal as signal:
         result = signal.value
 
     return _validate_return_contract(fn, result, callee_frame)
+
+
+def _create_generator(fn: ShkFn, callee_frame: Frame) -> ShkGenerator:
+    """Create a generator using a thread to run the body. Yield points block
+    the body thread and pass values to the consumer thread."""
+    import threading
+    import weakref
+
+    from .evaluator import eval_node
+    from .eval.match import match_structure
+    from .tree import tree_children, tree_label, is_tree, Tree
+    from .types import CancelToken
+
+    # Give the generator body its own cancel token so that .close() can
+    # interrupt channel recv_with_ok calls without cancelling the caller.
+    # Link it as a child of the caller's token so task cancellation still
+    # propagates into the generator body.
+    gen_cancel = CancelToken()
+    caller_cancel = callee_frame.cancel_token
+    if caller_cancel:
+        caller_cancel.add_child(gen_cancel)
+    callee_frame.cancel_token = gen_cancel
+
+    # Eagerly evaluate leading parameter contract nodes so invalid
+    # arguments are caught at call time, not deferred to the first .next().
+    # Regular contracts are lowered as `assert` nodes; spread contracts
+    # (e.g. ...xs ~ Int) are lowered as `forsubject` loops that iterate
+    # the spread array and assert each element.
+    _CONTRACT_LABELS = frozenset({"assert", "forsubject"})
+    body = fn.body
+    body_children = list(tree_children(body))
+    eager_count = 0
+
+    for child in body_children:
+        if is_tree(child) and tree_label(child) in _CONTRACT_LABELS:
+            eval_node(child, callee_frame)
+            eager_count += 1
+        else:
+            break
+
+    # Build a trimmed body without the eagerly-evaluated assertions
+    if eager_count:
+        remaining = body_children[eager_count:]
+        body = Tree(
+            tree_label(body) or "body",
+            remaining,
+            attrs=getattr(body, "attrs", None),
+        )
+
+    # Snapshot the call stack so the body thread's error traces include
+    # the generator creation site, not just the later .next() site.
+    callee_frame.call_stack = list(callee_frame.call_stack)
+
+    # Shared state protected by the lock-free event protocol:
+    # Body thread produces into `slot`, signals value_ready, then waits on consumer_ready.
+    # Consumer reads from `slot`, signals consumer_ready.
+    value_ready = threading.Event()
+    consumer_ready = threading.Event()
+    closed = threading.Event()  # set by close/finalizer, checked by yield_fn
+    # slot holds: ("yield", value) | ("return", value) | ("error", exc)
+    slot: List = []
+
+    def yield_fn(value: ShkValue) -> None:
+        """Called from eval_yield_stmt via the frame's yield hook.
+        Blocks the body thread until the consumer calls next()."""
+        # Yield after close means cleanup code is trying to yield —
+        # that's a programming error. Raise so the body thread unwinds.
+        if closed.is_set():
+            raise ShakarRuntimeError(
+                "Cannot yield from a closed generator (yield during cleanup)"
+            )
+
+        # Validate yield contract
+        if fn.yield_contract:
+            contract_value = eval_node(fn.yield_contract, callee_frame)
+            if not match_structure(value, contract_value):
+                raise ShakarTypeError(
+                    f"Yielded value does not match contract: expected {contract_value}, got {value}"
+                )
+        slot.clear()
+        slot.append(("yield", value))
+        value_ready.set()
+        consumer_ready.wait()
+        consumer_ready.clear()
+
+        # If close() or finalizer woke us, abort the body.
+        if closed.is_set():
+            raise _GeneratorCloseSignal()
+
+    # Store yield function on the frame so eval_yield_stmt can call it
+    callee_frame._generator_yield_fn = yield_fn  # type: ignore[attr-defined]
+
+    # Mutable container so make_iterator can update and finalizer sees changes.
+    thread_state: List = [None, False]  # [body_thread, started]
+
+    def run_body() -> None:
+        try:
+            result = _ensure_shk_value(eval_node(body, callee_frame))
+            slot.clear()
+            slot.append(("return", result))
+        except ShakarReturnSignal as sig:
+            slot.clear()
+            slot.append(("return", sig.value))
+        except _GeneratorCloseSignal:
+            slot.clear()
+            slot.append(("closed", None))
+        except ShakarCancelledError as exc:
+            if closed.is_set():
+                # Cancelled via gen_cancel during .close() — clean close.
+                slot.clear()
+                slot.append(("closed", None))
+            else:
+                # Parent-task cancellation must propagate so the consumer
+                # sees ShakarCancelledError instead of silent exhaustion.
+                slot.clear()
+                slot.append(("error", exc))
+        except ShakarRuntimeError as exc:
+            slot.clear()
+            slot.append(("error", exc))
+        except Exception as exc:
+            slot.clear()
+            slot.append(("error", ShakarRuntimeError(str(exc))))
+
+        value_ready.set()
+
+    # Indirect reference to gen — set after construction to break the
+    # make_iterator => gen => _iterator reference cycle.
+    gen_ref: List = [None]
+
+    def _unlink_cancel_token() -> None:
+        """Eagerly remove gen_cancel from its parent to avoid leaking
+        dead children under long-lived uncancelled parent tokens."""
+        if caller_cancel:
+            caller_cancel.remove_child(gen_cancel)
+
+    def make_iterator():
+        if not thread_state[1]:
+            thread_state[1] = True
+            thread_state[0] = threading.Thread(target=run_body, daemon=True)
+            thread_state[0].start()
+
+        while True:
+            value_ready.wait()
+            value_ready.clear()
+
+            if not slot:
+                _unlink_cancel_token()
+                return
+
+            kind, val = slot[0]
+            ref = gen_ref[0]
+            g = ref() if ref else None
+
+            if kind == "yield":
+                yield val
+                # Resume body thread
+                consumer_ready.set()
+            elif kind == "return":
+                if g:
+                    g.result_value = val
+                    g.state = "completed"
+                _unlink_cancel_token()
+                return
+            elif kind == "closed":
+                if g:
+                    g.state = "closed"
+                _unlink_cancel_token()
+                return
+            elif kind == "error":
+                if g:
+                    g.state = "completed"
+                _unlink_cancel_token()
+                raise val
+
+    def close_fn() -> None:
+        """Wake the body thread so it can see the closed event."""
+        if not thread_state[1]:
+            _unlink_cancel_token()
+            return
+
+        closed.set()
+        consumer_ready.set()
+        thread_state[0].join(timeout=0.5)
+
+        if thread_state[0].is_alive():
+            # Body thread is still blocked (likely in a channel recv).
+            # Cancel the generator's token to unblock it.
+            gen_cancel.cancel()
+            thread_state[0].join(timeout=5)
+
+        _unlink_cancel_token()
+
+        # Surface exceptions from deferred cleanup that ran during close.
+        if slot and slot[0][0] == "error":
+            raise slot[0][1]
+
+    gen = ShkGenerator(fn=fn, _iterator=make_iterator(), _close_fn=close_fn)
+    gen_ref[0] = weakref.ref(gen)
+
+    # Auto-close when the generator is garbage collected to avoid leaking
+    # blocked body threads from partially consumed generators.
+    # The finalizer captures thread_state (mutable list), not gen.
+    weakref.finalize(
+        gen,
+        _finalize_generator,
+        closed,
+        consumer_ready,
+        thread_state,
+        gen_cancel,
+        caller_cancel,
+    )
+
+    return gen
+
+
+def _finalize_generator(
+    closed: "threading.Event",
+    consumer_ready: "threading.Event",
+    thread_state: List,
+    gen_cancel: "CancelToken",
+    caller_cancel: "Optional[CancelToken]",
+) -> None:
+    """weakref finalizer — unblocks the body thread without referencing gen."""
+    # Eagerly unlink gen_cancel from its parent regardless of thread state.
+    if caller_cancel:
+        caller_cancel.remove_child(gen_cancel)
+
+    body_thread, started = thread_state[0], thread_state[1]
+
+    if not started or body_thread is None or not body_thread.is_alive():
+        return
+
+    closed.set()
+    consumer_ready.set()
+    body_thread.join(timeout=0.1)
+
+    if body_thread.is_alive():
+        # Body thread is likely blocked on a cancelable wait (channel recv).
+        # Cancel the generator's token to unblock it.
+        gen_cancel.cancel()
+        body_thread.join(timeout=0.1)
+
+
+class _GeneratorCloseSignal(BaseException):
+    """Injected into the body thread to trigger cleanup on .close()."""
+
+    pass
+
+
+def generator_next(gen: ShkGenerator) -> Tuple[ShkValue, bool]:
+    """Pull the next value from a generator. Returns (value, ok).
+    ok is False if the generator is exhausted."""
+    if gen.state in ("completed", "closed"):
+        return ShkNil(), False
+
+    if gen.state == "running":
+        raise ShakarRuntimeError("Generator is already running (reentrant .next())")
+
+    # Check peek buffer first
+    if gen.peek_buffer is not None:
+        has_val, val = gen.peek_buffer
+        gen.peek_buffer = None
+        if has_val:
+            return val, True
+        return ShkNil(), False
+
+    gen.state = "running"
+    try:
+        value = next(gen._iterator)
+        gen.state = "suspended"
+        return value, True
+    except StopIteration:
+        if gen.state != "closed":
+            gen.state = "completed"
+        return ShkNil(), False
+    except ShakarRuntimeError:
+        gen.state = "completed"
+        raise
+    finally:
+        if gen.state == "running":
+            gen.state = "suspended"
+
+
+def generator_peek(gen: ShkGenerator) -> Tuple[ShkValue, bool]:
+    """Peek at the next value without consuming it."""
+    if gen.peek_buffer is not None:
+        has_val, val = gen.peek_buffer
+        return (val, True) if has_val else (ShkNil(), False)
+
+    value, ok = generator_next(gen)
+    gen.peek_buffer = (ok, value) if ok else (False, ShkNil())
+
+    return value, ok
+
+
+def generator_close(gen: ShkGenerator) -> None:
+    """Close a generator, waking the body thread so deferred cleanup runs."""
+    if gen.state in ("completed", "closed"):
+        return
+
+    gen.state = "closed"
+    gen.peek_buffer = None
+
+    # Wake the body thread if it's parked in yield_fn's consumer_ready.wait().
+    # It will see state == "closed" and raise _GeneratorCloseSignal.
+    if gen._close_fn:
+        gen._close_fn()
 
 
 def _call_shkfn_with_decorators(

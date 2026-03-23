@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Iterable, List, Optional, TypedDict
+from typing import Callable, Iterable, Iterator, List, Optional, TypedDict
 import glob
 
 from ..tree import Tree, Tok
@@ -12,6 +12,7 @@ from ..runtime import (
     ShkSet,
     ShkFan,
     ShkChannel,
+    ShkGenerator,
     ShkNil,
     ShkNumber,
     ShkObject,
@@ -24,6 +25,7 @@ from ..runtime import (
     ShakarContinueSignal,
     ShakarRuntimeError,
     ShakarTypeError,
+    generator_next,
     set_mapping_item,
 )
 from ..tree import Node, child_by_label, is_token, is_tree, tree_children, tree_label
@@ -164,61 +166,41 @@ def _pattern_requires_object_pair(pattern: Tree) -> bool:
 
 def _iter_indexed_entries(
     value: ShkValue, binder_count: int
-) -> list[tuple[ShkValue, list[ShkValue]]]:
+) -> Iterator[tuple[ShkValue, list[ShkValue]]]:
+    """Yield (subject, binder_values) pairs lazily for indexed loops."""
     if binder_count <= 0:
         raise ShakarRuntimeError("Indexed loop requires at least one binder")
 
     if binder_count > 2:
         raise ShakarRuntimeError("Indexed loop supports at most two binders")
 
-    entries: list[tuple[ShkValue, list[ShkValue]]] = []
-    binders: list[ShkValue]
+    def _entry(idx_val: ShkValue, item: ShkValue) -> tuple[ShkValue, list[ShkValue]]:
+        binders: list[ShkValue] = [idx_val]
+        if binder_count > 1:
+            binders.append(item)
+        return (item, binders[:binder_count])
+
     match value:
         case ShkArray(items=items) | ShkSet(items=items) | ShkFan(items=items):
             for idx, item in enumerate(items):
-                binders = [ShkNumber(float(idx))]
-
-                if binder_count > 1:
-                    binders.append(item)
-                entries.append((item, binders[:binder_count]))
+                yield _entry(ShkNumber(float(idx)), item)
         case ShkString(value=s):
             for idx, ch in enumerate(s):
-                char = ShkString(ch)
-                binders = [ShkNumber(float(idx))]
-
-                if binder_count > 1:
-                    binders.append(char)
-                entries.append((char, binders[:binder_count]))
+                yield _entry(ShkNumber(float(idx)), ShkString(ch))
         case ShkModule(slots=slots) | ShkObject(slots=slots):
             for key, val in slots.items():
-                binders = [ShkString(key)]
-
-                if binder_count > 1:
-                    binders.append(val)
-                entries.append((val, binders[:binder_count]))
+                yield _entry(ShkString(key), val)
         case ShkSelector():
-            values = selector_iter_values(value)
-
-            for idx, sel in enumerate(values):
-                binders = [ShkNumber(float(idx))]
-
-                if binder_count > 1:
-                    binders.append(sel)
-
-                entries.append((sel, binders[:binder_count]))
+            for idx, sel in enumerate(selector_iter_values(value)):
+                yield _entry(ShkNumber(float(idx)), sel)
         case ShkPath():
-            values = _iter_path_values(value)
-
-            for idx, item in enumerate(values):
-                binders = [ShkNumber(float(idx))]
-
-                if binder_count > 1:
-                    binders.append(item)
-
-                entries.append((item, binders[:binder_count]))
+            for idx, item in enumerate(_iter_path_values(value)):
+                yield _entry(ShkNumber(float(idx)), item)
+        case ShkGenerator():
+            for idx, item in enumerate(_iter_generator_values(value)):
+                yield _entry(ShkNumber(float(idx)), item)
         case _:
             raise ShakarTypeError(f"Cannot use indexed loop on {type(value).__name__}")
-    return entries
 
 
 def _path_has_wildcards(text: str) -> bool:
@@ -269,12 +251,26 @@ def _iterable_values(value: ShkValue) -> list[ShkValue]:
             return selector_iter_values(value)
         case ShkPath():
             return _iter_path_values(value)
+        case ShkGenerator():
+            raise ShakarTypeError(
+                "Cannot eagerly iterate a generator in spread or comprehension; "
+                "use a for-loop or selector instead"
+            )
         case ShkChannel():
             raise ShakarTypeError(
                 "Cannot iterate over channel in comprehension or spread"
             )
         case _:
             raise ShakarTypeError(f"Cannot iterate over {type(value).__name__}")
+
+
+def _iter_generator_values(gen: ShkGenerator) -> Iterable[ShkValue]:
+    """Lazily iterate a generator, yielding values one at a time."""
+    while True:
+        value, ok = generator_next(gen)
+        if not ok:
+            break
+        yield value
 
 
 def _iter_channel_values(channel: ShkChannel, frame: Frame) -> Iterable[ShkValue]:
@@ -287,6 +283,16 @@ def _iter_channel_values(channel: ShkChannel, frame: Frame) -> Iterable[ShkValue
 
 def _resolve_iter_source(value: ShkValue) -> ShkValue:
     return value
+
+
+def _resolve_iterable(iter_source: ShkValue, frame: Frame) -> Iterable[ShkValue]:
+    """Dispatch an iteration source to the appropriate lazy iterator."""
+    if isinstance(iter_source, ShkChannel):
+        return _iter_channel_values(iter_source, frame)
+    if isinstance(iter_source, ShkGenerator):
+        return _iter_generator_values(iter_source)
+
+    return _iterable_values(iter_source)
 
 
 def _apply_comp_binders_wrapper(
@@ -441,10 +447,7 @@ def eval_for_in(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
         raise ShakarRuntimeError("For-in loop missing pattern")
 
     iter_source = _resolve_iter_source(eval_fn(iter_expr, frame))
-    if isinstance(iter_source, ShkChannel):
-        iterable = _iter_channel_values(iter_source, frame)
-    else:
-        iterable = _iterable_values(iter_source)
+    iterable = _resolve_iterable(iter_source, frame)
     outer_dot = frame.dot
     object_pairs: Optional[list[tuple[str, ShkValue]]] = None
 
@@ -502,10 +505,7 @@ def eval_for_subject(n: Tree, frame: Frame, eval_fn: EvalFn) -> ShkValue:
         raise ShakarRuntimeError("Malformed subjectful for loop")
 
     iter_source = _resolve_iter_source(eval_fn(iter_expr, frame))
-    if isinstance(iter_source, ShkChannel):
-        iterable = _iter_channel_values(iter_source, frame)
-    else:
-        iterable = _iterable_values(iter_source)
+    iterable = _resolve_iterable(iter_source, frame)
     outer_dot = frame.dot
 
     try:

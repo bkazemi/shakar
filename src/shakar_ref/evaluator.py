@@ -58,6 +58,8 @@ from .eval.control import (
     eval_match_expr,
     eval_return_if,
     eval_return_stmt,
+    eval_yield_stmt,
+    eval_yield_deleg_stmt,
     eval_throw_stmt,
     eval_catch_expr,
     eval_catch_stmt,
@@ -900,6 +902,16 @@ def _eval_returnif(n: Tree, frame: Frame) -> ShkValue:
     return eval_return_if(n.children, frame, eval_fn=eval_node)
 
 
+def _eval_yieldstmt(n: Tree, frame: Frame) -> ShkValue:
+    # Skip the YIELD keyword token (children[0]), pass rest
+    return eval_yield_stmt(n.children[1:], frame, eval_fn=eval_node)
+
+
+def _eval_yielddelegstmt(n: Tree, frame: Frame) -> ShkValue:
+    # Skip the YIELD keyword token (children[0]), pass rest
+    return eval_yield_deleg_stmt(n.children[1:], frame, eval_fn=eval_node)
+
+
 def _eval_throwstmt(n: Tree, frame: Frame) -> ShkValue:
     return eval_throw_stmt(n.children, frame, eval_fn=eval_node)
 
@@ -931,7 +943,7 @@ def _eval_compound_assign(n: Tree, frame: Frame) -> ShkValue:
 
 
 def _eval_fndef(n: Tree, frame: Frame) -> ShkValue:
-    return eval_fn_def(n.children, frame, eval_node)
+    return eval_fn_def(n.children, frame, eval_node, attrs=n.attrs)
 
 
 def _eval_decorator_def(n: Tree, frame: Frame) -> ShkValue:
@@ -1230,7 +1242,7 @@ def _eval_assign_pun(n: Tree, frame: Frame) -> ShkValue:
 
 
 def _eval_anonfn(n: Tree, frame: Frame) -> ShkValue:
-    return eval_anonymous_fn(n.children, frame)
+    return eval_anonymous_fn(n.children, frame, attrs=n.attrs)
 
 
 # ---- Dispatch table ----
@@ -1278,6 +1290,8 @@ _NODE_DISPATCH: dict[str, Callable[[Tree, Frame], ShkValue]] = {
     # Statements
     "returnstmt": _eval_returnstmt,
     "returnif": _eval_returnif,
+    "yieldstmt": _eval_yieldstmt,
+    "yielddelegstmt": _eval_yielddelegstmt,
     "throwstmt": _eval_throwstmt,
     "assignstmt": _eval_assignstmt,
     "let": _eval_let,

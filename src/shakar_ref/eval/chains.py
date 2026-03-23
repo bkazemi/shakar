@@ -15,6 +15,7 @@ from ..runtime import (
     Frame,
     ShkDecorator,
     ShkFn,
+    ShkGenerator,
     ShkArray,
     ShkFan,
     ShkObject,
@@ -306,8 +307,13 @@ def apply_index_operation(
     if default_thunk and not _is_single_index_selector(selectors):
         raise ShakarTypeError("Default index requires a single key selector")
 
-    if len(selectors) == 1 and isinstance(selectors[0], SelectorIndex):
-        return index_value(recv, selectors[0].value, frame, default_thunk=default_thunk)
+    # For generators, always go through selector application (which buffers
+    # and pulls from the generator). Don't unwrap single-index to index_value.
+    if not isinstance(recv, ShkGenerator):
+        if len(selectors) == 1 and isinstance(selectors[0], SelectorIndex):
+            return index_value(
+                recv, selectors[0].value, frame, default_thunk=default_thunk
+            )
 
     if default_thunk:
         raise ShakarTypeError("Default index expects an object receiver")

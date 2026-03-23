@@ -52,6 +52,7 @@ class Lexer:
         "break": TT.BREAK,
         "continue": TT.CONTINUE,
         "return": TT.RETURN,
+        "yield": TT.YIELD,
         "fn": TT.FN,
         "let": TT.LET,
         "once": TT.ONCE,
