@@ -1684,6 +1684,11 @@ class Parser:
 
     def _wrap_postfix(self, stmt: Tree | Tok) -> Optional[Tree]:
         """Wrap statement with postfix if/unless guard if present."""
+        # A block parser may already have consumed its closing DEDENT and
+        # newlines. A following statement's IF is not a postfix guard.
+        if self.pos and self.tokens[self.pos - 1].type in {TT.NEWLINE, TT.DEDENT}:
+            return None
+
         wrapped = stmt if isinstance(stmt, Tree) else Tree("expr", [stmt])
 
         if self.check(TT.IF):
@@ -4063,7 +4068,7 @@ class Parser:
                     "subject", [self._tok("DOT", dot.value, dot.line, dot.column)]
                 )
             postfix_ops = [imphead]
-            self._collect_postfix_ops(postfix_ops, seen_noanchor)
+            self._collect_postfix_ops(postfix_ops, seen_noanchor, allow_amp=True)
 
             return Tree("implicit_chain", postfix_ops)
 
@@ -5405,11 +5410,19 @@ class Parser:
 
         # Check for < prefix for open-ended slice
         lt_tok = None
+        stop = None
         if self.check(TT.LT):
             lt_tok = self.advance()  # Capture LT token
+        elif self.check(TT.RECV) and self.peek(1).type == TT.NUMBER:
+            # The lexer munches `<-1` into RECV + NUMBER. A channel receive
+            # can't appear bare here (it would need `{…}`), so split it back
+            # into an exclusive marker and a negative stop.
+            recv_tok = self.advance()
+            lt_tok = self._tok("LT", "<", line=recv_tok.line, column=recv_tok.column)
+            num_tok = self.expect(TT.NUMBER)
+            stop = Tree("selatom", [self._parse_selector_number(num_tok, negate=True)])
 
-        stop = None
-        if not self.check(TT.COLON, TT.COMMA, TT.BACKQUOTE):
+        if stop is None and not self.check(TT.COLON, TT.COMMA, TT.BACKQUOTE):
             atom = self.parse_selector_atom()
             stop = Tree("selatom", [atom])
 

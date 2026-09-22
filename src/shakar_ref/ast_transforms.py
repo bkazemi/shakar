@@ -1036,16 +1036,17 @@ def _infer_amp_lambda_params(node: Node) -> Node:
         body = _infer_amp_lambda_params(node.children[0])
         names, uses_subject = _collect_lambda_free_names(body)
 
-        if uses_subject and names:
-            raise SyntaxError(
-                "Cannot mix subject '.' with implicit parameters in amp_lambda body"
-            )
-
+        # Resolve subject-lambda names at creation, when the lexical frame is
+        # available. Captures are legal; unbound parameter candidates are not.
         if uses_subject or not names:
             node.children = [body]
+            if uses_subject and names:
+                if node.attrs is None:
+                    node.attrs = {}
+                node.attrs["subject_capture_names"] = names
         else:
             params = [Tok(TT.IDENT, name) for name in names]
-            node.children = [Tree("paramlist", params), body]
+            node.children = [Tree("paramlist", params, attrs={"inferred": True}), body]
         return node
     node.children = [_infer_amp_lambda_params(child) for child in tree_children(node)]
     return node
@@ -1065,7 +1066,13 @@ def _collect_lambda_free_names(node: Node) -> tuple[List[str], bool]:
         if is_tree(n):
             label = tree_label(n)
 
-            if label == "amp_lambda":
+            if label in {"amp_lambda", "anonfn"}:
+                return
+
+            if label == "namedarg":
+                # The first child is a keyword label, not a variable read.
+                for value in tree_children(n)[1:]:
+                    walk(value, label)
                 return
 
             if label in {"implicit_chain", "subject"}:

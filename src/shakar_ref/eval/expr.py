@@ -758,7 +758,10 @@ def _regex_match_compare(lhs: ShkValue, rhs: ShkValue) -> ShkValue:
 
 
 def _compare_values_scalar(op: str, lhs: ShkValue, rhs: ShkValue) -> bool:
-    if isinstance(rhs, ShkSelector):
+    # Scalar-vs-selector comparisons test membership against the selector's
+    # values. Selector-vs-selector must not take this path: it would treat the
+    # left selector as a scalar member and never match.
+    if isinstance(rhs, ShkSelector) and not isinstance(lhs, ShkSelector):
         return _compare_with_selector(op, lhs, rhs)
 
     if op in {"<", "<=", ">", ">=", "is", "!is", "is not"}:

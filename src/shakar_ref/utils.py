@@ -429,6 +429,47 @@ def is_nil_like(value: ShkValue) -> bool:
     return False
 
 
+def _selector_slice_identity(part: SelectorSlice) -> Tuple[object, ...]:
+    """Identity key for a slice: spellings visiting the same positions agree.
+    `1:3`, `1:<4`, and `1:3:1` all collapse to one key. Index parts are never
+    folded into slices — indices throw on OOB and yield scalars, while slices
+    clamp and yield arrays, so the two kinds stay distinct."""
+    step = 1 if part.step is None else part.step
+    stop = part.stop
+
+    if stop is not None:
+        # Normalize to the exclusive bound iteration actually uses, so the
+        # inclusive and `<`-exclusive spellings converge.
+        if not part.exclusive_stop:
+            stop += 1 if step > 0 else -1
+
+        # Trim the bound to just past the final visited position. Stepped
+        # slices can carry slack in the stop (`0:<10:2` visits the same
+        # positions as `0:8:2`); trimming makes those converge too.
+        # Indexing makes positions length-dependent everywhere else, so the
+        # trim only applies to forward slices with non-negative bounds:
+        # - negative bounds resolve against the length (`0:<{-1}` vs `0:<0`)
+        # - an out-of-range start gets clamped, which shifts the step origin
+        #   (`10:2:-3` and `10:4:-3` pick [5,2] vs [5] from a 6-element array)
+        # A forward non-negative start is never clamped into range: either it
+        # is in range already, or the result is empty whatever the stop is.
+        forward_non_negative = (
+            part.start is not None and step > 0 and part.start >= 0 and stop >= 0
+        )
+        if forward_non_negative:
+            assert part.start is not None
+            span = stop - part.start
+
+            if span > 0:
+                steps_taken = (span - 1) // step
+                stop = part.start + steps_taken * step + 1
+            else:
+                # Empty range: every empty slice at this start is equivalent.
+                stop = part.start
+
+    return (part.start, stop, step, part.clamp)
+
+
 def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
     match (lhs, rhs):
         case (ShkNil(), ShkNil()):
@@ -493,13 +534,7 @@ def shk_equals(lhs: ShkValue, rhs: ShkValue) -> bool:
                     assert isinstance(pa, SelectorSlice) and isinstance(
                         pb, SelectorSlice
                     )
-                    if (pa.start, pa.stop, pa.step, pa.exclusive_stop, pa.clamp) != (
-                        pb.start,
-                        pb.stop,
-                        pb.step,
-                        pb.exclusive_stop,
-                        pb.clamp,
-                    ):
+                    if _selector_slice_identity(pa) != _selector_slice_identity(pb):
                         return False
             return True
         case (

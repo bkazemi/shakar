@@ -74,9 +74,9 @@ def test_rebind_chain_field_index_noanchor() -> None:
     run_runtime_case(source, ("number", 5), None)
 
 
-def test_fan_writeback_updates_targets_and_preserves_dot_semantics() -> None:
-    source = "state := {a: 1, b: 2}; =(state).{a, b} += 1; [., state.a, state.b]"
-    run_runtime_case(source, ("array", [3.0, 2.0, 3.0]), None)
+def test_fan_writeback_updates_targets() -> None:
+    source = "state := {a: 1, b: 2}; =(state).{a, b} += 1; [state.a, state.b]"
+    run_runtime_case(source, ("array", [2.0, 3.0]), None)
 
 
 def test_run_deferred_action_call_preserves_context_and_nested_scope() -> None:

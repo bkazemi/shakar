@@ -266,28 +266,12 @@ def _load_module_from_file(
     try:
         source = path.read_text(encoding="utf-8")
 
-        from .parser_rd import parse_source, ParseError
-        from .lexer_rd import LexError
-        from .ast_transforms import Prune, looks_like_offside
+        from .parser_rd import parse_source
+        from .ast_transforms import Prune
         from .lower import lower
         from .evaluator import eval_expr
 
-        preferred = looks_like_offside(source)
-        attempts = [preferred, not preferred]
-        last_error = None
-        tree = None
-
-        for flag in attempts:
-            try:
-                tree = parse_source(source, use_indenter=flag)
-                break
-            except (ParseError, LexError) as exc:
-                last_error = exc
-
-        if tree is None:
-            if last_error:
-                raise last_error
-            raise RuntimeError("Parser failed without producing a parse tree")
+        tree = parse_source(source, use_indenter="\n" in source.rstrip("\r\n"))
 
         ast = Prune().transform(tree)
         ast2 = lower(ast)

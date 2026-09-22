@@ -604,8 +604,14 @@ Typed literals representing byte quantities. Distinct from integers and duration
   - Leaving chain: any `and|or` without a comma leaves chain mode and resumes normal boolean parsing.
   - Desugar: expand left=>right to `S op_i Expr_i` joined by current sticky joiner; apply normal precedence (`and` tighter than `or`).
   - **Disambiguation**: Commas disambiguate via lookahead (`, or`/`, and`/`, <cmpop>` => CCC) and context. Without explicit markers, bare `, <value>` is treated as a separator in function arguments, array literals, and destructure packs. Parentheses reset context and allow CCC: `f((x == 5, < 10))` passes a single CCC result; `[1, (a > 0, < 10)]` is a 2-element array.
+  - **Object-comma ambiguity (unresolved; behavior unchanged)**: object literals do not establish their own comma-separator context. In normal expression context, a comma following a comparison can continue a CCC: with `n := 2`, `{ok: n == 1, 2}` makes one field containing `false`. With `other := 2`, `{ok: n == 2, other}` likewise makes only an `ok` field; `other` is a comparison operand, not a pun. A following keyed field can instead cause a parse error: `{ready: n == 0, issues: []}`. Parenthesize the comparison to delimit it: `{ready: (n == 0), issues: []}`. Whether object fields should get a dedicated separator rule remains a language-design question; no such rule is applied.
   - Parentheses nest CCCs without affecting subject/eval rules.
   - **Selectors in comparisons**: with backtick selector literals, `S == \`Sel\`` ⇒ any(); `S != \`Sel\`` ⇒ all not-in; `S <op> \`Sel\`` for `< <= > >=` ⇒ all(), reducing to `min/max(Sel)` with openness respected (e.g., ``a < `1:<5` `` ⇒ `a < 1`; ``a >= `lo, hi` `` ⇒ `a >= max(lo, hi)`).
+  - **Selector vs selector**: the membership rules above apply only when the left operand is a scalar. When *both* operands are selectors, `==`/`!=` compare the selectors as values: equal iff they have the same parts in the same order, comparing each part by the positions it visits. Ordering (`< <= > >=`) between two selectors is a type error.
+    - Spellings that visit the same positions are equal: `` `1:3` == `1:<4` == `1:3:1` ``, and stepped slack normalizes (`` `0:<10:2` == `0:8:2` ``).
+    - **Index parts never fold into slice parts**, even when they cover the same positions: `` `1:3` != `1,2,3` `` and `` `2` != `2:2` ``. An index is an *explicit* demand for one position; a slice *describes* a region and takes whatever it finds. Both consequences follow from that: an index throws on OOB and yields the element, a slice clamps and yields a collection even at length 1. So the kinds are distinct values, not two spellings of one.
+    - Part order is significant (`` `1,2` != `2,1` ``), since selection order determines gather order.
+    - `compact()` is the tool for extension-only comparison: `compact([a]) == compact([b])` ignores how the union was spelled.
   - **Examples**:
     ```shakar
     a = 7; b = 3; c = 10
@@ -985,7 +991,7 @@ u := makeUser() and .isValid()
 ### Amp-lambdas (`&`) and implicit parameters
 
 - `map&(.trim())` (single arg implicit subject) or `zipWith&[a,b](a+b)` (explicit params). `&` lives on the callee.
-- **Implicit parameter inference** at known-arity call sites: collect free, unqualified identifiers used as bases in the body (ignore inside nested lambdas), left=>right. If body uses `.` anywhere, inference is disabled (choose implicit params or subject, not both).
+- **Implicit parameter inference** at known-arity call sites: collect free, unqualified identifiers used as bases in the body (ignore inside nested lambdas), left=>right. If body uses `.` anywhere, inference is disabled. Other free names must resolve as captures when the lambda is created; unbound candidates are rejected as mixed subject/implicit-parameter usage before the callback can run (including for empty input). The reference runtime performs this scope-dependent validation at lambda creation, not during lowering, and reports a `TypeError`.
 - Errors: distinct free names > arity; names that resolve in surrounding scope are captures (use `&[x](...)` to shadow). No mixing of `.` with implicit params.
 - Examples:
   ```shakar

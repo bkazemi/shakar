@@ -7,7 +7,7 @@ from typing import Optional
 
 from .parser_rd import parse_source, ParseError
 from .lexer_rd import LexError
-from .ast_transforms import Prune, looks_like_offside
+from .ast_transforms import Prune
 from .lower import lower
 from .evaluator import eval_expr
 from .runtime import Frame, ShkValue, _STATIC_ONCE_CELLS, init_stdlib
@@ -60,26 +60,6 @@ _STMT_LABELS = frozenset(
 )
 
 
-def _error_rank(exc: Exception) -> tuple[int, int, int]:
-    """Rank parser/lexer errors by how far they reached in the source."""
-    line = getattr(exc, "end_line", None)
-    col = getattr(exc, "end_column", None)
-
-    # end_* location must be valid as a pair; otherwise use primary line/column.
-    if not isinstance(line, int) or line <= 0 or not isinstance(col, int) or col < 0:
-        line = getattr(exc, "line", None)
-        col = getattr(exc, "column", None)
-
-    if not isinstance(line, int) or line <= 0:
-        return (0, 0, 0)
-
-    if not isinstance(col, int) or col < 0:
-        col = 0
-
-    # Errors at higher (line, col) positions are usually more relevant.
-    return (1, line, col)
-
-
 def _last_is_stmt(ast: object) -> bool:
     """Check if the last meaningful node in the AST is a statement."""
     if isinstance(ast, Tree):
@@ -98,27 +78,15 @@ def _last_is_stmt(ast: object) -> bool:
 
 
 def _parse_and_lower(src: str, use_indenter: Optional[bool] = None):
+    # A single physical line has no offside block structure. Preserve support
+    # for leading whitespace in snippets, but never retry a multiline parse
+    # with indentation disabled: that can move body statements to top level.
     if use_indenter is None:
-        preferred = looks_like_offside(src)
-        attempts = [preferred, not preferred]
-    else:
-        attempts = [use_indenter]
-
-    best_error: Optional[Exception] = None
-    tree = None
-
-    for flag in attempts:
-        try:
-            tree = parse_source(src, use_indenter=flag)
-            break
-        except (ParseError, LexError) as exc:
-            if best_error is None or _error_rank(exc) > _error_rank(best_error):
-                best_error = exc
-
-    if tree is None:
-        if best_error:
-            raise best_error
-        raise RuntimeError("Parser failed without producing a parse tree")
+        # Match the lexer's newline set (`\n`, `\r`, `\r\n`), not splitlines(),
+        # which also breaks on `\v`, `\f`, `\x1c`, ` `, etc.
+        body = src.rstrip("\r\n")
+        use_indenter = "\n" in body or "\r" in body
+    tree = parse_source(src, use_indenter=use_indenter)
 
     ast = Prune().transform(tree)
     ast2 = lower(ast)

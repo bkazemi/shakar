@@ -37,7 +37,7 @@ AST_CASES = [
     ("lambda-infer-zipwith", "zipWith&(left + right)(xs, ys)", "check_zipwith", None),
     ("lambda-respect-subject", "map&(.trim())", "check_map", None),
     ("lambda-hole-desugar", "blend(?, ?, 0.25)", "check_holes", None),
-    ("lambda-dot-mix-error", "map&(value + .trim())", None, "SyntaxError"),
+    ("lambda-dot-capture-deferred-validation", "map&(value + .trim())", None, None),
     ("hook-inline-body", 'hook "warn": .trim()', "check_hook_inline", None),
     ("decorator-ast-def", "decorator logger(msg): args", "check_decorator_def", None),
     (

@@ -324,8 +324,21 @@ def eval_anonymous_fn(
     )
 
 
+def _validate_subject_captures(node: Tree, frame: Frame) -> None:
+    """Reject mixed parameter styles before the callback can be invoked."""
+    names = node.attrs.get("subject_capture_names", ()) if node.attrs else ()
+    unbound = [name for name in names if not frame.has_binding(name)]
+    if unbound:
+        raise ShakarTypeError(
+            "Cannot mix subject '.' with implicit parameters in amp_lambda body: "
+            + ", ".join(unbound)
+            + "; bind captured names before creating the lambda or use explicit parameters"
+        )
+
+
 def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
     if len(n.children) == 1:
+        _validate_subject_captures(n, frame)
         return ShkFn(
             params=None,
             body=n.children[0],
@@ -336,6 +349,29 @@ def eval_amp_lambda(n: Tree, frame: Frame) -> ShkFn:
 
     if len(n.children) == 2:
         params_node, body = n.children
+        if (
+            is_tree(params_node)
+            and params_node.attrs
+            and params_node.attrs.get("inferred")
+        ):
+            # Only unbound candidates become parameters. Keep this decision
+            # local to the closure: the same AST can run in different scopes.
+            candidates = [
+                param
+                for param in params_node.children
+                if not frame.has_binding(
+                    _expect_ident_token(param, "inferred lambda parameter")
+                )
+            ]
+            if not candidates:
+                return ShkFn(
+                    params=None,
+                    body=body,
+                    frame=closure_frame(frame),
+                    kind="amp",
+                    name=None,
+                )
+            params_node = Tree("paramlist", candidates)
         params, varargs, defaults, contracts, spread_contracts, destruct_fields = (
             extract_function_signature(params_node, context="amp_lambda")
         )

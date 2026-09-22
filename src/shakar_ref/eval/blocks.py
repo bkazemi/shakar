@@ -75,8 +75,14 @@ def eval_program(
                         child.attrs = {}
                     child.attrs["discard"] = True
 
-                result = eval_fn(child, frame)
-                frame.pending_anchor_override = None  # clear stale override
+                # Each statement starts with the enclosing binder's subject.
+                # Updates may retarget it within the statement, but must restore
+                # it even when evaluation exits through return/throw/continue.
+                with temporary_subject(frame, frame.dot):
+                    try:
+                        result = eval_fn(child, frame)
+                    finally:
+                        frame.pending_anchor_override = None
         except ShakarBreakSignal:
             if allow_loop_control:
                 raise

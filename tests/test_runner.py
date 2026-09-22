@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
+from shakar_ref.types import ShkNumber
 from tests.support.harness import ParseError, run_program
-from shakar_ref.runner import _error_rank
 
 
-def test_runner_prefers_furthest_parse_error() -> None:
+def test_runner_preserves_indented_parse_error() -> None:
     source = "try:\n    a := 1\n\n\n\n\ncatc"
 
     with pytest.raises(ParseError) as exc_info:
@@ -18,27 +18,20 @@ def test_runner_prefers_furthest_parse_error() -> None:
     assert "try requires a catch clause" in str(err)
 
 
-def test_error_rank_falls_back_as_position_unit() -> None:
-    class DummyExc(Exception):
-        pass
+# Indentation mode must recognize every newline form the lexer accepts;
+# otherwise block bodies after the first statement fall out to top level.
+@pytest.mark.parametrize(
+    "newline",
+    [
+        pytest.param("\n", id="lf"),
+        pytest.param("\r\n", id="crlf"),
+        pytest.param("\r", id="cr-only"),
+    ],
+)
+def test_runner_detects_multiline_for_all_newline_styles(newline: str) -> None:
+    source = newline.join(["x := 0", "if false:", "  x = 1", "  x = 2", "x"])
 
-    exc = DummyExc("x")
-    exc.end_line = 10
-    exc.end_column = None
-    exc.line = 3
-    exc.column = 4
+    result = run_program(source)
 
-    assert _error_rank(exc) == (1, 3, 4)
-
-
-def test_error_rank_accepts_zero_column() -> None:
-    class DummyExc(Exception):
-        pass
-
-    exc = DummyExc("x")
-    exc.end_line = 8
-    exc.end_column = 0
-    exc.line = None
-    exc.column = None
-
-    assert _error_rank(exc) == (1, 8, 0)
+    assert isinstance(result, ShkNumber)
+    assert result.value == 0

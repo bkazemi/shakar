@@ -1648,6 +1648,17 @@ class Frame:
 
         raise ShakarRuntimeError(f"Name '{name}' not found")
 
+    def has_binding(self, name: str) -> bool:
+        """Check visible names, including builtins, without forcing lazy values."""
+        current: Optional["Frame"] = self
+        while current:
+            if not isinstance(
+                current._lookup_local_binding(name), MissingBindingLookup
+            ):
+                return True
+            current = current.parent
+        return False
+
     def get(self, name: str) -> ShkValue:
         current: Optional["Frame"] = self
         while current:
